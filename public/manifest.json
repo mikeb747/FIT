@@ -1,0 +1,32 @@
+{
+  "id": "gymfit-strength-workout-tracker-v113",
+  "name": "GymFIT - Strength Tracker",
+  "short_name": "GymFIT",
+  "description": "Android strength workout logger with digit-scroll wheel weight selection, dual continuous and lap timers, and Strava-compatible Garmin .FIT export.",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#090A0F",
+  "theme_color": "#090A0F",
+  "orientation": "portrait",
+  "icons": [
+    {
+      "src": "./pwa-192x192.png?v=1.1.5",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "./pwa-512x512.png?v=1.1.5",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "./pwa-maskable-512x512.png?v=1.1.5",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ]
+}

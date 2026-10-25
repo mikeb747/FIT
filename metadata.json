@@ -1,0 +1,6 @@
+{
+  "name": "IronFIT - Strength Tracker & Strava FIT Generator",
+  "description": "Android-optimized strength workout logger with digit-scroll wheel weight selection, dual continuous and lap timers, and Strava-compatible Garmin .FIT activity export.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

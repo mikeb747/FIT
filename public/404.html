@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>GymFIT - Redirecting...</title>
+    <script>
+      // GitHub Pages SPA & legacy route redirect
+      // If user lands on /IronFIT/ or any missing route with Strava OAuth code, forward to /GymFIT/
+      var path = window.location.pathname;
+      var search = window.location.search;
+      var hash = window.location.hash;
+
+      if (path.toLowerCase().includes('ironfit')) {
+        window.location.replace('https://mikeb747.github.io/GymFIT/' + search + hash);
+      } else {
+        window.location.replace('/GymFIT/' + search + hash);
+      }
+    </script>
+  </head>
+  <body style="background:#090a0f;color:#fff;font-family:sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;">
+    <div style="text-align:center;padding:24px;">
+      <h2 style="color:#f59e0b;margin-bottom:8px;">Redirecting to GymFIT...</h2>
+      <p style="color:#94a3b8;font-size:14px;">Transferring your session...</p>
+    </div>
+  </body>
+</html>

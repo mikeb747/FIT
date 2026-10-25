@@ -1,0 +1,2626 @@
+{
+    "STEP_DOWN":  {
+                      "category":  10,
+                      "subtype":  7
+                  },
+    "LOWER_LIFT":  {
+                       "category":  5,
+                       "subtype":  2
+                   },
+    "SL_COPENHAGEN_PLANK":  {
+                                "category":  19,
+                                "subtype":  8
+                            },
+    "MACHINE_SINGLE_LEG_HIP_THRUST":  {
+                                          "category":  10,
+                                          "subtype":  0
+                                      },
+    "CABLE_REAR_DELT_FLY":  {
+                                "category":  14,
+                                "subtype":  18
+                            },
+    "GHD_BACK_EXTENSIONS":  {
+                                "category":  5,
+                                "subtype":  8
+                            },
+    "SIT_UP_GENERIC":  {
+                           "category":  27,
+                           "subtype":  0
+                       },
+    "SKI_MOGULS":  {
+                       "category":  2,
+                       "subtype":  4
+                   },
+    "REVERSE_HYPER":  {
+                          "category":  13,
+                          "subtype":  5
+                      },
+    "DECLINE_CRUNCH":  {
+                           "category":  5,
+                           "subtype":  37
+                       },
+    "SIDEPLANK_HIP_FLEXORS":  {
+                                  "category":  19,
+                                  "subtype":  6
+                              },
+    "BOX_JUMP_OVER":  {
+                          "category":  20,
+                          "subtype":  20
+                      },
+    "BARBELL_SEATED_WRIST_EXTENSION":  {
+                                           "category":  7,
+                                           "subtype":  29
+                                       },
+    "WRIST_ROLLER":  {
+                         "category":  7,
+                         "subtype":  30
+                     },
+    "LYING_HIP_ROCKS":  {
+                            "category":  31,
+                            "subtype":  48
+                        },
+    "BENCH_PRESS_GENERIC":  {
+                                "category":  0,
+                                "subtype":  0
+                            },
+    "LL_COPENHAGEN_PLANK":  {
+                                "category":  19,
+                                "subtype":  9
+                            },
+    "HEEL_WALKS":  {
+                       "category":  31,
+                       "subtype":  18
+                   },
+    "WALKING_HIGH_KNEES":  {
+                               "category":  31,
+                               "subtype":  13
+                           },
+    "HOLLOW_ROCK":  {
+                        "category":  5,
+                        "subtype":  17
+                    },
+    "CABLE_OVERHEAD_TRICEPS_EXTENSION":  {
+                                             "category":  30,
+                                             "subtype":  9
+                                         },
+    "FLUTTER_KICKS":  {
+                          "category":  5,
+                          "subtype":  51
+                      },
+    "SIDE_PLANK":  {
+                       "category":  19,
+                       "subtype":  5
+                   },
+    "STANDING_DOUBLE_ARM_SHOULDER_PRESS":  {
+                                               "category":  24,
+                                               "subtype":  7
+                                           },
+    "CABLE_GOOD_MORNING":  {
+                               "category":  15,
+                               "subtype":  6
+                           },
+    "RING_ROW":  {
+                     "category":  23,
+                     "subtype":  26
+                 },
+    "BARBELL_BOX_SQUAT":  {
+                              "category":  28,
+                              "subtype":  24
+                          },
+    "LYING_STRAIGHT_LEG_RAISE":  {
+                                     "category":  16,
+                                     "subtype":  2
+                                 },
+    "SPANISH_SQUAT":  {
+                          "category":  28,
+                          "subtype":  39
+                      },
+    "GIRONDA_STERNUM_PULL_UP":  {
+                                    "category":  21,
+                                    "subtype":  8
+                                },
+    "OBLIQUE_CRUNCH":  {
+                           "category":  5,
+                           "subtype":  43
+                       },
+    "SUPERMAN_FROM_FLOOR":  {
+                                "category":  13,
+                                "subtype":  3
+                            },
+    "SINGLE_ARM_DUMBBELL_SWING":  {
+                                      "category":  12,
+                                      "subtype":  3
+                                  },
+    "FIRE_HYDRANTS":  {
+                          "category":  11,
+                          "subtype":  8
+                      },
+    "DUMBBELL_REAR_DELT_FLY":  {
+                                   "category":  9,
+                                   "subtype":  12
+                               },
+    "WALL_CHEST_STRETCH":  {
+                               "category":  31,
+                               "subtype":  32
+                           },
+    "THE_HUNDRED":  {
+                        "category":  5,
+                        "subtype":  11
+                    },
+    "DUMBBELL_CLEAN":  {
+                           "category":  18,
+                           "subtype":  17
+                       },
+    "BARBELL_OVERHEAD_LUNGE":  {
+                                   "category":  17,
+                                   "subtype":  9
+                               },
+    "DUMBBELL_REVERSE_LUNGE":  {
+                                   "category":  17,
+                                   "subtype":  24
+                               },
+    "HIP_DROP":  {
+                     "category":  5,
+                     "subtype":  33
+                 },
+    "TOE_SCRUNCHES":  {
+                          "category":  5,
+                          "subtype":  31
+                      },
+    "SINGLE_LEG_DUMBBELL_ROMANIAN_DEADLIFTS":  {
+                                                   "category":  8,
+                                                   "subtype":  21
+                                               },
+    "FRONT_LEG_RAISED_LUNGE":  {
+                                   "category":  17,
+                                   "subtype":  11
+                               },
+    "SEATED_HAMSTRING_STRETCH":  {
+                                     "category":  31,
+                                     "subtype":  62
+                                 },
+    "LANDMINE_ROW":  {
+                         "category":  23,
+                         "subtype":  15
+                     },
+    "FRONT_LEVER_RAISE":  {
+                              "category":  5,
+                              "subtype":  45
+                          },
+    "REVERSE_CRUNCH":  {
+                           "category":  5,
+                           "subtype":  19
+                       },
+    "DUMBBELL_BULGARIAN_SPLIT_SQUATS":  {
+                                            "category":  28,
+                                            "subtype":  20
+                                        },
+    "ZERCHER_SQUAT":  {
+                          "category":  28,
+                          "subtype":  12
+                      },
+    "HALF_KNEELING_ROTATIONAL_CHOP":  {
+                                          "category":  4,
+                                          "subtype":  2
+                                      },
+    "BARBELL_GOOD_MORNING":  {
+                                 "category":  15,
+                                 "subtype":  9
+                             },
+    "BARBELL_HIGH_PULL":  {
+                              "category":  18,
+                              "subtype":  9
+                          },
+    "PRESS_UP_POSITION_WITH_SINGLE_ARM_EXTENSION":  {
+                                                        "category":  27,
+                                                        "subtype":  4
+                                                    },
+    "DUMBBELL_HIP_THRUST":  {
+                                "category":  10,
+                                "subtype":  22
+                            },
+    "MACHINE_PULLOVER":  {
+                             "category":  23,
+                             "subtype":  19
+                         },
+    "MACHINE_SEATED_SHOULDER_PRESS":  {
+                                          "category":  24,
+                                          "subtype":  17
+                                      },
+    "SMITH_MACHINE_SQUAT":  {
+                                "category":  28,
+                                "subtype":  30
+                            },
+    "ARCHER_PULL_UP":  {
+                           "category":  21,
+                           "subtype":  17
+                       },
+    "STANDING_BARBELL_PRESS":  {
+                                   "category":  24,
+                                   "subtype":  10
+                               },
+    "INVERTED_ROW":  {
+                         "category":  23,
+                         "subtype":  28
+                     },
+    "CABLE_SINGLE_ARM_TRICEPS_PUSHDOWN":  {
+                                              "category":  30,
+                                              "subtype":  17
+                                          },
+    "LYING_SPINAL_TWIST":  {
+                               "category":  31,
+                               "subtype":  44
+                           },
+    "MEADOWS_ROW":  {
+                        "category":  23,
+                        "subtype":  22
+                    },
+    "BOX_JUMP_DOWN_TUCK_JUMP":  {
+                                    "category":  20,
+                                    "subtype":  14
+                                },
+    "CROSS_BODY_SHOULDER_STRETCH":  {
+                                        "category":  31,
+                                        "subtype":  35
+                                    },
+    "LEG_CURL_GENERIC":  {
+                             "category":  15,
+                             "subtype":  0
+                         },
+    "BARBELL_FLOOR_PRESS":  {
+                                "category":  0,
+                                "subtype":  24
+                            },
+    "MODIFIED_MILITARY_PRESS_UP":  {
+                                       "category":  22,
+                                       "subtype":  11
+                                   },
+    "BANDED_DEADBUG":  {
+                           "category":  5,
+                           "subtype":  34
+                       },
+    "BARBELL_HIP_THRUST_WITH_BENCH":  {
+                                          "category":  10,
+                                          "subtype":  4
+                                      },
+    "MACHINE_HACK_SQUAT":  {
+                               "category":  28,
+                               "subtype":  27
+                           },
+    "LATERAL_MEDICINE_BALL_SLAM":  {
+                                       "category":  20,
+                                       "subtype":  21
+                                   },
+    "WALL_BALL":  {
+                      "category":  2,
+                      "subtype":  9
+                  },
+    "CURL_GENERIC":  {
+                         "category":  7,
+                         "subtype":  0
+                     },
+    "CHEST_PRESS":  {
+                        "category":  0,
+                        "subtype":  12
+                    },
+    "BARBELL_SNATCH":  {
+                           "category":  18,
+                           "subtype":  10
+                       },
+    "SUMO_SQUAT":  {
+                       "category":  28,
+                       "subtype":  10
+                   },
+    "DIAMOND_PUSH_UP":  {
+                            "category":  22,
+                            "subtype":  2
+                        },
+    "SUSPENSION_LOW_ROW":  {
+                               "category":  23,
+                               "subtype":  16
+                           },
+    "SINGLE_ARM_DUMBBELL_BENCH_PRESS":  {
+                                            "category":  0,
+                                            "subtype":  23
+                                        },
+    "SWISSBALL_STIR_POT":  {
+                               "category":  5,
+                               "subtype":  27
+                           },
+    "BOSU_BALL_GENERIC":  {
+                              "category":  31,
+                              "subtype":  59
+                          },
+    "SL_BOX_JUMP":  {
+                        "category":  20,
+                        "subtype":  12
+                    },
+    "ABDUCTOR_SIDE_LEG_RAISE":  {
+                                    "category":  10,
+                                    "subtype":  6
+                                },
+    "INCLINE_W_RAISE":  {
+                            "category":  25,
+                            "subtype":  5
+                        },
+    "MACHINE_SINGLE_LEG_QUAD_EXTENSION":  {
+                                              "category":  28,
+                                              "subtype":  0
+                                          },
+    "SLIDING_LEG_CURL":  {
+                             "category":  15,
+                             "subtype":  2
+                         },
+    "BURPEE_BROAD_JUMP":  {
+                              "category":  2,
+                              "subtype":  12
+                          },
+    "ASSISTED_CHEST_DIP":  {
+                               "category":  30,
+                               "subtype":  12
+                           },
+    "WALL_SLIDE":  {
+                       "category":  14,
+                       "subtype":  4
+                   },
+    "SINGLE_LEG_DUMBBELL_STANDING_CALF_RAISE":  {
+                                                    "category":  1,
+                                                    "subtype":  12
+                                                },
+    "SINGLE_LEG_BODYWEIGHT_ROMANIAN_DEADLIFTS":  {
+                                                     "category":  8,
+                                                     "subtype":  25
+                                                 },
+    "DOUBLE_LEG_CALF_RAISE_ON_STEP":  {
+                                          "category":  1,
+                                          "subtype":  6
+                                      },
+    "MACHINE_HIP_ADDUCTION":  {
+                                  "category":  11,
+                                  "subtype":  10
+                              },
+    "DRAG_CURL":  {
+                      "category":  7,
+                      "subtype":  20
+                  },
+    "WALKING_CALF_RAISES":  {
+                                "category":  1,
+                                "subtype":  4
+                            },
+    "EZ_BAR_PREACHER_CURL":  {
+                                 "category":  7,
+                                 "subtype":  9
+                             },
+    "BARBELL_SPLIT_JERK":  {
+                               "category":  18,
+                               "subtype":  11
+                           },
+    "INVERTED_HAMSTRING_STRETCH":  {
+                                       "category":  31,
+                                       "subtype":  15
+                                   },
+    "LATERAL_WALKS_WITH_BAND_AT_ANKLES":  {
+                                              "category":  11,
+                                              "subtype":  7
+                                          },
+    "NINETY_NINETY_HIP_ROLLS":  {
+                                    "category":  31,
+                                    "subtype":  52
+                                },
+    "CLAMS":  {
+                  "category":  10,
+                  "subtype":  2
+              },
+    "ROPE_CLIMB":  {
+                       "category":  14,
+                       "subtype":  8
+                   },
+    "STAIRMASTER":  {
+                        "category":  2,
+                        "subtype":  14
+                    },
+    "LUNGE_GENERIC":  {
+                          "category":  17,
+                          "subtype":  0
+                      },
+    "FORTY_FIVE_DEGREE_CABLE_EXTERNAL_ROTATION":  {
+                                                      "category":  14,
+                                                      "subtype":  5
+                                                  },
+    "FLYE_GENERIC":  {
+                         "category":  9,
+                         "subtype":  0
+                     },
+    "GHD_SIT_UP":  {
+                       "category":  5,
+                       "subtype":  52
+                   },
+    "CLEAN_AND_JERK":  {
+                           "category":  18,
+                           "subtype":  12
+                       },
+    "SINGLE_LEG_BARBELL_ROMANIAN_DEADLIFTS":  {
+                                                  "category":  8,
+                                                  "subtype":  24
+                                              },
+    "SINGLE_ARM_HANG_SNATCH":  {
+                                   "category":  18,
+                                   "subtype":  14
+                               },
+    "THE_TEASER":  {
+                       "category":  27,
+                       "subtype":  2
+                   },
+    "PRESS_UP_POSITION_DIAGONAL_TOE_TAP":  {
+                                               "category":  27,
+                                               "subtype":  3
+                                           },
+    "HAMSTRING_WALKOUT":  {
+                              "category":  31,
+                              "subtype":  17
+                          },
+    "MACHINE_CHEST_SUPPORTED_ROW":  {
+                                        "category":  23,
+                                        "subtype":  20
+                                    },
+    "MACHINE_DECLINE_BENCH_PRESS":  {
+                                        "category":  0,
+                                        "subtype":  15
+                                    },
+    "JM_PRESS":  {
+                     "category":  30,
+                     "subtype":  24
+                 },
+    "CABLE_WOODCHOP":  {
+                           "category":  4,
+                           "subtype":  4
+                       },
+    "TWENTY_ONES_BICEP_CURL":  {
+                                   "category":  7,
+                                   "subtype":  15
+                               },
+    "QUAD":  {
+                 "category":  28,
+                 "subtype":  18
+             },
+    "STRAIGHT_LEG_RAISE":  {
+                               "category":  5,
+                               "subtype":  25
+                           },
+    "SUITCASE_CARRY":  {
+                           "category":  3,
+                           "subtype":  6
+                       },
+    "FIRE_HYDRANT_KICKS":  {
+                               "category":  11,
+                               "subtype":  1
+                           },
+    "KETTLEBELL_CLEAN":  {
+                             "category":  18,
+                             "subtype":  26
+                         },
+    "DIAGONAL_LEG_SWINGS":  {
+                                "category":  31,
+                                "subtype":  53
+                            },
+    "STAGGERED_HIP_THRUST":  {
+                                 "category":  10,
+                                 "subtype":  10
+                             },
+    "BENT_OVER_DUMBBELL_ROW":  {
+                                   "category":  23,
+                                   "subtype":  13
+                               },
+    "BOX_JUMP":  {
+                     "category":  20,
+                     "subtype":  8
+                 },
+    "KNEE_DRIVE":  {
+                       "category":  16,
+                       "subtype":  3
+                   },
+    "STANDING_HIP_ABDUCTION":  {
+                                   "category":  11,
+                                   "subtype":  6
+                               },
+    "CLUSTER":  {
+                    "category":  18,
+                    "subtype":  32
+                },
+    "KETTLEBELL_DEADLIFT":  {
+                                "category":  8,
+                                "subtype":  19
+                            },
+    "OVERHEAD_DUMBBELL_PRESS":  {
+                                    "category":  24,
+                                    "subtype":  4
+                                },
+    "INCLINE_L_RAISE":  {
+                            "category":  25,
+                            "subtype":  4
+                        },
+    "CABLE_LATERAL_RAISE":  {
+                                "category":  14,
+                                "subtype":  17
+                            },
+    "TRICEP_DIP":  {
+                       "category":  30,
+                       "subtype":  8
+                   },
+    "SINGLE_ARM_CLEAN_AND_PRESS":  {
+                                       "category":  18,
+                                       "subtype":  22
+                                   },
+    "ELBOW_TO_KNEE":  {
+                          "category":  5,
+                          "subtype":  40
+                      },
+    "BARBELL_REVERSE_LUNGE":  {
+                                  "category":  17,
+                                  "subtype":  2
+                              },
+    "BARBELL_DEADLIFT":  {
+                             "category":  8,
+                             "subtype":  1
+                         },
+    "DUMBBELL_DOUBLE_ARM_SNATCH":  {
+                                       "category":  18,
+                                       "subtype":  35
+                                   },
+    "ANKLE_CIRCLES":  {
+                          "category":  31,
+                          "subtype":  5
+                      },
+    "TRAVELLING_PRESS_UP_WALK_OUT":  {
+                                         "category":  5,
+                                         "subtype":  30
+                                     },
+    "MACHINE_GLUTE_KICKBACK":  {
+                                   "category":  10,
+                                   "subtype":  20
+                               },
+    "BARBELL_UPRIGHT_ROW":  {
+                                "category":  26,
+                                "subtype":  2
+                            },
+    "BARBELL_FRONT_SQUAT":  {
+                                "category":  28,
+                                "subtype":  4
+                            },
+    "THREAD_THE_NEEDLE_STRETCH":  {
+                                      "category":  31,
+                                      "subtype":  27
+                                  },
+    "STANDING_LEG_CURL":  {
+                              "category":  15,
+                              "subtype":  7
+                          },
+    "SLEEPER_STRETCH":  {
+                            "category":  31,
+                            "subtype":  10
+                        },
+    "BENCH_DIP":  {
+                      "category":  30,
+                      "subtype":  3
+                  },
+    "SUSPENSION_BICEP_CURL":  {
+                                  "category":  7,
+                                  "subtype":  17
+                              },
+    "CROSS_BODY_ARM_SWING":  {
+                                 "category":  31,
+                                 "subtype":  49
+                             },
+    "STEP_OUT_SWING":  {
+                           "category":  12,
+                           "subtype":  2
+                       },
+    "FRONT_RAISE":  {
+                        "category":  14,
+                        "subtype":  1
+                    },
+    "SEATED_DUMBBELL_CALF_RAISE":  {
+                                       "category":  1,
+                                       "subtype":  15
+                                   },
+    "BAND_CHEST_FLY":  {
+                           "category":  9,
+                           "subtype":  6
+                       },
+    "BEAR_CRAWL":  {
+                       "category":  19,
+                       "subtype":  4
+                   },
+    "KB_FRONT_RACKED_SQUAT":  {
+                                  "category":  28,
+                                  "subtype":  16
+                              },
+    "SINGLE_ARM_KETTLEBELL_SWING":  {
+                                        "category":  12,
+                                        "subtype":  4
+                                    },
+    "BANDED_QUAD_EXTENSION":  {
+                                  "category":  28,
+                                  "subtype":  1
+                              },
+    "LEG_PRESS":  {
+                      "category":  28,
+                      "subtype":  3
+                  },
+    "COSSACK_SQUAT":  {
+                          "category":  28,
+                          "subtype":  33
+                      },
+    "CABLE_CORE_PRESS":  {
+                             "category":  5,
+                             "subtype":  12
+                         },
+    "TOTAL_BODY_GENERIC":  {
+                               "category":  29,
+                               "subtype":  0
+                           },
+    "WALKING_KNEE_HUGS":  {
+                              "category":  31,
+                              "subtype":  14
+                          },
+    "SHOULDER_STABILITY_GENERIC":  {
+                                       "category":  25,
+                                       "subtype":  0
+                                   },
+    "ASSISTED_PISTOL_SQUATS":  {
+                                   "category":  28,
+                                   "subtype":  25
+                               },
+    "BARBELL_BENCH_PRESS":  {
+                                "category":  0,
+                                "subtype":  1
+                            },
+    "FRONT_LEVER_HOLD":  {
+                             "category":  5,
+                             "subtype":  44
+                         },
+    "BODY_WEIGHT_DIP":  {
+                            "category":  30,
+                            "subtype":  5
+                        },
+    "DUMBBELL_GOBLET_SQUATS":  {
+                                   "category":  28,
+                                   "subtype":  21
+                               },
+    "STRAIGHT_ARM_PULLDOWN":  {
+                                  "category":  21,
+                                  "subtype":  3
+                              },
+    "ARCHER_PUSH_UP":  {
+                           "category":  22,
+                           "subtype":  13
+                       },
+    "DOUBLE_UNDERS":  {
+                          "category":  2,
+                          "subtype":  13
+                      },
+    "BURPEE_OVER_THE_BAR":  {
+                                "category":  29,
+                                "subtype":  4
+                            },
+    "CABLE_PULL_APART":  {
+                             "category":  25,
+                             "subtype":  6
+                         },
+    "STEP_UP":  {
+                    "category":  28,
+                    "subtype":  8
+                },
+    "PENDULUM_LEG_SWING":  {
+                               "category":  31,
+                               "subtype":  56
+                           },
+    "CLOSE_GRIP_CHIN_UP":  {
+                               "category":  21,
+                               "subtype":  2
+                           },
+    "HIP_SWING_GENERIC":  {
+                              "category":  12,
+                              "subtype":  1
+                          },
+    "MACHINE_HIP_ABDUCTION":  {
+                                  "category":  11,
+                                  "subtype":  9
+                              },
+    "HANDSTAND_PUSH_UP":  {
+                              "category":  22,
+                              "subtype":  3
+                          },
+    "DUMBBELL_FLOOR_PRESS":  {
+                                 "category":  0,
+                                 "subtype":  13
+                             },
+    "BANDED_SIDE_PLANK_LEG_RAISE":  {
+                                        "category":  5,
+                                        "subtype":  60
+                                    },
+    "LATERAL_BOX_JUMP":  {
+                             "category":  20,
+                             "subtype":  17
+                         },
+    "LEG_RAISE_PARALLEL_BARS":  {
+                                    "category":  16,
+                                    "subtype":  5
+                                },
+    "ALTERNATING_JUMP_LUNGE":  {
+                                   "category":  20,
+                                   "subtype":  2
+                               },
+    "LYING_HAMSTRING_STRETCH":  {
+                                    "category":  31,
+                                    "subtype":  24
+                                },
+    "BARBELL_BULGARIAN_SPLIT_SQUAT":  {
+                                          "category":  17,
+                                          "subtype":  3
+                                      },
+    "DUMBBELL_PINWHEEL_CURL":  {
+                                   "category":  7,
+                                   "subtype":  22
+                               },
+    "RAISED_LEG_BARBELL_HIP_THRUST":  {
+                                          "category":  10,
+                                          "subtype":  1
+                                      },
+    "SL_RDL_KNEE_DRIVE":  {
+                              "category":  8,
+                              "subtype":  20
+                          },
+    "HEEL_TAPS":  {
+                      "category":  5,
+                      "subtype":  41
+                  },
+    "BARBELL_SQUAT":  {
+                          "category":  28,
+                          "subtype":  14
+                      },
+    "BARBELL_BACK_SQUAT":  {
+                               "category":  28,
+                               "subtype":  1
+                           },
+    "PLATE_PRESS":  {
+                        "category":  0,
+                        "subtype":  21
+                    },
+    "DL_SKIPPING":  {
+                        "category":  20,
+                        "subtype":  13
+                    },
+    "SIDE_PLANK_HIP_FLEXION":  {
+                                   "category":  5,
+                                   "subtype":  58
+                               },
+    "RING_MUSCLE_UP":  {
+                           "category":  14,
+                           "subtype":  7
+                       },
+    "DUMBBELL_DOUBLE_LEG_CALF_RAISE_ON_STEP":  {
+                                                   "category":  1,
+                                                   "subtype":  11
+                                               },
+    "FLOOR_SEATED_DOUBLE_ARM_SHOULDER_PRESS":  {
+                                                   "category":  24,
+                                                   "subtype":  8
+                                               },
+    "LEG_LIFTS":  {
+                      "category":  5,
+                      "subtype":  50
+                  },
+    "BARBELL_HANG_SQUAT_SNATCH":  {
+                                      "category":  18,
+                                      "subtype":  27
+                                  },
+    "HANDSTAND_HOLD":  {
+                           "category":  14,
+                           "subtype":  16
+                       },
+    "FLOOR_SEATED_SINGLE_ARM_SHOULDER_PRESS":  {
+                                                   "category":  24,
+                                                   "subtype":  6
+                                               },
+    "BODY_WEIGHT_JUMP_SQUAT":  {
+                                   "category":  20,
+                                   "subtype":  1
+                               },
+    "SIDE_PLANK_LEG_RAISE":  {
+                                 "category":  19,
+                                 "subtype":  7
+                             },
+    "WEIGHTED_TOE_TAPS":  {
+                              "category":  5,
+                              "subtype":  54
+                          },
+    "LATERAL_LUNGE":  {
+                          "category":  17,
+                          "subtype":  16
+                      },
+    "CHEST_TO_BAR_PULL_UP":  {
+                                 "category":  21,
+                                 "subtype":  15
+                             },
+    "SOLEUS_STRETCH":  {
+                           "category":  31,
+                           "subtype":  31
+                       },
+    "STEP_UP_AND_KNEE_DRIVE":  {
+                                   "category":  28,
+                                   "subtype":  17
+                               },
+    "LANDMINE_SQUAT_AND_PRESS":  {
+                                     "category":  24,
+                                     "subtype":  18
+                                 },
+    "MUSCLE_CLEAN":  {
+                         "category":  18,
+                         "subtype":  31
+                     },
+    "PRESS_UP_POSITION_WALK_OUT":  {
+                                       "category":  27,
+                                       "subtype":  5
+                                   },
+    "LATERAL_WALK":  {
+                         "category":  10,
+                         "subtype":  13
+                     },
+    "FACE_PULL":  {
+                      "category":  23,
+                      "subtype":  3
+                  },
+    "TIRE_FLIP":  {
+                      "category":  29,
+                      "subtype":  5
+                  },
+    "PLANK_TO_PUSH_UP":  {
+                             "category":  22,
+                             "subtype":  8
+                         },
+    "SQUAT_THRUSTS":  {
+                          "category":  29,
+                          "subtype":  2
+                      },
+    "NECK_TILTS":  {
+                       "category":  31,
+                       "subtype":  4
+                   },
+    "CURTSY_LUNGE":  {
+                         "category":  17,
+                         "subtype":  25
+                     },
+    "ASSISTED_CHIN_UP":  {
+                             "category":  21,
+                             "subtype":  4
+                         },
+    "DUMBBELL_SQUAT":  {
+                           "category":  28,
+                           "subtype":  35
+                       },
+    "WEIGHTED_CHEST_DIP":  {
+                               "category":  30,
+                               "subtype":  13
+                           },
+    "SQUAT_GENERIC":  {
+                          "category":  28,
+                          "subtype":  0
+                      },
+    "BARBELL_STRAIGHT_LEG_DEADLIFT":  {
+                                          "category":  8,
+                                          "subtype":  3
+                                      },
+    "SMITH_MACHINE_ROW":  {
+                              "category":  23,
+                              "subtype":  23
+                          },
+    "PLYO_GENERIC":  {
+                         "category":  20,
+                         "subtype":  0
+                     },
+    "KB_STRAIGHT_LEG_DEADLIFT":  {
+                                     "category":  8,
+                                     "subtype":  9
+                                 },
+    "CABLE_LAT_PULLDOWN_CLOSE_GRIP":  {
+                                          "category":  21,
+                                          "subtype":  10
+                                      },
+    "BENT_OVER_BARBELL_ROW":  {
+                                  "category":  23,
+                                  "subtype":  12
+                              },
+    "CALF_RAISE_GENERIC":  {
+                               "category":  1,
+                               "subtype":  0
+                           },
+    "CROSS_CHOP_TO_KNEE":  {
+                               "category":  4,
+                               "subtype":  1
+                           },
+    "REVERSE_GRIP_BARBELL_ROW":  {
+                                     "category":  23,
+                                     "subtype":  5
+                                 },
+    "WALL_SIT":  {
+                     "category":  28,
+                     "subtype":  23
+                 },
+    "SINGLE_ARM_CABLE_CHEST_PRESS":  {
+                                         "category":  0,
+                                         "subtype":  7
+                                     },
+    "STANDING_ADDUCTION":  {
+                               "category":  11,
+                               "subtype":  5
+                           },
+    "BARBELL_HANG_SQUAT_CLEAN":  {
+                                     "category":  18,
+                                     "subtype":  3
+                                 },
+    "BARBELL_POWER_CLEAN":  {
+                                "category":  18,
+                                "subtype":  4
+                            },
+    "MEDICINE_BALL_SLAM":  {
+                               "category":  20,
+                               "subtype":  7
+                           },
+    "SINGLE_ARM_DUMBBELL_FLOOR_PRESS":  {
+                                            "category":  0,
+                                            "subtype":  25
+                                        },
+    "DEADBUG":  {
+                    "category":  5,
+                    "subtype":  24
+                },
+    "STANDING_EZ_BAR_BICEPS_CURL":  {
+                                        "category":  7,
+                                        "subtype":  10
+                                    },
+    "STANDING_CALF_RAISE":  {
+                                "category":  1,
+                                "subtype":  1
+                            },
+    "BARBELL_HANG_PULL":  {
+                              "category":  18,
+                              "subtype":  8
+                          },
+    "BICYCLE_CRUNCH_RAISED_LEGS":  {
+                                       "category":  5,
+                                       "subtype":  36
+                                   },
+    "BARBELL_FEET_UP_BENCH_PRESS":  {
+                                        "category":  0,
+                                        "subtype":  14
+                                    },
+    "PIGEON_POSE":  {
+                        "category":  31,
+                        "subtype":  22
+                    },
+    "PALLOF_PRESS":  {
+                         "category":  5,
+                         "subtype":  46
+                     },
+    "AGILITY_LADDER":  {
+                           "category":  2,
+                           "subtype":  16
+                       },
+    "QUADRUPED":  {
+                      "category":  11,
+                      "subtype":  3
+                  },
+    "LEGS_WIDE_DIAGONAL_TOE_TAPS":  {
+                                        "category":  31,
+                                        "subtype":  40
+                                    },
+    "RING_PULL_UP":  {
+                         "category":  21,
+                         "subtype":  7
+                     },
+    "THORACIC_ROTATION":  {
+                              "category":  31,
+                              "subtype":  11
+                          },
+    "FORWARD_AND_BACKWARD_LEG_SWINGS":  {
+                                            "category":  31,
+                                            "subtype":  7
+                                        },
+    "LATERAL_RAISE_GENERIC":  {
+                                  "category":  14,
+                                  "subtype":  0
+                              },
+    "INCLINE_CABLE_FLY":  {
+                              "category":  9,
+                              "subtype":  11
+                          },
+    "MODIFIED_FRONT_LEVER":  {
+                                 "category":  5,
+                                 "subtype":  7
+                             },
+    "SINGLE_LEG_GLUTE_BRIDGE":  {
+                                    "category":  10,
+                                    "subtype":  9
+                                },
+    "OVERHEAD_DUMBBELL_TRICEPS_EXTENSION":  {
+                                                "category":  30,
+                                                "subtype":  6
+                                            },
+    "CABLE_OVERHEAD_CURL":  {
+                                "category":  7,
+                                "subtype":  21
+                            },
+    "ROMANIAN_DEADLIFTS":  {
+                               "category":  8,
+                               "subtype":  13
+                           },
+    "BICYCLE_CRUNCH":  {
+                           "category":  5,
+                           "subtype":  16
+                       },
+    "KETTLEBELL_UPRIGHT_ROW":  {
+                                   "category":  26,
+                                   "subtype":  8
+                               },
+    "BANDED_TOE_RAISE":  {
+                             "category":  31,
+                             "subtype":  51
+                         },
+    "JUMP_SHRUG":  {
+                       "category":  26,
+                       "subtype":  5
+                   },
+    "REAR_LEG_RAISED_LUNGE":  {
+                                  "category":  17,
+                                  "subtype":  10
+                              },
+    "SINGLE_ARM_DUMBBELL_SNATCH":  {
+                                       "category":  18,
+                                       "subtype":  20
+                                   },
+    "KNEELING_HIP_FLEXOR_STRETCH_TWIST":  {
+                                              "category":  31,
+                                              "subtype":  37
+                                          },
+    "BAYESIAN_CURL":  {
+                          "category":  7,
+                          "subtype":  35
+                      },
+    "CONCENTRATION_CURL":  {
+                               "category":  7,
+                               "subtype":  18
+                           },
+    "RING_DIP":  {
+                     "category":  14,
+                     "subtype":  6
+                 },
+    "BARBELL_LUNGE":  {
+                          "category":  17,
+                          "subtype":  4
+                      },
+    "DUMBBELL_ZOTTMAN_CURL":  {
+                                  "category":  7,
+                                  "subtype":  26
+                              },
+    "CAT_COW":  {
+                    "category":  5,
+                    "subtype":  10
+                },
+    "BENT_OVER_ROW":  {
+                          "category":  23,
+                          "subtype":  9
+                      },
+    "RUNNING":  {
+                    "category":  2,
+                    "subtype":  15
+                },
+    "DIAGONAL_TOE_TAP":  {
+                             "category":  5,
+                             "subtype":  29
+                         },
+    "DUMBBELL_SQUEEZE_PRESS":  {
+                                   "category":  0,
+                                   "subtype":  20
+                               },
+    "LEG_EXTENSIONS":  {
+                           "category":  5,
+                           "subtype":  18
+                       },
+    "SINGLE_ARM_LAT_PULLDOWN":  {
+                                    "category":  21,
+                                    "subtype":  11
+                                },
+    "FLOOR_T_RAISE":  {
+                          "category":  25,
+                          "subtype":  2
+                      },
+    "DOWN_TO_UP_CABLE_TWIST":  {
+                                   "category":  4,
+                                   "subtype":  5
+                               },
+    "DUMBBELL_ROMANIAN_DEADLIFTS":  {
+                                        "category":  8,
+                                        "subtype":  12
+                                    },
+    "MACHINE_CALF_PRESS":  {
+                               "category":  1,
+                               "subtype":  9
+                           },
+    "BENT_KNEE_DUMBBELL_CALF_RAISE":  {
+                                          "category":  1,
+                                          "subtype":  13
+                                      },
+    "NEUTRAL_GRIP_LAT_PULLDOWN":  {
+                                      "category":  21,
+                                      "subtype":  13
+                                  },
+    "HAMSTRING_SCOOPS":  {
+                             "category":  31,
+                             "subtype":  41
+                         },
+    "ROPE_CABLE_CURL":  {
+                            "category":  7,
+                            "subtype":  25
+                        },
+    "DUMBBELL_PULLOVER":  {
+                              "category":  23,
+                              "subtype":  18
+                          },
+    "LATERAL_LEAP_AND_HOP":  {
+                                 "category":  20,
+                                 "subtype":  5
+                             },
+    "OVERHEAD_SQUAT":  {
+                           "category":  28,
+                           "subtype":  7
+                       },
+    "KETTLEBELL_LUNGE":  {
+                             "category":  17,
+                             "subtype":  27
+                         },
+    "BARBELL_SPLIT_SQUAT":  {
+                                "category":  17,
+                                "subtype":  18
+                            },
+    "CABLE_REAR_DELT_REVERSE_FLY":  {
+                                        "category":  14,
+                                        "subtype":  12
+                                    },
+    "CLEAN":  {
+                  "category":  18,
+                  "subtype":  1
+              },
+    "PLANK_ON_SWISSBALL":  {
+                               "category":  19,
+                               "subtype":  12
+                           },
+    "MACHINE_CHEST_FLY":  {
+                              "category":  9,
+                              "subtype":  13
+                          },
+    "STANDING_MARCH":  {
+                           "category":  5,
+                           "subtype":  35
+                       },
+    "KETTLEBELL_SQUAT":  {
+                             "category":  28,
+                             "subtype":  13
+                         },
+    "SPIDER_CURL":  {
+                        "category":  7,
+                        "subtype":  32
+                    },
+    "LAT_PULLDOWN":  {
+                         "category":  21,
+                         "subtype":  1
+                     },
+    "BARBELL_HANG_POWER_SNATCH":  {
+                                      "category":  18,
+                                      "subtype":  7
+                                  },
+    "TOES_AGAINST_WALL_CALF_STRETCH":  {
+                                           "category":  31,
+                                           "subtype":  30
+                                       },
+    "SINGLE_LEG_ROMANIAN_DEADLIFTS":  {
+                                          "category":  8,
+                                          "subtype":  14
+                                      },
+    "STATIC_LUNGE":  {
+                         "category":  17,
+                         "subtype":  8
+                     },
+    "DUMBBELL_DEADLIFT":  {
+                              "category":  8,
+                              "subtype":  2
+                          },
+    "STANDING_PIGEON_POSE":  {
+                                 "category":  31,
+                                 "subtype":  43
+                             },
+    "MACHINE_ISOLATERAL_CHEST_PRESS":  {
+                                           "category":  0,
+                                           "subtype":  19
+                                       },
+    "SIDE_LEG_SWINGS":  {
+                            "category":  31,
+                            "subtype":  20
+                        },
+    "INCLINE_DUMBBELL_BENCH_PRESS":  {
+                                         "category":  0,
+                                         "subtype":  3
+                                     },
+    "CHAIR_DIPS":  {
+                       "category":  30,
+                       "subtype":  23
+                   },
+    "CLOSE_GRIP_DUMBBELL_CHEST_PRESS":  {
+                                            "category":  0,
+                                            "subtype":  26
+                                        },
+    "LATERAL_DUCK_UNDER":  {
+                               "category":  31,
+                               "subtype":  8
+                           },
+    "DRAGON_FLAG":  {
+                        "category":  5,
+                        "subtype":  39
+                    },
+    "CHEST_SUPPORTED_ROW":  {
+                                "category":  23,
+                                "subtype":  24
+                            },
+    "PLATE_FRONT_RAISE":  {
+                              "category":  14,
+                              "subtype":  11
+                          },
+    "SEATED_DUMBBELL_LATERAL_RAISE":  {
+                                          "category":  14,
+                                          "subtype":  19
+                                      },
+    "LAT_STRETCH":  {
+                        "category":  31,
+                        "subtype":  34
+                    },
+    "JUMP_ROPE":  {
+                      "category":  2,
+                      "subtype":  1
+                  },
+    "UNDERHAND_LAT_PULLDOWN":  {
+                                   "category":  21,
+                                   "subtype":  12
+                               },
+    "SNATCH_GRIP_DEADLIFT":  {
+                                 "category":  8,
+                                 "subtype":  18
+                             },
+    "SWISSBALL_HIGH_PLANK":  {
+                                 "category":  19,
+                                 "subtype":  13
+                             },
+    "DIAGONAL_CROSS_BODY_ARM_SWING":  {
+                                          "category":  31,
+                                          "subtype":  50
+                                      },
+    "STANDING_ROTATIONAL_CHOP":  {
+                                     "category":  4,
+                                     "subtype":  3
+                                 },
+    "MACHINE_CALF_EXTENSION":  {
+                                   "category":  1,
+                                   "subtype":  8
+                               },
+    "SHRUG_GENERIC":  {
+                          "category":  26,
+                          "subtype":  0
+                      },
+    "GLUTE_BRIDGE":  {
+                         "category":  10,
+                         "subtype":  12
+                     },
+    "CABLE_KICKBACK":  {
+                           "category":  11,
+                           "subtype":  12
+                       },
+    "SKATER_LUNGE":  {
+                         "category":  17,
+                         "subtype":  19
+                     },
+    "ROWING_MACHINE":  {
+                           "category":  2,
+                           "subtype":  6
+                       },
+    "CROSS_KNEE_STRIKE":  {
+                              "category":  20,
+                              "subtype":  3
+                          },
+    "REVERSE_LUNGE":  {
+                          "category":  17,
+                          "subtype":  7
+                      },
+    "CABLE_HAMMER_CURL":  {
+                              "category":  7,
+                              "subtype":  6
+                          },
+    "WALL_BICEP_STRETCH":  {
+                               "category":  31,
+                               "subtype":  47
+                           },
+    "MACHINE_ASSISTED_PULL_UP":  {
+                                     "category":  21,
+                                     "subtype":  16
+                                 },
+    "CRUNCH_AND_PRESS":  {
+                             "category":  5,
+                             "subtype":  28
+                         },
+    "INCLINE_DUMBBELL_BICEPS_CURL":  {
+                                         "category":  7,
+                                         "subtype":  7
+                                     },
+    "BIRD_DOG":  {
+                     "category":  5,
+                     "subtype":  32
+                 },
+    "OPPOSITE_ARM_AND_LEG_BALANCE":  {
+                                         "category":  31,
+                                         "subtype":  1
+                                     },
+    "POGO_JUMPS":  {
+                       "category":  20,
+                       "subtype":  10
+                   },
+    "BAR_HOLDS":  {
+                      "category":  3,
+                      "subtype":  1
+                  },
+    "RESISTANCE_BAND_GENERIC":  {
+                                    "category":  31,
+                                    "subtype":  54
+                                },
+    "BATTLE_ROPES":  {
+                         "category":  2,
+                         "subtype":  5
+                     },
+    "PIKE_PUSH_UP":  {
+                         "category":  22,
+                         "subtype":  12
+                     },
+    "HIGH_KNEES":  {
+                       "category":  2,
+                       "subtype":  8
+                   },
+    "WALL_WALK":  {
+                      "category":  25,
+                      "subtype":  7
+                  },
+    "STRAIGHT_LEG_DEADLIFT":  {
+                                  "category":  8,
+                                  "subtype":  8
+                              },
+    "TOES_TO_BAR":  {
+                        "category":  5,
+                        "subtype":  53
+                    },
+    "TIBIALIS_RAISE":  {
+                           "category":  1,
+                           "subtype":  0
+                       },
+    "PLANK_GENERIC":  {
+                          "category":  19,
+                          "subtype":  0
+                      },
+    "GLUTE_KICKBACK_ON_FLOOR":  {
+                                    "category":  10,
+                                    "subtype":  21
+                                },
+    "RAISED_LEG_HIP_THRUST":  {
+                                  "category":  10,
+                                  "subtype":  8
+                              },
+    "CABLE_SIDE_BEND":  {
+                            "category":  5,
+                            "subtype":  13
+                        },
+    "AIR_SQUAT":  {
+                      "category":  28,
+                      "subtype":  32
+                  },
+    "OVERHEAD_PLATE_RAISE":  {
+                                 "category":  14,
+                                 "subtype":  10
+                             },
+    "WARM_UP_GENERIC":  {
+                            "category":  31,
+                            "subtype":  0
+                        },
+    "CABLE_CROSSOVER":  {
+                            "category":  9,
+                            "subtype":  2
+                        },
+    "STANDING_T_ROTATION_BALANCE":  {
+                                        "category":  29,
+                                        "subtype":  3
+                                    },
+    "QUADRUPED_REACH_THROUGHS":  {
+                                     "category":  31,
+                                     "subtype":  55
+                                 },
+    "PULL_UP_GENERIC":  {
+                            "category":  21,
+                            "subtype":  0
+                        },
+    "BAND_PULLAPARTS":  {
+                            "category":  14,
+                            "subtype":  9
+                        },
+    "SEAL_ROW":  {
+                     "category":  23,
+                     "subtype":  21
+                 },
+    "LYING_KNEE_RAISE":  {
+                             "category":  5,
+                             "subtype":  42
+                         },
+    "SEATED_START_BOX_JUMP":  {
+                                  "category":  20,
+                                  "subtype":  15
+                              },
+    "WEIGHTED_DECLINE_CRUNCH":  {
+                                    "category":  5,
+                                    "subtype":  38
+                                },
+    "BARBELL_HIP_THRUST":  {
+                               "category":  10,
+                               "subtype":  11
+                           },
+    "PLANK_WITH_ARM_RAISE":  {
+                                 "category":  19,
+                                 "subtype":  2
+                             },
+    "DEPTH_JUMP":  {
+                       "category":  20,
+                       "subtype":  4
+                   },
+    "CHOP_GENERIC":  {
+                         "category":  4,
+                         "subtype":  0
+                     },
+    "FARMERS_CARRY":  {
+                          "category":  3,
+                          "subtype":  4
+                      },
+    "SPLIT_JERK":  {
+                       "category":  18,
+                       "subtype":  15
+                   },
+    "SIDE_LYING_LEG_RAISE":  {
+                                 "category":  11,
+                                 "subtype":  4
+                             },
+    "INCLINE_REVERSE_FLY":  {
+                                "category":  9,
+                                "subtype":  10
+                            },
+    "FIGURE_OF_8S":  {
+                         "category":  5,
+                         "subtype":  26
+                     },
+    "SUMO_DEADLIFT":  {
+                          "category":  8,
+                          "subtype":  4
+                      },
+    "MACHINE_SINGLE_LEG_PRESS":  {
+                                     "category":  28,
+                                     "subtype":  28
+                                 },
+    "MACHINE_INCLINE_CHEST_PRESS":  {
+                                        "category":  0,
+                                        "subtype":  17
+                                    },
+    "BANDED_SIDE_PLANK_HIP_FLEXION":  {
+                                          "category":  5,
+                                          "subtype":  59
+                                      },
+    "STANDING_HIP_CIRCLES":  {
+                                 "category":  31,
+                                 "subtype":  38
+                             },
+    "SLED_PULL":  {
+                      "category":  23,
+                      "subtype":  25
+                  },
+    "DUMBBELL_BENCH_PRESS":  {
+                                 "category":  0,
+                                 "subtype":  2
+                             },
+    "OVERHEAD_CARRY":  {
+                           "category":  3,
+                           "subtype":  3
+                       },
+    "SINGLE_ARM_DUMBBELL_OVERHEAD_LUNGE":  {
+                                               "category":  17,
+                                               "subtype":  22
+                                           },
+    "ARNOLD_PRESS":  {
+                         "category":  24,
+                         "subtype":  3
+                     },
+    "BENT_KNEE_CALF_RAISE":  {
+                                 "category":  1,
+                                 "subtype":  5
+                             },
+    "NEGATIVE_PULL_UP":  {
+                             "category":  21,
+                             "subtype":  6
+                         },
+    "SEATED_DUMBBELL_SHOULDER_PRESS":  {
+                                           "category":  24,
+                                           "subtype":  19
+                                       },
+    "ROLL_DOWN":  {
+                      "category":  23,
+                      "subtype":  8
+                  },
+    "SIDE_BEND":  {
+                      "category":  5,
+                      "subtype":  5
+                  },
+    "MACHINE_BICEP_CURL":  {
+                               "category":  7,
+                               "subtype":  16
+                           },
+    "BANDED_SIDE_LUNGE":  {
+                              "category":  17,
+                              "subtype":  12
+                          },
+    "SEATED_DIP_MACHINE":  {
+                               "category":  30,
+                               "subtype":  14
+                           },
+    "DOUBLE_ARM_CLEAN_AND_PRESS_BARBELL":  {
+                                               "category":  18,
+                                               "subtype":  34
+                                           },
+    "CHEST_DIP":  {
+                      "category":  30,
+                      "subtype":  11
+                  },
+    "BARBELL_HANG_POWER_CLEAN":  {
+                                     "category":  18,
+                                     "subtype":  2
+                                 },
+    "SHOULDER_FOCUSED_PRESS_UP":  {
+                                      "category":  24,
+                                      "subtype":  14
+                                  },
+    "HANGING_LEG_RAISE":  {
+                              "category":  16,
+                              "subtype":  1
+                          },
+    "KETTLEBELL_AROUND_THE_WORLD":  {
+                                        "category":  14,
+                                        "subtype":  14
+                                    },
+    "SEATED_PALMS_UP_WRIST_CURL":  {
+                                       "category":  7,
+                                       "subtype":  28
+                                   },
+    "CLAP_PUSH_UPS":  {
+                          "category":  22,
+                          "subtype":  9
+                      },
+    "MACHINE_SINGLE_ARM_SEATED_ROW":  {
+                                          "category":  23,
+                                          "subtype":  27
+                                      },
+    "BARBELL_STEP_UP":  {
+                            "category":  28,
+                            "subtype":  6
+                        },
+    "BARBELL_PUSH_PRESS":  {
+                               "category":  24,
+                               "subtype":  2
+                           },
+    "INCLINE_PUSH_UP":  {
+                            "category":  22,
+                            "subtype":  4
+                        },
+    "BARBELL_SINGLE_LEG_HIP_THRUST":  {
+                                          "category":  10,
+                                          "subtype":  24
+                                      },
+    "NEUTRAL_GRIP_PULL_UP":  {
+                                 "category":  21,
+                                 "subtype":  14
+                             },
+    "REACH_ROLL_AND_LIFT":  {
+                                "category":  31,
+                                "subtype":  9
+                            },
+    "CABLE_CRUNCH":  {
+                         "category":  5,
+                         "subtype":  21
+                     },
+    "DUMBBELL_SHRUG":  {
+                           "category":  26,
+                           "subtype":  7
+                       },
+    "SWISS_BALL_JACKKNIFE":  {
+                                 "category":  5,
+                                 "subtype":  15
+                             },
+    "BACK_EXTENSION_WITH_OPPOSITE_ARM_AND_LEG_REACH":  {
+                                                           "category":  13,
+                                                           "subtype":  1
+                                                       },
+    "DECLINE_PUSH_UP":  {
+                            "category":  22,
+                            "subtype":  1
+                        },
+    "MODIFIED_PUSH_UP":  {
+                             "category":  22,
+                             "subtype":  7
+                         },
+    "SINGLE_ARM_SNATCH":  {
+                              "category":  18,
+                              "subtype":  23
+                          },
+    "SERRATUS_SHRUG":  {
+                           "category":  26,
+                           "subtype":  4
+                       },
+    "OVERHEAD_WALK":  {
+                          "category":  5,
+                          "subtype":  9
+                      },
+    "SL_DB_RDL_KNEE_DRIVE":  {
+                                 "category":  8,
+                                 "subtype":  10
+                             },
+    "PLANK_HOLD":  {
+                       "category":  19,
+                       "subtype":  14
+                   },
+    "RUSSIAN_TWIST":  {
+                          "category":  5,
+                          "subtype":  3
+                      },
+    "SINGLE_LEG_GLUTE_BRIDGE_ABDUCTION":  {
+                                              "category":  10,
+                                              "subtype":  25
+                                          },
+    "MOUNTAIN_CLIMBER":  {
+                             "category":  19,
+                             "subtype":  1
+                         },
+    "MACHINE_SINGLE_ARM_SEATED_SHOULDER_PRESS":  {
+                                                     "category":  24,
+                                                     "subtype":  21
+                                                 },
+    "WEIGHTED_CHIN_UP":  {
+                             "category":  21,
+                             "subtype":  5
+                         },
+    "KETTLEBELL_SWING":  {
+                             "category":  12,
+                             "subtype":  0
+                         },
+    "LUNGE_AND_PRESS":  {
+                            "category":  17,
+                            "subtype":  14
+                        },
+    "WALKOUT":  {
+                    "category":  31,
+                    "subtype":  2
+                },
+    "SCAPULAR_RETRACTION":  {
+                                "category":  26,
+                                "subtype":  3
+                            },
+    "KNEELING_HIP_FLEXOR_STRETCH":  {
+                                        "category":  31,
+                                        "subtype":  25
+                                    },
+    "LOW_CABLE_FLY_CROSSOVERS":  {
+                                     "category":  9,
+                                     "subtype":  9
+                                 },
+    "REVERSE_PLANK":  {
+                          "category":  5,
+                          "subtype":  61
+                      },
+    "UP_TO_DOWN_CABLE_TWIST":  {
+                                   "category":  4,
+                                   "subtype":  6
+                               },
+    "PUSH_UP_GENERIC":  {
+                            "category":  22,
+                            "subtype":  0
+                        },
+    "BANDED_CLAMS":  {
+                         "category":  31,
+                         "subtype":  58
+                     },
+    "DUMBBELL_SKULLCRUSHER":  {
+                                  "category":  30,
+                                  "subtype":  18
+                              },
+    "CARDIO_GENERIC":  {
+                           "category":  2,
+                           "subtype":  0
+                       },
+    "STANDING_QUAD_STRETCH":  {
+                                  "category":  31,
+                                  "subtype":  21
+                              },
+    "PLATE_CURL":  {
+                       "category":  7,
+                       "subtype":  23
+                   },
+    "STRETCH":  {
+                    "category":  31,
+                    "subtype":  16
+                },
+    "STANDING_SINGLE_ARM_SHOULDER_PRESS":  {
+                                               "category":  24,
+                                               "subtype":  5
+                                           },
+    "HURDLE_HOPS":  {
+                        "category":  20,
+                        "subtype":  11
+                    },
+    "CROSS_BODY_HAMMER_CURL":  {
+                                   "category":  7,
+                                   "subtype":  19
+                               },
+    "SINGLE_LEG_DOUBLE_DUMBBELL_ROMANIAN_DEADLIFTS":  {
+                                                          "category":  8,
+                                                          "subtype":  23
+                                                      },
+    "PUSH_JERK":  {
+                      "category":  18,
+                      "subtype":  13
+                  },
+    "PLANK_SHOULDER_TAP":  {
+                               "category":  5,
+                               "subtype":  62
+                           },
+    "FULL_STAR_JUMPS":  {
+                            "category":  20,
+                            "subtype":  9
+                        },
+    "TURKISH_GET_UP":  {
+                           "category":  5,
+                           "subtype":  23
+                       },
+    "SINGLE_ARM_KETTLEBELL_SNATCH":  {
+                                         "category":  18,
+                                         "subtype":  21
+                                     },
+    "HIP_AIRPLANE":  {
+                         "category":  11,
+                         "subtype":  14
+                     },
+    "Z_PRESS":  {
+                    "category":  24,
+                    "subtype":  20
+                },
+    "BARBELL_ROMANIAN_DEADLIFT":  {
+                                      "category":  8,
+                                      "subtype":  17
+                                  },
+    "WALKING_HIGH_KICKS":  {
+                               "category":  31,
+                               "subtype":  12
+                           },
+    "BARBELL_REVERSE_WRIST_CURL":  {
+                                       "category":  7,
+                                       "subtype":  4
+                                   },
+    "MODIFIED_SHOULDER_FOCUSED_PRESS_UP":  {
+                                               "category":  22,
+                                               "subtype":  10
+                                           },
+    "DUMBBELL_SPLIT_SQUAT":  {
+                                 "category":  17,
+                                 "subtype":  26
+                             },
+    "PLATE_HIP_THRUST":  {
+                             "category":  10,
+                             "subtype":  23
+                         },
+    "PRESS_UP_POSITION_SHOULDER_TAP":  {
+                                           "category":  24,
+                                           "subtype":  13
+                                       },
+    "BARBELL_POWER_SNATCH":  {
+                                 "category":  18,
+                                 "subtype":  5
+                             },
+    "DUMBBELL_SINGLE_ARM_TRICEP_EXTENSION":  {
+                                                 "category":  30,
+                                                 "subtype":  16
+                                             },
+    "PLANK_PULL_THROUGH":  {
+                               "category":  19,
+                               "subtype":  11
+                           },
+    "CORE_GENERIC":  {
+                         "category":  5,
+                         "subtype":  0
+                     },
+    "OVERHEAD_TRICEP_STRETCH":  {
+                                    "category":  31,
+                                    "subtype":  36
+                                },
+    "MACHINE_LEG_EXTENSION":  {
+                                  "category":  28,
+                                  "subtype":  31
+                              },
+    "AB_CRUNCH_MACHINE":  {
+                              "category":  5,
+                              "subtype":  48
+                          },
+    "MUSCLE_UP":  {
+                      "category":  14,
+                      "subtype":  3
+                  },
+    "PEC_DECK_BUTTERFLY":  {
+                               "category":  9,
+                               "subtype":  8
+                           },
+    "OVERHEAD_BARBELL_PRESS":  {
+                                   "category":  24,
+                                   "subtype":  1
+                               },
+    "CROSS_BODY_MOUNTAIN_CLIMBER":  {
+                                        "category":  19,
+                                        "subtype":  3
+                                    },
+    "HEEL_DROP_CALF_STRETCH":  {
+                                   "category":  31,
+                                   "subtype":  60
+                               },
+    "PENDULUM_SQUAT":  {
+                           "category":  28,
+                           "subtype":  36
+                       },
+    "GOOD_MORNING":  {
+                         "category":  15,
+                         "subtype":  1
+                     },
+    "MACHINE_CHEST_PRESS":  {
+                                "category":  0,
+                                "subtype":  18
+                            },
+    "PRONE_HIP_INTERNAL_ROTATION":  {
+                                        "category":  11,
+                                        "subtype":  2
+                                    },
+    "SEATED_CABLE_ROW":  {
+                             "category":  23,
+                             "subtype":  1
+                         },
+    "SEATED_BARBELL_OVERHEAD_TRICEPS_EXTENSION":  {
+                                                      "category":  30,
+                                                      "subtype":  7
+                                                  },
+    "LUNGE_HOLD_CALF_RAISE":  {
+                                  "category":  17,
+                                  "subtype":  13
+                              },
+    "PREACHER_CURL_MACHINE":  {
+                                  "category":  7,
+                                  "subtype":  31
+                              },
+    "WALKING_LUNGE":  {
+                          "category":  17,
+                          "subtype":  1
+                      },
+    "SWIMMING":  {
+                     "category":  5,
+                     "subtype":  1
+                 },
+    "DUMBBELL_REVERSE_WRIST_CURL":  {
+                                        "category":  7,
+                                        "subtype":  12
+                                    },
+    "WALKING_LUNGE_TWIST":  {
+                                "category":  17,
+                                "subtype":  23
+                            },
+    "PUSH_PRESS":  {
+                       "category":  24,
+                       "subtype":  9
+                   },
+    "HIGH_ARM_WALL_CHEST_STRETCH":  {
+                                        "category":  31,
+                                        "subtype":  33
+                                    },
+    "BROAD_JUMP":  {
+                       "category":  20,
+                       "subtype":  19
+                   },
+    "DUMBBELL_SIDE_BEND":  {
+                               "category":  5,
+                               "subtype":  57
+                           },
+    "QUADRUPED_ROCKING":  {
+                              "category":  31,
+                              "subtype":  3
+                          },
+    "DUMBBELL_THRUSTERS":  {
+                               "category":  18,
+                               "subtype":  33
+                           },
+    "SKULL_CRUSHER":  {
+                          "category":  30,
+                          "subtype":  2
+                      },
+    "ARM_CIRCLES":  {
+                        "category":  31,
+                        "subtype":  6
+                    },
+    "DUMBBELL_WALKING_CALF_RAISES":  {
+                                         "category":  1,
+                                         "subtype":  14
+                                     },
+    "BARBELL_REVERSE_CURL":  {
+                                 "category":  7,
+                                 "subtype":  24
+                             },
+    "SLED_PUSH":  {
+                      "category":  2,
+                      "subtype":  7
+                  },
+    "SINGLE_LEG_STANDING_CALF_RAISE":  {
+                                           "category":  1,
+                                           "subtype":  3
+                                       },
+    "KETTLEBELL_ROW":  {
+                           "category":  23,
+                           "subtype":  7
+                       },
+    "OVERHEAD_LUNGE":  {
+                           "category":  17,
+                           "subtype":  6
+                       },
+    "HIP_RAISE_GENERIC":  {
+                              "category":  10,
+                              "subtype":  0
+                          },
+    "ONE_ARM_PUSH_UP":  {
+                            "category":  22,
+                            "subtype":  5
+                        },
+    "DEADLIFT_GENERIC":  {
+                             "category":  8,
+                             "subtype":  0
+                         },
+    "FLOOR_TRICEPS_DIP":  {
+                              "category":  30,
+                              "subtype":  10
+                          },
+    "SINGLE_LEG_STRAIGHT_LEG_DEADLIFT":  {
+                                             "category":  8,
+                                             "subtype":  7
+                                         },
+    "SEATED_CALF_RAISE":  {
+                              "category":  1,
+                              "subtype":  2
+                          },
+    "GLUTE_HAM_RAISE":  {
+                            "category":  15,
+                            "subtype":  4
+                        },
+    "RENEGADE_ROW":  {
+                         "category":  23,
+                         "subtype":  4
+                     },
+    "SWISSBALL_BACK_EXTENSION":  {
+                                     "category":  23,
+                                     "subtype":  10
+                                 },
+    "DUMBBELL_FLYE":  {
+                          "category":  9,
+                          "subtype":  1
+                      },
+    "MEDICINE_BALL_CRUNCH":  {
+                                 "category":  5,
+                                 "subtype":  49
+                             },
+    "MACHINE_LEG_CURL_SEATED":  {
+                                    "category":  15,
+                                    "subtype":  5
+                                },
+    "INCLINE_BARBELL_BENCH_PRESS":  {
+                                        "category":  0,
+                                        "subtype":  4
+                                    },
+    "GOBLET_SQUATS":  {
+                          "category":  28,
+                          "subtype":  22
+                      },
+    "DUMBBELL_WIDEELBOW_TRICEPS_PRESS":  {
+                                             "category":  30,
+                                             "subtype":  19
+                                         },
+    "PISTOL_SQUAT":  {
+                         "category":  28,
+                         "subtype":  9
+                     },
+    "MILITARY_PRESS_UP":  {
+                              "category":  22,
+                              "subtype":  6
+                          },
+    "BAR_MUSCLE_UP":  {
+                          "category":  14,
+                          "subtype":  2
+                      },
+    "JUMPING_JACKS":  {
+                          "category":  2,
+                          "subtype":  2
+                      },
+    "DUMBBELL_HANG_PULL":  {
+                               "category":  18,
+                               "subtype":  18
+                           },
+    "STRAIGHT_LEG_BENCH_DIP":  {
+                                   "category":  30,
+                                   "subtype":  22
+                               },
+    "SMITH_MACHINE_OVERHEAD_PRESS":  {
+                                         "category":  24,
+                                         "subtype":  16
+                                     },
+    "T_BAR_ROW":  {
+                      "category":  23,
+                      "subtype":  6
+                  },
+    "BARBELL_SHRUG":  {
+                          "category":  26,
+                          "subtype":  1
+                      },
+    "AB_WHEEL_ROLLOUT":  {
+                             "category":  5,
+                             "subtype":  47
+                         },
+    "DUMBBELL_WRIST_CURL":  {
+                                "category":  7,
+                                "subtype":  14
+                            },
+    "SHOULDER_ROTATIONS":  {
+                               "category":  31,
+                               "subtype":  42
+                           },
+    "CARDIO_CORE_CRAWL":  {
+                              "category":  2,
+                              "subtype":  3
+                          },
+    "GORILLA_ROW":  {
+                        "category":  23,
+                        "subtype":  29
+                    },
+    "STANDING_HAMSTRING_STRETCH":  {
+                                       "category":  31,
+                                       "subtype":  23
+                                   },
+    "SIDE_PLANK_HOLD":  {
+                            "category":  19,
+                            "subtype":  15
+                        },
+    "DECLINE_DUMBBELL_BENCH_PRESS":  {
+                                         "category":  0,
+                                         "subtype":  8
+                                     },
+    "BARBELL_HIP_THRUST_ON_FLOOR":  {
+                                        "category":  10,
+                                        "subtype":  1
+                                    },
+    "SIDE_LUNGE":  {
+                       "category":  17,
+                       "subtype":  5
+                   },
+    "STEP_UPS":  {
+                     "category":  16,
+                     "subtype":  4
+                 },
+    "OLYMPIC_LIFT_GENERIC":  {
+                                 "category":  18,
+                                 "subtype":  0
+                             },
+    "CLOSE_GRIP_BARBELL_BENCH_PRESS":  {
+                                           "category":  0,
+                                           "subtype":  5
+                                       },
+    "FLOOR_Y_RAISE":  {
+                          "category":  25,
+                          "subtype":  3
+                      },
+    "BACK_EXTENSION":  {
+                           "category":  13,
+                           "subtype":  2
+                       },
+    "HEEL_ELEVATED_SQUAT":  {
+                                "category":  28,
+                                "subtype":  34
+                            },
+    "CABLE_BICEPS_CURL":  {
+                              "category":  7,
+                              "subtype":  3
+                          },
+    "BARBELL_BEHIND_THE_HEAD_SHOULDER_PRESS":  {
+                                                   "category":  24,
+                                                   "subtype":  12
+                                               },
+    "BOX_JUMP_DOWN":  {
+                          "category":  20,
+                          "subtype":  18
+                      },
+    "NEUTRAL_GRIP_DUMBBELL_BENCH_PRESS":  {
+                                              "category":  0,
+                                              "subtype":  9
+                                          },
+    "WALL_PUSH_UP":  {
+                         "category":  22,
+                         "subtype":  14
+                     },
+    "HYPEREXTENSION_GENERIC":  {
+                                   "category":  13,
+                                   "subtype":  0
+                               },
+    "DOUBLE_ARM_CLEAN_AND_PRESS":  {
+                                       "category":  18,
+                                       "subtype":  24
+                                   },
+    "DUMBBELL_PUSH_PRESS":  {
+                                "category":  24,
+                                "subtype":  15
+                            },
+    "STAGGERED_RDLS":  {
+                           "category":  8,
+                           "subtype":  15
+                       },
+    "INCLINE_DUMBBELL_FLYE":  {
+                                  "category":  9,
+                                  "subtype":  3
+                              },
+    "BURPEE":  {
+                   "category":  29,
+                   "subtype":  1
+               },
+    "GLUTE_BRIDGE_HAM_WALKOUT":  {
+                                     "category":  10,
+                                     "subtype":  17
+                                 },
+    "KETTLEBELL_WINDMILL":  {
+                                "category":  5,
+                                "subtype":  14
+                            },
+    "NORDIC_CURL":  {
+                        "category":  15,
+                        "subtype":  3
+                    },
+    "SINGLE_LEG_BARBELL_CALF_RAISE":  {
+                                          "category":  1,
+                                          "subtype":  10
+                                      },
+    "SKI_ERG":  {
+                    "category":  2,
+                    "subtype":  10
+                },
+    "FARMERS_WALK":  {
+                         "category":  3,
+                         "subtype":  2
+                     },
+    "BARBELL_BICEPS_CURL":  {
+                                "category":  7,
+                                "subtype":  2
+                            },
+    "FROG_PUMP":  {
+                      "category":  10,
+                      "subtype":  3
+                  },
+    "THRUSTERS":  {
+                      "category":  28,
+                      "subtype":  11
+                  },
+    "CABLE_TRICEPS_PUSHDOWN":  {
+                                   "category":  30,
+                                   "subtype":  21
+                               },
+    "CABLE_RDL":  {
+                      "category":  8,
+                      "subtype":  16
+                  },
+    "SQUAT_TO_CALF_RAISE":  {
+                                "category":  28,
+                                "subtype":  19
+                            },
+    "SQUAT_CLEAN_AND_JERK":  {
+                                 "category":  18,
+                                 "subtype":  16
+                             },
+    "DEVIL_PRESS":  {
+                        "category":  18,
+                        "subtype":  36
+                    },
+    "REVERSE_CABLE_CURLS":  {
+                                "category":  7,
+                                "subtype":  34
+                            },
+    "KETTLEBELL_HALO":  {
+                            "category":  14,
+                            "subtype":  15
+                        },
+    "CHILDS_POSE_LAT_STRETCH":  {
+                                    "category":  31,
+                                    "subtype":  61
+                                },
+    "OVERHEAD_PLATE_LUNGE":  {
+                                 "category":  17,
+                                 "subtype":  21
+                             },
+    "TRAP_BAR_DEADLIFT":  {
+                              "category":  8,
+                              "subtype":  6
+                          },
+    "PAUSED_BENCH_PRESS":  {
+                               "category":  0,
+                               "subtype":  27
+                           },
+    "BARBELL_SQUAT_SNATCH":  {
+                                 "category":  28,
+                                 "subtype":  5
+                             },
+    "RACK_PULL":  {
+                      "category":  8,
+                      "subtype":  5
+                  },
+    "THRUSTER":  {
+                     "category":  10,
+                     "subtype":  14
+                 },
+    "HALF_TURKISH_GET_UP":  {
+                                "category":  5,
+                                "subtype":  6
+                            },
+    "WIDE_GRIP_BARBELL_BENCH_PRESS":  {
+                                          "category":  0,
+                                          "subtype":  6
+                                      },
+    "MEDICINE_BALL_OVERHEAD_THROWS":  {
+                                          "category":  20,
+                                          "subtype":  6
+                                      },
+    "SEATED_TRICEPS_PRESS":  {
+                                 "category":  30,
+                                 "subtype":  15
+                             },
+    "GOBLET_SQUAT":  {
+                         "category":  28,
+                         "subtype":  2
+                     },
+    "DUMBBELL_ROW":  {
+                         "category":  23,
+                         "subtype":  2
+                     },
+    "SL_ISO_HAMSTRING_HOLD":  {
+                                  "category":  10,
+                                  "subtype":  16
+                              },
+    "MACHINE_HIP_THRUST":  {
+                               "category":  10,
+                               "subtype":  4
+                           },
+    "SMITH_MACHINE_INCLINE_BENCH_PRESS":  {
+                                              "category":  0,
+                                              "subtype":  16
+                                          },
+    "DUMBBELL_HAMMER_CURL":  {
+                                 "category":  7,
+                                 "subtype":  1
+                             },
+    "BANDED_BICYCLE":  {
+                           "category":  5,
+                           "subtype":  63
+                       },
+    "V_UP":  {
+                 "category":  27,
+                 "subtype":  1
+             },
+    "SANDBAG_LUNGE":  {
+                          "category":  17,
+                          "subtype":  20
+                      },
+    "DEAD_HANG":  {
+                      "category":  3,
+                      "subtype":  5
+                  },
+    "TRICEPS_EXTENSION_GENERIC":  {
+                                      "category":  30,
+                                      "subtype":  0
+                                  },
+    "BELT_SQUAT":  {
+                       "category":  28,
+                       "subtype":  29
+                   },
+    "KETTLEBELL_FLYE":  {
+                            "category":  9,
+                            "subtype":  4
+                        },
+    "MACHINE_BACK_EXTENSION":  {
+                                   "category":  13,
+                                   "subtype":  4
+                               },
+    "SEATED_BARBELL_PRESS":  {
+                                 "category":  24,
+                                 "subtype":  11
+                             },
+    "CALF_BIASED_HAMSTRING_SCOOP":  {
+                                        "category":  31,
+                                        "subtype":  46
+                                    },
+    "BARBELL_WRIST_CURL":  {
+                               "category":  7,
+                               "subtype":  5
+                           },
+    "CABLE_CURL":  {
+                       "category":  7,
+                       "subtype":  33
+                   },
+    "LEG_RAISE_GENERIC":  {
+                              "category":  16,
+                              "subtype":  0
+                          },
+    "WIDE_PULL_UP":  {
+                         "category":  21,
+                         "subtype":  9
+                     },
+    "KETTLEBELL_BICEPS_CURL":  {
+                                   "category":  7,
+                                   "subtype":  11
+                               },
+    "TOE_WALKS":  {
+                      "category":  31,
+                      "subtype":  19
+                  },
+    "WORLDS_GREATEST_STRETCH":  {
+                                    "category":  31,
+                                    "subtype":  57
+                                },
+    "CARRY_GENERIC":  {
+                          "category":  3,
+                          "subtype":  0
+                      },
+    "HIP_RAISE":  {
+                      "category":  10,
+                      "subtype":  5
+                  },
+    "PLANK_TWIST":  {
+                        "category":  19,
+                        "subtype":  10
+                    },
+    "CABLE_UPRIGHT_ROW":  {
+                              "category":  26,
+                              "subtype":  6
+                          },
+    "LYING_PIRIFORMIS_STRETCH":  {
+                                     "category":  31,
+                                     "subtype":  45
+                                 },
+    "TRICEPS_PRESSDOWN":  {
+                              "category":  30,
+                              "subtype":  1
+                          },
+    "DUMBBELL_KICKBACK":  {
+                              "category":  30,
+                              "subtype":  4
+                          },
+    "DUMBBELL_SINGLE_LEG_HIP_THRUST":  {
+                                           "category":  10,
+                                           "subtype":  19
+                                       },
+    "HIP_THRUST":  {
+                       "category":  10,
+                       "subtype":  15
+                   },
+    "DUMBBELL_RUSSIAN_TWIST":  {
+                                   "category":  5,
+                                   "subtype":  55
+                               },
+    "MUSCLE_SNATCH":  {
+                          "category":  18,
+                          "subtype":  30
+                      },
+    "STANDING_LEG_CIRCLES":  {
+                                 "category":  31,
+                                 "subtype":  39
+                             },
+    "SUSPENSION_CHEST_FLY":  {
+                                 "category":  9,
+                                 "subtype":  7
+                             },
+    "HIP_STABILITY_GENERIC":  {
+                                  "category":  11,
+                                  "subtype":  0
+                              },
+    "DUMBBELL_STAGGERED_HIP_THRUST":  {
+                                          "category":  10,
+                                          "subtype":  2
+                                      },
+    "DUCK_WALK":  {
+                      "category":  28,
+                      "subtype":  38
+                  },
+    "HANGING_KNEE_RAISE":  {
+                               "category":  5,
+                               "subtype":  20
+                           },
+    "MACHINE_TRICEP_EXTENSION":  {
+                                     "category":  30,
+                                     "subtype":  20
+                                 },
+    "STANDING_DUMBBELL_BICEPS_CURL":  {
+                                          "category":  7,
+                                          "subtype":  8
+                                      },
+    "FLOATING_HEEL_DROP":  {
+                               "category":  1,
+                               "subtype":  7
+                           },
+    "BARBELL_STAGGERED_RDLS":  {
+                                   "category":  8,
+                                   "subtype":  22
+                               },
+    "ASSAULT_BIKE":  {
+                         "category":  2,
+                         "subtype":  11
+                     },
+    "BARBELL_ROLLOUT":  {
+                            "category":  5,
+                            "subtype":  4
+                        },
+    "SINGLE_LEG_HIP_RAISE":  {
+                                 "category":  10,
+                                 "subtype":  3
+                             },
+    "CABLE_HIP_ABDUCTION":  {
+                                "category":  11,
+                                "subtype":  13
+                            },
+    "BANDED_HAMSTRING_CURL":  {
+                                  "category":  7,
+                                  "subtype":  13
+                              },
+    "BALL_SLAMS":  {
+                       "category":  20,
+                       "subtype":  16
+                   },
+    "MACHINE_SEATED_ROW":  {
+                               "category":  23,
+                               "subtype":  17
+                           },
+    "SISSY_SQUAT":  {
+                        "category":  28,
+                        "subtype":  37
+                    },
+    "MACHINE_LEG_PRESS":  {
+                              "category":  28,
+                              "subtype":  26
+                          },
+    "BEHIND_THE_NECK_JERK":  {
+                                 "category":  18,
+                                 "subtype":  28
+                             },
+    "CONVENTIONAL_DEADLIFTS":  {
+                                   "category":  8,
+                                   "subtype":  11
+                               },
+    "BARBELL_BEHIND_THE_BACK_BICEP_WRIST_CURL":  {
+                                                     "category":  7,
+                                                     "subtype":  27
+                                                 },
+    "CRUNCH":  {
+                   "category":  5,
+                   "subtype":  22
+               },
+    "NEUTRAL_GRIP_DUMBBELL_INCLINE_BENCH_PRESS":  {
+                                                      "category":  0,
+                                                      "subtype":  10
+                                                  },
+    "DUMBBELL_WALKING_LUNGES":  {
+                                    "category":  17,
+                                    "subtype":  15
+                                },
+    "FLOOR_I_RAISE":  {
+                          "category":  25,
+                          "subtype":  1
+                      },
+    "BARBELL_SQUAT_CLEAN":  {
+                                "category":  18,
+                                "subtype":  6
+                            },
+    "MACHINE_ISOLATERAL_HIGH_ROW":  {
+                                        "category":  23,
+                                        "subtype":  14
+                                    },
+    "ONE_HAND_DUMBBELL_SPLIT_SNATCH":  {
+                                           "category":  18,
+                                           "subtype":  19
+                                       },
+    "SMITH_MACHINE_LUNGE":  {
+                                "category":  17,
+                                "subtype":  17
+                            },
+    "MACHINE_SINGLE_LEG_CURL_SEATED":  {
+                                           "category":  15,
+                                           "subtype":  8
+                                       },
+    "SNATCH_BALANCE":  {
+                           "category":  18,
+                           "subtype":  29
+                       },
+    "DUMBBELL_CHEST_FLY":  {
+                               "category":  9,
+                               "subtype":  5
+                           },
+    "SHOULDER_PRESS_GENERIC":  {
+                                   "category":  24,
+                                   "subtype":  0
+                               },
+    "LOPSIDED_SQUAT":  {
+                           "category":  28,
+                           "subtype":  15
+                       },
+    "PRONE_QUAD_STRETCH":  {
+                               "category":  31,
+                               "subtype":  29
+                           },
+    "SVEND_PRESS_PLATE_SQUEEZE":  {
+                                      "category":  0,
+                                      "subtype":  22
+                                  },
+    "FLOOR_BENCH_PRESS":  {
+                              "category":  0,
+                              "subtype":  11
+                          },
+    "MACHINE_REAR_DELT_REVERSE_FLY":  {
+                                          "category":  14,
+                                          "subtype":  13
+                                      },
+    "COBRA":  {
+                  "category":  31,
+                  "subtype":  26
+              },
+    "DONKEY_KICKS":  {
+                         "category":  11,
+                         "subtype":  11
+                     },
+    "MODIFIED_PRESS_UP_POSITION_SHOULDER_TAP":  {
+                                                    "category":  5,
+                                                    "subtype":  56
+                                                },
+    "SIDE_LYING_QUAD_STRETCH":  {
+                                    "category":  31,
+                                    "subtype":  28
+                                },
+    "DOUBLE_ARM_SNATCH":  {
+                              "category":  18,
+                              "subtype":  25
+                          },
+    "ROW_GENERIC":  {
+                        "category":  23,
+                        "subtype":  0
+                    },
+    "BARBELL_PARTIAL_GLUTE_BRIDGE":  {
+                                         "category":  10,
+                                         "subtype":  18
+                                     },
+    "SUPERMAN":  {
+                     "category":  23,
+                     "subtype":  11
+                 }
+}

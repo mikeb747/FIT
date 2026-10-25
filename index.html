@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+    <title>GymFIT - Strength Tracker & Strava FIT Generator</title>
+    <meta name="description" content="Android-optimized strength workout logger with digit-scroll wheel weight selection, dual continuous and lap timers, and Strava-compatible Garmin .FIT activity export." />
+    <meta property="og:title" content="GymFIT - Strength Tracker & Strava FIT Generator" />
+    <meta property="og:description" content="Android-optimized strength workout logger with digit-scroll wheel weight selection, dual continuous and lap timers, and Strava-compatible Garmin .FIT activity export." />
+    <meta property="og:type" content="website" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+    <meta name="theme-color" content="#090a0f" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <link rel="manifest" href="./manifest.json?v=1.1.5" />
+    <link rel="icon" type="image/png" sizes="192x192" href="./pwa-192x192.png?v=1.1.5" />
+    <link rel="icon" type="image/png" sizes="512x512" href="./pwa-512x512.png?v=1.1.5" />
+    <link rel="shortcut icon" href="./favicon.ico?v=1.1.5" />
+    <link rel="apple-touch-icon" href="./apple-touch-icon.png?v=1.1.5" />
+  </head>
+  <body>
+    <script>
+      // 1. Seamless forward from legacy /IronFIT/ to /GymFIT/ preserving OAuth query params (?code=...) and hash
+      if (window.location.pathname.toLowerCase().startsWith('/ironfit')) {
+        var queryAndHash = window.location.search + window.location.hash;
+        var targetPath = window.location.pathname.replace(/^\/ironfit/i, '/GymFIT');
+        if (!targetPath.endsWith('/')) targetPath += '/';
+        window.location.replace(window.location.origin + targetPath + queryAndHash);
+      }
+
+      // 2. Normalizes GitHub Pages path to include trailing slash (/GymFIT/) so PWA manifest scope is isolated
+      var repoMatch = window.location.pathname.match(/^\/(GymFIT)$/i);
+      if (window.location.hostname.endsWith('github.io') && repoMatch) {
+        window.location.replace('/' + repoMatch[1] + '/' + window.location.search + window.location.hash);
+      }
+    </script>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
