@@ -340,6 +340,9 @@ This would also make use of your existing activity history and performance estim
 
 I would avoid building one enormous periodisation algorithm. Instead, create a hierarchy of independent but connected components.
 
+<img width="777" height="724" alt="image" src="https://github.com/user-attachments/assets/6f2f1cc6-f470-407a-a4c5-6b816ab1f88a" />
+
+
 Season / Annual Plan
 
 Overall objectives, races, priorities and performance goals
