@@ -63,3 +63,23 @@ export interface CrossCorrelationSummary {
   trainingLoadVsNextRhrCorrelation?: number; // Pearson r
   keyTakeaways: string[];
 }
+
+export interface GarminSyncOptions {
+  email?: string;
+  password?: string;
+  sessionToken?: string;
+  weeks: number; // e.g. 2, 4, 8, 12
+  baselineRhr?: number; // defaults to 41
+  isDemo?: boolean;
+}
+
+export interface GarminSyncResponse {
+  success: boolean;
+  syncedDays: number;
+  weeks: number;
+  logs: DailyRecoveryLog[];
+  message: string;
+  error?: string;
+  mfaRequired?: boolean;
+}
+

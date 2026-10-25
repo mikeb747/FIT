@@ -21,6 +21,7 @@ import {
   Flame,
   Brain,
   Zap,
+  RotateCw,
 } from 'lucide-react';
 import type { DailyRecoveryLog, ReadinessScoreResult } from '../types/recovery';
 import type { AthleteProfile } from '../types/athlete';
@@ -28,6 +29,7 @@ import type { StravaActivity } from '../utils/stravaActivities';
 import { computeDailyReadiness, computeCrossCorrelations } from '../utils/readinessEngine';
 import { RecoveryLogModal } from './RecoveryLogModal';
 import { RecoveryCsvModal } from './RecoveryCsvModal';
+import { GarminSyncModal } from './GarminSyncModal';
 
 interface RecoveryViewProps {
   logs: DailyRecoveryLog[];
@@ -38,6 +40,7 @@ interface RecoveryViewProps {
   onImportLogs: (logs: DailyRecoveryLog[]) => void;
   onResetDefaults: () => void;
   onOpenAthleteSettings?: () => void;
+  theme?: 'light' | 'dark';
 }
 
 type ChartViewMode = 'sleep_rhr' | 'readiness_hrv' | 'training_stress';
@@ -51,13 +54,16 @@ export const RecoveryView: React.FC<RecoveryViewProps> = ({
   onImportLogs,
   onResetDefaults,
   onOpenAthleteSettings,
+  theme = 'dark',
 }) => {
   const [selectedChartMode, setSelectedChartMode] = useState<ChartViewMode>('sleep_rhr');
   const [isLogModalOpen, setIsLogModalOpen] = useState(false);
   const [editingLog, setEditingLog] = useState<DailyRecoveryLog | null>(null);
   const [isCsvModalOpen, setIsCsvModalOpen] = useState(false);
+  const [isGarminModalOpen, setIsGarminModalOpen] = useState(false);
   const [hoveredDataIndex, setHoveredDataIndex] = useState<number | null>(null);
 
+  const isLight = theme === 'light';
   const baselineRhr = athleteProfile.restingHeartRate || 41;
 
   // Chronologically sorted logs
@@ -80,7 +86,7 @@ export const RecoveryView: React.FC<RecoveryViewProps> = ({
         label: 'Primed / Optimal',
         accentColor: '#10b981',
         badgeBg: 'bg-emerald-500/15',
-        badgeText: 'text-emerald-400',
+        badgeText: 'text-emerald-500',
         hrvStatus: 'balanced',
         hrvBaseline7d: 78,
         hrvStdDev7d: 6,
@@ -90,7 +96,7 @@ export const RecoveryView: React.FC<RecoveryViewProps> = ({
         sleepQualityRating: 'optimal',
         sleepAvg7dMinutes: 480,
         sleepScoreAvg7d: 88,
-        trainingRecommendation: 'No logs yet. Please log your morning metrics.',
+        trainingRecommendation: 'No logs yet. Please log or sync your morning Garmin metrics.',
         recommendedIntensity: 'High / Threshold & Intervals',
         subscores: { hrvScore: 85, sleepScore: 85, rhrScore: 90, loadModifier: 0 },
         insights: [],
@@ -110,7 +116,6 @@ export const RecoveryView: React.FC<RecoveryViewProps> = ({
     stravaActivities.forEach((act) => {
       if (act.start_date) {
         const d = act.start_date.split('T')[0];
-        // estimate TSS if not explicit (rough 50 TSS/hr)
         const tss = act.suffer_score || Math.round((act.moving_time / 3600) * 55);
         map[d] = (map[d] || 0) + tss;
       }
@@ -144,7 +149,11 @@ export const RecoveryView: React.FC<RecoveryViewProps> = ({
       const parts = dateStr.split('-');
       if (parts.length === 3) {
         const d = new Date(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2]));
-        return d.toLocaleDateString(undefined, { weekday: 'short', month: 'numeric', day: 'numeric' });
+        return d.toLocaleDateString(undefined, {
+          weekday: 'short',
+          month: 'numeric',
+          day: 'numeric',
+        });
       }
       return dateStr;
     } catch {
@@ -157,28 +166,54 @@ export const RecoveryView: React.FC<RecoveryViewProps> = ({
       {/* ========================================================= */}
       {/* 1. TOP HEADER & ACTION BAR */}
       {/* ========================================================= */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-slate-900/50 border border-slate-800/80 rounded-2xl p-4 sm:p-5">
+      <div
+        className={`flex flex-col sm:flex-row sm:items-center justify-between gap-4 rounded-2xl p-4 sm:p-5 border transition-colors ${
+          isLight
+            ? 'bg-white border-slate-200 shadow-xs'
+            : 'bg-slate-900/50 border-slate-800/80'
+        }`}
+      >
         <div>
           <div className="flex items-center gap-2">
-            <h1 className="text-xl sm:text-2xl font-extrabold text-white tracking-tight">
-              Readiness & Recovery
+            <h1
+              className={`text-xl sm:text-2xl font-extrabold tracking-tight ${
+                isLight ? 'text-slate-900' : 'text-white'
+              }`}
+            >
+              Readiness &amp; Recovery
             </h1>
-            <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-sky-500/10 border border-sky-500/20 text-sky-400">
-              Garmin & TrainingPeaks
+            <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-sky-500/10 border border-sky-500/20 text-sky-500">
+              Garmin &amp; TrainingPeaks
             </span>
           </div>
-          <p className="text-xs sm:text-sm text-slate-400 mt-1">
-            Cross-correlate Sleep duration, Sleep stages (REM/Deep), Morning RHR (baseline: {baselineRhr} bpm), and HRV.
+          <p className={`text-xs sm:text-sm mt-1 ${isLight ? 'text-slate-600' : 'text-slate-400'}`}>
+            Cross-correlate Sleep duration, Sleep stages (REM/Deep), Morning RHR (baseline:{' '}
+            {baselineRhr} bpm), and HRV.
           </p>
         </div>
 
         <div className="flex items-center gap-2 flex-wrap">
+          {/* Garmin Connect Automated Multi-Week Sync Button */}
+          <button
+            type="button"
+            onClick={() => setIsGarminModalOpen(true)}
+            className="px-3 py-2 rounded-xl text-xs font-bold bg-sky-500 hover:bg-sky-400 text-slate-950 flex items-center gap-1.5 transition-all cursor-pointer shadow-md shadow-sky-500/20"
+            title="Connect Garmin Connect & automatically pull weeks of recovery metrics"
+          >
+            <RotateCw className="w-3.5 h-3.5 text-slate-950" />
+            <span>Garmin Sync</span>
+          </button>
+
           <button
             type="button"
             onClick={() => setIsCsvModalOpen(true)}
-            className="px-3 py-2 rounded-xl text-xs font-semibold bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700/80 flex items-center gap-1.5 transition-colors cursor-pointer"
+            className={`px-3 py-2 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer border ${
+              isLight
+                ? 'bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-200'
+                : 'bg-slate-800 hover:bg-slate-700 text-slate-200 border-slate-700/80'
+            }`}
           >
-            <FileSpreadsheet className="w-3.5 h-3.5 text-sky-400" />
+            <FileSpreadsheet className="w-3.5 h-3.5 text-sky-500" />
             <span>Import / CSV</span>
           </button>
 
@@ -190,7 +225,7 @@ export const RecoveryView: React.FC<RecoveryViewProps> = ({
             }}
             className="px-4 py-2 rounded-xl text-xs font-bold bg-emerald-500 hover:bg-emerald-400 text-slate-950 flex items-center gap-1.5 transition-all cursor-pointer shadow-lg shadow-emerald-500/20"
           >
-            <Plus className="w-4 h-4" />
+            <Plus className="w-4 h-4 text-slate-950" />
             <span>Log Morning Stats</span>
           </button>
         </div>
@@ -200,8 +235,14 @@ export const RecoveryView: React.FC<RecoveryViewProps> = ({
       {/* 2. TODAY'S READINESS HERO & PILLARS */}
       {/* ========================================================= */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
-        {/* Main Readiness Score Card */}
-        <div className="lg:col-span-5 bg-gradient-to-br from-[#0f121d] to-[#090b12] border border-slate-800 rounded-2xl p-5 flex flex-col justify-between shadow-xl relative overflow-hidden">
+        {/* Main Readiness Score Card (Daily Training Readiness) */}
+        <div
+          className={`lg:col-span-5 rounded-2xl p-5 flex flex-col justify-between relative overflow-hidden transition-colors border ${
+            isLight
+              ? 'bg-white border-slate-200 text-slate-900 shadow-sm'
+              : 'bg-gradient-to-br from-[#0f121d] to-[#090b12] border-slate-800 text-white shadow-xl'
+          }`}
+        >
           {/* Subtle background glow */}
           <div
             className="absolute top-0 right-0 w-48 h-48 rounded-full blur-3xl opacity-20 pointer-events-none"
@@ -209,8 +250,12 @@ export const RecoveryView: React.FC<RecoveryViewProps> = ({
           />
 
           <div className="flex items-center justify-between">
-            <span className="text-xs font-bold uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
-              <Zap className="w-4 h-4 text-amber-400" />
+            <span
+              className={`text-xs font-bold uppercase tracking-wider flex items-center gap-1.5 ${
+                isLight ? 'text-slate-500' : 'text-slate-400'
+              }`}
+            >
+              <Zap className="w-4 h-4 text-amber-500" />
               Daily Training Readiness
             </span>
             <span
@@ -232,7 +277,7 @@ export const RecoveryView: React.FC<RecoveryViewProps> = ({
                   stroke="currentColor"
                   strokeWidth="8"
                   fill="transparent"
-                  className="text-slate-800"
+                  className={isLight ? 'text-slate-100' : 'text-slate-800'}
                 />
                 {/* Progress Circle */}
                 <circle
@@ -249,28 +294,55 @@ export const RecoveryView: React.FC<RecoveryViewProps> = ({
                 />
               </svg>
               <div className="absolute flex flex-col items-center justify-center text-center">
-                <span className="text-3xl font-extrabold text-white tracking-tight">
+                <span
+                  className={`text-3xl font-extrabold tracking-tight ${
+                    isLight ? 'text-slate-900' : 'text-white'
+                  }`}
+                >
                   {todayReadiness.score}
                 </span>
-                <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-widest">
+                <span
+                  className={`text-[10px] font-semibold uppercase tracking-widest ${
+                    isLight ? 'text-slate-400' : 'text-slate-500'
+                  }`}
+                >
                   / 100
                 </span>
               </div>
             </div>
 
             <div className="space-y-1.5 max-w-[160px]">
-              <span className="text-xs font-semibold text-slate-400 block">Recommended Focus:</span>
-              <span className="text-sm font-bold text-white leading-tight block">
+              <span
+                className={`text-xs font-semibold block ${
+                  isLight ? 'text-slate-500' : 'text-slate-400'
+                }`}
+              >
+                Recommended Focus:
+              </span>
+              <span
+                className={`text-sm font-bold leading-tight block ${
+                  isLight ? 'text-slate-900' : 'text-white'
+                }`}
+              >
                 {todayReadiness.recommendedIntensity}
               </span>
-              <span className="text-[11px] text-slate-400 block">
-                Date: <strong className="text-slate-200">{latestLog?.date || 'Today'}</strong>
+              <span className={`text-[11px] block ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>
+                Date:{' '}
+                <strong className={isLight ? 'text-slate-800' : 'text-slate-200'}>
+                  {latestLog?.date || 'Today'}
+                </strong>
               </span>
             </div>
           </div>
 
           {/* Actionable Training Prescription Banner */}
-          <div className="p-3 rounded-xl bg-slate-950/60 border border-slate-800/80 text-xs text-slate-300 leading-relaxed">
+          <div
+            className={`p-3 rounded-xl border text-xs leading-relaxed ${
+              isLight
+                ? 'bg-slate-50 border-slate-200 text-slate-700'
+                : 'bg-slate-950/60 border-slate-800/80 text-slate-300'
+            }`}
+          >
             {todayReadiness.trainingRecommendation}
           </div>
         </div>
@@ -278,27 +350,37 @@ export const RecoveryView: React.FC<RecoveryViewProps> = ({
         {/* 4 Diagnostic Health & Sleep Pillar Cards */}
         <div className="lg:col-span-7 grid grid-cols-1 sm:grid-cols-2 gap-4">
           {/* Card 1: Morning Resting HR */}
-          <div className="bg-slate-900/60 border border-slate-800 rounded-2xl p-4 flex flex-col justify-between">
+          <div
+            className={`border rounded-2xl p-4 flex flex-col justify-between transition-colors ${
+              isLight ? 'bg-white border-slate-200 shadow-xs' : 'bg-slate-900/60 border-slate-800'
+            }`}
+          >
             <div className="flex items-center justify-between">
-              <span className="text-xs font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
-                <Heart className="w-4 h-4 text-rose-400" />
+              <span
+                className={`text-xs font-bold uppercase tracking-wider flex items-center gap-1.5 ${
+                  isLight ? 'text-slate-500' : 'text-slate-400'
+                }`}
+              >
+                <Heart className="w-4 h-4 text-rose-500" />
                 Resting Heart Rate
               </span>
-              <span className="text-[11px] text-slate-500">Baseline: {baselineRhr} bpm</span>
+              <span className="text-[11px] text-slate-400">Baseline: {baselineRhr} bpm</span>
             </div>
 
             <div className="my-2 flex items-baseline gap-2">
-              <span className="text-2xl font-extrabold text-white">
+              <span
+                className={`text-2xl font-extrabold ${isLight ? 'text-slate-900' : 'text-white'}`}
+              >
                 {latestLog ? latestLog.restingHr : baselineRhr}
               </span>
               <span className="text-xs text-slate-400 font-semibold">bpm</span>
               <span
                 className={`ml-auto text-xs font-bold px-2 py-0.5 rounded-md ${
                   todayReadiness.rhrDelta <= 0
-                    ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
+                    ? 'bg-emerald-500/10 text-emerald-500 border border-emerald-500/20'
                     : todayReadiness.rhrDelta <= 2
-                    ? 'bg-sky-500/10 text-sky-400 border border-sky-500/20'
-                    : 'bg-amber-500/10 text-amber-400 border border-amber-500/20'
+                    ? 'bg-sky-500/10 text-sky-500 border border-sky-500/20'
+                    : 'bg-amber-500/10 text-amber-500 border border-amber-500/20'
                 }`}
               >
                 {todayReadiness.rhrDelta > 0
@@ -309,85 +391,154 @@ export const RecoveryView: React.FC<RecoveryViewProps> = ({
               </span>
             </div>
 
-            <div className="text-[11px] text-slate-400 border-t border-slate-800/60 pt-2 flex items-center justify-between">
-              <span>7-Day Average: <strong className="text-slate-200">{todayReadiness.rhr7dAvg} bpm</strong></span>
-              <span className="text-slate-500">{todayReadiness.rhrDelta <= 2 ? 'Calm tone' : 'Elevated strain'}</span>
+            <div
+              className={`text-[11px] border-t pt-2 flex items-center justify-between ${
+                isLight ? 'border-slate-100 text-slate-500' : 'border-slate-800/60 text-slate-400'
+              }`}
+            >
+              <span>
+                7-Day Average:{' '}
+                <strong className={isLight ? 'text-slate-800' : 'text-slate-200'}>
+                  {todayReadiness.rhr7dAvg} bpm
+                </strong>
+              </span>
+              <span className="text-slate-400">
+                {todayReadiness.rhrDelta <= 2 ? 'Calm tone' : 'Elevated strain'}
+              </span>
             </div>
           </div>
 
           {/* Card 2: Overnight HRV (rMSSD) */}
-          <div className="bg-slate-900/60 border border-slate-800 rounded-2xl p-4 flex flex-col justify-between">
+          <div
+            className={`border rounded-2xl p-4 flex flex-col justify-between transition-colors ${
+              isLight ? 'bg-white border-slate-200 shadow-xs' : 'bg-slate-900/60 border-slate-800'
+            }`}
+          >
             <div className="flex items-center justify-between">
-              <span className="text-xs font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
-                <Activity className="w-4 h-4 text-purple-400" />
+              <span
+                className={`text-xs font-bold uppercase tracking-wider flex items-center gap-1.5 ${
+                  isLight ? 'text-slate-500' : 'text-slate-400'
+                }`}
+              >
+                <Activity className="w-4 h-4 text-purple-500" />
                 Overnight HRV (rMSSD)
               </span>
-              <span className="text-[11px] text-slate-500">Autonomic Balance</span>
+              <span className="text-[11px] text-slate-400">Autonomic Balance</span>
             </div>
 
             <div className="my-2 flex items-baseline gap-2">
-              <span className="text-2xl font-extrabold text-purple-400">
+              <span
+                className={`text-2xl font-extrabold ${
+                  isLight ? 'text-purple-600' : 'text-purple-400'
+                }`}
+              >
                 {latestLog ? latestLog.hrvRmssd : 78}
               </span>
               <span className="text-xs text-slate-400 font-semibold">ms</span>
               <span
                 className={`ml-auto text-xs font-bold px-2 py-0.5 rounded-md capitalize ${
                   todayReadiness.hrvStatus === 'balanced'
-                    ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
+                    ? 'bg-emerald-500/10 text-emerald-500 border border-emerald-500/20'
                     : todayReadiness.hrvStatus === 'low'
-                    ? 'bg-rose-500/10 text-rose-400 border border-rose-500/20'
-                    : 'bg-amber-500/10 text-amber-400 border border-amber-500/20'
+                    ? 'bg-rose-500/10 text-rose-500 border border-rose-500/20'
+                    : 'bg-amber-500/10 text-amber-500 border border-amber-500/20'
                 }`}
               >
                 {todayReadiness.hrvStatus}
               </span>
             </div>
 
-            <div className="text-[11px] text-slate-400 border-t border-slate-800/60 pt-2 flex items-center justify-between">
+            <div
+              className={`text-[11px] border-t pt-2 flex items-center justify-between ${
+                isLight ? 'border-slate-100 text-slate-500' : 'border-slate-800/60 text-slate-400'
+              }`}
+            >
               <span>
-                7d Baseline: <strong className="text-slate-200">{todayReadiness.hrvBaseline7d} ms</strong> (±{todayReadiness.hrvStdDev7d})
+                7d Baseline:{' '}
+                <strong className={isLight ? 'text-slate-800' : 'text-slate-200'}>
+                  {todayReadiness.hrvBaseline7d} ms
+                </strong>{' '}
+                (±{todayReadiness.hrvStdDev7d})
               </span>
-              <span className={todayReadiness.hrvDelta >= 0 ? 'text-emerald-400' : 'text-slate-400'}>
-                {todayReadiness.hrvDelta >= 0 ? `+${todayReadiness.hrvDelta} ms` : `${todayReadiness.hrvDelta} ms`}
+              <span
+                className={
+                  todayReadiness.hrvDelta >= 0 ? 'text-emerald-500 font-semibold' : 'text-slate-400'
+                }
+              >
+                {todayReadiness.hrvDelta >= 0
+                  ? `+${todayReadiness.hrvDelta} ms`
+                  : `${todayReadiness.hrvDelta} ms`}
               </span>
             </div>
           </div>
 
           {/* Card 3: Sleep Duration & Score */}
-          <div className="bg-slate-900/60 border border-slate-800 rounded-2xl p-4 flex flex-col justify-between">
+          <div
+            className={`border rounded-2xl p-4 flex flex-col justify-between transition-colors ${
+              isLight ? 'bg-white border-slate-200 shadow-xs' : 'bg-slate-900/60 border-slate-800'
+            }`}
+          >
             <div className="flex items-center justify-between">
-              <span className="text-xs font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
-                <Moon className="w-4 h-4 text-sky-400" />
-                Sleep Duration & Score
+              <span
+                className={`text-xs font-bold uppercase tracking-wider flex items-center gap-1.5 ${
+                  isLight ? 'text-slate-500' : 'text-slate-400'
+                }`}
+              >
+                <Moon className="w-4 h-4 text-sky-500" />
+                Sleep Duration &amp; Score
               </span>
-              <span className="text-[11px] text-sky-400 font-semibold">
+              <span className="text-[11px] text-sky-500 font-semibold">
                 Score: {latestLog ? latestLog.sleepScore : 88}/100
               </span>
             </div>
 
             <div className="my-2 flex items-baseline gap-2">
-              <span className="text-2xl font-extrabold text-white">
+              <span
+                className={`text-2xl font-extrabold ${isLight ? 'text-slate-900' : 'text-white'}`}
+              >
                 {latestLog ? formatMinutesToHhMm(latestLog.sleepDurationMinutes) : '8h 00m'}
               </span>
-              <span className="ml-auto text-xs font-bold text-sky-400 bg-sky-500/10 px-2 py-0.5 rounded-md border border-sky-500/20 capitalize">
+              <span className="ml-auto text-xs font-bold text-sky-500 bg-sky-500/10 px-2 py-0.5 rounded-md border border-sky-500/20 capitalize">
                 {todayReadiness.sleepQualityRating}
               </span>
             </div>
 
-            <div className="text-[11px] text-slate-400 border-t border-slate-800/60 pt-2 flex items-center justify-between">
-              <span>7d Avg: <strong className="text-slate-200">{formatMinutesToHhMm(todayReadiness.sleepAvg7dMinutes)}</strong></span>
-              <span>Avg Score: <strong className="text-slate-200">{todayReadiness.sleepScoreAvg7d}</strong></span>
+            <div
+              className={`text-[11px] border-t pt-2 flex items-center justify-between ${
+                isLight ? 'border-slate-100 text-slate-500' : 'border-slate-800/60 text-slate-400'
+              }`}
+            >
+              <span>
+                7d Avg:{' '}
+                <strong className={isLight ? 'text-slate-800' : 'text-slate-200'}>
+                  {formatMinutesToHhMm(todayReadiness.sleepAvg7dMinutes)}
+                </strong>
+              </span>
+              <span>
+                Avg Score:{' '}
+                <strong className={isLight ? 'text-slate-800' : 'text-slate-200'}>
+                  {todayReadiness.sleepScoreAvg7d}
+                </strong>
+              </span>
             </div>
           </div>
 
           {/* Card 4: Sleep Architecture (Deep & REM) */}
-          <div className="bg-slate-900/60 border border-slate-800 rounded-2xl p-4 flex flex-col justify-between">
+          <div
+            className={`border rounded-2xl p-4 flex flex-col justify-between transition-colors ${
+              isLight ? 'bg-white border-slate-200 shadow-xs' : 'bg-slate-900/60 border-slate-800'
+            }`}
+          >
             <div className="flex items-center justify-between">
-              <span className="text-xs font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
-                <Brain className="w-4 h-4 text-indigo-400" />
-                Deep & REM Architecture
+              <span
+                className={`text-xs font-bold uppercase tracking-wider flex items-center gap-1.5 ${
+                  isLight ? 'text-slate-500' : 'text-slate-400'
+                }`}
+              >
+                <Brain className="w-4 h-4 text-indigo-500" />
+                Deep &amp; REM Architecture
               </span>
-              <span className="text-[11px] text-indigo-400 font-semibold">
+              <span className="text-[11px] text-indigo-500 font-semibold">
                 {latestLog ? `${latestLog.deepSleepMinutes}m Deep` : '85m Deep'}
               </span>
             </div>
@@ -395,7 +546,11 @@ export const RecoveryView: React.FC<RecoveryViewProps> = ({
             {/* Visual stage bar */}
             {latestLog && (
               <div className="my-2">
-                <div className="w-full h-3 bg-slate-950 rounded-full overflow-hidden flex">
+                <div
+                  className={`w-full h-3 rounded-full overflow-hidden flex ${
+                    isLight ? 'bg-slate-100' : 'bg-slate-950'
+                  }`}
+                >
                   <div
                     style={{
                       width: `${(latestLog.deepSleepMinutes / latestLog.sleepDurationMinutes) * 100}%`,
@@ -414,7 +569,7 @@ export const RecoveryView: React.FC<RecoveryViewProps> = ({
                     style={{
                       width: `${(latestLog.lightSleepMinutes / latestLog.sleepDurationMinutes) * 100}%`,
                     }}
-                    className="bg-slate-600 h-full"
+                    className="bg-slate-400 dark:bg-slate-600 h-full"
                     title={`Light: ${latestLog.lightSleepMinutes}m`}
                   />
                   <div
@@ -426,19 +581,31 @@ export const RecoveryView: React.FC<RecoveryViewProps> = ({
                   />
                 </div>
                 <div className="flex items-center justify-between text-[10px] text-slate-400 mt-1">
-                  <span className="text-indigo-400 font-bold">Deep {latestLog.deepSleepMinutes}m</span>
-                  <span className="text-cyan-400 font-bold">REM {latestLog.remSleepMinutes}m</span>
+                  <span className="text-indigo-500 font-bold">Deep {latestLog.deepSleepMinutes}m</span>
+                  <span className="text-cyan-500 font-bold">REM {latestLog.remSleepMinutes}m</span>
                   <span className="text-slate-400">Light {latestLog.lightSleepMinutes}m</span>
-                  <span className="text-rose-400">{latestLog.awakeMinutes}m awake</span>
+                  <span className="text-rose-500">{latestLog.awakeMinutes}m awake</span>
                 </div>
               </div>
             )}
 
-            <div className="text-[11px] text-slate-400 border-t border-slate-800/60 pt-2 flex items-center justify-between">
-              <span>Deep %: <strong className="text-slate-200">
-                {latestLog ? Math.round((latestLog.deepSleepMinutes / latestLog.sleepDurationMinutes) * 100) : 18}%
-              </strong></span>
-              <span className="text-emerald-400 font-semibold">Tissue Recovery</span>
+            <div
+              className={`text-[11px] border-t pt-2 flex items-center justify-between ${
+                isLight ? 'border-slate-100 text-slate-500' : 'border-slate-800/60 text-slate-400'
+              }`}
+            >
+              <span>
+                Deep %:{' '}
+                <strong className={isLight ? 'text-slate-800' : 'text-slate-200'}>
+                  {latestLog
+                    ? Math.round(
+                        (latestLog.deepSleepMinutes / latestLog.sleepDurationMinutes) * 100
+                      )
+                    : 18}
+                  %
+                </strong>
+              </span>
+              <span className="text-emerald-500 font-semibold">Tissue Recovery</span>
             </div>
           </div>
         </div>
@@ -447,48 +614,77 @@ export const RecoveryView: React.FC<RecoveryViewProps> = ({
       {/* ========================================================= */}
       {/* 3. INTERACTIVE CROSS-CORRELATION CHARTS */}
       {/* ========================================================= */}
-      <div className="bg-slate-900/60 border border-slate-800 rounded-2xl p-4 sm:p-5 space-y-4">
+      <div
+        className={`border rounded-2xl p-4 sm:p-5 space-y-4 transition-colors ${
+          isLight ? 'bg-white border-slate-200 shadow-xs' : 'bg-slate-900/60 border-slate-800'
+        }`}
+      >
         {/* Chart Mode Controls */}
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-2 border-b border-slate-800">
+        <div
+          className={`flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-2 border-b ${
+            isLight ? 'border-slate-200' : 'border-slate-800'
+          }`}
+        >
           <div>
-            <h2 className="text-base font-bold text-white flex items-center gap-2">
-              <TrendingUp className="w-4 h-4 text-sky-400" />
-              Cross-Correlation & Physiological Trends
+            <h2
+              className={`text-base font-bold flex items-center gap-2 ${
+                isLight ? 'text-slate-900' : 'text-white'
+              }`}
+            >
+              <TrendingUp className="w-4 h-4 text-sky-500" />
+              Cross-Correlation &amp; Physiological Trends
             </h2>
-            <p className="text-xs text-slate-400">
-              Correlating sleep stages and volume with morning resting HR (baseline 41 bpm) and overnight HRV
+            <p className={`text-xs ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>
+              Correlating sleep stages and volume with morning resting HR (baseline {baselineRhr} bpm)
+              and overnight HRV
             </p>
           </div>
 
-          <div className="flex items-center gap-1 bg-slate-950 p-1 rounded-xl border border-slate-800 self-start sm:self-auto">
+          <div
+            className={`flex items-center gap-1 p-1 rounded-xl border self-start sm:self-auto ${
+              isLight ? 'bg-slate-100 border-slate-200' : 'bg-slate-950 border-slate-800'
+            }`}
+          >
             <button
               type="button"
               onClick={() => setSelectedChartMode('sleep_rhr')}
               className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
                 selectedChartMode === 'sleep_rhr'
-                  ? 'bg-slate-800 text-sky-400 shadow-sm'
+                  ? isLight
+                    ? 'bg-white text-sky-600 shadow-xs border border-slate-200'
+                    : 'bg-slate-800 text-sky-400 shadow-sm'
+                  : isLight
+                  ? 'text-slate-500 hover:text-slate-900'
                   : 'text-slate-400 hover:text-slate-200'
               }`}
             >
-              Sleep & Morning RHR
+              Sleep &amp; Morning RHR
             </button>
             <button
               type="button"
               onClick={() => setSelectedChartMode('readiness_hrv')}
               className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
                 selectedChartMode === 'readiness_hrv'
-                  ? 'bg-slate-800 text-purple-400 shadow-sm'
+                  ? isLight
+                    ? 'bg-white text-purple-600 shadow-xs border border-slate-200'
+                    : 'bg-slate-800 text-purple-400 shadow-sm'
+                  : isLight
+                  ? 'text-slate-500 hover:text-slate-900'
                   : 'text-slate-400 hover:text-slate-200'
               }`}
             >
-              Readiness & HRV
+              Readiness &amp; HRV
             </button>
             <button
               type="button"
               onClick={() => setSelectedChartMode('training_stress')}
               className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
                 selectedChartMode === 'training_stress'
-                  ? 'bg-slate-800 text-orange-400 shadow-sm'
+                  ? isLight
+                    ? 'bg-white text-orange-600 shadow-xs border border-slate-200'
+                    : 'bg-slate-800 text-orange-400 shadow-sm'
+                  : isLight
+                  ? 'text-slate-500 hover:text-slate-900'
                   : 'text-slate-400 hover:text-slate-200'
               }`}
             >
@@ -501,41 +697,41 @@ export const RecoveryView: React.FC<RecoveryViewProps> = ({
         <div className="flex flex-wrap items-center gap-4 text-xs">
           {selectedChartMode === 'sleep_rhr' && (
             <>
-              <div className="flex items-center gap-1.5 text-indigo-400">
+              <div className="flex items-center gap-1.5 text-indigo-500 font-medium">
                 <span className="w-3 h-3 rounded bg-indigo-500 inline-block" />
                 <span>Deep Sleep (Physical)</span>
               </div>
-              <div className="flex items-center gap-1.5 text-cyan-400">
+              <div className="flex items-center gap-1.5 text-cyan-500 font-medium">
                 <span className="w-3 h-3 rounded bg-cyan-400 inline-block" />
                 <span>REM Sleep (Neural)</span>
               </div>
-              <div className="flex items-center gap-1.5 text-slate-400">
-                <span className="w-3 h-3 rounded bg-slate-600 inline-block" />
+              <div className="flex items-center gap-1.5 text-slate-500 font-medium">
+                <span className="w-3 h-3 rounded bg-slate-400 dark:bg-slate-600 inline-block" />
                 <span>Light Sleep</span>
               </div>
-              <div className="flex items-center gap-1.5 text-rose-400">
-                <span className="w-3 h-0.5 bg-rose-400 inline-block" />
-                <span className="font-bold">Morning RHR (bpm)</span>
+              <div className="flex items-center gap-1.5 text-rose-500 font-bold">
+                <span className="w-3 h-0.5 bg-rose-500 inline-block" />
+                <span>Morning RHR (bpm)</span>
               </div>
-              <div className="flex items-center gap-1.5 text-slate-500 text-[11px]">
-                <span className="w-3 h-0.5 border-t border-dashed border-slate-500 inline-block" />
-                <span>41 bpm Baseline</span>
+              <div className="flex items-center gap-1.5 text-slate-400 text-[11px]">
+                <span className="w-3 h-0.5 border-t border-dashed border-slate-400 inline-block" />
+                <span>{baselineRhr} bpm Baseline</span>
               </div>
             </>
           )}
 
           {selectedChartMode === 'readiness_hrv' && (
             <>
-              <div className="flex items-center gap-1.5 text-emerald-400">
-                <span className="w-3 h-0.5 bg-emerald-400 inline-block" />
-                <span className="font-bold">Readiness Score (0-100)</span>
+              <div className="flex items-center gap-1.5 text-emerald-500 font-bold">
+                <span className="w-3 h-0.5 bg-emerald-500 inline-block" />
+                <span>Readiness Score (0-100)</span>
+              </div>
+              <div className="flex items-center gap-1.5 text-purple-500 font-bold">
+                <span className="w-3 h-0.5 bg-purple-500 inline-block" />
+                <span>Overnight HRV rMSSD (ms)</span>
               </div>
               <div className="flex items-center gap-1.5 text-purple-400">
-                <span className="w-3 h-0.5 bg-purple-400 inline-block" />
-                <span className="font-bold">Overnight HRV rMSSD (ms)</span>
-              </div>
-              <div className="flex items-center gap-1.5 text-purple-400/60">
-                <span className="w-3 h-3 rounded bg-purple-500/20 inline-block" />
+                <span className="w-3 h-3 rounded bg-purple-500/20 inline-block border border-purple-500/30" />
                 <span>7-Day HRV Baseline Corridor</span>
               </div>
             </>
@@ -543,16 +739,16 @@ export const RecoveryView: React.FC<RecoveryViewProps> = ({
 
           {selectedChartMode === 'training_stress' && (
             <>
-              <div className="flex items-center gap-1.5 text-orange-400">
+              <div className="flex items-center gap-1.5 text-orange-500 font-semibold">
                 <span className="w-3 h-3 rounded bg-orange-500 inline-block" />
                 <span>Strava Activity TSS</span>
               </div>
-              <div className="flex items-center gap-1.5 text-rose-400">
-                <span className="w-3 h-0.5 bg-rose-400 inline-block" />
+              <div className="flex items-center gap-1.5 text-rose-500 font-semibold">
+                <span className="w-3 h-0.5 bg-rose-500 inline-block" />
                 <span>Next-Day Morning RHR</span>
               </div>
-              <div className="flex items-center gap-1.5 text-emerald-400">
-                <span className="w-3 h-0.5 bg-emerald-400 inline-block" />
+              <div className="flex items-center gap-1.5 text-emerald-500 font-semibold">
+                <span className="w-3 h-0.5 bg-emerald-500 inline-block" />
                 <span>Readiness</span>
               </div>
             </>
@@ -560,35 +756,74 @@ export const RecoveryView: React.FC<RecoveryViewProps> = ({
         </div>
 
         {/* SVG Chart Canvas */}
-        <div className="relative bg-slate-950/60 border border-slate-800/80 rounded-xl p-3 sm:p-4 overflow-hidden">
+        <div
+          className={`relative rounded-xl p-3 sm:p-4 overflow-hidden border ${
+            isLight
+              ? 'bg-slate-50/70 border-slate-200'
+              : 'bg-slate-950/60 border-slate-800/80'
+          }`}
+        >
           {chartDays.length === 0 ? (
             <div className="py-16 text-center text-slate-400 text-sm">
-              No historical data available. Please log or import daily entries.
+              No historical data available. Please log or sync daily entries.
             </div>
           ) : (
             <div className="w-full h-64 sm:h-72">
               <svg className="w-full h-full overflow-visible" viewBox="0 0 800 240">
                 {/* Grid Lines */}
-                <line x1="40" y1="30" x2="760" y2="30" stroke="#1e293b" strokeDasharray="3 3" />
-                <line x1="40" y1="80" x2="760" y2="80" stroke="#1e293b" strokeDasharray="3 3" />
-                <line x1="40" y1="130" x2="760" y2="130" stroke="#1e293b" strokeDasharray="3 3" />
-                <line x1="40" y1="180" x2="760" y2="180" stroke="#1e293b" strokeDasharray="3 3" />
+                <line
+                  x1="40"
+                  y1="30"
+                  x2="760"
+                  y2="30"
+                  stroke={isLight ? '#e2e8f0' : '#1e293b'}
+                  strokeDasharray="3 3"
+                />
+                <line
+                  x1="40"
+                  y1="80"
+                  x2="760"
+                  y2="80"
+                  stroke={isLight ? '#e2e8f0' : '#1e293b'}
+                  strokeDasharray="3 3"
+                />
+                <line
+                  x1="40"
+                  y1="130"
+                  x2="760"
+                  y2="130"
+                  stroke={isLight ? '#e2e8f0' : '#1e293b'}
+                  strokeDasharray="3 3"
+                />
+                <line
+                  x1="40"
+                  y1="180"
+                  x2="760"
+                  y2="180"
+                  stroke={isLight ? '#e2e8f0' : '#1e293b'}
+                  strokeDasharray="3 3"
+                />
 
                 {/* 41 bpm Baseline Reference Line (when mode is sleep_rhr) */}
                 {selectedChartMode === 'sleep_rhr' && (
                   <>
-                    {/* Maps 41 bpm: e.g. RHR scale 38 to 48 -> y coordinate */}
                     <line
                       x1="40"
                       y1="140"
                       x2="760"
                       y2="140"
-                      stroke="#475569"
+                      stroke={isLight ? '#94a3b8' : '#475569'}
                       strokeWidth="1.5"
                       strokeDasharray="4 4"
                     />
-                    <text x="765" y="144" fill="#64748b" fontSize="10" fontWeight="bold">
-                      41 bpm
+                    <text
+                      x="765"
+                      y="144"
+                      fill={isLight ? '#475569' : '#64748b'}
+                      fontSize="10"
+                      fontWeight="bold"
+                    >
+                      {baselineRhr} bpm
                     </text>
                   </>
                 )}
@@ -598,66 +833,63 @@ export const RecoveryView: React.FC<RecoveryViewProps> = ({
                   <>
                     {/* Sleep Bars */}
                     {chartDays.map((item, idx) => {
-                      const totalBars = chartDays.length;
-                      const step = (720 / Math.max(1, totalBars));
-                      const barWidth = Math.min(32, step * 0.65);
+                      const step = 720 / Math.max(1, chartDays.length);
                       const x = 50 + idx * step;
+                      const barWidth = Math.min(26, step * 0.6);
 
-                      // Sleep scale: 0 to 600 min (10 hours) mapped to 180 height
-                      const scale = 180 / 580;
-                      const deepH = item.log.deepSleepMinutes * scale;
-                      const remH = item.log.remSleepMinutes * scale;
-                      const lightH = item.log.lightSleepMinutes * scale;
+                      const totalMin = Math.max(180, item.log.sleepDurationMinutes);
+                      const maxChartMin = 600; // 10 hrs
+                      const totalBarHeight = (totalMin / maxChartMin) * 150;
 
-                      const baseFloor = 200;
-                      const yDeep = baseFloor - deepH;
-                      const yRem = yDeep - remH;
-                      const yLight = yRem - lightH;
+                      const deepH = (item.log.deepSleepMinutes / totalMin) * totalBarHeight;
+                      const remH = (item.log.remSleepMinutes / totalMin) * totalBarHeight;
+                      const lightH = (item.log.lightSleepMinutes / totalMin) * totalBarHeight;
+
+                      const baseY = 200;
+                      const deepY = baseY - deepH;
+                      const remY = deepY - remH;
+                      const lightY = remY - lightH;
 
                       return (
                         <g
-                          key={item.log.id}
-                          className="cursor-pointer group"
+                          key={`bar-${idx}`}
                           onMouseEnter={() => setHoveredDataIndex(idx)}
                           onMouseLeave={() => setHoveredDataIndex(null)}
+                          className="cursor-pointer"
                         >
-                          {/* Light */}
+                          {/* Deep sleep bottom segment */}
                           <rect
                             x={x - barWidth / 2}
-                            y={yLight}
-                            width={barWidth}
-                            height={lightH}
-                            fill="#475569"
-                            opacity={hoveredDataIndex === idx ? 0.9 : 0.7}
-                            rx="2"
-                          />
-                          {/* REM */}
-                          <rect
-                            x={x - barWidth / 2}
-                            y={yRem}
-                            width={barWidth}
-                            height={remH}
-                            fill="#22d3ee"
-                            opacity={hoveredDataIndex === idx ? 1 : 0.85}
-                          />
-                          {/* Deep */}
-                          <rect
-                            x={x - barWidth / 2}
-                            y={yDeep}
+                            y={deepY}
                             width={barWidth}
                             height={deepH}
                             fill="#6366f1"
-                            opacity={hoveredDataIndex === idx ? 1 : 0.9}
+                            rx="1"
+                          />
+                          {/* REM sleep middle segment */}
+                          <rect
+                            x={x - barWidth / 2}
+                            y={remY}
+                            width={barWidth}
+                            height={remH}
+                            fill="#22d3ee"
+                          />
+                          {/* Light sleep top segment */}
+                          <rect
+                            x={x - barWidth / 2}
+                            y={lightY}
+                            width={barWidth}
+                            height={lightH}
+                            fill={isLight ? '#94a3b8' : '#475569'}
                             rx="2"
                           />
-                          {/* Date Label */}
+                          {/* Date label at bottom */}
                           <text
                             x={x}
-                            y="222"
-                            fill="#64748b"
+                            y="220"
+                            fill={isLight ? '#64748b' : '#64748b'}
                             fontSize="9"
                             textAnchor="middle"
-                            fontWeight={hoveredDataIndex === idx ? 'bold' : 'normal'}
                           >
                             {formatDateLabel(item.log.date).split(' ')[0]}
                           </text>
@@ -665,138 +897,140 @@ export const RecoveryView: React.FC<RecoveryViewProps> = ({
                       );
                     })}
 
-                    {/* Morning RHR Line Overlay */}
+                    {/* Resting HR Polyline */}
                     {(() => {
-                      // Scale RHR from 38 to 48 bpm into y: 190 to 40
-                      const getRhrY = (bpm: number) => {
-                        const minBpm = 38;
-                        const maxBpm = 48;
-                        const clamped = Math.max(minBpm, Math.min(maxBpm, bpm));
-                        return 190 - ((clamped - minBpm) / (maxBpm - minBpm)) * 140;
-                      };
-
+                      const step = 720 / Math.max(1, chartDays.length);
                       const points = chartDays.map((item, idx) => {
-                        const step = 720 / Math.max(1, chartDays.length);
                         const x = 50 + idx * step;
-                        const y = getRhrY(item.log.restingHr);
-                        return { x, y, bpm: item.log.restingHr };
+                        // RHR mapped between 37 and 48 bpm to y 180 to 50
+                        const y = 180 - ((item.log.restingHr - 37) / 12) * 130;
+                        return `${x},${y}`;
                       });
-
-                      const pathD = points.reduce((acc, p, i) => `${acc} ${i === 0 ? 'M' : 'L'} ${p.x} ${p.y}`, '');
 
                       return (
                         <g>
-                          <path
-                            d={pathD}
+                          <polyline
                             fill="none"
                             stroke="#f43f5e"
                             strokeWidth="2.5"
                             strokeLinecap="round"
                             strokeLinejoin="round"
+                            points={points.join(' ')}
                           />
-                          {points.map((p, idx) => (
-                            <circle
-                              key={idx}
-                              cx={p.x}
-                              cy={p.y}
-                              r={hoveredDataIndex === idx ? 6 : 4}
-                              fill="#f43f5e"
-                              stroke="#090a0f"
-                              strokeWidth="2"
-                              className="transition-all"
-                            />
-                          ))}
+                          {chartDays.map((item, idx) => {
+                            const x = 50 + idx * step;
+                            const y = 180 - ((item.log.restingHr - 37) / 12) * 130;
+                            return (
+                              <g
+                                key={`rhr-pt-${idx}`}
+                                onMouseEnter={() => setHoveredDataIndex(idx)}
+                                onMouseLeave={() => setHoveredDataIndex(null)}
+                                className="cursor-pointer"
+                              >
+                                <circle
+                                  cx={x}
+                                  cy={y}
+                                  r="4"
+                                  fill="#f43f5e"
+                                  stroke={isLight ? '#ffffff' : '#090a0f'}
+                                  strokeWidth="2"
+                                />
+                                <text
+                                  x={x}
+                                  y={y - 8}
+                                  fill="#f43f5e"
+                                  fontSize="9"
+                                  fontWeight="bold"
+                                  textAnchor="middle"
+                                >
+                                  {item.log.restingHr}
+                                </text>
+                              </g>
+                            );
+                          })}
                         </g>
                       );
                     })()}
                   </>
                 )}
 
-                {/* Render Chart Mode 2: Readiness & HRV Corridor */}
+                {/* Render Chart Mode 2: Readiness & Overnight HRV */}
                 {selectedChartMode === 'readiness_hrv' && (
                   <>
-                    {/* HRV Corridor Area */}
                     {(() => {
                       const step = 720 / Math.max(1, chartDays.length);
-                      // HRV scale: 50 to 95 ms mapped to y: 190 to 30
-                      const getHrvY = (ms: number) => {
-                        const minMs = 50;
-                        const maxMs = 95;
-                        const clamped = Math.max(minMs, Math.min(maxMs, ms));
-                        return 190 - ((clamped - minMs) / (maxMs - minMs)) * 150;
-                      };
 
-                      const getReadinessY = (score: number) => {
-                        return 190 - (score / 100) * 150;
-                      };
+                      // HRV line points
+                      const hrvPoints = chartDays.map((item, idx) => {
+                        const x = 50 + idx * step;
+                        const y = 200 - ((item.log.hrvRmssd - 50) / 60) * 150;
+                        return `${x},${y}`;
+                      });
 
-                      const hrvPoints = chartDays.map((item, idx) => ({
-                        x: 50 + idx * step,
-                        y: getHrvY(item.log.hrvRmssd),
-                        ms: item.log.hrvRmssd,
-                      }));
-
-                      const readinessPoints = chartDays.map((item, idx) => ({
-                        x: 50 + idx * step,
-                        y: getReadinessY(item.readiness.score),
-                        score: item.readiness.score,
-                      }));
-
-                      const hrvPath = hrvPoints.reduce((acc, p, i) => `${acc} ${i === 0 ? 'M' : 'L'} ${p.x} ${p.y}`, '');
-                      const readinessPath = readinessPoints.reduce((acc, p, i) => `${acc} ${i === 0 ? 'M' : 'L'} ${p.x} ${p.y}`, '');
+                      // Readiness line points
+                      const readPoints = chartDays.map((item, idx) => {
+                        const x = 50 + idx * step;
+                        const y = 200 - (item.readiness.score / 100) * 150;
+                        return `${x},${y}`;
+                      });
 
                       return (
                         <g>
-                          {/* Readiness Line */}
-                          <path
-                            d={readinessPath}
+                          <polyline
                             fill="none"
                             stroke="#10b981"
                             strokeWidth="2.5"
                             strokeLinecap="round"
+                            strokeLinejoin="round"
+                            points={readPoints.join(' ')}
                           />
-                          {/* HRV Line */}
-                          <path
-                            d={hrvPath}
+                          <polyline
                             fill="none"
                             stroke="#c084fc"
                             strokeWidth="2"
-                            strokeDasharray="4 2"
                             strokeLinecap="round"
+                            strokeLinejoin="round"
+                            points={hrvPoints.join(' ')}
                           />
 
-                          {/* Data points */}
-                          {readinessPoints.map((p, idx) => (
-                            <circle
-                              key={`r_${idx}`}
-                              cx={p.x}
-                              cy={p.y}
-                              r={hoveredDataIndex === idx ? 6 : 4}
-                              fill="#10b981"
-                              stroke="#090a0f"
-                              strokeWidth="2"
-                            />
-                          ))}
+                          {chartDays.map((item, idx) => {
+                            const x = 50 + idx * step;
+                            const yHrv = 200 - ((item.log.hrvRmssd - 50) / 60) * 150;
+                            const yRead = 200 - (item.readiness.score / 100) * 150;
 
-                          {hrvPoints.map((p, idx) => (
-                            <circle
-                              key={`h_${idx}`}
-                              cx={p.x}
-                              cy={p.y}
-                              r={hoveredDataIndex === idx ? 5 : 3.5}
-                              fill="#c084fc"
-                              stroke="#090a0f"
-                              strokeWidth="1.5"
-                            />
-                          ))}
+                            return (
+                              <g
+                                key={`read-pt-${idx}`}
+                                onMouseEnter={() => setHoveredDataIndex(idx)}
+                                onMouseLeave={() => setHoveredDataIndex(null)}
+                                className="cursor-pointer"
+                              >
+                                <circle
+                                  cx={x}
+                                  cy={yRead}
+                                  r="4"
+                                  fill="#10b981"
+                                  stroke={isLight ? '#ffffff' : '#090a0f'}
+                                  strokeWidth="1.5"
+                                />
+                                <circle
+                                  cx={x}
+                                  cy={yHrv}
+                                  r="3.5"
+                                  fill="#c084fc"
+                                  stroke={isLight ? '#ffffff' : '#090a0f'}
+                                  strokeWidth="1.5"
+                                />
+                              </g>
+                            );
+                          })}
 
-                          {/* Date labels */}
                           {chartDays.map((item, idx) => (
                             <text
-                              key={idx}
+                              key={`date-${idx}`}
                               x={50 + idx * step}
                               y="222"
-                              fill="#64748b"
+                              fill={isLight ? '#64748b' : '#64748b'}
                               fontSize="9"
                               textAnchor="middle"
                             >
@@ -820,7 +1054,6 @@ export const RecoveryView: React.FC<RecoveryViewProps> = ({
                         <g>
                           {chartDays.map((item, idx) => {
                             const x = 50 + idx * step;
-                            // TSS scale 0 to 250 mapped to 130 height
                             const tssHeight = Math.min(140, (item.tss / 200) * 140);
                             const y = 200 - tssHeight;
 
@@ -838,7 +1071,7 @@ export const RecoveryView: React.FC<RecoveryViewProps> = ({
                                 <text
                                   x={x}
                                   y={y - 4}
-                                  fill="#fb923c"
+                                  fill="#f97316"
                                   fontSize="9"
                                   fontWeight="bold"
                                   textAnchor="middle"
@@ -848,7 +1081,7 @@ export const RecoveryView: React.FC<RecoveryViewProps> = ({
                                 <text
                                   x={x}
                                   y="222"
-                                  fill="#64748b"
+                                  fill={isLight ? '#64748b' : '#64748b'}
                                   fontSize="9"
                                   textAnchor="middle"
                                 >
@@ -868,26 +1101,35 @@ export const RecoveryView: React.FC<RecoveryViewProps> = ({
 
           {/* Hover Details Ribbon */}
           {hoveredDataIndex !== null && chartDays[hoveredDataIndex] && (
-            <div className="mt-2 p-2.5 rounded-lg bg-slate-900 border border-slate-700/80 flex flex-wrap items-center justify-between text-xs gap-3">
-              <span className="font-bold text-white">
+            <div
+              className={`mt-2 p-2.5 rounded-lg border flex flex-wrap items-center justify-between text-xs gap-3 ${
+                isLight
+                  ? 'bg-white border-slate-200 text-slate-800 shadow-md'
+                  : 'bg-slate-900 border-slate-700/80 text-white'
+              }`}
+            >
+              <span className={`font-bold ${isLight ? 'text-slate-900' : 'text-white'}`}>
                 {chartDays[hoveredDataIndex].log.date}
               </span>
-              <span className="text-rose-400 font-semibold">
+              <span className="text-rose-500 font-semibold">
                 Morning RHR: <strong>{chartDays[hoveredDataIndex].log.restingHr} bpm</strong> (
                 {chartDays[hoveredDataIndex].log.restingHr - baselineRhr > 0
                   ? `+${chartDays[hoveredDataIndex].log.restingHr - baselineRhr}`
                   : chartDays[hoveredDataIndex].log.restingHr - baselineRhr}{' '}
-                vs 41 bpm baseline)
+                vs {baselineRhr} bpm baseline)
               </span>
-              <span className="text-purple-400 font-semibold">
+              <span className="text-purple-500 font-semibold">
                 HRV: <strong>{chartDays[hoveredDataIndex].log.hrvRmssd} ms</strong>
               </span>
-              <span className="text-sky-400 font-semibold">
-                Total Sleep: <strong>{formatMinutesToHhMm(chartDays[hoveredDataIndex].log.sleepDurationMinutes)}</strong> (Deep:{' '}
-                {chartDays[hoveredDataIndex].log.deepSleepMinutes}m, REM:{' '}
+              <span className="text-sky-500 font-semibold">
+                Total Sleep:{' '}
+                <strong>
+                  {formatMinutesToHhMm(chartDays[hoveredDataIndex].log.sleepDurationMinutes)}
+                </strong>{' '}
+                (Deep: {chartDays[hoveredDataIndex].log.deepSleepMinutes}m, REM:{' '}
                 {chartDays[hoveredDataIndex].log.remSleepMinutes}m)
               </span>
-              <span className="text-emerald-400 font-bold">
+              <span className="text-emerald-500 font-bold">
                 Readiness: {chartDays[hoveredDataIndex].readiness.score}%
               </span>
             </div>
@@ -898,41 +1140,75 @@ export const RecoveryView: React.FC<RecoveryViewProps> = ({
       {/* ========================================================= */}
       {/* 4. CROSS-CORRELATION SCIENTIFIC INSIGHTS */}
       {/* ========================================================= */}
-      <div className="bg-slate-900/60 border border-slate-800 rounded-2xl p-5 space-y-3">
+      <div
+        className={`border rounded-2xl p-5 space-y-3 transition-colors ${
+          isLight ? 'bg-white border-slate-200 shadow-xs' : 'bg-slate-900/60 border-slate-800'
+        }`}
+      >
         <div className="flex items-center gap-2">
-          <div className="w-8 h-8 rounded-lg bg-sky-500/10 border border-sky-500/20 flex items-center justify-center text-sky-400">
+          <div className="w-8 h-8 rounded-lg bg-sky-500/10 border border-sky-500/20 flex items-center justify-center text-sky-500">
             <Sparkles className="w-4 h-4" />
           </div>
           <div>
-            <h3 className="text-sm font-bold text-white">Garmin & TrainingPeaks Cross-Correlation Insights</h3>
-            <p className="text-xs text-slate-400">
+            <h3 className={`text-sm font-bold ${isLight ? 'text-slate-900' : 'text-white'}`}>
+              Garmin &amp; TrainingPeaks Cross-Correlation Insights
+            </h3>
+            <p className={`text-xs ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>
               Statistical patterns linking your overnight sleep architecture to resting HR and HRV
             </p>
           </div>
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pt-1">
-          <div className="p-3 rounded-xl bg-slate-950/60 border border-slate-800/80 space-y-1">
+          <div
+            className={`p-3 rounded-xl border space-y-1 ${
+              isLight ? 'bg-slate-50 border-slate-200' : 'bg-slate-950/60 border-slate-800/80'
+            }`}
+          >
             <div className="flex items-center justify-between">
-              <span className="text-xs font-semibold text-slate-300">Sleep Duration vs Next-Day HRV</span>
-              <span className="text-xs font-bold text-sky-400">
-                r = {correlations.sleepVsHrvCorrelation > 0 ? `+${correlations.sleepVsHrvCorrelation.toFixed(2)}` : correlations.sleepVsHrvCorrelation.toFixed(2)}
+              <span
+                className={`text-xs font-semibold ${
+                  isLight ? 'text-slate-700' : 'text-slate-300'
+                }`}
+              >
+                Sleep Duration vs Next-Day HRV
+              </span>
+              <span className="text-xs font-bold text-sky-500">
+                r ={' '}
+                {correlations.sleepVsHrvCorrelation > 0
+                  ? `+${correlations.sleepVsHrvCorrelation.toFixed(2)}`
+                  : correlations.sleepVsHrvCorrelation.toFixed(2)}
               </span>
             </div>
-            <p className="text-xs text-slate-400 leading-relaxed">
-              Longer overnight sleep consistently expands your autonomic reserve and elevates HRV above baseline.
+            <p className={`text-xs leading-relaxed ${isLight ? 'text-slate-600' : 'text-slate-400'}`}>
+              Longer overnight sleep consistently expands your autonomic reserve and elevates HRV
+              above baseline.
             </p>
           </div>
 
-          <div className="p-3 rounded-xl bg-slate-950/60 border border-slate-800/80 space-y-1">
+          <div
+            className={`p-3 rounded-xl border space-y-1 ${
+              isLight ? 'bg-slate-50 border-slate-200' : 'bg-slate-950/60 border-slate-800/80'
+            }`}
+          >
             <div className="flex items-center justify-between">
-              <span className="text-xs font-semibold text-slate-300">Deep Sleep vs Morning RHR</span>
-              <span className="text-xs font-bold text-indigo-400">
-                r = {correlations.deepSleepVsRhrCorrelation > 0 ? `+${correlations.deepSleepVsRhrCorrelation.toFixed(2)}` : correlations.deepSleepVsRhrCorrelation.toFixed(2)}
+              <span
+                className={`text-xs font-semibold ${
+                  isLight ? 'text-slate-700' : 'text-slate-300'
+                }`}
+              >
+                Deep Sleep vs Morning RHR
+              </span>
+              <span className="text-xs font-bold text-indigo-500">
+                r ={' '}
+                {correlations.deepSleepVsRhrCorrelation > 0
+                  ? `+${correlations.deepSleepVsRhrCorrelation.toFixed(2)}`
+                  : correlations.deepSleepVsRhrCorrelation.toFixed(2)}
               </span>
             </div>
-            <p className="text-xs text-slate-400 leading-relaxed">
-              Nights with 75+ minutes of Deep Sleep show lower next-morning resting HR, stabilizing tightly at your 41 bpm baseline.
+            <p className={`text-xs leading-relaxed ${isLight ? 'text-slate-600' : 'text-slate-400'}`}>
+              Nights with 75+ minutes of Deep Sleep show lower next-morning resting HR, stabilizing
+              tightly at your {baselineRhr} bpm baseline.
             </p>
           </div>
         </div>
@@ -941,8 +1217,13 @@ export const RecoveryView: React.FC<RecoveryViewProps> = ({
         {correlations.keyTakeaways.length > 0 && (
           <div className="space-y-1.5 pt-1">
             {correlations.keyTakeaways.map((tip, idx) => (
-              <div key={idx} className="flex items-start gap-2 text-xs text-slate-300">
-                <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
+              <div
+                key={idx}
+                className={`flex items-start gap-2 text-xs ${
+                  isLight ? 'text-slate-700' : 'text-slate-300'
+                }`}
+              >
+                <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0 mt-0.5" />
                 <span>{tip}</span>
               </div>
             ))}
@@ -953,29 +1234,59 @@ export const RecoveryView: React.FC<RecoveryViewProps> = ({
       {/* ========================================================= */}
       {/* 5. LOG HISTORY & TABLE */}
       {/* ========================================================= */}
-      <div className="bg-slate-900/60 border border-slate-800 rounded-2xl p-4 sm:p-5 space-y-4">
+      <div
+        className={`border rounded-2xl p-4 sm:p-5 space-y-4 transition-colors ${
+          isLight ? 'bg-white border-slate-200 shadow-xs' : 'bg-slate-900/60 border-slate-800'
+        }`}
+      >
         <div className="flex items-center justify-between">
           <div>
-            <h3 className="text-base font-bold text-white">Logged Recovery History</h3>
-            <p className="text-xs text-slate-400">{sortedLogs.length} total days tracked in FIT Track</p>
+            <h3 className={`text-base font-bold ${isLight ? 'text-slate-900' : 'text-white'}`}>
+              Logged Recovery History
+            </h3>
+            <p className={`text-xs ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>
+              {sortedLogs.length} total days tracked in FIT Track
+            </p>
           </div>
-          <button
-            type="button"
-            onClick={() => {
-              setEditingLog(null);
-              setIsLogModalOpen(true);
-            }}
-            className="px-3 py-1.5 rounded-xl text-xs font-bold bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 flex items-center gap-1.5 transition-colors cursor-pointer"
-          >
-            <Plus className="w-3.5 h-3.5" />
-            Add Entry
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setIsGarminModalOpen(true)}
+              className={`px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer border ${
+                isLight
+                  ? 'bg-sky-50 text-sky-700 border-sky-200 hover:bg-sky-100'
+                  : 'bg-sky-500/10 text-sky-400 border-sky-500/20 hover:bg-sky-500/20'
+              }`}
+            >
+              <RotateCw className="w-3.5 h-3.5 text-sky-500" />
+              <span>Garmin Multi-Week</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setEditingLog(null);
+                setIsLogModalOpen(true);
+              }}
+              className={`px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer border ${
+                isLight
+                  ? 'bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-200'
+                  : 'bg-slate-800 hover:bg-slate-700 text-slate-200 border-slate-700'
+              }`}
+            >
+              <Plus className="w-3.5 h-3.5" />
+              Add Entry
+            </button>
+          </div>
         </div>
 
         <div className="overflow-x-auto">
           <table className="w-full text-left text-xs border-collapse">
             <thead>
-              <tr className="border-b border-slate-800 text-slate-400 uppercase tracking-wider text-[10px]">
+              <tr
+                className={`border-b uppercase tracking-wider text-[10px] ${
+                  isLight ? 'bg-slate-50/80 border-slate-200 text-slate-500' : 'border-slate-800 text-slate-400'
+                }`}
+              >
                 <th className="py-2.5 px-3">Date</th>
                 <th className="py-2.5 px-3">Readiness</th>
                 <th className="py-2.5 px-3">Morning RHR</th>
@@ -986,14 +1297,27 @@ export const RecoveryView: React.FC<RecoveryViewProps> = ({
                 <th className="py-2.5 px-3 text-right">Actions</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-800/60">
+            <tbody
+              className={
+                isLight ? 'divide-y divide-slate-100' : 'divide-y divide-slate-800/60'
+              }
+            >
               {[...sortedLogs].reverse().map((log) => {
                 const read = computeDailyReadiness(log, sortedLogs, athleteProfile);
                 const rhrDiff = log.restingHr - baselineRhr;
 
                 return (
-                  <tr key={log.id} className="hover:bg-slate-800/30 transition-colors">
-                    <td className="py-2.5 px-3 font-semibold text-slate-200 whitespace-nowrap">
+                  <tr
+                    key={log.id}
+                    className={`transition-colors ${
+                      isLight ? 'hover:bg-slate-50/80' : 'hover:bg-slate-800/30'
+                    }`}
+                  >
+                    <td
+                      className={`py-2.5 px-3 font-semibold whitespace-nowrap ${
+                        isLight ? 'text-slate-800' : 'text-slate-200'
+                      }`}
+                    >
                       {log.date}
                     </td>
 
@@ -1006,31 +1330,51 @@ export const RecoveryView: React.FC<RecoveryViewProps> = ({
                     </td>
 
                     <td className="py-2.5 px-3 whitespace-nowrap">
-                      <span className="font-bold text-white">{log.restingHr} bpm</span>
+                      <span
+                        className={`font-bold ${isLight ? 'text-slate-900' : 'text-white'}`}
+                      >
+                        {log.restingHr} bpm
+                      </span>
                       <span
                         className={`ml-1.5 text-[10px] ${
-                          rhrDiff <= 0 ? 'text-emerald-400' : rhrDiff <= 2 ? 'text-sky-400' : 'text-amber-400'
+                          rhrDiff <= 0
+                            ? 'text-emerald-500 font-semibold'
+                            : rhrDiff <= 2
+                            ? 'text-sky-500 font-semibold'
+                            : 'text-amber-500 font-semibold'
                         }`}
                       >
                         ({rhrDiff > 0 ? `+${rhrDiff}` : rhrDiff})
                       </span>
                     </td>
 
-                    <td className="py-2.5 px-3 whitespace-nowrap text-purple-400 font-semibold">
+                    <td
+                      className={`py-2.5 px-3 whitespace-nowrap font-semibold ${
+                        isLight ? 'text-purple-600' : 'text-purple-400'
+                      }`}
+                    >
                       {log.hrvRmssd} ms
                     </td>
 
-                    <td className="py-2.5 px-3 whitespace-nowrap text-slate-300">
+                    <td
+                      className={`py-2.5 px-3 whitespace-nowrap ${
+                        isLight ? 'text-slate-700' : 'text-slate-300'
+                      }`}
+                    >
                       {formatMinutesToHhMm(log.sleepDurationMinutes)}
-                      <span className="text-slate-500 ml-1.5">({log.sleepScore}/100)</span>
+                      <span className="text-slate-400 ml-1.5">({log.sleepScore}/100)</span>
                     </td>
 
                     <td className="py-2.5 px-3 whitespace-nowrap text-slate-400">
-                      <span className="text-indigo-400 font-medium">{log.deepSleepMinutes}m</span> /{' '}
-                      <span className="text-cyan-400 font-medium">{log.remSleepMinutes}m</span>
+                      <span className="text-indigo-500 font-medium">{log.deepSleepMinutes}m</span> /{' '}
+                      <span className="text-cyan-500 font-medium">{log.remSleepMinutes}m</span>
                     </td>
 
-                    <td className="py-2.5 px-3 whitespace-nowrap text-slate-300">
+                    <td
+                      className={`py-2.5 px-3 whitespace-nowrap ${
+                        isLight ? 'text-slate-700' : 'text-slate-300'
+                      }`}
+                    >
                       {log.subjectiveFeel ? `${log.subjectiveFeel}/5` : '—'}
                     </td>
 
@@ -1041,7 +1385,11 @@ export const RecoveryView: React.FC<RecoveryViewProps> = ({
                           setEditingLog(log);
                           setIsLogModalOpen(true);
                         }}
-                        className="p-1 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors mr-1"
+                        className={`p-1 rounded-lg transition-colors mr-1 ${
+                          isLight
+                            ? 'text-slate-400 hover:text-slate-700 hover:bg-slate-100'
+                            : 'text-slate-400 hover:text-white hover:bg-slate-800'
+                        }`}
                         title="Edit log"
                       >
                         <Edit2 className="w-3.5 h-3.5" />
@@ -1049,7 +1397,11 @@ export const RecoveryView: React.FC<RecoveryViewProps> = ({
                       <button
                         type="button"
                         onClick={() => onDeleteLog(log.id)}
-                        className="p-1 rounded-lg text-slate-500 hover:text-rose-400 hover:bg-slate-800 transition-colors"
+                        className={`p-1 rounded-lg transition-colors ${
+                          isLight
+                            ? 'text-slate-400 hover:text-rose-600 hover:bg-rose-50'
+                            : 'text-slate-500 hover:text-rose-400 hover:bg-slate-800'
+                        }`}
                         title="Delete log"
                       >
                         <Trash2 className="w-3.5 h-3.5" />
@@ -1073,6 +1425,7 @@ export const RecoveryView: React.FC<RecoveryViewProps> = ({
         onSave={onUpsertLog}
         initialLog={editingLog}
         baselineRhr={baselineRhr}
+        theme={theme}
       />
 
       <RecoveryCsvModal
@@ -1081,6 +1434,18 @@ export const RecoveryView: React.FC<RecoveryViewProps> = ({
         logs={sortedLogs}
         onImportLogs={onImportLogs}
         onResetDefaults={onResetDefaults}
+        theme={theme}
+      />
+
+      <GarminSyncModal
+        isOpen={isGarminModalOpen}
+        onClose={() => setIsGarminModalOpen(false)}
+        existingLogs={sortedLogs}
+        onSyncComplete={(merged) => {
+          onImportLogs(merged);
+        }}
+        baselineRhr={baselineRhr}
+        theme={theme}
       />
     </div>
   );
