@@ -340,46 +340,42 @@ This would also make use of your existing activity history and performance estim
 
 I would avoid building one enormous periodisation algorithm. Instead, create a hierarchy of independent but connected components.
 
-<img width="777" height="724" alt="image" src="https://github.com/user-attachments/assets/6f2f1cc6-f470-407a-a4c5-6b816ab1f88a" />
-
-
+Training Periodisation Structure
 Season / Annual Plan
 
-Overall objectives, races, priorities and performance goals
+- Overall objectives, races, priorities and performance goals.
+
+↓ 
 
 Macrocycle
 
-Overall training strategy and performance peaks
+- Overall training strategy and performance peaks.
+
+↓
 
 Mesocycles
 
-Base, build, specific preparation, peak, taper, recovery
+- Base, build, specific preparation, peak, taper, recovery.
 
-Swim
+↓
 
-Build
+Discipline-Specific Training Phases
+Discipline	Phase	Focus
+Swim	Build	CSS
+Bike	Base	Endurance
+Run	Build	VO2 max
 
-CSS
-
-Bike
-
-Base
-
-Endurance
-
-Run
-
-Build
-
-VO2 max
+↓
 
 Microcycles
 
-Your existing 0/3-week/4-week cycle models, loading, recovery and progression
+- Your existing 0/3-week/4-week cycle models, loading, recovery and progression.
+
+↓
 
 Individual Training Sessions
 
-Workouts, intensity, duration, targets and execution
+- Workouts, intensity, duration, targets and execution.
 
 Feedback and Adaptation Engine
 
