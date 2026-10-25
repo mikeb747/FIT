@@ -1,11 +1,21 @@
 import { AthleteProfile, DEFAULT_ATHLETE_PROFILE } from '../types/athlete';
 
-export const ATHLETE_PROFILE_STORAGE_KEY = 'gymfit_athlete_profile_v1';
+export const ATHLETE_PROFILE_STORAGE_KEY = 'fittrack_athlete_profile_v1';
+const LEGACY_STORAGE_KEYS = ['gymfit_athlete_profile_v1', 'ironfit_athlete_profile_v1'];
 
 export function loadAthleteProfile(): AthleteProfile {
   if (typeof window === 'undefined') return DEFAULT_ATHLETE_PROFILE;
   try {
-    const raw = localStorage.getItem(ATHLETE_PROFILE_STORAGE_KEY);
+    let raw = localStorage.getItem(ATHLETE_PROFILE_STORAGE_KEY);
+    if (!raw) {
+      for (const legacyKey of LEGACY_STORAGE_KEYS) {
+        const legacyVal = localStorage.getItem(legacyKey);
+        if (legacyVal) {
+          raw = legacyVal;
+          break;
+        }
+      }
+    }
     if (!raw) return DEFAULT_ATHLETE_PROFILE;
     const parsed = JSON.parse(raw);
     const profile: AthleteProfile = {
@@ -13,8 +23,24 @@ export function loadAthleteProfile(): AthleteProfile {
       ...parsed,
     };
     // Migrate legacy defaults if they matched the previous hardcoded values
-    if (profile.bikeFtp === 250 || !profile.bikeFtp) {
-      profile.bikeFtp = 310;
+    if (profile.bikeFtp === 250 || profile.bikeFtp === 310 || !profile.bikeFtp) {
+      profile.bikeFtp = 315;
+    }
+    if (profile.restingHeartRate === 52 || profile.restingHeartRate === 60 || !profile.restingHeartRate) {
+      profile.restingHeartRate = 41;
+    }
+    if (profile.heightCm === 178 || profile.heightCm === 180 || !profile.heightCm) {
+      profile.heightCm = 188;
+    }
+    if (profile.weightKg === 75 || profile.weightKg === 70 || !profile.weightKg) {
+      profile.weightKg = 77;
+    }
+    if (profile.birthDate === '1990-01-01' || !profile.birthDate) {
+      profile.birthDate = '1985-10-30';
+      profile.age = 41;
+    }
+    if (!profile.swimTssMode) {
+      profile.swimTssMode = 'sTSS';
     }
     if (profile.thresholdPaceRunOutdoorSec === 228 || profile.thresholdPaceRunOutdoorSec === 270 || !profile.thresholdPaceRunOutdoorSec) {
       profile.thresholdPaceRunOutdoorSec = 232; // 3:52/km

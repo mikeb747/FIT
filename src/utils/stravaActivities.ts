@@ -573,6 +573,7 @@ export interface TSSCalculationResult {
     | 'sTSS (Pool)'
     | 'sTSS (Open Water)'
     | 'hrTSS'
+    | 'hrTSS (Swim)'
     | 'sTSS'
     | 'Relative Effort'
     | 'Ignored';
@@ -655,24 +656,39 @@ export function calculateActivityTSS(
     }
   }
 
-  // 3. Swimming TSS (sTSS) differentiating Pool vs Open Water
-  if (category === 'Swim' && effectiveDistanceM > 50 && effectiveMovingTimeSec > 30) {
-    const isOpenWater = subType === 'Open Water Swim';
-    const thresholdSwimPaceSec = isOpenWater
-      ? (athleteProfile?.swimOpenWaterPace100mSec || 98)
-      : (athleteProfile?.swimPoolPace100mSec || 90);
-
-    const avgPace100m = effectiveMovingTimeSec / (effectiveDistanceM / 100);
-    if (avgPace100m > 30 && avgPace100m < 600) {
-      const ifSwim = thresholdSwimPaceSec / avgPace100m;
-      const sTss = ((effectiveMovingTimeSec * Math.pow(ifSwim, 3)) / 3600) * 100;
-      const paceLabel = formatSecondsToMinSec(avgPace100m);
-      const threshLabel = formatSecondsToMinSec(thresholdSwimPaceSec);
+  // 3. Swimming TSS: sTSS (CSS/Pace based) or hrTSS (Heart Rate based)
+  if (category === 'Swim') {
+    const prefersHr = athleteProfile?.swimTssMode === 'hrTSS';
+    if (prefersHr && effectiveAvgHr && effectiveAvgHr > 40) {
+      // hrTSS based on swim lactate threshold HR (typically 5-10 bpm lower than run LTHR)
+      const swimLthr = athleteProfile?.thresholdHeartRateRun ? Math.round(athleteProfile.thresholdHeartRateRun * 0.95) : 160;
+      const ifHr = effectiveAvgHr / swimLthr;
+      const hrTss = ((effectiveMovingTimeSec * effectiveAvgHr * ifHr) / (swimLthr * 3600)) * 100;
       return {
-        tss: Math.round(sTss),
-        type: isOpenWater ? 'sTSS (Open Water)' : 'sTSS (Pool)',
-        description: `${isOpenWater ? 'Open water' : 'Pool'} pace ${paceLabel}/100m (Threshold ${threshLabel}/100m, IF ${ifSwim.toFixed(2)})`,
+        tss: Math.round(hrTss),
+        type: 'hrTSS (Swim)',
+        description: `hrTSS based on avg HR ${Math.round(effectiveAvgHr)} bpm (Swim LTHR ${swimLthr}, IF ${ifHr.toFixed(2)})`,
       };
+    }
+
+    if (effectiveDistanceM > 50 && effectiveMovingTimeSec > 30) {
+      const isOpenWater = subType === 'Open Water Swim';
+      const thresholdSwimPaceSec = isOpenWater
+        ? (athleteProfile?.swimOpenWaterPace100mSec || 98)
+        : (athleteProfile?.swimPoolPace100mSec || 90);
+
+      const avgPace100m = effectiveMovingTimeSec / (effectiveDistanceM / 100);
+      if (avgPace100m > 30 && avgPace100m < 600) {
+        const ifSwim = thresholdSwimPaceSec / avgPace100m;
+        const sTss = ((effectiveMovingTimeSec * Math.pow(ifSwim, 3)) / 3600) * 100;
+        const paceLabel = formatSecondsToMinSec(avgPace100m);
+        const threshLabel = formatSecondsToMinSec(thresholdSwimPaceSec);
+        return {
+          tss: Math.round(sTss),
+          type: isOpenWater ? 'sTSS (Open Water)' : 'sTSS (Pool)',
+          description: `${isOpenWater ? 'Open water' : 'Pool'} pace ${paceLabel}/100m (Threshold ${threshLabel}/100m, IF ${ifSwim.toFixed(2)})`,
+        };
+      }
     }
   }
 

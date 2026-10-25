@@ -1,7 +1,7 @@
 {
-  "id": "gymfit-strength-workout-tracker-v113",
-  "name": "GymFIT - Strength Tracker",
-  "short_name": "GymFIT",
+  "id": "fit-track-activity-tracker-v1",
+  "name": "FIT Track - Activity & Performance Tracker",
+  "short_name": "FIT Track",
   "description": "Android strength workout logger with digit-scroll wheel weight selection, dual continuous and lap timers, and Strava-compatible Garmin .FIT export.",
   "start_url": "./index.html",
   "scope": "./",

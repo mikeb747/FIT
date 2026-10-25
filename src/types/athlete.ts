@@ -35,6 +35,10 @@ export interface AthleteProfile {
   swim400mTimeSec: number; // seconds for 400m all-out test (5:55 = 355)
   swimPoolPace100mSec: number; // seconds per 100m for pool swimming (1:30/100m = 90)
   swimOpenWaterPace100mSec: number; // seconds per 100m for open water swimming (1:38/100m = 98)
+  swimTssMode?: 'sTSS' | 'hrTSS' | 'auto'; // Swimming TSS Calculation model (default 'sTSS')
+
+  // Running Pace Zones (Customized or Derived from Threshold)
+  customPaceZones?: Record<number, { minPaceSec: number; maxPaceSec: number; rangeFormatted?: string }>;
 
   // Active Injuries & Physical Limitations
   injuries?: AthleteInjury[];
@@ -174,12 +178,12 @@ export const DEFAULT_INJURIES: AthleteInjury[] = [
 ];
 
 export const DEFAULT_ATHLETE_PROFILE: AthleteProfile = {
-  age: 35,
-  birthDate: '1990-01-01',
-  heightCm: 178,
-  weightKg: 75,
+  age: 41,
+  birthDate: '1985-10-30',
+  heightCm: 188,
+  weightKg: 77,
   maxHeartRate: 185,
-  restingHeartRate: 52,
+  restingHeartRate: 41,
   periodization: '4weeks', // 3 progressive weeks and 1 easier week
 
   thresholdHeartRateRun: 168,
@@ -187,7 +191,7 @@ export const DEFAULT_ATHLETE_PROFILE: AthleteProfile = {
   thresholdPaceRunTreadmillSec: 228, // 3:48 /km
 
   thresholdHeartRateBike: 162,
-  bikeFtp: 310, // 310 Watts
+  bikeFtp: 315, // 315 Watts
   bikeCrankLengthMm: 172.5,
   bikeCrankLengths: {},
 
@@ -195,6 +199,7 @@ export const DEFAULT_ATHLETE_PROFILE: AthleteProfile = {
   swim400mTimeSec: 355, // 5:55
   swimPoolPace100mSec: 90, // 1:30 / 100m
   swimOpenWaterPace100mSec: 98, // 1:38 / 100m
+  swimTssMode: 'sTSS',
 
   injuries: DEFAULT_INJURIES,
   weeklyAvailability: DEFAULT_WEEKLY_AVAILABILITY,

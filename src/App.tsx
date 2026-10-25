@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { StravaSettingsModal } from './components/StravaSettingsModal';
 import { AthleteProfileModal } from './components/AthleteProfileModal';
 import type { ProfileTab } from './components/AthleteProfileModal';
@@ -40,7 +40,17 @@ import {
 import {
   getCachedSpreadsheetId,
 } from './utils/googleSheets';
-import { Settings } from 'lucide-react';
+import { Settings, Activity, Moon, Heart } from 'lucide-react';
+import { RecoveryView } from './components/RecoveryView';
+import type { DailyRecoveryLog } from './types/recovery';
+import {
+  loadRecoveryLogs,
+  saveRecoveryLogs,
+  upsertRecoveryLog,
+  deleteRecoveryLog,
+  resetRecoveryLogsToDefaults,
+} from './utils/recoveryStorage';
+import { computeDailyReadiness } from './utils/readinessEngine';
 
 const STORAGE_KEYS = {
   STRAVA_TOKEN: 'ironfit_strava_token',
@@ -119,6 +129,48 @@ export default function App() {
   };
 
   // -------------------------------------------------------------
+  // Navigation & Recovery Tracking State
+  // -------------------------------------------------------------
+  const [activeMainTab, setActiveMainTab] = useState<'activities' | 'recovery'>('activities');
+  const [recoveryLogs, setRecoveryLogs] = useState<DailyRecoveryLog[]>(() => loadRecoveryLogs());
+
+  const handleUpsertRecoveryLog = (log: DailyRecoveryLog) => {
+    const updated = upsertRecoveryLog(log);
+    setRecoveryLogs(updated);
+  };
+
+  const handleDeleteRecoveryLog = (id: string) => {
+    const updated = deleteRecoveryLog(id);
+    setRecoveryLogs(updated);
+  };
+
+  const handleImportRecoveryLogs = (imported: DailyRecoveryLog[]) => {
+    let current = [...recoveryLogs];
+    imported.forEach((item) => {
+      const idx = current.findIndex((l) => l.date === item.date);
+      if (idx >= 0) {
+        current[idx] = item;
+      } else {
+        current.push(item);
+      }
+    });
+    current.sort((a, b) => a.date.localeCompare(b.date));
+    saveRecoveryLogs(current);
+    setRecoveryLogs(current);
+  };
+
+  const handleResetRecoveryDefaults = () => {
+    const defaults = resetRecoveryLogsToDefaults();
+    setRecoveryLogs(defaults);
+  };
+
+  const latestRecoveryLog = recoveryLogs.length > 0 ? recoveryLogs[recoveryLogs.length - 1] : null;
+  const headerReadiness = useMemo(() => {
+    if (!latestRecoveryLog) return null;
+    return computeDailyReadiness(latestRecoveryLog, recoveryLogs, athleteProfile);
+  }, [latestRecoveryLog, recoveryLogs, athleteProfile]);
+
+  // -------------------------------------------------------------
   // Strava & Google Integration State
   // -------------------------------------------------------------
   const [stravaToken, setStravaToken] = useState<string | null>(() => {
@@ -149,7 +201,7 @@ export default function App() {
   // Brand Header Customization
   const [brandTitle, setBrandTitle] = useState(() => {
     const saved = localStorage.getItem(STORAGE_KEYS.BRAND_TITLE);
-    if (!saved || saved === 'IronFIT') return 'GymFIT';
+    if (!saved || saved === 'IronFIT' || saved === 'GymFIT') return 'Fit Track';
     return saved;
   });
   const [brandSubtitle, setBrandSubtitle] = useState(() => {
@@ -427,21 +479,62 @@ export default function App() {
       {/* ========================================================= */}
       {/* Top Application Bar */}
       {/* ========================================================= */}
-      <header className="sticky top-0 z-40 bg-[#090A0F]/90 backdrop-blur-md border-b border-slate-800/80 px-4 py-3">
-        <div className="max-w-4xl mx-auto flex items-center justify-between gap-4">
+      <header className="sticky top-0 z-40 bg-[#090A0F]/90 backdrop-blur-md border-b border-slate-800/80 px-4 py-2.5">
+        <div className="max-w-4xl mx-auto flex items-center justify-between gap-3">
           {/* Brand Wordmark */}
           <div className="flex flex-col min-w-0 select-none text-left p-1 -m-1">
             <span className="text-sm sm:text-base font-extrabold tracking-tight text-white leading-snug">
               {brandTitle}
             </span>
             {brandSubtitle && (
-              <span className="text-[11px] sm:text-xs text-slate-400 font-medium leading-tight truncate block max-w-[200px] sm:max-w-xs">
+              <span className="text-[11px] sm:text-xs text-slate-400 font-medium leading-tight truncate block max-w-[170px] sm:max-w-xs">
                 {brandSubtitle}
               </span>
             )}
           </div>
 
-          {/* Action cluster: PWA Install, Settings, Strava Connect */}
+          {/* Center Navigation Switcher */}
+          <div className="flex items-center gap-1 bg-slate-950/80 p-1 rounded-xl border border-slate-800/80">
+            <button
+              type="button"
+              onClick={() => setActiveMainTab('activities')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer ${
+                activeMainTab === 'activities'
+                  ? 'bg-slate-800 text-white shadow-sm'
+                  : 'text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              <Activity className="w-3.5 h-3.5 text-orange-400" />
+              <span>Activities</span>
+              {stravaActivities.length > 0 && (
+                <span className="text-[10px] bg-slate-900 px-1.5 py-0.2 rounded-md text-slate-400 hidden sm:inline">
+                  {stravaActivities.length}
+                </span>
+              )}
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setActiveMainTab('recovery')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer ${
+                activeMainTab === 'recovery'
+                  ? 'bg-slate-800 text-white shadow-sm'
+                  : 'text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              <Heart className="w-3.5 h-3.5 text-rose-400" />
+              <span>Readiness</span>
+              {headerReadiness && (
+                <span
+                  className={`text-[10px] px-1.5 py-0.5 rounded-md font-extrabold ${headerReadiness.badgeBg} ${headerReadiness.badgeText}`}
+                >
+                  {headerReadiness.score}%
+                </span>
+              )}
+            </button>
+          </div>
+
+          {/* Action cluster: PWA Install, Settings */}
           <div className="flex items-center gap-2">
             <PWAInstallButton />
 
@@ -458,55 +551,54 @@ export default function App() {
               <Settings className="w-4 h-4 text-amber-400" />
               <span className="hidden sm:inline">Settings</span>
             </button>
-
-            {/* Strava Connect Button */}
-            <button
-              type="button"
-              onClick={() => setIsStravaSettingsOpen(true)}
-              title={stravaToken ? 'Strava Connected - click to manage' : 'Connect Strava'}
-              className={`h-8 px-2.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all active:scale-95 cursor-pointer ${
-                stravaToken
-                  ? 'bg-transparent text-emerald-400 hover:text-emerald-300 border-0 shadow-none'
-                  : theme === 'light'
-                  ? 'bg-sky-100 hover:bg-sky-200 text-sky-950 border border-sky-700 shadow-sm'
-                  : 'bg-blue-950 hover:bg-blue-900 text-blue-200 border border-blue-700 shadow-sm'
-              }`}
-            >
-              <StravaIcon className="w-[27px] h-[27px] rounded-full shadow-xs shrink-0" />
-              <span>{stravaToken ? 'Connected' : 'Connect'}</span>
-            </button>
           </div>
         </div>
       </header>
 
       {/* ========================================================= */}
-      {/* MAIN VIEW: STRAVA ACTIVITIES */}
+      {/* MAIN VIEW: STRAVA ACTIVITIES OR READINESS & RECOVERY */}
       {/* ========================================================= */}
       <main className="flex-1 max-w-4xl w-full mx-auto p-4 sm:p-6 space-y-6">
-        <StravaActivitiesTab
-          stravaToken={stravaToken}
-          athleteName={athleteName}
-          activities={stravaActivities}
-          activityDetails={stravaActivityDetails}
-          athleteProfile={athleteProfile}
-          loading={isLoadingStravaActivities}
-          loadingMore={isLoadingMoreStrava}
-          hasMore={hasMoreStrava}
-          error={stravaActivitiesError}
-          isGoogleConnected={isGoogleConnected}
-          googleUserEmail={googleUserEmail}
-          googleSheetUrl={googleSheetUrl}
-          onRefresh={refreshStravaActivities}
-          onLoadMore={handleLoadMoreStravaActivities}
-          onConnectGoogle={handleConnectGoogle}
-          onDisconnectGoogle={handleDisconnectGoogle}
-          onOpenStravaSettings={() => setIsStravaSettingsOpen(true)}
-          onActivityPublished={handleActivityPublished}
-          onOpenAthleteProfile={() => {
-            setProfileModalTab('settings');
-            setIsAthleteProfileOpen(true);
-          }}
-        />
+        {activeMainTab === 'activities' ? (
+          <StravaActivitiesTab
+            stravaToken={stravaToken}
+            athleteName={athleteName}
+            activities={stravaActivities}
+            activityDetails={stravaActivityDetails}
+            athleteProfile={athleteProfile}
+            loading={isLoadingStravaActivities}
+            loadingMore={isLoadingMoreStrava}
+            hasMore={hasMoreStrava}
+            error={stravaActivitiesError}
+            isGoogleConnected={isGoogleConnected}
+            googleUserEmail={googleUserEmail}
+            googleSheetUrl={googleSheetUrl}
+            onRefresh={refreshStravaActivities}
+            onLoadMore={handleLoadMoreStravaActivities}
+            onConnectGoogle={handleConnectGoogle}
+            onDisconnectGoogle={handleDisconnectGoogle}
+            onOpenStravaSettings={() => setIsStravaSettingsOpen(true)}
+            onActivityPublished={handleActivityPublished}
+            onOpenAthleteProfile={() => {
+              setProfileModalTab('settings');
+              setIsAthleteProfileOpen(true);
+            }}
+          />
+        ) : (
+          <RecoveryView
+            logs={recoveryLogs}
+            athleteProfile={athleteProfile}
+            stravaActivities={stravaActivities}
+            onUpsertLog={handleUpsertRecoveryLog}
+            onDeleteLog={handleDeleteRecoveryLog}
+            onImportLogs={handleImportRecoveryLogs}
+            onResetDefaults={handleResetRecoveryDefaults}
+            onOpenAthleteSettings={() => {
+              setProfileModalTab('physiology');
+              setIsAthleteProfileOpen(true);
+            }}
+          />
+        )}
       </main>
 
       {/* ========================================================= */}
@@ -535,11 +627,15 @@ export default function App() {
           localStorage.setItem(STORAGE_KEYS.BRAND_SUBTITLE, subtitle);
         }}
         onResetBrand={() => {
-          setBrandTitle('GymFIT');
+          setBrandTitle('Fit Track');
           setBrandSubtitle('Strava Activities & Analytics');
           localStorage.removeItem(STORAGE_KEYS.BRAND_TITLE);
           localStorage.removeItem(STORAGE_KEYS.BRAND_SUBTITLE);
         }}
+        stravaToken={stravaToken}
+        athleteName={athleteName}
+        onOpenStravaSettings={() => setIsStravaSettingsOpen(true)}
+        onDisconnectStrava={() => handleTokenUpdated(null)}
       />
 
       <StravaSettingsModal

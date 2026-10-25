@@ -10,10 +10,10 @@ const __dirname = path.dirname(__filename);
 
 // Process safety handlers
 process.on('uncaughtException', (err) => {
-  console.error('[GymFIT Server] Uncaught Exception:', err);
+  console.error('[FIT Track Server] Uncaught Exception:', err);
 });
 process.on('unhandledRejection', (reason, promise) => {
-  console.error('[GymFIT Server] Unhandled Rejection at:', promise, 'reason:', reason);
+  console.error('[FIT Track Server] Unhandled Rejection at:', promise, 'reason:', reason);
 });
 
 const app = express();
@@ -148,7 +148,7 @@ const handleOAuthCallback = async (req: express.Request, res: express.Response) 
           <div style="max-width: 400px; margin: auto; padding: 24px; background: #181b26; border-radius: 16px; border: 1px solid #262b3d;">
             <div style="font-size: 32px; margin-bottom: 12px;">⚡</div>
             <h2 style="color: #fc5200; margin: 0 0 8px;">Strava Connected!</h2>
-            <p style="color: #94a3b8; font-size: 14px;">Closing window and returning to GymFIT...</p>
+            <p style="color: #94a3b8; font-size: 14px;">Closing window and returning to FIT Track...</p>
           </div>
           <script>
             try {
@@ -204,12 +204,12 @@ app.post('/api/strava/upload', async (req, res) => {
 
     const fitBuffer = Buffer.from(fitBase64, 'base64');
     const fitBlob = new Blob([fitBuffer], { type: 'application/octet-stream' });
-    const targetFileName = fileName || `${(name || 'GymFIT_Workout').replace(/\s+/g, '_')}.fit`;
+    const targetFileName = fileName || `${(name || 'FIT Track_Workout').replace(/\s+/g, '_')}.fit`;
 
     const formData = new FormData();
     formData.append('file', fitBlob, targetFileName);
     formData.append('name', name || 'Strength & Conditioning');
-    formData.append('description', description || 'Logged via GymFIT');
+    formData.append('description', description || 'Logged via FIT Track');
     formData.append('data_type', 'fit');
     formData.append('sport_type', 'WeightTraining');
     formData.append('activity_type', 'weight_training');
@@ -406,15 +406,15 @@ async function startServer() {
   }
 
   const server = app.listen(PORT, HOST, () => {
-    console.log(`GymFIT Server listening on http://${HOST}:${PORT}`);
+    console.log(`FIT Track Server listening on http://${HOST}:${PORT}`);
   });
 
   server.on('error', (err: any) => {
-    console.error('[GymFIT Server] Server listen error:', err);
+    console.error('[FIT Track Server] Server listen error:', err);
   });
 }
 
 startServer().catch((err) => {
-  console.error('[GymFIT Server] Failed to initialize server:', err);
+  console.error('[FIT Track Server] Failed to initialize server:', err);
 });
 

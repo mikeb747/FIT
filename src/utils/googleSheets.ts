@@ -15,7 +15,7 @@ export const GOOGLE_SHEETS_CONFIG = {
     SPREADSHEET_NAME: 'gymfit_google_sheets_spreadsheet_name',
     LAST_CHECKED: 'gymfit_google_sheets_last_checked',
   },
-  DEFAULT_SPREADSHEET_NAME: 'GymFIT Training Log',
+  DEFAULT_SPREADSHEET_NAME: 'FIT Track Training Log',
 };
 
 export interface SheetExportResult {
@@ -91,9 +91,9 @@ export async function getOrCreateTrainingLogSheet(): Promise<string> {
     }
   }
 
-  // Search Drive for an existing "GymFIT Training Log" file
+  // Search Drive for an existing "FIT Track Training Log" or legacy "GymFIT Training Log" file
   try {
-    const query = encodeURIComponent("name = 'GymFIT Training Log' and mimeType = 'application/vnd.google-apps.spreadsheet' and trashed = false");
+    const query = encodeURIComponent("(name = 'FIT Track Training Log' or name = 'GymFIT Training Log') and mimeType = 'application/vnd.google-apps.spreadsheet' and trashed = false");
     const searchRes = await fetch(`https://www.googleapis.com/drive/v3/files?q=${query}&fields=files(id,name)&pageSize=1`, {
       headers: { Authorization: `Bearer ${token}` },
     });
@@ -155,7 +155,7 @@ export async function getOrCreateTrainingLogSheet(): Promise<string> {
                     { userEnteredValue: { stringValue: 'RPE (1-10)' } },
                     { userEnteredValue: { stringValue: 'sRPE Load' } },
                     { userEnteredValue: { stringValue: 'Calories (kcal)' } },
-                    { userEnteredValue: { stringValue: 'GymFIT Breakdown / Notes' } },
+                    { userEnteredValue: { stringValue: 'FIT Track Breakdown / Notes' } },
                     { userEnteredValue: { stringValue: 'Strava URL' } },
                     { userEnteredValue: { stringValue: 'Synced At' } },
                   ],

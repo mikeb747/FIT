@@ -43,15 +43,18 @@ import {
   parseMinSecToSeconds,
   calculateCss,
   getAthleteHeartRateZones,
+  getAthletePaceZones,
   calculateAgeFromBirthDate,
   DEFAULT_INJURIES,
   DEFAULT_WEEKLY_AVAILABILITY,
 } from '../types/athlete';
+import type { PaceZone } from '../types/athlete';
 import type { TrainingGoal } from '../types/goals';
 import { loadAthleteGoals, saveAthleteGoals } from '../utils/goalsStorage';
 import { GoalsTab } from './GoalsTab';
 import type { StravaActivity } from '../utils/stravaActivities';
 import { classifyActivity } from '../utils/stravaActivities';
+import { StravaIcon } from './StravaIcon';
 
 export type AppTheme = 'dark' | 'light';
 export type DisplayDensity = number | 'standard' | 'compact' | 'comfortable';
@@ -78,6 +81,12 @@ interface AthleteProfileModalProps {
   brandSubtitle?: string;
   onSaveBrand?: (title: string, subtitle: string) => void;
   onResetBrand?: () => void;
+
+  // Strava integration props inside App settings tab
+  stravaToken?: string | null;
+  athleteName?: string | null;
+  onOpenStravaSettings?: () => void;
+  onDisconnectStrava?: () => void;
 }
 
 export const AthleteProfileModal: React.FC<AthleteProfileModalProps> = ({
@@ -94,10 +103,14 @@ export const AthleteProfileModal: React.FC<AthleteProfileModalProps> = ({
   onThemeChanged,
   displayDensity = 'standard',
   onDensityChanged,
-  brandTitle = 'GymFIT',
-  brandSubtitle = 'Workout Log & Strava Uploader',
+  brandTitle = 'Fit Track',
+  brandSubtitle = 'Strava Activities & Analytics',
   onSaveBrand,
   onResetBrand,
+  stravaToken,
+  athleteName,
+  onOpenStravaSettings,
+  onDisconnectStrava,
 }) => {
   const [activeTab, setActiveTab] = useState<ProfileTab>('settings');
   const [savedFeedback, setSavedFeedback] = useState(false);
@@ -155,6 +168,54 @@ export const AthleteProfileModal: React.FC<AthleteProfileModalProps> = ({
   const [swimOpenWaterPaceStr, setSwimOpenWaterPaceStr] = useState(
     formatSecondsToMinSec(profile.swimOpenWaterPace100mSec)
   );
+  const [swimTssMode, setSwimTssMode] = useState<'sTSS' | 'hrTSS' | 'auto'>(
+    profile.swimTssMode || 'sTSS'
+  );
+  const [showSwimTssInfo, setShowSwimTssInfo] = useState(false);
+
+  // Running Pace Zones (Editable per zone + Reset to default threshold model)
+  const [paceZonesState, setPaceZonesState] = useState<Array<{
+    zone: number;
+    name: string;
+    minPaceStr: string;
+    maxPaceStr: string;
+    color: string;
+    description: string;
+  }>>(() => {
+    const base = getAthletePaceZones(profile);
+    return base.map((z) => {
+      const custom = profile.customPaceZones?.[z.zone];
+      return {
+        zone: z.zone,
+        name: z.name,
+        minPaceStr: custom ? formatSecondsToMinSec(custom.minPaceSec) : formatSecondsToMinSec(z.minPaceSec),
+        maxPaceStr: custom ? formatSecondsToMinSec(custom.maxPaceSec) : formatSecondsToMinSec(z.maxPaceSec),
+        color: z.color,
+        description: z.description,
+      };
+    });
+  });
+
+  const handleResetPaceZones = () => {
+    const base = getAthletePaceZones({
+      ...profile,
+      thresholdPaceRunOutdoorSec: parseMinSecToSeconds(paceOutdoorStr, 232),
+    });
+    setPaceZonesState(base.map((z) => ({
+      zone: z.zone,
+      name: z.name,
+      minPaceStr: formatSecondsToMinSec(z.minPaceSec),
+      maxPaceStr: formatSecondsToMinSec(z.maxPaceSec),
+      color: z.color,
+      description: z.description,
+    })));
+  };
+
+  const handleUpdatePaceZone = (zoneNumber: number, field: 'minPaceStr' | 'maxPaceStr', value: string) => {
+    setPaceZonesState((prev) =>
+      prev.map((z) => (z.zone === zoneNumber ? { ...z, [field]: value } : z))
+    );
+  };
 
   // Active Injuries & Physical Limitations
   const [injuries, setInjuries] = useState<AthleteInjury[]>(
@@ -274,6 +335,20 @@ export const AthleteProfileModal: React.FC<AthleteProfileModalProps> = ({
       setSwim400mStr(formatSecondsToMinSec(profile.swim400mTimeSec));
       setSwimPoolPaceStr(formatSecondsToMinSec(profile.swimPoolPace100mSec));
       setSwimOpenWaterPaceStr(formatSecondsToMinSec(profile.swimOpenWaterPace100mSec));
+      setSwimTssMode(profile.swimTssMode || 'sTSS');
+
+      const base = getAthletePaceZones(profile);
+      setPaceZonesState(base.map((z) => {
+        const custom = profile.customPaceZones?.[z.zone];
+        return {
+          zone: z.zone,
+          name: z.name,
+          minPaceStr: custom ? formatSecondsToMinSec(custom.minPaceSec) : formatSecondsToMinSec(z.minPaceSec),
+          maxPaceStr: custom ? formatSecondsToMinSec(custom.maxPaceSec) : formatSecondsToMinSec(z.maxPaceSec),
+          color: z.color,
+          description: z.description,
+        };
+      }));
 
       setInjuries(profile.injuries || DEFAULT_INJURIES);
       setWeeklyAvailability(profile.weeklyAvailability || DEFAULT_WEEKLY_AVAILABILITY);
@@ -480,7 +555,22 @@ export const AthleteProfileModal: React.FC<AthleteProfileModalProps> = ({
       swim100mStr !== initial100mStr ||
       swim400mStr !== initial400mStr ||
       swimPoolPaceStr !== initialPoolPaceStr ||
-      swimOpenWaterPaceStr !== initialOpenWaterPaceStr;
+      swimOpenWaterPaceStr !== initialOpenWaterPaceStr ||
+      swimTssMode !== (profile.swimTssMode || 'sTSS');
+
+    const arePaceZonesDirty = JSON.stringify(paceZonesState) !== JSON.stringify(
+      getAthletePaceZones(profile).map((z) => {
+        const custom = profile.customPaceZones?.[z.zone];
+        return {
+          zone: z.zone,
+          name: z.name,
+          minPaceStr: custom ? formatSecondsToMinSec(custom.minPaceSec) : formatSecondsToMinSec(z.minPaceSec),
+          maxPaceStr: custom ? formatSecondsToMinSec(custom.maxPaceSec) : formatSecondsToMinSec(z.maxPaceSec),
+          color: z.color,
+          description: z.description,
+        };
+      })
+    );
 
     const areInjuriesDirty =
       JSON.stringify(injuries) !== JSON.stringify(profile.injuries || DEFAULT_INJURIES);
@@ -490,7 +580,7 @@ export const AthleteProfileModal: React.FC<AthleteProfileModalProps> = ({
 
     const areGoalsDirty = JSON.stringify(goals) !== initialGoalsSnapshot;
 
-    return arePhysiologyFieldsDirty || areInjuriesDirty || isAvailabilityDirty || areGoalsDirty;
+    return arePhysiologyFieldsDirty || arePaceZonesDirty || areInjuriesDirty || isAvailabilityDirty || areGoalsDirty;
   }, [
     profile,
     age,
@@ -510,6 +600,8 @@ export const AthleteProfileModal: React.FC<AthleteProfileModalProps> = ({
     swim400mStr,
     swimPoolPaceStr,
     swimOpenWaterPaceStr,
+    swimTssMode,
+    paceZonesState,
     injuries,
     weeklyAvailability,
     goals,
@@ -543,6 +635,7 @@ export const AthleteProfileModal: React.FC<AthleteProfileModalProps> = ({
     swim400mTimeSec: t400,
     swimPoolPace100mSec: parseMinSecToSeconds(swimPoolPaceStr, 90),
     swimOpenWaterPace100mSec: parseMinSecToSeconds(swimOpenWaterPaceStr, 98),
+    swimTssMode,
     injuries,
     weeklyAvailability,
   };
@@ -550,13 +643,24 @@ export const AthleteProfileModal: React.FC<AthleteProfileModalProps> = ({
   const previewRunZones = getAthleteHeartRateZones(previewProfile, 'run');
 
   const handleSave = () => {
+    const customPaceZonesToSave: Record<number, { minPaceSec: number; maxPaceSec: number; rangeFormatted: string }> = {};
+    paceZonesState.forEach((pz) => {
+      const minSec = parseMinSecToSeconds(pz.minPaceStr, 200);
+      const maxSec = parseMinSecToSeconds(pz.maxPaceStr, 250);
+      customPaceZonesToSave[pz.zone] = {
+        minPaceSec: minSec,
+        maxPaceSec: maxSec,
+        rangeFormatted: `${pz.minPaceStr} - ${pz.maxPaceStr}/km`,
+      };
+    });
+
     const updated: AthleteProfile = {
-      age: Math.max(12, Math.min(100, Number(age) || 35)),
-      birthDate: birthDate.trim() || undefined,
-      heightCm: Math.max(100, Math.min(250, Number(heightCm) || 178)),
-      weightKg: Math.max(30, Math.min(250, Number(weightKg) || 75)),
+      age: Math.max(12, Math.min(100, Number(age) || 41)),
+      birthDate: birthDate.trim() || '1985-10-30',
+      heightCm: Math.max(100, Math.min(250, Number(heightCm) || 188)),
+      weightKg: Math.max(30, Math.min(250, Number(weightKg) || 77)),
       maxHeartRate: Math.max(100, Math.min(230, Number(maxHeartRate) || 185)),
-      restingHeartRate: Math.max(30, Math.min(120, Number(restingHeartRate) || 52)),
+      restingHeartRate: Math.max(30, Math.min(120, Number(restingHeartRate) || 41)),
       periodization,
 
       thresholdHeartRateRun: Math.max(80, Math.min(220, Number(thresholdHeartRateRun) || 168)),
@@ -564,7 +668,7 @@ export const AthleteProfileModal: React.FC<AthleteProfileModalProps> = ({
       thresholdPaceRunTreadmillSec: parseMinSecToSeconds(paceTreadmillStr, 228),
 
       thresholdHeartRateBike: Math.max(80, Math.min(220, Number(thresholdHeartRateBike) || 162)),
-      bikeFtp: Math.max(50, Math.min(600, Number(bikeFtp) || 310)),
+      bikeFtp: Math.max(50, Math.min(600, Number(bikeFtp) || 315)),
       bikeCrankLengthMm: Number(bikeCrankLengthMm) || 172.5,
       bikeCrankLengths: bikeCrankLengths || {},
 
@@ -572,6 +676,8 @@ export const AthleteProfileModal: React.FC<AthleteProfileModalProps> = ({
       swim400mTimeSec: t400,
       swimPoolPace100mSec: parseMinSecToSeconds(swimPoolPaceStr, 90),
       swimOpenWaterPace100mSec: parseMinSecToSeconds(swimOpenWaterPaceStr, 98),
+      swimTssMode,
+      customPaceZones: customPaceZonesToSave,
 
       injuries,
       weeklyAvailability,
@@ -588,8 +694,26 @@ export const AthleteProfileModal: React.FC<AthleteProfileModalProps> = ({
   };
 
   const handleReset = () => {
+    setAge(41);
+    setBirthDate('1985-10-30');
+    setHeightCm(188);
+    setWeightKg(77);
+    setMaxHeartRate(185);
+    setRestingHeartRate(41);
+    setPeriodization('4weeks');
+    setThresholdHeartRateRun(168);
+    setPaceOutdoorStr('3:52');
+    setPaceTreadmillStr('3:48');
+    setThresholdHeartRateBike(162);
+    setBikeFtp(315);
     setBikeCrankLengthMm(172.5);
     setBikeCrankLengths({});
+    setSwim100mStr('1:24');
+    setSwim400mStr('5:55');
+    setSwimPoolPaceStr('1:30');
+    setSwimOpenWaterPaceStr('1:38');
+    setSwimTssMode('sTSS');
+    handleResetPaceZones();
     setInjuries(DEFAULT_INJURIES);
     setWeeklyAvailability(DEFAULT_WEEKLY_AVAILABILITY);
     onResetDefaults();
@@ -598,8 +722,8 @@ export const AthleteProfileModal: React.FC<AthleteProfileModalProps> = ({
   };
 
   const handleSaveBrandCustomization = () => {
-    const finalTitle = tempTitle.trim() || 'GymFIT';
-    const finalSub = tempSubtitle.trim() || 'Workout Log & Strava Uploader';
+    const finalTitle = tempTitle.trim() || 'Fit Track';
+    const finalSub = tempSubtitle.trim() || 'Strava Activities & Analytics';
     onSaveBrand?.(finalTitle, finalSub);
     setIsEditingBrand(false);
     setBrandSavedFeedback(true);
@@ -608,8 +732,8 @@ export const AthleteProfileModal: React.FC<AthleteProfileModalProps> = ({
 
   const handleResetBrandDefaults = () => {
     onResetBrand?.();
-    setTempTitle('GymFIT');
-    setTempSubtitle('Workout Log & Strava Uploader');
+    setTempTitle('Fit Track');
+    setTempSubtitle('Strava Activities & Analytics');
     setIsEditingBrand(false);
   };
 
@@ -678,7 +802,7 @@ export const AthleteProfileModal: React.FC<AthleteProfileModalProps> = ({
             onScroll={checkTabScroll}
             className="flex-1 flex items-center gap-1 overflow-x-auto scrollbar-none scroll-smooth py-0.5"
           >
-            {/* Tab 0: Appearance */}
+            {/* Tab 0: App */}
             <button
               ref={(el) => {
                 tabButtonRefs.current.settings = el;
@@ -694,7 +818,7 @@ export const AthleteProfileModal: React.FC<AthleteProfileModalProps> = ({
               }`}
             >
               <SettingsIcon className="w-3.5 h-3.5 text-amber-400" />
-              <span>Appearance</span>
+              <span>App</span>
             </button>
 
             {/* Tab 1: Athlete */}
@@ -833,10 +957,70 @@ export const AthleteProfileModal: React.FC<AthleteProfileModalProps> = ({
 
         {/* Tab Content Body */}
         <div className="flex-1 overflow-y-auto space-y-4 pr-1">
-          {/* TAB 0: SETTINGS (DARK/LIGHT, DENSITY, TITLE, STUDIO TEXT) */}
+          {/* TAB 0: APP (STRAVA, DARK/LIGHT, DENSITY, TITLE) */}
           {activeTab === 'settings' && (
             <div className="space-y-3.5">
-              {/* 1. Theme Switch */}
+              {/* 1. Strava Account Connection */}
+              <div className="p-3.5 rounded-2xl bg-slate-950 border border-slate-800 space-y-2.5">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2.5">
+                    <StravaIcon className="w-6 h-6 rounded-full shrink-0" />
+                    <div>
+                      <h3 className="text-xs uppercase font-extrabold tracking-wider text-slate-300">
+                        Strava Connection
+                      </h3>
+                      <p className="text-[11px] text-slate-400 mt-0.5">
+                        {stravaToken ? `Connected as ${athleteName || 'Athlete'}` : 'Not connected to Strava'}
+                      </p>
+                    </div>
+                  </div>
+                  {stravaToken ? (
+                    <span className="text-[10px] font-bold text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-2 py-0.5 rounded-md flex items-center gap-1 font-mono">
+                      <Check className="w-3 h-3 stroke-[3]" /> Active
+                    </span>
+                  ) : (
+                    <span className="text-[10px] font-bold text-slate-400 bg-slate-900 border border-slate-800 px-2 py-0.5 rounded-md font-mono">
+                      Offline
+                    </span>
+                  )}
+                </div>
+
+                <div className="pt-1 flex items-center gap-2">
+                  {stravaToken ? (
+                    <>
+                      <button
+                        type="button"
+                        onClick={onOpenStravaSettings}
+                        className="flex-1 py-2 px-3 rounded-xl bg-slate-900 hover:bg-slate-800 text-slate-200 text-xs font-bold border border-slate-800 flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
+                      >
+                        <SettingsIcon className="w-3.5 h-3.5 text-amber-400" />
+                        <span>Manage / Reconnect</span>
+                      </button>
+                      {onDisconnectStrava && (
+                        <button
+                          type="button"
+                          onClick={onDisconnectStrava}
+                          className="py-2 px-3 rounded-xl bg-rose-950/40 hover:bg-rose-900/50 text-rose-300 text-xs font-bold border border-rose-800/60 flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
+                          title="Disconnect Strava account"
+                        >
+                          <span>Disconnect</span>
+                        </button>
+                      )}
+                    </>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={onOpenStravaSettings}
+                      className="w-full py-2.5 px-3 rounded-xl bg-[#fc5200] hover:bg-[#e04900] active:scale-95 text-white text-xs font-black shadow-md shadow-[#fc5200]/25 flex items-center justify-center gap-2 transition-all cursor-pointer"
+                    >
+                      <StravaIcon className="w-4 h-4 fill-white" />
+                      <span>Connect with Strava</span>
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {/* 2. Theme Switch */}
               <div className="p-3.5 rounded-2xl bg-slate-950 border border-slate-800 space-y-2">
                 <div className="flex items-center justify-between">
                   <div>
@@ -999,7 +1183,7 @@ export const AthleteProfileModal: React.FC<AthleteProfileModalProps> = ({
                         type="text"
                         value={tempTitle}
                         onChange={(e) => setTempTitle(e.target.value)}
-                        placeholder="e.g. GymFIT"
+                        placeholder="e.g. Fit Track"
                         className="w-full px-3 py-1.5 rounded-xl bg-slate-900 border border-slate-800 text-white text-sm focus:outline-none focus:border-amber-400 font-bold"
                       />
                     </div>
@@ -1012,7 +1196,7 @@ export const AthleteProfileModal: React.FC<AthleteProfileModalProps> = ({
                         type="text"
                         value={tempSubtitle}
                         onChange={(e) => setTempSubtitle(e.target.value)}
-                        placeholder="e.g. Workout Log & Strava Uploader"
+                        placeholder="e.g. Strava Activities & Analytics"
                         className="w-full px-3 py-1.5 rounded-xl bg-slate-900 border border-slate-800 text-white text-xs focus:outline-none focus:border-amber-400"
                       />
                     </div>
@@ -1141,7 +1325,7 @@ export const AthleteProfileModal: React.FC<AthleteProfileModalProps> = ({
                 <div className="p-2.5 sm:p-3.5 rounded-2xl bg-slate-950 border border-slate-800 flex flex-col gap-1.5">
                   <div className="flex items-center justify-between">
                     <label className="text-xs font-semibold text-sky-300">Resting HR</label>
-                    <span className="text-[10px] text-slate-500">Wake</span>
+                    <span className="text-[10px] text-emerald-400 font-semibold">Recovery Baseline</span>
                   </div>
                   <div className="flex items-center gap-1.5">
                     <input
@@ -1154,6 +1338,7 @@ export const AthleteProfileModal: React.FC<AthleteProfileModalProps> = ({
                     />
                     <span className="text-xs text-slate-500 font-mono">bpm</span>
                   </div>
+                  <span className="text-[10px] text-slate-400">Anchors Garmin & TP Readiness tracking (default: 41 bpm)</span>
                 </div>
               </div>
 
@@ -1941,7 +2126,7 @@ export const AthleteProfileModal: React.FC<AthleteProfileModalProps> = ({
               <div className="p-3 rounded-2xl bg-slate-950/80 border border-slate-800 text-xs text-slate-300 flex items-start gap-2.5">
                 <Waves className="w-4 h-4 text-sky-400 shrink-0 mt-0.5" />
                 <p>
-                  Enter your all-out 100m and 400m test times. GymFIT automatically derives your <strong>Critical Swim Speed (CSS)</strong> to calculate Swim TSS (sTSS) for pool swims and open water swims.
+                  Enter your all-out 100m and 400m test times. FIT Track automatically derives your <strong>Critical Swim Speed (CSS)</strong> to calculate Swim TSS (sTSS) for pool swims and open water swims.
                 </p>
               </div>
 
@@ -2040,6 +2225,154 @@ export const AthleteProfileModal: React.FC<AthleteProfileModalProps> = ({
                   </div>
                 </div>
               </div>
+
+              {/* Swim TSS Calculation Model Selection */}
+              <div className="p-3.5 rounded-2xl bg-slate-950 border border-slate-800 space-y-3">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h4 className="text-xs font-extrabold uppercase tracking-wider text-sky-400">
+                      Swim TSS Model
+                    </h4>
+                    <p className="text-[11px] text-slate-400 mt-0.5">
+                      Choose between Pace/CSS based (sTSS) or Heart Rate based (hrTSS)
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setShowSwimTssInfo(!showSwimTssInfo)}
+                    className="text-xs text-sky-400 hover:text-sky-300 font-bold flex items-center gap-1 cursor-pointer bg-sky-950/60 px-2.5 py-1 rounded-xl border border-sky-800/80 transition-colors"
+                  >
+                    <Info className="w-3.5 h-3.5" />
+                    <span>{showSwimTssInfo ? 'Hide Details' : 'Model Guide'}</span>
+                  </button>
+                </div>
+
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setSwimTssMode('sTSS')}
+                    className={`p-2.5 rounded-xl border text-left transition-all cursor-pointer ${
+                      swimTssMode === 'sTSS'
+                        ? 'bg-sky-500/20 border-sky-400 text-white shadow-sm'
+                        : 'bg-slate-900 border-slate-800 text-slate-400 hover:border-slate-700 hover:text-slate-200'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between">
+                      <span className="font-bold text-xs text-sky-300 block">sTSS (Pace / CSS)</span>
+                      {swimTssMode === 'sTSS' && (
+                        <Check className="w-3.5 h-3.5 text-sky-400 stroke-[3]" />
+                      )}
+                    </div>
+                    <span className="text-[10px] text-slate-400 leading-tight block mt-1">
+                      Calculated from threshold swim speed (CSS), distance, and moving duration.
+                    </span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setSwimTssMode('hrTSS')}
+                    className={`p-2.5 rounded-xl border text-left transition-all cursor-pointer ${
+                      swimTssMode === 'hrTSS'
+                        ? 'bg-rose-500/20 border-rose-400 text-white shadow-sm'
+                        : 'bg-slate-900 border-slate-800 text-slate-400 hover:border-slate-700 hover:text-slate-200'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between">
+                      <span className="font-bold text-xs text-rose-300 block">hrTSS (Heart Rate)</span>
+                      {swimTssMode === 'hrTSS' && (
+                        <Check className="w-3.5 h-3.5 text-rose-400 stroke-[3]" />
+                      )}
+                    </div>
+                    <span className="text-[10px] text-slate-400 leading-tight block mt-1">
+                      Calculated from time spent in heart rate zones derived from LTHR.
+                    </span>
+                  </button>
+                </div>
+
+                {/* Educational Guide & Comparison: Expands or stays open */}
+                {showSwimTssInfo && (
+                  <div className="p-3.5 rounded-2xl bg-slate-900/90 border border-slate-800 space-y-3.5 text-xs animate-fade-in">
+                    <div>
+                      <h5 className="font-bold text-sky-300 flex items-center gap-1.5 text-xs">
+                        <Waves className="w-3.5 h-3.5" />
+                        <span>sTSS (Swim Training Stress Score)</span>
+                      </h5>
+                      <ul className="mt-1 space-y-1 text-[11px] text-slate-300">
+                        <li>• <strong className="text-white">How it is calculated:</strong> Based on your functional threshold swim pace (CSS / threshold speed), total distance covered, and total moving duration (excluding rest periods).</li>
+                        <li>• <strong className="text-white">Best used for:</strong> Standard pool or open-water swim workouts where pace and distance are accurately tracked.</li>
+                        <li>• <strong className="text-emerald-300">Pros:</strong> Directly reflects mechanical swim speed, stroke intensity relative to your threshold pace, and properly ignores wall-push rests if moving duration is captured.</li>
+                        <li>• <strong className="text-amber-300">Cons:</strong> Can be skewed by GPS errors in open-water swimming or missed/improperly logged threshold swim speeds.</li>
+                      </ul>
+                    </div>
+
+                    <div className="border-t border-slate-800 pt-3">
+                      <h5 className="font-bold text-rose-300 flex items-center gap-1.5 text-xs">
+                        <Heart className="w-3.5 h-3.5" />
+                        <span>hrTSS (Heart Rate Training Stress Score)</span>
+                      </h5>
+                      <ul className="mt-1 space-y-1 text-[11px] text-slate-300">
+                        <li>• <strong className="text-white">How it is calculated:</strong> Based on the amount of time spent in different heart rate zones, derived from your lactate threshold heart rate (LTHR).</li>
+                        <li>• <strong className="text-white">Best used for:</strong> Steady-state, continuous sub-threshold or long tempo sets.</li>
+                        <li>• <strong className="text-emerald-300">Pros:</strong> Captures overall cardiovascular strain when pace data is unreliable or missing.</li>
+                        <li>• <strong className="text-amber-300">Cons:</strong> Heart rate lags behind actual physical effort (especially during short intervals, drills, or stop-and-go sets), meaning it often underrepresents the real fatigue of intense or high-variance swim sessions.</li>
+                      </ul>
+                    </div>
+
+                    {/* Key Differences Table */}
+                    <div className="border-t border-slate-800 pt-3">
+                      <h6 className="font-bold text-amber-300 text-xs mb-2">Key Differences at a Glance</h6>
+                      <div className="overflow-x-auto rounded-xl border border-slate-800">
+                        <table className="w-full text-left text-[11px]">
+                          <thead className="bg-slate-950 text-slate-400 font-bold border-b border-slate-800">
+                            <tr>
+                              <th className="p-2">Feature</th>
+                              <th className="p-2 text-sky-300">sTSS</th>
+                              <th className="p-2 text-rose-300">hrTSS</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-slate-800/80 text-slate-300 font-medium">
+                            <tr>
+                              <td className="p-2 text-white font-semibold">Primary Input</td>
+                              <td className="p-2">Swim pace, distance, moving time, threshold speed</td>
+                              <td className="p-2">Time in heart rate zones, lactate threshold HR</td>
+                            </tr>
+                            <tr>
+                              <td className="p-2 text-white font-semibold">Handling of Rest</td>
+                              <td className="p-2">Based on moving duration (disregards rest intervals)</td>
+                              <td className="p-2">Integrates continuous heart rate (drops slowly during rest)</td>
+                            </tr>
+                            <tr>
+                              <td className="p-2 text-white font-semibold">Best For</td>
+                              <td className="p-2">Structured pace-based swim sets</td>
+                              <td className="p-2">Steady, continuous endurance swims</td>
+                            </tr>
+                            <tr>
+                              <td className="p-2 text-white font-semibold">Accuracy on Intervals</td>
+                              <td className="p-2">Better at tracking actual work vs. rest structure</td>
+                              <td className="p-2">Underestimates short or high-intensity efforts due to HR lag</td>
+                            </tr>
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+
+                    {/* Hardware & Workout Recommendations */}
+                    <div className="border-t border-slate-800 pt-3 bg-slate-950/60 p-2.5 rounded-xl">
+                      <span className="font-bold text-amber-300 text-[11px] block mb-1">
+                        Choosing the right one for your setup:
+                      </span>
+                      <ul className="space-y-1 text-[10px] text-slate-300">
+                        <li>
+                          • <strong className="text-white">Sensor type:</strong> Do you use a swim-capable heart rate strap (like a HRM-Pro) or an optical watch sensor? Optical sensors struggle in water; use sTSS unless you have a dedicated chest strap.
+                        </li>
+                        <li>
+                          • <strong className="text-white">Workout structure:</strong> Are you doing mostly steady endurance or short, high-intensity intervals? High-intensity sets are far more accurately scored via sTSS.
+                        </li>
+                      </ul>
+                    </div>
+                  </div>
+                )}
+              </div>
             </div>
           )}
 
@@ -2134,7 +2467,7 @@ export const AthleteProfileModal: React.FC<AthleteProfileModalProps> = ({
                       max="195"
                       value={bikeCrankLengthMm}
                       onChange={(e) => setBikeCrankLengthMm(Number(e.target.value))}
-                      className="w-16 bg-slate-950 border border-slate-700 rounded-lg px-2 py-1 text-xs font-bold font-mono text-white text-right focus:outline-none focus:border-orange-400"
+                      className="w-24 min-w-[84px] bg-slate-950 border border-slate-700 rounded-lg px-2 py-1 text-xs font-bold font-mono text-white text-center focus:outline-none focus:border-orange-400"
                     />
                     <button
                       type="button"
@@ -2210,7 +2543,7 @@ export const AthleteProfileModal: React.FC<AthleteProfileModalProps> = ({
                                     [bike.gearId]: val,
                                   }));
                                 }}
-                                className="w-16 bg-slate-950 border border-slate-700 rounded-lg px-1.5 py-1 text-xs font-bold font-mono text-white text-right focus:outline-none focus:border-orange-400"
+                                className="w-24 min-w-[80px] bg-slate-950 border border-slate-700 rounded-lg px-2 py-1 text-xs font-bold font-mono text-white text-center focus:outline-none focus:border-orange-400"
                               />
                               <button
                                 type="button"
@@ -2410,6 +2743,81 @@ export const AthleteProfileModal: React.FC<AthleteProfileModalProps> = ({
 
                       <div className="text-right font-mono font-bold text-slate-200">
                         <span>{z.minHr} - {z.maxHr} bpm</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Running Pace Zones (Editable per zone + Reset button) */}
+              <div className="p-3.5 rounded-2xl bg-slate-950 border border-slate-800 space-y-2.5">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <Footprints className="w-4 h-4 text-emerald-400" />
+                    <div>
+                      <span className="text-xs font-bold text-white uppercase tracking-wider block">
+                        Running Pace Zones
+                      </span>
+                      <span className="text-[10px] text-slate-400 font-mono">
+                        Threshold: {paceOutdoorStr}/km
+                      </span>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleResetPaceZones}
+                    className="px-2.5 py-1 rounded-xl text-[11px] font-bold bg-slate-800 hover:bg-slate-700 active:scale-95 text-slate-300 hover:text-white border border-slate-700 transition-all flex items-center gap-1.5 cursor-pointer shadow-xs"
+                    title="Reset Running Pace Zones to default model"
+                  >
+                    <RotateCcw className="w-3 h-3 text-amber-400" />
+                    <span>Reset Model</span>
+                  </button>
+                </div>
+
+                <p className="text-[11px] text-slate-400 leading-relaxed">
+                  Customize the pace range for each zone. Click &apos;Reset Model&apos; anytime to restore default percentage-based paces derived from your outdoor threshold.
+                </p>
+
+                <div className="space-y-1.5 pt-1">
+                  {paceZonesState.map((z) => (
+                    <div
+                      key={z.zone}
+                      className="p-2.5 rounded-xl bg-slate-900/80 border border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs"
+                    >
+                      <div className="flex items-center gap-2.5 min-w-0">
+                        <span
+                          style={{ backgroundColor: z.color }}
+                          className="w-6 h-6 rounded-lg text-slate-950 font-black text-xs flex items-center justify-center shrink-0"
+                        >
+                          Z{z.zone}
+                        </span>
+                        <div className="min-w-0">
+                          <span className="font-bold text-white mr-1.5">{z.name}</span>
+                          <span className="text-[10px] text-slate-400 font-mono block sm:inline truncate">
+                            {z.description}
+                          </span>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-1.5 shrink-0 self-end sm:self-auto font-mono">
+                        <span className="text-[10px] text-slate-500 uppercase">Fast:</span>
+                        <input
+                          type="text"
+                          value={z.minPaceStr}
+                          onChange={(e) => handleUpdatePaceZone(z.zone, 'minPaceStr', e.target.value)}
+                          placeholder="3:30"
+                          className="w-16 bg-slate-950 border border-slate-700 rounded-lg px-1.5 py-1 text-xs font-bold text-white text-center focus:outline-none focus:border-amber-400"
+                        />
+                        <span className="text-slate-500 text-xs">to</span>
+                        <span className="text-[10px] text-slate-500 uppercase">Slow:</span>
+                        <input
+                          type="text"
+                          value={z.maxPaceStr}
+                          onChange={(e) => handleUpdatePaceZone(z.zone, 'maxPaceStr', e.target.value)}
+                          placeholder="4:15"
+                          className="w-16 bg-slate-950 border border-slate-700 rounded-lg px-1.5 py-1 text-xs font-bold text-white text-center focus:outline-none focus:border-amber-400"
+                        />
+                        <span className="text-slate-400 text-xs font-mono ml-0.5">/km</span>
                       </div>
                     </div>
                   ))}

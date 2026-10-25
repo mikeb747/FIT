@@ -18,7 +18,7 @@ export const PWAInstallButton: React.FC = () => {
         type="button"
         onClick={install}
         className="px-2.5 py-1.5 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:brightness-110 text-white text-xs font-bold flex items-center gap-1.5 shadow-md shadow-emerald-900/30 transition-all cursor-pointer animate-pulse"
-        title="Install GymFIT as an independent app on your device"
+        title="Install FIT Track as an independent app on your device"
       >
         <Download className="w-3.5 h-3.5" />
         <span>Install App</span>
@@ -58,7 +58,7 @@ export const PWAInstallButton: React.FC = () => {
               <p className="text-xs text-slate-300 leading-relaxed">
                 1. Tap the <strong>Share</strong> button at the bottom of Safari.<br />
                 2. Scroll down and tap <strong>&quot;Add to Home Screen&quot;</strong>.<br />
-                3. GymFIT will install with its custom app icon!
+                3. FIT Track will install with its custom app icon!
               </p>
               <button
                 type="button"

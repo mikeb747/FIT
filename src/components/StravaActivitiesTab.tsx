@@ -170,7 +170,7 @@ export const StravaActivitiesTab: React.FC<StravaActivitiesTabProps> = ({
         </div>
         <h3 className="text-lg font-black text-white mb-2">Connect Your Strava Account</h3>
         <p className="text-xs sm:text-sm text-slate-400 mb-6 leading-relaxed">
-          Authorize GymFIT to view your synced strength workouts, runs, rides, and recent Strava activities directly inside the app.
+          Authorize FIT Track to view your synced strength workouts, runs, rides, and recent Strava activities directly inside the app.
         </p>
         <button
           type="button"
@@ -255,11 +255,11 @@ export const StravaActivitiesTab: React.FC<StravaActivitiesTabProps> = ({
                       rel="noopener noreferrer"
                       className="text-emerald-400 hover:underline flex items-center gap-1"
                     >
-                      <span>GymFIT Training Log</span>
+                      <span>FIT Track Training Log</span>
                       <ExternalLink className="w-2.5 h-2.5" />
                     </a>
                   ) : (
-                    googleUserEmail || 'GymFIT Training Log ready'
+                    googleUserEmail || 'FIT Track Training Log ready'
                   )
                 ) : (
                   'Export streams & workouts to Sheets'
@@ -372,7 +372,7 @@ export const StravaActivitiesTab: React.FC<StravaActivitiesTabProps> = ({
           <p className="text-xs text-slate-400 mt-1 max-w-sm">
             {selectedCategory !== 'All'
               ? `No activities classified as ${selectedCategory} found in current cache.`
-              : 'Completed workouts uploaded from GymFIT or Strava will appear here.'}
+              : 'Completed workouts uploaded from FIT Track or Strava will appear here.'}
           </p>
           <button
             type="button"

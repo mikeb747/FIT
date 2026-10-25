@@ -845,7 +845,7 @@ export const StravaActivityModal: React.FC<StravaActivityModalProps> = ({
                 <span className="truncate">
                   {exportSuccess.alreadyExists
                     ? 'Activity already in Google Sheets (no duplicate written).'
-                    : 'Successfully synced to GymFIT Training Log!'}
+                    : 'Successfully synced to FIT Track Training Log!'}
                 </span>
               </div>
               <a
