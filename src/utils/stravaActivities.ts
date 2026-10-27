@@ -45,6 +45,8 @@ export interface ActivityCalibration {
   calibratedLaps?: CalibratedSwimLap[]; // Fix inaccurate swim watch laps
   calibratedAt?: string;
   calibrationNotes?: string;
+  manualTss?: number;
+  preferredTssModel?: 'auto' | 'hrTSS' | 'rTSS' | 'sTSS' | 'powerTSS';
 }
 
 export interface ActivityEffortFeedback {
@@ -573,9 +575,12 @@ export interface TSSCalculationResult {
     | 'sTSS (Pool)'
     | 'sTSS (Open Water)'
     | 'hrTSS'
+    | 'hrTSS (Run)'
+    | 'hrTSS (Bike)'
     | 'hrTSS (Swim)'
     | 'sTSS'
     | 'Relative Effort'
+    | 'Manual TSS'
     | 'Ignored';
   description: string;
 }
@@ -609,6 +614,17 @@ export function calculateActivityTSS(
     };
   }
 
+  // 0. Manual TSS Override
+  if (details?.calibration?.manualTss !== undefined && details?.calibration?.manualTss !== null && !isNaN(details.calibration.manualTss)) {
+    return {
+      tss: Math.max(0, Math.round(details.calibration.manualTss)),
+      type: 'Manual TSS',
+      description: `Manual override (${details.calibration.manualTss} TSS)`,
+    };
+  }
+
+  const preferredModel = details?.calibration?.preferredTssModel || 'auto';
+
   const { category, subType } = classifyActivity(activity);
   const effectiveMovingTimeSec = details?.calibration?.calibratedMovingTimeSec ?? activity.moving_time ?? activity.elapsed_time ?? 0;
   if (effectiveMovingTimeSec <= 60) return null;
@@ -619,6 +635,20 @@ export function calculateActivityTSS(
   const userFtp = athleteProfile?.bikeFtp || fallbackUserFtp;
   const userLthrRun = athleteProfile?.thresholdHeartRateRun || fallbackUserLthrRun;
   const userLthrBike = athleteProfile?.thresholdHeartRateBike || fallbackUserLthrBike;
+
+  // 1. Explicit hrTSS override if selected
+  if (preferredModel === 'hrTSS' && effectiveAvgHr && effectiveAvgHr > 40) {
+    const lthr = category === 'Swim' 
+      ? (athleteProfile?.thresholdHeartRateRun ? Math.round(athleteProfile.thresholdHeartRateRun * 0.95) : 160)
+      : category === 'Run' ? userLthrRun : userLthrBike;
+    const ifHr = effectiveAvgHr / lthr;
+    const hrTss = ((effectiveMovingTimeSec * effectiveAvgHr * ifHr) / (lthr * 3600)) * 100;
+    return {
+      tss: Math.round(hrTss),
+      type: category === 'Swim' ? 'hrTSS (Swim)' : category === 'Run' ? 'hrTSS (Run)' : 'hrTSS (Bike)',
+      description: `hrTSS based on avg HR ${Math.round(effectiveAvgHr)} bpm (LTHR ${lthr}, IF ${ifHr.toFixed(2)})`,
+    };
+  }
 
   // 1. Cycling Power TSS (STRICTLY for Turbo Trainer or Bike only!)
   if (subType === 'Turbo Trainer' || subType === 'Bike') {

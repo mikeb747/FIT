@@ -37,6 +37,13 @@ export function generateDefaultRecoveryLogs(): DailyRecoveryLog[] {
     { offset: 18, rhr: 42, hrv: 72, sleepMin: 460, score: 81, deep: 74, rem: 94, feel: 3 as SubjectiveFeel, notes: 'Recovering slowly', tags: ['recovery'] },
     { offset: 19, rhr: 41, hrv: 81, sleepMin: 495, score: 88, deep: 86, rem: 108, feel: 4 as SubjectiveFeel, notes: 'Solid parasympathetic tone', tags: ['balanced'] },
     { offset: 20, rhr: 40, hrv: 85, sleepMin: 515, score: 93, deep: 96, rem: 115, feel: 5 as SubjectiveFeel, notes: 'Weekend deep sleep surplus', tags: ['optimal sleep'] },
+    { offset: 21, rhr: 42, hrv: 74, sleepMin: 460, score: 82, deep: 75, rem: 96, feel: 4 as SubjectiveFeel, notes: 'Solid aerobic conditioning session', tags: ['steady'] },
+    { offset: 22, rhr: 43, hrv: 69, sleepMin: 435, score: 75, deep: 65, rem: 86, feel: 3 as SubjectiveFeel, notes: 'Midweek track session, elevated metabolism', tags: ['intervals'] },
+    { offset: 23, rhr: 41, hrv: 79, sleepMin: 480, score: 87, deep: 84, rem: 102, feel: 4 as SubjectiveFeel, notes: 'Heart rate baseline returned to 41 bpm', tags: ['routine'] },
+    { offset: 24, rhr: 40, hrv: 84, sleepMin: 500, score: 90, deep: 90, rem: 110, feel: 5 as SubjectiveFeel, notes: 'Deep recovery sleep and clear autonomic balance', tags: ['peak recovery'] },
+    { offset: 25, rhr: 42, hrv: 76, sleepMin: 465, score: 83, deep: 78, rem: 98, feel: 4 as SubjectiveFeel, notes: 'Slight muscle fatigue from gym session', tags: ['strength'] },
+    { offset: 26, rhr: 44, hrv: 67, sleepMin: 425, score: 72, deep: 62, rem: 82, feel: 3 as SubjectiveFeel, notes: 'Late evening training and delayed sleep onset', tags: ['late session'] },
+    { offset: 27, rhr: 41, hrv: 80, sleepMin: 490, score: 88, deep: 86, rem: 105, feel: 4 as SubjectiveFeel, notes: 'Full 4-week recovery baseline start', tags: ['optimal sleep'] },
   ];
 
   templates.forEach((t) => {

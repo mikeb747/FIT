@@ -41,8 +41,10 @@ import {
 import {
   getCachedSpreadsheetId,
 } from './utils/googleSheets';
-import { Settings, Activity, Moon, Heart } from 'lucide-react';
+import { Settings, Activity, Moon, Heart, Zap } from 'lucide-react';
 import { RecoveryView } from './components/RecoveryView';
+import { FitnessTab } from './components/FitnessTab';
+import { computeFitnessTimeline, calculateTriathlonFitnessIndex } from './utils/fitnessEngine';
 import type { DailyRecoveryLog } from './types/recovery';
 import {
   loadRecoveryLogs,
@@ -132,7 +134,7 @@ export default function App() {
   // -------------------------------------------------------------
   // Navigation & Recovery Tracking State
   // -------------------------------------------------------------
-  const [activeMainTab, setActiveMainTab] = useState<'activities' | 'recovery'>('activities');
+  const [activeMainTab, setActiveMainTab] = useState<'activities' | 'recovery' | 'fitness'>('activities');
   const [recoveryLogs, setRecoveryLogs] = useState<DailyRecoveryLog[]>(() => loadRecoveryLogs());
 
   const handleUpsertRecoveryLog = (log: DailyRecoveryLog) => {
@@ -183,6 +185,15 @@ export default function App() {
 
   const [stravaActivities, setStravaActivities] = useState<StravaActivity[]>(() => getCachedStravaActivities());
   const [stravaActivityDetails, setStravaActivityDetails] = useState<Record<string, StravaActivityDetailsRecord>>({});
+
+  const headerFitnessIndex = useMemo(() => {
+    const timeline = computeFitnessTimeline(stravaActivities, stravaActivityDetails, athleteProfile, 45);
+    const latest = timeline.length > 0 ? timeline[timeline.length - 1] : null;
+    if (!latest) return 85;
+    const res = calculateTriathlonFitnessIndex(latest.swimCtl, latest.bikeCtl, latest.runCtl, 'middle_70_3', athleteGoals);
+    return Math.round(res.tfi);
+  }, [stravaActivities, stravaActivityDetails, athleteProfile, athleteGoals]);
+
   const activityDetailsInProgress = useRef(new Set<string>());
   const [isLoadingStravaActivities, setIsLoadingStravaActivities] = useState(false);
   const [isLoadingMoreStrava, setIsLoadingMoreStrava] = useState(false);
@@ -599,6 +610,33 @@ export default function App() {
                 </span>
               )}
             </button>
+
+            <button
+              type="button"
+              onClick={() => setActiveMainTab('fitness')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer ${
+                activeMainTab === 'fitness'
+                  ? theme === 'light'
+                    ? 'bg-white text-slate-900 shadow-xs border border-slate-200/80'
+                    : 'bg-slate-800 text-white shadow-sm'
+                  : theme === 'light'
+                  ? 'text-slate-500 hover:text-slate-900'
+                  : 'text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              <Zap className="w-3.5 h-3.5 text-indigo-500" />
+              <span>Fitness</span>
+              <span
+                className={`text-[10px] px-1.5 py-0.5 rounded-md font-extrabold ${
+                  theme === 'light'
+                    ? 'bg-indigo-100 text-indigo-700'
+                    : 'bg-indigo-950/70 text-indigo-300 border border-indigo-700/40'
+                }`}
+                title="Triathlon Fitness Index"
+              >
+                {headerFitnessIndex}
+              </span>
+            </button>
           </div>
 
           {/* Action cluster: PWA Install, Settings */}
@@ -627,7 +665,7 @@ export default function App() {
       </header>
 
       {/* ========================================================= */}
-      {/* MAIN VIEW: STRAVA ACTIVITIES OR READINESS & RECOVERY */}
+      {/* MAIN VIEW: STRAVA ACTIVITIES, READINESS, OR FITNESS */}
       {/* ========================================================= */}
       <main className="flex-1 max-w-4xl w-full mx-auto p-4 sm:p-6 space-y-6">
         {activeMainTab === 'activities' ? (
@@ -655,7 +693,7 @@ export default function App() {
               setIsAthleteProfileOpen(true);
             }}
           />
-        ) : (
+        ) : activeMainTab === 'recovery' ? (
           <RecoveryView
             logs={recoveryLogs}
             athleteProfile={athleteProfile}
@@ -667,6 +705,18 @@ export default function App() {
             onResetDefaults={handleResetRecoveryDefaults}
             onOpenAthleteSettings={() => {
               setProfileModalTab('physiology');
+              setIsAthleteProfileOpen(true);
+            }}
+          />
+        ) : (
+          <FitnessTab
+            activities={stravaActivities}
+            activityDetails={stravaActivityDetails}
+            athleteProfile={athleteProfile}
+            goals={athleteGoals}
+            theme={theme}
+            onOpenSettings={() => {
+              setProfileModalTab('goals');
               setIsAthleteProfileOpen(true);
             }}
           />

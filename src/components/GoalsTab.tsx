@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import {
   Trophy,
   Target,
@@ -19,6 +19,7 @@ import {
   ChevronUp,
   MapPin,
   X,
+  RotateCw,
 } from 'lucide-react';
 import {
   TrainingGoal,
@@ -35,6 +36,7 @@ import {
   SWIM_DISTANCE_PRESETS,
 } from '../types/goals';
 import { AthleteProfile } from '../types/athlete';
+import { resetAthleteGoalsToDefaults } from '../utils/goalsStorage';
 
 interface GoalsTabProps {
   goals: TrainingGoal[];
@@ -176,7 +178,27 @@ export const GoalsTab: React.FC<GoalsTabProps> = ({ goals, onChangeGoals, profil
   const [filterPriority, setFilterPriority] = useState<string>('all');
   const [editingGoal, setEditingGoal] = useState<TrainingGoal | null>(null);
   const [isEditorOpen, setIsEditorOpen] = useState(false);
-  const [expandedGoalId, setExpandedGoalId] = useState<string | null>(goals[0]?.id || null);
+  const EXPANDED_STORAGE_KEY = 'gymfit_expanded_goal_ids_v1';
+  const [expandedGoalIds, setExpandedGoalIds] = useState<string[]>(() => {
+    try {
+      const saved = localStorage.getItem(EXPANDED_STORAGE_KEY);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed)) return parsed;
+      }
+    } catch {}
+    return goals.length > 0 ? [goals[0].id] : [];
+  });
+
+  const toggleExpandGoal = (id: string) => {
+    setExpandedGoalIds((prev) => {
+      const next = prev.includes(id) ? prev.filter((item) => item !== id) : [...prev, id];
+      try {
+        localStorage.setItem(EXPANDED_STORAGE_KEY, JSON.stringify(next));
+      } catch {}
+      return next;
+    });
+  };
 
   const handleAddNewGoal = (type: GoalEventType = 'triathlon') => {
     const today = new Date();
@@ -245,7 +267,13 @@ export const GoalsTab: React.FC<GoalsTabProps> = ({ goals, onChangeGoals, profil
       createdAt: new Date().toISOString(),
     };
     onChangeGoals([...goals, dup]);
-    setExpandedGoalId(dup.id);
+    setExpandedGoalIds((prev) => {
+      const next = prev.includes(dup.id) ? prev : [...prev, dup.id];
+      try {
+        localStorage.setItem(EXPANDED_STORAGE_KEY, JSON.stringify(next));
+      } catch {}
+      return next;
+    });
   };
 
   const handleSaveEditor = (saved: TrainingGoal) => {
@@ -259,7 +287,13 @@ export const GoalsTab: React.FC<GoalsTabProps> = ({ goals, onChangeGoals, profil
     onChangeGoals(updated);
     setIsEditorOpen(false);
     setEditingGoal(null);
-    setExpandedGoalId(saved.id);
+    setExpandedGoalIds((prev) => {
+      const next = prev.includes(saved.id) ? prev : [...prev, saved.id];
+      try {
+        localStorage.setItem(EXPANDED_STORAGE_KEY, JSON.stringify(next));
+      } catch {}
+      return next;
+    });
   };
 
   const handleToggleMilestone = (goalId: string, milestoneId: string) => {
@@ -275,15 +309,24 @@ export const GoalsTab: React.FC<GoalsTabProps> = ({ goals, onChangeGoals, profil
     onChangeGoals(updated);
   };
 
-  const filteredGoals = goals.filter((g) => {
-    if (filterPriority === 'all') return true;
-    if (filterPriority === 'A' || filterPriority === 'B' || filterPriority === 'C') {
-      return g.priority === filterPriority;
-    }
-    if (filterPriority === 'upcoming') return g.status === 'upcoming';
-    if (filterPriority === 'completed') return g.status === 'completed';
-    return true;
-  });
+  const filteredGoals = useMemo(() => {
+    const list = goals.filter((g) => {
+      if (filterPriority === 'all') return true;
+      if (filterPriority === 'A' || filterPriority === 'B' || filterPriority === 'C') {
+        return g.priority === filterPriority;
+      }
+      if (filterPriority === 'upcoming') return g.status === 'upcoming';
+      if (filterPriority === 'completed') return g.status === 'completed';
+      return true;
+    });
+
+    // When All goals is selected (and by default), sort races by soonest at the top
+    return list.sort((a, b) => {
+      const dateA = a.eventDate || '9999-12-31';
+      const dateB = b.eventDate || '9999-12-31';
+      return dateA.localeCompare(dateB);
+    });
+  }, [goals, filterPriority]);
 
   return (
     <div className="space-y-4">
@@ -308,8 +351,24 @@ export const GoalsTab: React.FC<GoalsTabProps> = ({ goals, onChangeGoals, profil
           </p>
         </div>
 
-        {/* Add Goal Button */}
+        {/* Action Buttons */}
         <div className="flex items-center gap-1.5 shrink-0">
+          <button
+            type="button"
+            onClick={() => {
+              const reset = resetAthleteGoalsToDefaults();
+              onChangeGoals(reset);
+            }}
+            className={`px-2.5 py-1.5 rounded-xl text-xs font-semibold flex items-center gap-1 transition-colors cursor-pointer border ${
+              isLight
+                ? 'bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-200'
+                : 'bg-slate-800 hover:bg-slate-700 text-slate-300 border-slate-700'
+            }`}
+            title="Restore the 3 default races (Cotswold Classic V2, The Seven Sins 2027, Oldbury 10 Miler)"
+          >
+            <RotateCw className="w-3.5 h-3.5 text-amber-500" />
+            <span>Reset 3 Default Races</span>
+          </button>
           <button
             type="button"
             onClick={() => handleAddNewGoal('triathlon')}
@@ -374,7 +433,7 @@ export const GoalsTab: React.FC<GoalsTabProps> = ({ goals, onChangeGoals, profil
       ) : (
         <div className="space-y-3">
           {filteredGoals.map((goal) => {
-            const isExpanded = expandedGoalId === goal.id;
+            const isExpanded = expandedGoalIds.includes(goal.id);
             const countdown = getCountdownInfo(goal.eventDate, isLight);
             const completedCount = goal.milestones.filter((m) => m.isCompleted).length;
             const milestonePct =
@@ -384,36 +443,44 @@ export const GoalsTab: React.FC<GoalsTabProps> = ({ goals, onChangeGoals, profil
 
             const priorityBadge =
               goal.priority === 'A'
-                ? 'bg-amber-500 text-slate-950 font-black shadow-sm shadow-amber-500/20'
+                ? 'bg-emerald-500 text-slate-950 font-black shadow-sm shadow-emerald-500/20'
                 : goal.priority === 'B'
-                ? isLight
-                  ? 'bg-sky-100 text-sky-800 border border-sky-300 font-bold'
-                  : 'bg-sky-500/20 text-sky-300 border border-sky-500/40 font-bold'
-                : isLight
-                ? 'bg-slate-100 text-slate-700 border border-slate-300 font-bold'
-                : 'bg-slate-800 text-slate-300 border border-slate-700 font-bold';
+                ? 'bg-sky-500 text-slate-950 font-black shadow-sm shadow-sky-500/20'
+                : 'bg-amber-400 text-slate-950 font-black shadow-sm shadow-amber-500/20';
+
+            const cardBgClass = isLight
+              ? goal.priority === 'A'
+                ? 'bg-emerald-50/90 border-emerald-300 shadow-sm shadow-emerald-500/10'
+                : goal.priority === 'B'
+                ? 'bg-sky-50/90 border-sky-300 shadow-sm shadow-sky-500/10'
+                : 'bg-amber-50/90 border-amber-300 shadow-sm shadow-amber-500/10'
+              : goal.priority === 'A'
+              ? 'bg-emerald-950/25 border-emerald-500/35 shadow-md shadow-emerald-500/5'
+              : goal.priority === 'B'
+              ? 'bg-sky-950/25 border-sky-500/35 shadow-md shadow-sky-500/5'
+              : 'bg-amber-950/25 border-amber-500/35 shadow-md shadow-amber-500/5';
+
+            const headerBgClass = isLight
+              ? goal.priority === 'A'
+                ? 'bg-emerald-100/70 hover:bg-emerald-100/90'
+                : goal.priority === 'B'
+                ? 'bg-sky-100/70 hover:bg-sky-100/90'
+                : 'bg-amber-100/70 hover:bg-amber-100/90'
+              : goal.priority === 'A'
+              ? 'bg-emerald-900/30 hover:bg-emerald-900/50'
+              : goal.priority === 'B'
+              ? 'bg-sky-900/30 hover:bg-sky-900/50'
+              : 'bg-amber-900/30 hover:bg-amber-900/50';
 
             return (
               <div
                 key={goal.id}
-                className={`border rounded-2xl overflow-hidden transition-all ${
-                  isLight
-                    ? goal.priority === 'A'
-                      ? 'bg-white border-amber-400/80 shadow-md shadow-amber-500/10'
-                      : 'bg-white border-slate-200 hover:border-slate-300 shadow-sm'
-                    : goal.priority === 'A'
-                    ? 'bg-slate-950/60 border-amber-500/30 shadow-md shadow-amber-500/5'
-                    : 'bg-slate-950/60 border-slate-800 hover:border-slate-700'
-                }`}
+                className={`border rounded-2xl overflow-hidden transition-all ${cardBgClass}`}
               >
                 {/* Goal Card Header */}
                 <div
-                  onClick={() => setExpandedGoalId(isExpanded ? null : goal.id)}
-                  className={`p-3.5 sm:p-4 flex items-center justify-between gap-3 cursor-pointer select-none transition-colors ${
-                    isLight
-                      ? 'bg-slate-50/70 hover:bg-slate-100/90'
-                      : 'bg-slate-900/40 hover:bg-slate-900/70'
-                  }`}
+                  onClick={() => toggleExpandGoal(goal.id)}
+                  className={`p-3.5 sm:p-4 flex items-center justify-between gap-3 cursor-pointer select-none transition-colors ${headerBgClass}`}
                 >
                   <div className="flex items-center gap-3 min-w-0">
                     {/* Priority Indicator */}

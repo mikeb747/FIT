@@ -204,6 +204,21 @@ export const RecoveryView: React.FC<RecoveryViewProps> = ({
             <span>Garmin Sync</span>
           </button>
 
+          {/* 28-Day Demo Recovery Data */}
+          <button
+            type="button"
+            onClick={onResetDefaults}
+            className={`px-3 py-2 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer border ${
+              isLight
+                ? 'bg-amber-50 hover:bg-amber-100 text-amber-900 border-amber-200'
+                : 'bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 border-amber-500/30'
+            }`}
+            title="Load 28-day sample recovery telemetry (HRV, Sleep stages, Resting HR)"
+          >
+            <Sparkles className="w-3.5 h-3.5 text-amber-500" />
+            <span>28d Demo Data</span>
+          </button>
+
           <button
             type="button"
             onClick={() => setIsCsvModalOpen(true)}

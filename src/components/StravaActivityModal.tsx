@@ -43,6 +43,7 @@ import {
   calculateNormalizedPower,
   getSwimPaceDetails,
   saveActivityEffortFeedback,
+  saveActivityCalibration,
 } from '../utils/stravaActivities';
 import type { AthleteProfile } from '../types/athlete';
 import { calculateRecoveryEstimate, calculateWorkKj, formatDuration } from '../types/athlete';
@@ -115,12 +116,86 @@ export const StravaActivityModal: React.FC<StravaActivityModalProps> = ({
   const [exportSuccess, setExportSuccess] = useState<{ url: string; alreadyExists: boolean } | null>(null);
   const [exportError, setExportError] = useState<string | null>(null);
 
+  // Manual TSS & Model Override State
+  const [isEditingTss, setIsEditingTss] = useState(false);
+  const [manualTssInput, setManualTssInput] = useState<string>('');
+  const [selectedTssModel, setSelectedTssModel] = useState<'auto' | 'hrTSS' | 'rTSS' | 'sTSS' | 'powerTSS'>('auto');
+  const [isSavingTss, setIsSavingTss] = useState(false);
+  const [tssSaveSuccess, setTssSaveSuccess] = useState(false);
+
+  useEffect(() => {
+    if (detailsRecord?.calibration) {
+      if (detailsRecord.calibration.manualTss !== undefined && detailsRecord.calibration.manualTss !== null) {
+        setManualTssInput(String(detailsRecord.calibration.manualTss));
+      } else {
+        setManualTssInput('');
+      }
+      setSelectedTssModel(detailsRecord.calibration.preferredTssModel || 'auto');
+    } else {
+      setManualTssInput('');
+      setSelectedTssModel('auto');
+    }
+  }, [detailsRecord]);
+
+  const handleSaveTssConfig = async () => {
+    if (!activity) return;
+    setIsSavingTss(true);
+    setTssSaveSuccess(false);
+
+    try {
+      const existingCalib = detailsRecord?.calibration || {};
+      const numTss = manualTssInput.trim() !== '' ? Number(manualTssInput) : undefined;
+      const updatedCalib = {
+        ...existingCalib,
+        manualTss: numTss !== undefined && !isNaN(numTss) ? Math.max(0, Math.round(numTss)) : undefined,
+        preferredTssModel: selectedTssModel,
+      };
+
+      const updatedRecord = await saveActivityCalibration(activity.id, updatedCalib);
+      setDetailsRecord(updatedRecord);
+      setTssSaveSuccess(true);
+      setTimeout(() => {
+        setTssSaveSuccess(false);
+        setIsEditingTss(false);
+      }, 800);
+    } catch (err) {
+      console.error('Failed to save TSS customization:', err);
+    } finally {
+      setIsSavingTss(false);
+    }
+  };
+
+  const handleRestoreDefaultTss = async () => {
+    if (!activity) return;
+    setIsSavingTss(true);
+    try {
+      const existingCalib = { ...(detailsRecord?.calibration || {}) };
+      delete existingCalib.manualTss;
+      existingCalib.preferredTssModel = 'auto';
+
+      const updatedRecord = await saveActivityCalibration(activity.id, existingCalib);
+      setDetailsRecord(updatedRecord);
+      setManualTssInput('');
+      setSelectedTssModel('auto');
+      setTssSaveSuccess(true);
+      setTimeout(() => {
+        setTssSaveSuccess(false);
+        setIsEditingTss(false);
+      }, 800);
+    } catch (err) {
+      console.error('Failed to reset TSS model:', err);
+    } finally {
+      setIsSavingTss(false);
+    }
+  };
+
   useEffect(() => {
     if (!isOpen || !activity) {
       setDetailsRecord(null);
       setExportSuccess(null);
       setExportError(null);
       setIsCalibrationOpen(false);
+      setIsEditingTss(false);
       return;
     }
 
@@ -574,6 +649,11 @@ export const StravaActivityModal: React.FC<StravaActivityModalProps> = ({
                       <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-200">
                         {tssResult.type}
                       </span>
+                      {detailsRecord?.calibration?.manualTss !== undefined && (
+                        <span className="text-[10px] font-bold px-1.5 py-0.2 rounded bg-purple-500/20 text-purple-300 border border-purple-500/30">
+                          Custom
+                        </span>
+                      )}
                     </div>
                     <p className="text-[11px] text-slate-400 mt-0.5">
                       {tssResult.description}
@@ -581,13 +661,186 @@ export const StravaActivityModal: React.FC<StravaActivityModalProps> = ({
                   </div>
                 </div>
 
-                <div className="text-right shrink-0">
-                  <span className="text-2xl sm:text-3xl font-black font-mono text-amber-400">
-                    {tssResult.tss}
-                  </span>
-                  <span className="text-[10px] text-slate-500 block font-sans font-bold">TSS</span>
+                <div className="flex items-center gap-3 shrink-0">
+                  <div className="text-right">
+                    <span className="text-2xl sm:text-3xl font-black font-mono text-amber-400">
+                      {tssResult.tss}
+                    </span>
+                    <span className="text-[10px] text-slate-500 block font-sans font-bold">TSS</span>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => setIsEditingTss((prev) => !prev)}
+                    className="p-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-amber-400 hover:text-amber-300 border border-slate-700 transition-all cursor-pointer shadow-xs"
+                    title="Edit TSS value or change calculation model"
+                  >
+                    <Sliders className="w-4 h-4" />
+                  </button>
                 </div>
               </div>
+
+              {/* Collapsible TSS Editing Drawer */}
+              {isEditingTss && (
+                <div className="p-3.5 rounded-xl bg-slate-950/95 border border-amber-500/40 space-y-3 animate-in fade-in duration-200">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold text-amber-300 uppercase tracking-wider">
+                      Customize Activity TSS &amp; Calculation Model
+                    </span>
+                    <span className="text-[10px] text-slate-400">
+                      Per-activity override
+                    </span>
+                  </div>
+
+                  {/* Manual TSS Value Input */}
+                  <div>
+                    <label className="text-[11px] font-medium text-slate-300 block mb-1">
+                      Manual TSS Value (overrides all automatic formulas)
+                    </label>
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="number"
+                        min="0"
+                        max="800"
+                        placeholder={String(tssResult.tss)}
+                        value={manualTssInput}
+                        onChange={(e) => setManualTssInput(e.target.value)}
+                        className="w-28 bg-slate-900 border border-slate-700 rounded-xl px-3 py-1.5 text-xs font-bold font-mono text-amber-400 focus:outline-none focus:border-amber-400"
+                      />
+                      <span className="text-[11px] text-slate-400 font-mono">TSS points</span>
+                    </div>
+                  </div>
+
+                  {/* Calculation Model Selector */}
+                  <div>
+                    <label className="text-[11px] font-medium text-slate-300 block mb-1.5">
+                      Or Select Calculation Model:
+                    </label>
+                    <div className="flex flex-wrap gap-1.5">
+                      <button
+                        type="button"
+                        onClick={() => setSelectedTssModel('auto')}
+                        className={`px-2.5 py-1 rounded-lg text-xs font-bold border transition-all cursor-pointer ${
+                          selectedTssModel === 'auto'
+                            ? 'bg-amber-500/20 text-amber-300 border-amber-500/40 shadow-xs'
+                            : 'bg-slate-900 text-slate-400 border-slate-800 hover:text-white'
+                        }`}
+                      >
+                        Auto Default
+                      </button>
+
+                      {/* Sport-specific options */}
+                      {classification.category === 'Run' && (
+                        <>
+                          <button
+                            type="button"
+                            onClick={() => setSelectedTssModel('rTSS')}
+                            className={`px-2.5 py-1 rounded-lg text-xs font-bold border transition-all cursor-pointer ${
+                              selectedTssModel === 'rTSS'
+                                ? 'bg-amber-500/20 text-amber-300 border-amber-500/40 shadow-xs'
+                                : 'bg-slate-900 text-slate-400 border-slate-800 hover:text-white'
+                            }`}
+                          >
+                            Pace (rTSS)
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setSelectedTssModel('hrTSS')}
+                            className={`px-2.5 py-1 rounded-lg text-xs font-bold border transition-all cursor-pointer ${
+                              selectedTssModel === 'hrTSS'
+                                ? 'bg-amber-500/20 text-amber-300 border-amber-500/40 shadow-xs'
+                                : 'bg-slate-900 text-slate-400 border-slate-800 hover:text-white'
+                            }`}
+                          >
+                            Heart Rate (hrTSS)
+                          </button>
+                        </>
+                      )}
+
+                      {classification.category === 'Swim' && (
+                        <>
+                          <button
+                            type="button"
+                            onClick={() => setSelectedTssModel('sTSS')}
+                            className={`px-2.5 py-1 rounded-lg text-xs font-bold border transition-all cursor-pointer ${
+                              selectedTssModel === 'sTSS'
+                                ? 'bg-amber-500/20 text-amber-300 border-amber-500/40 shadow-xs'
+                                : 'bg-slate-900 text-slate-400 border-slate-800 hover:text-white'
+                            }`}
+                          >
+                            Pace / CSS (sTSS)
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setSelectedTssModel('hrTSS')}
+                            className={`px-2.5 py-1 rounded-lg text-xs font-bold border transition-all cursor-pointer ${
+                              selectedTssModel === 'hrTSS'
+                                ? 'bg-amber-500/20 text-amber-300 border-amber-500/40 shadow-xs'
+                                : 'bg-slate-900 text-slate-400 border-slate-800 hover:text-white'
+                            }`}
+                          >
+                            Heart Rate (hrTSS)
+                          </button>
+                        </>
+                      )}
+
+                      {(classification.category === 'Bike' || classification.subType === 'Turbo Trainer' || classification.subType === 'Bike') && (
+                        <>
+                          <button
+                            type="button"
+                            onClick={() => setSelectedTssModel('powerTSS')}
+                            className={`px-2.5 py-1 rounded-lg text-xs font-bold border transition-all cursor-pointer ${
+                              selectedTssModel === 'powerTSS'
+                                ? 'bg-amber-500/20 text-amber-300 border-amber-500/40 shadow-xs'
+                                : 'bg-slate-900 text-slate-400 border-slate-800 hover:text-white'
+                            }`}
+                          >
+                            Power (TSS)
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setSelectedTssModel('hrTSS')}
+                            className={`px-2.5 py-1 rounded-lg text-xs font-bold border transition-all cursor-pointer ${
+                              selectedTssModel === 'hrTSS'
+                                ? 'bg-amber-500/20 text-amber-300 border-amber-500/40 shadow-xs'
+                                : 'bg-slate-900 text-slate-400 border-slate-800 hover:text-white'
+                            }`}
+                          >
+                            Heart Rate (hrTSS)
+                          </button>
+                        </>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Action buttons */}
+                  <div className="flex items-center justify-between pt-2 border-t border-slate-800">
+                    <button
+                      type="button"
+                      onClick={handleRestoreDefaultTss}
+                      disabled={isSavingTss}
+                      className="px-2.5 py-1 rounded-lg text-xs font-semibold text-slate-400 hover:text-white hover:bg-slate-800 transition-colors cursor-pointer"
+                    >
+                      Restore Default / Auto
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleSaveTssConfig}
+                      disabled={isSavingTss}
+                      className="px-3.5 py-1.5 rounded-lg text-xs font-bold bg-amber-500 hover:bg-amber-400 text-slate-950 transition-colors cursor-pointer flex items-center gap-1 shadow-sm"
+                    >
+                      {tssSaveSuccess ? (
+                        <>
+                          <Check className="w-3.5 h-3.5 stroke-[3]" />
+                          <span>Saved!</span>
+                        </>
+                      ) : (
+                        <span>Save TSS</span>
+                      )}
+                    </button>
+                  </div>
+                </div>
+              )}
 
               {/* Recovery Guidance */}
               {recoveryEstimate && (

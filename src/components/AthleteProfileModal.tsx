@@ -2766,6 +2766,46 @@ export const AthleteProfileModal: React.FC<AthleteProfileModalProps> = ({
                   </div>
                 </div>
               </div>
+
+              {/* Cycling Power Zones (Coggan 7-Zone) */}
+              <div className="p-3.5 rounded-2xl bg-slate-950 border border-slate-800 space-y-2.5">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <Bike className="w-4 h-4 text-orange-400" />
+                    <span className="text-xs font-bold text-white uppercase tracking-wider">
+                      Cycling Power Zones (FTP {bikeFtp}W)
+                    </span>
+                  </div>
+                  <span className="text-[10px] text-slate-500 font-mono">Coggan Model</span>
+                </div>
+
+                <div className="grid grid-cols-2 gap-2 text-xs">
+                  <div className="p-2 rounded-xl bg-slate-900/60 border border-slate-800">
+                    <span className="text-[10px] text-slate-500 block">Z1 Active Recovery</span>
+                    <span className="font-bold font-mono text-slate-200">&lt; {Math.round(bikeFtp * 0.55)}W</span>
+                  </div>
+                  <div className="p-2 rounded-xl bg-slate-900/60 border border-slate-800">
+                    <span className="text-[10px] text-slate-500 block">Z2 Endurance</span>
+                    <span className="font-bold font-mono text-slate-200">{Math.round(bikeFtp * 0.55)} - {Math.round(bikeFtp * 0.75)}W</span>
+                  </div>
+                  <div className="p-2 rounded-xl bg-slate-900/60 border border-slate-800">
+                    <span className="text-[10px] text-slate-500 block">Z3 Tempo</span>
+                    <span className="font-bold font-mono text-slate-200">{Math.round(bikeFtp * 0.76)} - {Math.round(bikeFtp * 0.90)}W</span>
+                  </div>
+                  <div className="p-2 rounded-xl bg-slate-900/60 border border-slate-800">
+                    <span className="text-[10px] text-slate-500 block">Z4 Threshold (FTP)</span>
+                    <span className="font-bold font-mono text-amber-400">{Math.round(bikeFtp * 0.91)} - {Math.round(bikeFtp * 1.05)}W</span>
+                  </div>
+                  <div className="p-2 rounded-xl bg-slate-900/60 border border-slate-800">
+                    <span className="text-[10px] text-slate-500 block">Z5 VO2 Max</span>
+                    <span className="font-bold font-mono text-orange-400">{Math.round(bikeFtp * 1.06)} - {Math.round(bikeFtp * 1.20)}W</span>
+                  </div>
+                  <div className="p-2 rounded-xl bg-slate-900/60 border border-slate-800">
+                    <span className="text-[10px] text-slate-500 block">Z6 Anaerobic</span>
+                    <span className="font-bold font-mono text-rose-400">&gt; {Math.round(bikeFtp * 1.20)}W</span>
+                  </div>
+                </div>
+              </div>
             </div>
           )}
 
@@ -2842,20 +2882,8 @@ export const AthleteProfileModal: React.FC<AthleteProfileModalProps> = ({
                   Used when running without speed/GPS or for hrTSS calculations.
                 </span>
               </div>
-            </div>
-          )}
 
-          {/* TAB 5: ZONES PREVIEW */}
-          {activeTab === 'zones' && (
-            <div className="space-y-4">
-              <div className="p-3 rounded-2xl bg-slate-950/80 border border-slate-800 text-xs text-slate-300 flex items-start gap-2.5">
-                <Sparkles className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
-                <p>
-                  Heart rate zones dynamically computed using the <strong>Karvonen Formula</strong> (Heart Rate Reserve) based on your Max HR ({maxHeartRate} bpm) and Resting HR ({restingHeartRate} bpm).
-                </p>
-              </div>
-
-              {/* Running HR Zones */}
+              {/* Running HR Zones (Karvonen) */}
               <div className="p-3.5 rounded-2xl bg-slate-950 border border-slate-800 space-y-2.5">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
@@ -2968,44 +2996,94 @@ export const AthleteProfileModal: React.FC<AthleteProfileModalProps> = ({
                   ))}
                 </div>
               </div>
+            </div>
+          )}
 
-              {/* Cycling Power Zones (Coggan 7-Zone) */}
-              <div className="p-3.5 rounded-2xl bg-slate-950 border border-slate-800 space-y-2.5">
+          {/* TAB 5: ZONES OVERVIEW */}
+          {activeTab === 'zones' && (
+            <div className="space-y-4">
+              <div className="p-3 rounded-2xl bg-slate-950/80 border border-slate-800 text-xs text-slate-300 flex items-start gap-2.5">
+                <Sparkles className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
+                <p>
+                  Cross-discipline training zone matrix. Dynamic heart rate zones are calculated using the <strong>Karvonen Formula</strong> based on your Max HR ({maxHeartRate} bpm) and Resting HR ({restingHeartRate} bpm).
+                </p>
+              </div>
+
+              {/* Heart Rate Reserve Summary */}
+              <div className="p-3.5 rounded-2xl bg-slate-950 border border-slate-800 space-y-2">
                 <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <Bike className="w-4 h-4 text-orange-400" />
-                    <span className="text-xs font-bold text-white uppercase tracking-wider">
-                      Cycling Power Zones (FTP {bikeFtp}W)
-                    </span>
-                  </div>
-                  <span className="text-[10px] text-slate-500 font-mono">Coggan Model</span>
+                  <span className="text-xs font-bold text-emerald-400 uppercase tracking-wider">
+                    Heart Rate Reserve (HRR)
+                  </span>
+                  <span className="text-xs font-mono font-bold text-white">
+                    {maxHeartRate - restingHeartRate} bpm Reserve
+                  </span>
                 </div>
+                <div className="grid grid-cols-3 gap-2 text-center text-xs">
+                  <div className="p-2 rounded-xl bg-slate-900/60 border border-slate-800">
+                    <span className="text-[10px] text-slate-500 block">Resting HR</span>
+                    <span className="font-bold font-mono text-emerald-400">{restingHeartRate} bpm</span>
+                  </div>
+                  <div className="p-2 rounded-xl bg-slate-900/60 border border-slate-800">
+                    <span className="text-[10px] text-slate-500 block">Max HR</span>
+                    <span className="font-bold font-mono text-rose-400">{maxHeartRate} bpm</span>
+                  </div>
+                  <div className="p-2 rounded-xl bg-slate-900/60 border border-slate-800">
+                    <span className="text-[10px] text-slate-500 block">Run LTHR</span>
+                    <span className="font-bold font-mono text-amber-400">{thresholdHeartRateRun} bpm</span>
+                  </div>
+                </div>
+              </div>
 
-                <div className="grid grid-cols-2 gap-2 text-xs">
-                  <div className="p-2 rounded-xl bg-slate-900/60 border border-slate-800">
-                    <span className="text-[10px] text-slate-500 block">Z1 Active Recovery</span>
-                    <span className="font-bold font-mono text-slate-200">&lt; {Math.round(bikeFtp * 0.55)}W</span>
-                  </div>
-                  <div className="p-2 rounded-xl bg-slate-900/60 border border-slate-800">
-                    <span className="text-[10px] text-slate-500 block">Z2 Endurance</span>
-                    <span className="font-bold font-mono text-slate-200">{Math.round(bikeFtp * 0.55)} - {Math.round(bikeFtp * 0.75)}W</span>
-                  </div>
-                  <div className="p-2 rounded-xl bg-slate-900/60 border border-slate-800">
-                    <span className="text-[10px] text-slate-500 block">Z3 Tempo</span>
-                    <span className="font-bold font-mono text-slate-200">{Math.round(bikeFtp * 0.76)} - {Math.round(bikeFtp * 0.90)}W</span>
-                  </div>
-                  <div className="p-2 rounded-xl bg-slate-900/60 border border-slate-800">
-                    <span className="text-[10px] text-slate-500 block">Z4 Threshold (FTP)</span>
-                    <span className="font-bold font-mono text-amber-400">{Math.round(bikeFtp * 0.91)} - {Math.round(bikeFtp * 1.05)}W</span>
-                  </div>
-                  <div className="p-2 rounded-xl bg-slate-900/60 border border-slate-800">
-                    <span className="text-[10px] text-slate-500 block">Z5 VO2 Max</span>
-                    <span className="font-bold font-mono text-orange-400">{Math.round(bikeFtp * 1.06)} - {Math.round(bikeFtp * 1.20)}W</span>
-                  </div>
-                  <div className="p-2 rounded-xl bg-slate-900/60 border border-slate-800">
-                    <span className="text-[10px] text-slate-500 block">Z6 Anaerobic</span>
-                    <span className="font-bold font-mono text-rose-400">&gt; {Math.round(bikeFtp * 1.20)}W</span>
-                  </div>
+              {/* Navigation Callout */}
+              <div className="p-3.5 rounded-2xl bg-slate-900/60 border border-slate-800 text-xs text-slate-300 space-y-2">
+                <div className="flex items-center gap-2 text-amber-400 font-bold">
+                  <Info className="w-4 h-4" />
+                  <span>Sport-Specific Zone Editors</span>
+                </div>
+                <p className="text-[11px] text-slate-400 leading-relaxed">
+                  To view and customize individual sport zones:
+                </p>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 pt-1">
+                  <button
+                    type="button"
+                    onClick={() => setActiveTab('running')}
+                    className="p-2.5 rounded-xl bg-slate-950 border border-slate-800 hover:border-amber-500/50 text-left transition-colors cursor-pointer"
+                  >
+                    <div className="flex items-center gap-1.5 text-amber-400 font-bold text-xs">
+                      <Footprints className="w-3.5 h-3.5" />
+                      <span>Run Tab</span>
+                    </div>
+                    <span className="text-[10px] text-slate-500 block mt-1">
+                      Running HR Zones &amp; Pace Zones
+                    </span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setActiveTab('cycling')}
+                    className="p-2.5 rounded-xl bg-slate-950 border border-slate-800 hover:border-orange-500/50 text-left transition-colors cursor-pointer"
+                  >
+                    <div className="flex items-center gap-1.5 text-orange-400 font-bold text-xs">
+                      <Bike className="w-3.5 h-3.5" />
+                      <span>Bike Tab</span>
+                    </div>
+                    <span className="text-[10px] text-slate-500 block mt-1">
+                      Coggan Power Zones (FTP {bikeFtp}W)
+                    </span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setActiveTab('swimming')}
+                    className="p-2.5 rounded-xl bg-slate-950 border border-slate-800 hover:border-sky-500/50 text-left transition-colors cursor-pointer"
+                  >
+                    <div className="flex items-center gap-1.5 text-sky-400 font-bold text-xs">
+                      <Waves className="w-3.5 h-3.5" />
+                      <span>Swim Tab</span>
+                    </div>
+                    <span className="text-[10px] text-slate-500 block mt-1">
+                      Pool &amp; Open Water CSS Paces
+                    </span>
+                  </button>
                 </div>
               </div>
             </div>
