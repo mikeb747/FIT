@@ -744,6 +744,8 @@ export default function App() {
             athleteProfile={athleteProfile}
             goals={athleteGoals}
             theme={theme}
+            stravaToken={stravaToken}
+            isGoogleConnected={isGoogleConnected}
             onOpenSettings={() => {
               setProfileModalTab('goals');
               setIsAthleteProfileOpen(true);

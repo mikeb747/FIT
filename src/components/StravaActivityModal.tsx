@@ -50,6 +50,7 @@ import {
 import type { AthleteProfile } from '../types/athlete';
 import { calculateRecoveryEstimate, calculateWorkKj, formatDuration } from '../types/athlete';
 import { StravaStreamPlot } from './StravaStreamPlot';
+import { ActivityZoneChart } from './ActivityZoneChart';
 import { ActivityCalibrationModal } from './ActivityCalibrationModal';
 import { appendActivityToTrainingLog } from '../utils/googleSheets';
 
@@ -1347,7 +1348,15 @@ export const StravaActivityModal: React.FC<StravaActivityModalProps> = ({
             )}
           </div>
 
-          {/* Export Status Notifications */}
+          {/* Time Spent in Training Zones Graph */}
+          {activity && (
+            <ActivityZoneChart
+              activity={activity}
+              streams={streams}
+              athleteProfile={athleteProfile}
+              title="Time in Training Zones"
+            />
+          )}
           {exportError && (
             <div className="p-3 rounded-2xl bg-rose-500/10 border border-rose-500/25 text-rose-300 text-xs flex items-center gap-2">
               <AlertCircle className="w-4 h-4 text-rose-400 shrink-0" />
