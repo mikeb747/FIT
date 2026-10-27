@@ -76,9 +76,30 @@ export function generateDefaultRecoveryLogs(): DailyRecoveryLog[] {
 }
 
 /**
- * Loads saved recovery logs from LocalStorage; seeds with realistic 41 bpm baseline history if empty
+ * Returns true if the user has authenticated with Garmin Connect or saved Garmin credentials.
+ */
+export function isGarminConnected(): boolean {
+  if (typeof window === 'undefined') return false;
+  try {
+    return Boolean(
+      localStorage.getItem('fit_track_garmin_email') ||
+      localStorage.getItem('fit_track_garmin_token') ||
+      localStorage.getItem('fit_track_garmin_connected')
+    );
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Loads saved recovery logs from LocalStorage; returns an empty array if not connected to Garmin
  */
 export function loadRecoveryLogs(): DailyRecoveryLog[] {
+  // If the user has not connected to Garmin, do not load or seed any default data
+  if (!isGarminConnected()) {
+    return [];
+  }
+
   try {
     const raw =
       localStorage.getItem(RECOVERY_STORAGE_KEY) ||
@@ -91,13 +112,10 @@ export function loadRecoveryLogs(): DailyRecoveryLog[] {
       }
     }
   } catch (err) {
-    console.warn('Failed to parse saved recovery logs, seeding defaults:', err);
+    console.warn('Failed to parse saved recovery logs:', err);
   }
 
-  // Seed default dataset
-  const defaults = generateDefaultRecoveryLogs();
-  saveRecoveryLogs(defaults);
-  return defaults;
+  return [];
 }
 
 /**
@@ -142,12 +160,25 @@ export function deleteRecoveryLog(id: string): DailyRecoveryLog[] {
 }
 
 /**
- * Resets recovery logs back to the default historical dataset
+ * Resets recovery logs back to the default historical dataset (demo mode)
  */
 export function resetRecoveryLogsToDefaults(): DailyRecoveryLog[] {
+  try {
+    localStorage.setItem('fit_track_garmin_connected', 'demo');
+  } catch {}
   const defaults = generateDefaultRecoveryLogs();
   saveRecoveryLogs(defaults);
   return defaults;
+}
+
+/**
+ * Clears all stored recovery logs from LocalStorage
+ */
+export function clearRecoveryLogs(): void {
+  try {
+    localStorage.removeItem(RECOVERY_STORAGE_KEY);
+    localStorage.removeItem(LEGACY_STORAGE_KEY);
+  } catch {}
 }
 
 /**
@@ -484,6 +515,15 @@ export async function syncGarminMultiWeek(options: {
     const data = await res.json().catch(() => ({}));
 
     if (res.ok && data.success) {
+      try {
+        localStorage.setItem('fit_track_garmin_connected', 'true');
+        if (sessionToken) {
+          localStorage.setItem('fit_track_garmin_token', sessionToken);
+        }
+        if (email) {
+          localStorage.setItem('fit_track_garmin_email', email);
+        }
+      } catch {}
       return data;
     }
 

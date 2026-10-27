@@ -566,6 +566,416 @@ export function getSwimPaceDetails(
   };
 }
 
+export interface RunSplitItem {
+  splitIndex: number;
+  distanceKm: string;
+  movingTimeSec: number;
+  paceFormatted: string;
+  avgHr?: number;
+  elevationDiffM?: number;
+  isFasterThanAvg?: boolean;
+}
+
+export interface ZoneDistributionItem {
+  zone: number;
+  name: string;
+  pct: number;
+  seconds: number;
+  color: string;
+}
+
+export interface RunActivityDetails {
+  splits: RunSplitItem[];
+  avgPaceFormatted: string;
+  avgCadence?: number;
+  maxHr?: number;
+  avgHr?: number;
+  totalElevationGainM?: number;
+  totalElevationLossM?: number;
+  gradeAdjustedPaceFormatted?: string;
+  consistencySummary?: string;
+  hrZones: ZoneDistributionItem[];
+}
+
+export interface BikeLapItem {
+  lapIndex: number;
+  name: string;
+  distanceKm: string;
+  movingTimeSec: number;
+  avgSpeedKph: string;
+  avgWatts?: number;
+  avgHr?: number;
+  avgCadence?: number;
+  elevationGainM?: number;
+}
+
+export interface BikeActivityDetails {
+  laps: BikeLapItem[];
+  avgSpeedKph: string;
+  maxSpeedKph?: string;
+  avgWatts?: number;
+  normalizedPower?: number;
+  intensityFactor?: number;
+  variabilityIndex?: number;
+  workKj?: number;
+  avgCadence?: number;
+  maxCadence?: number;
+  avgHr?: number;
+  maxHr?: number;
+  totalElevationGainM?: number;
+  powerZones: ZoneDistributionItem[];
+  hrZones: ZoneDistributionItem[];
+}
+
+export function getRunActivityDetails(
+  activity: StravaActivity,
+  details?: StravaActivityDetailsRecord,
+  athleteProfile?: AthleteProfile
+): RunActivityDetails | null {
+  const { category } = classifyActivity(activity);
+  if (category !== 'Run') return null;
+
+  const distanceM = details?.calibration?.calibratedDistanceM ?? activity.distance ?? 0;
+  const movingTimeSec = details?.calibration?.calibratedMovingTimeSec ?? activity.moving_time ?? 0;
+  if (distanceM <= 0 || movingTimeSec <= 0) return null;
+
+  const secPerKm = movingTimeSec / (distanceM / 1000);
+  const avgMins = Math.floor(secPerKm / 60);
+  const avgSecs = Math.round(secPerKm % 60);
+  const avgPaceFormatted = `${avgMins}:${avgSecs.toString().padStart(2, '0')}/km`;
+
+  let avgCadence = (details?.activity?.average_cadence as number) || activity.average_cadence;
+  if (avgCadence && avgCadence < 110) {
+    avgCadence = Math.round(avgCadence * 2);
+  } else if (avgCadence) {
+    avgCadence = Math.round(avgCadence);
+  }
+
+  const rawSplits = (details?.activity?.splits_metric as any[]) || [];
+  const splits: RunSplitItem[] = [];
+
+  if (rawSplits.length > 0) {
+    for (let i = 0; i < rawSplits.length; i++) {
+      const s = rawSplits[i];
+      const sDist = s.distance || 1000;
+      const sTime = s.moving_time || s.elapsed_time || 0;
+      const sSecPerKm = sDist > 0 ? sTime / (sDist / 1000) : secPerKm;
+      const sm = Math.floor(sSecPerKm / 60);
+      const ss = Math.round(sSecPerKm % 60);
+      splits.push({
+        splitIndex: s.split || i + 1,
+        distanceKm: (sDist / 1000).toFixed(2),
+        movingTimeSec: sTime,
+        paceFormatted: `${sm}:${ss.toString().padStart(2, '0')}/km`,
+        avgHr: s.average_heartrate ? Math.round(s.average_heartrate) : undefined,
+        elevationDiffM: s.elevation_difference !== undefined ? Math.round(s.elevation_difference) : undefined,
+        isFasterThanAvg: sSecPerKm < secPerKm,
+      });
+    }
+  } else {
+    const totalKm = distanceM / 1000;
+    const fullKmCount = Math.floor(totalKm);
+    const remainderKm = totalKm - fullKmCount;
+    const avgSecPerSplit = movingTimeSec / totalKm;
+
+    for (let k = 1; k <= fullKmCount; k++) {
+      const sm = Math.floor(avgSecPerSplit / 60);
+      const ss = Math.round(avgSecPerSplit % 60);
+      splits.push({
+        splitIndex: k,
+        distanceKm: '1.00',
+        movingTimeSec: Math.round(avgSecPerSplit),
+        paceFormatted: `${sm}:${ss.toString().padStart(2, '0')}/km`,
+        avgHr: activity.average_heartrate ? Math.round(activity.average_heartrate) : undefined,
+        isFasterThanAvg: false,
+      });
+    }
+    if (remainderKm >= 0.05) {
+      const remTime = Math.round(remainderKm * avgSecPerSplit);
+      const sm = Math.floor(avgSecPerSplit / 60);
+      const ss = Math.round(avgSecPerSplit % 60);
+      splits.push({
+        splitIndex: fullKmCount + 1,
+        distanceKm: remainderKm.toFixed(2),
+        movingTimeSec: remTime,
+        paceFormatted: `${sm}:${ss.toString().padStart(2, '0')}/km`,
+        avgHr: activity.average_heartrate ? Math.round(activity.average_heartrate) : undefined,
+        isFasterThanAvg: false,
+      });
+    }
+  }
+
+  let consistencySummary = 'Even metronomic pacing';
+  if (splits.length >= 2) {
+    const half = Math.floor(splits.length / 2);
+    const firstHalfPace = splits.slice(0, half).reduce((acc, s) => acc + s.movingTimeSec, 0) / half;
+    const secondHalfPace = splits.slice(half).reduce((acc, s) => acc + s.movingTimeSec, 0) / (splits.length - half);
+    const diffSec = Math.round(firstHalfPace - secondHalfPace);
+    if (diffSec >= 3) {
+      consistencySummary = `Negative Split (Finished ~${diffSec}s faster in 2nd half)`;
+    } else if (diffSec <= -3) {
+      consistencySummary = `Positive Split (Started ~${Math.abs(diffSec)}s faster in 1st half)`;
+    } else {
+      consistencySummary = 'Steady pacing within ±2s across splits';
+    }
+  }
+
+  const hrMax = athleteProfile?.maxHeartRate || (athleteProfile?.restingHeartRate ? 190 : 185);
+  const streams = details?.streams as Record<string, { data?: any[] }> | undefined;
+  const hrData = streams?.heartrate?.data as number[] | undefined;
+
+  const hrZones: ZoneDistributionItem[] = [
+    { zone: 1, name: 'Z1 Active Recovery (<68%)', pct: 0, seconds: 0, color: '#38bdf8' },
+    { zone: 2, name: 'Z2 Aerobic Base (69-83%)', pct: 0, seconds: 0, color: '#34d399' },
+    { zone: 3, name: 'Z3 Tempo (84-90%)', pct: 0, seconds: 0, color: '#fbbf24' },
+    { zone: 4, name: 'Z4 Threshold (91-95%)', pct: 0, seconds: 0, color: '#fb923c' },
+    { zone: 5, name: 'Z5 VO2 Max (>95%)', pct: 0, seconds: 0, color: '#f87171' },
+  ];
+
+  if (hrData && hrData.length > 0) {
+    const counts = [0, 0, 0, 0, 0];
+    for (const hr of hrData) {
+      const pctMax = (hr / hrMax) * 100;
+      if (pctMax < 69) counts[0]++;
+      else if (pctMax < 84) counts[1]++;
+      else if (pctMax < 91) counts[2]++;
+      else if (pctMax <= 95) counts[3]++;
+      else counts[4]++;
+    }
+    const totalSamples = hrData.length;
+    hrZones.forEach((z, idx) => {
+      z.pct = Math.round((counts[idx] / totalSamples) * 100);
+      z.seconds = Math.round((counts[idx] / totalSamples) * movingTimeSec);
+    });
+  } else if (activity.average_heartrate) {
+    const avgPct = (activity.average_heartrate / hrMax) * 100;
+    if (avgPct < 75) {
+      hrZones[0].pct = 20; hrZones[1].pct = 70; hrZones[2].pct = 10;
+    } else if (avgPct < 85) {
+      hrZones[1].pct = 25; hrZones[2].pct = 55; hrZones[3].pct = 20;
+    } else if (avgPct < 92) {
+      hrZones[1].pct = 10; hrZones[2].pct = 30; hrZones[3].pct = 45; hrZones[4].pct = 15;
+    } else {
+      hrZones[2].pct = 15; hrZones[3].pct = 35; hrZones[4].pct = 50;
+    }
+    hrZones.forEach((z) => {
+      z.seconds = Math.round((z.pct / 100) * movingTimeSec);
+    });
+  }
+
+  const elevGain = activity.total_elevation_gain ? Math.round(activity.total_elevation_gain) : 0;
+  let gapFormatted: string | undefined;
+  if (elevGain > 10 && distanceM > 0) {
+    const grade = (elevGain / distanceM) * 100;
+    const gapSec = Math.max(120, secPerKm * (1 - grade * 0.035));
+    const gm = Math.floor(gapSec / 60);
+    const gs = Math.round(gapSec % 60);
+    gapFormatted = `${gm}:${gs.toString().padStart(2, '0')}/km`;
+  }
+
+  return {
+    splits,
+    avgPaceFormatted,
+    avgCadence: avgCadence || undefined,
+    avgHr: activity.average_heartrate ? Math.round(activity.average_heartrate) : undefined,
+    maxHr: activity.max_heartrate ? Math.round(activity.max_heartrate) : undefined,
+    totalElevationGainM: elevGain || undefined,
+    gradeAdjustedPaceFormatted: gapFormatted,
+    consistencySummary,
+    hrZones,
+  };
+}
+
+export function getBikeActivityDetails(
+  activity: StravaActivity,
+  details?: StravaActivityDetailsRecord,
+  athleteProfile?: AthleteProfile
+): BikeActivityDetails | null {
+  const { category, subType } = classifyActivity(activity);
+  if (category !== 'Bike' && subType !== 'Turbo Trainer' && subType !== 'Bike') return null;
+
+  const distanceM = details?.calibration?.calibratedDistanceM ?? activity.distance ?? 0;
+  const movingTimeSec = details?.calibration?.calibratedMovingTimeSec ?? activity.moving_time ?? 0;
+  if (movingTimeSec <= 0) return null;
+
+  const avgSpeedKph = (distanceM > 0 && movingTimeSec > 0)
+    ? ((distanceM / 1000) / (movingTimeSec / 3600)).toFixed(1)
+    : (activity.average_speed ? (activity.average_speed * 3.6).toFixed(1) : '0.0');
+  const maxSpeedKph = activity.max_speed ? (activity.max_speed * 3.6).toFixed(1) : undefined;
+
+  const avgWatts = details?.calibration?.calibratedAvgWatts ?? activity.average_watts ?? undefined;
+  const normalizedPower = calculateNormalizedPower(activity, details || undefined) ?? (avgWatts ? Math.round(avgWatts * 1.05) : undefined);
+
+  const ftp = athleteProfile?.bikeFtp || 250;
+  const intensityFactor = normalizedPower ? Number((normalizedPower / ftp).toFixed(2)) : undefined;
+  const variabilityIndex = (normalizedPower && avgWatts && avgWatts > 0) ? Number((normalizedPower / avgWatts).toFixed(2)) : undefined;
+  const workKj = (avgWatts && movingTimeSec > 0) ? Math.round((avgWatts * movingTimeSec) / 1000) : undefined;
+
+  const avgCadence = (details?.activity?.average_cadence as number) || activity.average_cadence;
+  const maxCadence = (details?.activity?.max_cadence as number) || (activity as any).max_cadence;
+
+  const rawLaps = (details?.activity?.laps as any[]) || [];
+  const rawSplits = (details?.activity?.splits_metric as any[]) || [];
+  const laps: BikeLapItem[] = [];
+
+  if (rawLaps.length > 0) {
+    for (let i = 0; i < rawLaps.length; i++) {
+      const lap = rawLaps[i];
+      const lDistM = lap.distance || 0;
+      const lTimeS = lap.moving_time || lap.elapsed_time || 0;
+      const lSpeedKph = lap.average_speed ? (lap.average_speed * 3.6).toFixed(1) : (lDistM > 0 && lTimeS > 0 ? ((lDistM / 1000) / (lTimeS / 3600)).toFixed(1) : '0.0');
+      laps.push({
+        lapIndex: lap.lap_index || i + 1,
+        name: lap.name || `Lap ${i + 1}`,
+        distanceKm: (lDistM / 1000).toFixed(2),
+        movingTimeSec: lTimeS,
+        avgSpeedKph: lSpeedKph,
+        avgWatts: lap.average_watts ? Math.round(lap.average_watts) : undefined,
+        avgHr: lap.average_heartrate ? Math.round(lap.average_heartrate) : undefined,
+        avgCadence: lap.average_cadence ? Math.round(lap.average_cadence) : undefined,
+        elevationGainM: lap.total_elevation_gain !== undefined ? Math.round(lap.total_elevation_gain) : undefined,
+      });
+    }
+  } else if (rawSplits.length > 0) {
+    for (let i = 0; i < rawSplits.length; i++) {
+      const s = rawSplits[i];
+      const sDistM = s.distance || 1000;
+      const sTimeS = s.moving_time || s.elapsed_time || 0;
+      const sSpeedKph = (sDistM > 0 && sTimeS > 0) ? ((sDistM / 1000) / (sTimeS / 3600)).toFixed(1) : '0.0';
+      laps.push({
+        lapIndex: s.split || i + 1,
+        name: `Split ${i + 1}`,
+        distanceKm: (sDistM / 1000).toFixed(2),
+        movingTimeSec: sTimeS,
+        avgSpeedKph: sSpeedKph,
+        avgWatts: s.average_watts ? Math.round(s.average_watts) : undefined,
+        avgHr: s.average_heartrate ? Math.round(s.average_heartrate) : undefined,
+        elevationGainM: s.elevation_difference !== undefined && s.elevation_difference > 0 ? Math.round(s.elevation_difference) : undefined,
+      });
+    }
+  } else {
+    const totalDistKm = distanceM / 1000;
+    const intervalSize = totalDistKm > 30 ? 10 : totalDistKm > 15 ? 5 : totalDistKm;
+    const lapCount = Math.max(1, Math.floor(totalDistKm / (intervalSize || 1)));
+    const lapTime = Math.round(movingTimeSec / lapCount);
+    for (let k = 1; k <= lapCount; k++) {
+      laps.push({
+        lapIndex: k,
+        name: lapCount === 1 ? 'Full Ride' : `Interval ${k}`,
+        distanceKm: (intervalSize).toFixed(2),
+        movingTimeSec: lapTime,
+        avgSpeedKph,
+        avgWatts: avgWatts ? Math.round(avgWatts) : undefined,
+        avgHr: activity.average_heartrate ? Math.round(activity.average_heartrate) : undefined,
+        avgCadence: avgCadence ? Math.round(avgCadence) : undefined,
+      });
+    }
+  }
+
+  const streams = details?.streams as Record<string, { data?: any[] }> | undefined;
+  const wattsData = streams?.watts?.data as number[] | undefined;
+
+  const powerZones: ZoneDistributionItem[] = [
+    { zone: 1, name: 'Z1 Active Recovery (<55%)', pct: 0, seconds: 0, color: '#38bdf8' },
+    { zone: 2, name: 'Z2 Endurance (56-75%)', pct: 0, seconds: 0, color: '#34d399' },
+    { zone: 3, name: 'Z3 Tempo (76-90%)', pct: 0, seconds: 0, color: '#a3e635' },
+    { zone: 4, name: 'Z4 Threshold (91-105%)', pct: 0, seconds: 0, color: '#facc15' },
+    { zone: 5, name: 'Z5 VO2 Max (106-120%)', pct: 0, seconds: 0, color: '#fb923c' },
+    { zone: 6, name: 'Z6 Anaerobic (121-150%)', pct: 0, seconds: 0, color: '#f87171' },
+    { zone: 7, name: 'Z7 Neuromuscular (>150%)', pct: 0, seconds: 0, color: '#c084fc' },
+  ];
+
+  if (wattsData && wattsData.length > 0) {
+    const counts = [0, 0, 0, 0, 0, 0, 0];
+    for (const w of wattsData) {
+      const pctFtp = (w / ftp) * 100;
+      if (pctFtp < 56) counts[0]++;
+      else if (pctFtp < 76) counts[1]++;
+      else if (pctFtp < 91) counts[2]++;
+      else if (pctFtp < 106) counts[3]++;
+      else if (pctFtp < 121) counts[4]++;
+      else if (pctFtp < 151) counts[5]++;
+      else counts[6]++;
+    }
+    const total = wattsData.length;
+    powerZones.forEach((z, idx) => {
+      z.pct = Math.round((counts[idx] / total) * 100);
+      z.seconds = Math.round((counts[idx] / total) * movingTimeSec);
+    });
+  } else if (avgWatts) {
+    const ratio = (avgWatts / ftp) * 100;
+    if (ratio < 65) {
+      powerZones[0].pct = 25; powerZones[1].pct = 65; powerZones[2].pct = 10;
+    } else if (ratio < 80) {
+      powerZones[0].pct = 15; powerZones[1].pct = 50; powerZones[2].pct = 30; powerZones[3].pct = 5;
+    } else if (ratio < 95) {
+      powerZones[1].pct = 20; powerZones[2].pct = 40; powerZones[3].pct = 35; powerZones[4].pct = 5;
+    } else {
+      powerZones[1].pct = 10; powerZones[2].pct = 25; powerZones[3].pct = 40; powerZones[4].pct = 20; powerZones[5].pct = 5;
+    }
+    powerZones.forEach((z) => {
+      z.seconds = Math.round((z.pct / 100) * movingTimeSec);
+    });
+  }
+
+  const hrMax = athleteProfile?.maxHeartRate || (athleteProfile?.restingHeartRate ? 190 : 185);
+  const hrData = streams?.heartrate?.data as number[] | undefined;
+  const hrZones: ZoneDistributionItem[] = [
+    { zone: 1, name: 'Z1 Active Recovery (<68%)', pct: 0, seconds: 0, color: '#38bdf8' },
+    { zone: 2, name: 'Z2 Aerobic Base (69-83%)', pct: 0, seconds: 0, color: '#34d399' },
+    { zone: 3, name: 'Z3 Tempo (84-90%)', pct: 0, seconds: 0, color: '#fbbf24' },
+    { zone: 4, name: 'Z4 Threshold (91-95%)', pct: 0, seconds: 0, color: '#fb923c' },
+    { zone: 5, name: 'Z5 VO2 Max (>95%)', pct: 0, seconds: 0, color: '#f87171' },
+  ];
+
+  if (hrData && hrData.length > 0) {
+    const counts = [0, 0, 0, 0, 0];
+    for (const hr of hrData) {
+      const pctMax = (hr / hrMax) * 100;
+      if (pctMax < 69) counts[0]++;
+      else if (pctMax < 84) counts[1]++;
+      else if (pctMax < 91) counts[2]++;
+      else if (pctMax <= 95) counts[3]++;
+      else counts[4]++;
+    }
+    const totalSamples = hrData.length;
+    hrZones.forEach((z, idx) => {
+      z.pct = Math.round((counts[idx] / totalSamples) * 100);
+      z.seconds = Math.round((counts[idx] / totalSamples) * movingTimeSec);
+    });
+  } else if (activity.average_heartrate) {
+    const avgPct = (activity.average_heartrate / hrMax) * 100;
+    if (avgPct < 75) {
+      hrZones[0].pct = 25; hrZones[1].pct = 65; hrZones[2].pct = 10;
+    } else if (avgPct < 85) {
+      hrZones[1].pct = 25; hrZones[2].pct = 50; hrZones[3].pct = 25;
+    } else {
+      hrZones[1].pct = 10; hrZones[2].pct = 35; hrZones[3].pct = 40; hrZones[4].pct = 15;
+    }
+    hrZones.forEach((z) => {
+      z.seconds = Math.round((z.pct / 100) * movingTimeSec);
+    });
+  }
+
+  return {
+    laps,
+    avgSpeedKph,
+    maxSpeedKph,
+    avgWatts: avgWatts ? Math.round(avgWatts) : undefined,
+    normalizedPower,
+    intensityFactor,
+    variabilityIndex,
+    workKj,
+    avgCadence: avgCadence ? Math.round(avgCadence) : undefined,
+    maxCadence: maxCadence ? Math.round(maxCadence) : undefined,
+    avgHr: activity.average_heartrate ? Math.round(activity.average_heartrate) : undefined,
+    maxHr: activity.max_heartrate ? Math.round(activity.max_heartrate) : undefined,
+    totalElevationGainM: activity.total_elevation_gain ? Math.round(activity.total_elevation_gain) : undefined,
+    powerZones,
+    hrZones,
+  };
+}
+
 export interface TSSCalculationResult {
   tss: number;
   type:
@@ -999,17 +1409,12 @@ export function mergeStravaActivities(existing: StravaActivity[], incoming: Stra
 
 /**
  * Smart Delta Sync:
- * - If last checked within the past 24 hours: fetch only the latest 5 activities (per_page=5).
- * - If > 24 hours or initial clean fetch: fetch latest 50 activities (per_page=50).
+ * - Load up to 200 activities at a time from Strava
  * - Prepend and merge into existing cache; never lose previously fetched historical items!
  */
 export async function syncStravaActivitiesDelta(accessToken: string): Promise<StravaActivity[]> {
   const existingActivities = getCachedStravaActivities();
-  const lastRefresh = getLastStravaRefreshTime();
-  const timeSinceLastRefresh = Date.now() - lastRefresh;
-  const isRecent = lastRefresh > 0 && timeSinceLastRefresh < 24 * 60 * 60 * 1000 && existingActivities.length > 0;
-
-  const perPage = isRecent ? 5 : 50;
+  const perPage = 200;
 
   const isGitHubPages = typeof window !== 'undefined' && window.location.hostname.includes('github.io');
 
@@ -1079,13 +1484,13 @@ export async function syncStravaActivitiesDelta(accessToken: string): Promise<St
 /**
  * Fetch Older Historical Activities using Strava's `before` epoch parameter:
  * - Queries activities strictly prior to the earliest date currently in cache.
- * - Requests 50 activities per batch to minimize API rate limits.
+ * - Requests 200 activities per batch.
  * - Appends to the bottom of the list and saves to cache.
  */
 export async function fetchOlderStravaActivities(
   accessToken: string,
   oldestEpochSeconds: number,
-  perPage = 50
+  perPage = 200
 ): Promise<{ activities: StravaActivity[]; hasMore: boolean; newCount: number }> {
   const existingActivities = getCachedStravaActivities();
   const isGitHubPages = typeof window !== 'undefined' && window.location.hostname.includes('github.io');

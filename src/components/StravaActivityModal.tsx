@@ -42,6 +42,8 @@ import {
   calculateActivityTSS,
   calculateNormalizedPower,
   getSwimPaceDetails,
+  getRunActivityDetails,
+  getBikeActivityDetails,
   saveActivityEffortFeedback,
   saveActivityCalibration,
 } from '../utils/stravaActivities';
@@ -279,6 +281,12 @@ export const StravaActivityModal: React.FC<StravaActivityModalProps> = ({
 
   // Swim Pace Details & Laps (calibrated)
   const swimPace = getSwimPaceDetails(activity, detailsRecord || undefined);
+
+  // Run Activity Details & Splits
+  const runDetails = getRunActivityDetails(activity, detailsRecord || undefined, athleteProfile);
+
+  // Bike Activity Details & Laps
+  const bikeDetails = getBikeActivityDetails(activity, detailsRecord || undefined, athleteProfile);
 
   // Perceived Exertion (RPE) & Pre-Workout Feeling
   const effortFeedback = detailsRecord?.effortFeedback;
@@ -1033,6 +1041,262 @@ export const StravaActivityModal: React.FC<StravaActivityModalProps> = ({
                   );
                 })}
               </div>
+            </div>
+          )}
+
+          {/* Running Kilometer Splits & Pacing Dynamics Breakdown */}
+          {classification.category === 'Run' && runDetails && (
+            <div className="p-3.5 rounded-2xl bg-slate-950/70 border border-slate-800 space-y-3">
+              <div className="flex items-center justify-between flex-wrap gap-2">
+                <div className="flex items-center gap-2">
+                  <div className="w-7 h-7 rounded-lg bg-amber-500/15 border border-amber-500/30 flex items-center justify-center text-amber-400">
+                    <Footprints className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <h4 className="text-xs font-bold text-amber-300 uppercase tracking-wider">
+                      Kilometer Splits ({runDetails.splits.length} Splits)
+                    </h4>
+                    <span className="text-[10px] text-slate-400">
+                      {runDetails.consistencySummary}
+                    </span>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2 text-right">
+                  <div className="px-2 py-0.5 rounded-md bg-slate-900 border border-slate-800 text-[11px] font-mono font-bold text-amber-400">
+                    Avg {runDetails.avgPaceFormatted}
+                  </div>
+                  {runDetails.avgCadence && (
+                    <div className="px-2 py-0.5 rounded-md bg-slate-900 border border-slate-800 text-[11px] font-mono text-slate-300">
+                      {runDetails.avgCadence} spm
+                    </div>
+                  )}
+                  {runDetails.gradeAdjustedPaceFormatted && (
+                    <div className="px-2 py-0.5 rounded-md bg-slate-900 border border-slate-800 text-[10px] font-mono text-emerald-400" title="Grade Adjusted Pace">
+                      GAP {runDetails.gradeAdjustedPaceFormatted}
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Splits Grid */}
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 max-h-52 overflow-y-auto pt-1">
+                {runDetails.splits.map((split) => (
+                  <div
+                    key={split.splitIndex}
+                    className="p-2.5 rounded-xl bg-slate-900 border border-slate-800/80 flex flex-col text-xs transition-colors hover:border-amber-500/30"
+                  >
+                    <div className="flex items-center justify-between text-slate-400 text-[10px]">
+                      <span className="font-semibold text-slate-300">Km {split.splitIndex}</span>
+                      <span>{split.distanceKm} km</span>
+                    </div>
+                    <div className="flex items-center justify-between font-mono font-bold text-white mt-1">
+                      <span className={split.isFasterThanAvg ? 'text-amber-400' : 'text-slate-200'}>
+                        {split.paceFormatted}
+                      </span>
+                      {split.avgHr ? (
+                        <span className="text-rose-400 text-[11px] flex items-center gap-0.5">
+                          <Heart className="w-2.5 h-2.5 inline" /> {split.avgHr}
+                        </span>
+                      ) : (
+                        <span className="text-slate-500 text-[10px]">
+                          {formatDuration(split.movingTimeSec)}
+                        </span>
+                      )}
+                    </div>
+                    {split.elevationDiffM !== undefined && (
+                      <div className="text-[10px] text-slate-400 mt-1 flex items-center justify-between pt-1 border-t border-slate-800/60">
+                        <span>Elevation:</span>
+                        <span className={split.elevationDiffM > 0 ? 'text-amber-300' : 'text-slate-400'}>
+                          {split.elevationDiffM > 0 ? `+${split.elevationDiffM}m` : `${split.elevationDiffM}m`}
+                        </span>
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+
+              {/* Running Heart Rate Zone Distribution */}
+              {runDetails.hrZones.some((z) => z.pct > 0) && (
+                <div className="pt-2 border-t border-slate-800/80 space-y-1.5">
+                  <div className="flex items-center justify-between text-[11px]">
+                    <span className="font-bold text-slate-300 flex items-center gap-1">
+                      <Heart className="w-3 h-3 text-rose-400" />
+                      Running HR Zones
+                    </span>
+                    <span className="text-[10px] text-slate-400 font-mono">
+                      Max HR {runDetails?.maxHr || athleteProfile.maxHeartRate || 185} bpm
+                    </span>
+                  </div>
+
+                  {/* Horizontal stacked zone bar */}
+                  <div className="w-full bg-slate-900 rounded-full h-2.5 flex overflow-hidden">
+                    {runDetails.hrZones.map((z) => (
+                      z.pct > 0 ? (
+                        <div
+                          key={z.zone}
+                          className="h-full transition-all"
+                          style={{ width: `${z.pct}%`, backgroundColor: z.color }}
+                          title={`${z.name}: ${z.pct}% (${formatDuration(z.seconds)})`}
+                        />
+                      ) : null
+                    ))}
+                  </div>
+
+                  {/* Zone Legend */}
+                  <div className="grid grid-cols-5 gap-1 pt-1 text-[10px] font-mono text-center">
+                    {runDetails.hrZones.map((z) => (
+                      <div key={z.zone} className="flex flex-col items-center">
+                        <span className="font-bold" style={{ color: z.color }}>Z{z.zone}</span>
+                        <span className="text-slate-400">{z.pct}%</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Cycling Laps & Power Dynamics Breakdown */}
+          {classification.category === 'Bike' && bikeDetails && (
+            <div className="p-3.5 rounded-2xl bg-slate-950/70 border border-slate-800 space-y-3">
+              <div className="flex items-center justify-between flex-wrap gap-2">
+                <div className="flex items-center gap-2">
+                  <div className="w-7 h-7 rounded-lg bg-orange-500/15 border border-orange-500/30 flex items-center justify-center text-orange-400">
+                    <Bike className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <h4 className="text-xs font-bold text-orange-300 uppercase tracking-wider">
+                      Laps &amp; Power Intervals ({bikeDetails.laps.length} Laps)
+                    </h4>
+                    <span className="text-[10px] text-slate-400">
+                      {bikeDetails.intensityFactor ? `Intensity Factor: ${bikeDetails.intensityFactor}` : ''}
+                      {bikeDetails.variabilityIndex ? ` • VI: ${bikeDetails.variabilityIndex}` : ''}
+                    </span>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2 text-right">
+                  <div className="px-2 py-0.5 rounded-md bg-slate-900 border border-slate-800 text-[11px] font-mono font-bold text-orange-400">
+                    Avg {bikeDetails.avgSpeedKph} kph
+                  </div>
+                  {bikeDetails.avgWatts && (
+                    <div className="px-2 py-0.5 rounded-md bg-slate-900 border border-slate-800 text-[11px] font-mono font-bold text-amber-300">
+                      {bikeDetails.avgWatts}W
+                    </div>
+                  )}
+                  {bikeDetails.avgCadence && (
+                    <div className="px-2 py-0.5 rounded-md bg-slate-900 border border-slate-800 text-[10px] font-mono text-slate-300">
+                      {bikeDetails.avgCadence} rpm
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Laps Grid */}
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 max-h-52 overflow-y-auto pt-1">
+                {bikeDetails.laps.map((lap) => (
+                  <div
+                    key={lap.lapIndex}
+                    className="p-2.5 rounded-xl bg-slate-900 border border-slate-800/80 flex flex-col text-xs transition-colors hover:border-orange-500/30"
+                  >
+                    <div className="flex items-center justify-between text-slate-400 text-[10px]">
+                      <span className="font-semibold text-slate-300">{lap.name}</span>
+                      <span>{lap.distanceKm} km</span>
+                    </div>
+                    <div className="flex items-center justify-between font-mono font-bold text-white mt-1">
+                      <span className="text-orange-400">{lap.avgSpeedKph} kph</span>
+                      {lap.avgWatts ? (
+                        <span className="text-amber-300 text-[11px]">{lap.avgWatts}W</span>
+                      ) : lap.avgHr ? (
+                        <span className="text-rose-400 text-[11px] flex items-center gap-0.5">
+                          <Heart className="w-2.5 h-2.5 inline" /> {lap.avgHr}
+                        </span>
+                      ) : null}
+                    </div>
+                    <div className="text-[10px] text-slate-400 mt-1 flex items-center justify-between pt-1 border-t border-slate-800/60">
+                      <span>{formatDuration(lap.movingTimeSec)}</span>
+                      {lap.avgCadence ? <span>{lap.avgCadence} rpm</span> : lap.elevationGainM ? <span>+{lap.elevationGainM}m</span> : null}
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              {/* Cycling Power Zones Distribution (Coggan 7 Zones) */}
+              {bikeDetails.powerZones.some((z) => z.pct > 0) && (
+                <div className="pt-2 border-t border-slate-800/80 space-y-1.5">
+                  <div className="flex items-center justify-between text-[11px]">
+                    <span className="font-bold text-slate-300 flex items-center gap-1">
+                      <Zap className="w-3 h-3 text-amber-400" />
+                      Cycling Power Zones (Coggan 7-Zone)
+                    </span>
+                    <span className="text-[10px] text-slate-400 font-mono">
+                      FTP {athleteProfile.bikeFtp || 250}W
+                    </span>
+                  </div>
+
+                  {/* Horizontal stacked zone bar */}
+                  <div className="w-full bg-slate-900 rounded-full h-2.5 flex overflow-hidden">
+                    {bikeDetails.powerZones.map((z) => (
+                      z.pct > 0 ? (
+                        <div
+                          key={z.zone}
+                          className="h-full transition-all"
+                          style={{ width: `${z.pct}%`, backgroundColor: z.color }}
+                          title={`${z.name}: ${z.pct}% (${formatDuration(z.seconds)})`}
+                        />
+                      ) : null
+                    ))}
+                  </div>
+
+                  {/* Zone Legend */}
+                  <div className="grid grid-cols-7 gap-1 pt-1 text-[9px] font-mono text-center">
+                    {bikeDetails.powerZones.map((z) => (
+                      <div key={z.zone} className="flex flex-col items-center">
+                        <span className="font-bold" style={{ color: z.color }}>Z{z.zone}</span>
+                        <span className="text-slate-400">{z.pct}%</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Cycling Heart Rate Zones */}
+              {bikeDetails.hrZones.some((z) => z.pct > 0) && (
+                <div className="pt-2 border-t border-slate-800/80 space-y-1.5">
+                  <div className="flex items-center justify-between text-[11px]">
+                    <span className="font-bold text-slate-300 flex items-center gap-1">
+                      <Heart className="w-3 h-3 text-rose-400" />
+                      Cycling HR Zones
+                    </span>
+                    <span className="text-[10px] text-slate-400 font-mono">
+                      Max HR {bikeDetails?.maxHr || athleteProfile.maxHeartRate || 185} bpm
+                    </span>
+                  </div>
+
+                  <div className="w-full bg-slate-900 rounded-full h-2.5 flex overflow-hidden">
+                    {bikeDetails.hrZones.map((z) => (
+                      z.pct > 0 ? (
+                        <div
+                          key={z.zone}
+                          className="h-full transition-all"
+                          style={{ width: `${z.pct}%`, backgroundColor: z.color }}
+                          title={`${z.name}: ${z.pct}% (${formatDuration(z.seconds)})`}
+                        />
+                      ) : null
+                    ))}
+                  </div>
+
+                  <div className="grid grid-cols-5 gap-1 pt-1 text-[10px] font-mono text-center">
+                    {bikeDetails.hrZones.map((z) => (
+                      <div key={z.zone} className="flex flex-col items-center">
+                        <span className="font-bold" style={{ color: z.color }}>Z{z.zone}</span>
+                        <span className="text-slate-400">{z.pct}%</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
           )}
 

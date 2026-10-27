@@ -528,12 +528,12 @@ export const StravaActivitiesTab: React.FC<StravaActivitiesTabProps> = ({
                 {loadingMore ? (
                   <>
                     <Loader2 className="w-4 h-4 animate-spin text-amber-400" />
-                    <span>Loading 50 older activities...</span>
+                    <span>Loading 200 older activities...</span>
                   </>
                 ) : (
                   <>
                     <RotateCw className="w-3.5 h-3.5 text-amber-400" />
-                    <span>Load 50 More Activities</span>
+                    <span>Load 200 More Activities</span>
                   </>
                 )}
               </button>

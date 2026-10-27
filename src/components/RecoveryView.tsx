@@ -41,6 +41,9 @@ interface RecoveryViewProps {
   onResetDefaults: () => void;
   onOpenAthleteSettings?: () => void;
   theme?: 'light' | 'dark';
+  isGarminConnected?: boolean;
+  garminEmail?: string | null;
+  onOpenGarminSync?: () => void;
 }
 
 type ChartViewMode = 'sleep_rhr' | 'readiness_hrv' | 'training_stress';
@@ -55,6 +58,9 @@ export const RecoveryView: React.FC<RecoveryViewProps> = ({
   onResetDefaults,
   onOpenAthleteSettings,
   theme = 'dark',
+  isGarminConnected = false,
+  garminEmail = null,
+  onOpenGarminSync,
 }) => {
   const [selectedChartMode, setSelectedChartMode] = useState<ChartViewMode>('sleep_rhr');
   const [isLogModalOpen, setIsLogModalOpen] = useState(false);
@@ -66,6 +72,15 @@ export const RecoveryView: React.FC<RecoveryViewProps> = ({
   const isLight = theme === 'light';
   const baselineRhr = athleteProfile.restingHeartRate || 41;
 
+  // Determine if Garmin is actively connected
+  const isGarminActive = Boolean(
+    isGarminConnected ||
+    (typeof window !== 'undefined' &&
+      (localStorage.getItem('fit_track_garmin_email') ||
+        localStorage.getItem('fit_track_garmin_token') ||
+        localStorage.getItem('fit_track_garmin_connected')))
+  );
+
   // Chronologically sorted logs
   const sortedLogs = useMemo(() => {
     return [...logs].sort((a, b) => a.date.localeCompare(b.date));
@@ -73,37 +88,42 @@ export const RecoveryView: React.FC<RecoveryViewProps> = ({
 
   // Today / Most Recent Log
   const latestLog = useMemo(() => {
-    if (sortedLogs.length === 0) return null;
+    if (sortedLogs.length === 0 || !isGarminActive) return null;
     return sortedLogs[sortedLogs.length - 1];
-  }, [sortedLogs]);
+  }, [sortedLogs, isGarminActive]);
+
+  // Flag determining whether we have authentic Garmin telemetry to display
+  const hasGarminData = Boolean(isGarminActive && latestLog);
 
   // Compute readiness for latest log
   const todayReadiness: ReadinessScoreResult = useMemo(() => {
-    if (!latestLog) {
+    if (!hasGarminData || !latestLog) {
       return {
-        score: 85,
+        score: 0,
         status: 'optimal',
-        label: 'Primed / Optimal',
-        accentColor: '#10b981',
-        badgeBg: 'bg-emerald-500/15',
-        badgeText: 'text-emerald-500',
+        label: isGarminActive ? 'No Garmin Logs' : 'Garmin Not Connected',
+        accentColor: '#64748b',
+        badgeBg: isLight ? 'bg-slate-100' : 'bg-slate-800',
+        badgeText: isLight ? 'text-slate-500' : 'text-slate-400',
         hrvStatus: 'balanced',
-        hrvBaseline7d: 78,
-        hrvStdDev7d: 6,
+        hrvBaseline7d: 0,
+        hrvStdDev7d: 0,
         hrvDelta: 0,
         rhrDelta: 0,
-        rhr7dAvg: baselineRhr,
+        rhr7dAvg: 0,
         sleepQualityRating: 'optimal',
-        sleepAvg7dMinutes: 480,
-        sleepScoreAvg7d: 88,
-        trainingRecommendation: 'No logs yet. Please log or sync your morning Garmin metrics.',
-        recommendedIntensity: 'High / Threshold & Intervals',
-        subscores: { hrvScore: 85, sleepScore: 85, rhrScore: 90, loadModifier: 0 },
+        sleepAvg7dMinutes: 0,
+        sleepScoreAvg7d: 0,
+        trainingRecommendation: isGarminActive
+          ? 'Connected to Garmin. Run Garmin Sync to download recent morning recovery telemetry.'
+          : 'Garmin is not connected. Connect your Garmin account to pull overnight HRV, resting heart rate, sleep duration, and daily training readiness.',
+        recommendedIntensity: 'Rest / Active Recovery',
+        subscores: { hrvScore: 0, sleepScore: 0, rhrScore: 0, loadModifier: 0 },
         insights: [],
       };
     }
     return computeDailyReadiness(latestLog, sortedLogs, athleteProfile);
-  }, [latestLog, sortedLogs, athleteProfile, baselineRhr]);
+  }, [hasGarminData, latestLog, sortedLogs, athleteProfile, isGarminActive, isLight]);
 
   // Cross-correlation analysis
   const correlations = useMemo(() => {
@@ -197,11 +217,24 @@ export const RecoveryView: React.FC<RecoveryViewProps> = ({
           <button
             type="button"
             onClick={() => setIsGarminModalOpen(true)}
-            className="px-3 py-2 rounded-xl text-xs font-bold bg-sky-500 hover:bg-sky-400 text-slate-950 flex items-center gap-1.5 transition-all cursor-pointer shadow-md shadow-sky-500/20"
+            className={`px-3 py-2 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer shadow-md ${
+              isGarminActive
+                ? 'bg-sky-500 hover:bg-sky-400 text-slate-950 shadow-sky-500/20'
+                : 'bg-sky-600 hover:bg-sky-500 text-white shadow-sky-600/25 ring-2 ring-sky-400/30'
+            }`}
             title="Connect Garmin Connect & automatically pull weeks of recovery metrics"
           >
-            <RotateCw className="w-3.5 h-3.5 text-slate-950" />
-            <span>Garmin Sync</span>
+            {isGarminActive ? (
+              <>
+                <RotateCw className="w-3.5 h-3.5 text-slate-950" />
+                <span>Garmin Sync</span>
+              </>
+            ) : (
+              <>
+                <Zap className="w-3.5 h-3.5 text-white" />
+                <span>Connect Garmin</span>
+              </>
+            )}
           </button>
 
           {/* 28-Day Demo Recovery Data */}
@@ -299,29 +332,31 @@ export const RecoveryView: React.FC<RecoveryViewProps> = ({
                   cx="50"
                   cy="50"
                   r="42"
-                  stroke={todayReadiness.accentColor}
+                  stroke={hasGarminData ? todayReadiness.accentColor : 'currentColor'}
                   strokeWidth="8"
                   strokeDasharray={`${2 * Math.PI * 42}`}
-                  strokeDashoffset={`${2 * Math.PI * 42 * (1 - todayReadiness.score / 100)}`}
+                  strokeDashoffset={hasGarminData ? `${2 * Math.PI * 42 * (1 - todayReadiness.score / 100)}` : `${2 * Math.PI * 42}`}
                   strokeLinecap="round"
                   fill="transparent"
-                  className="transition-all duration-1000 ease-out"
+                  className={hasGarminData ? 'transition-all duration-1000 ease-out' : 'text-slate-800 opacity-20'}
                 />
               </svg>
               <div className="absolute flex flex-col items-center justify-center text-center">
                 <span
                   className={`text-3xl font-extrabold tracking-tight ${
-                    isLight ? 'text-slate-900' : 'text-white'
+                    hasGarminData
+                      ? isLight ? 'text-slate-900' : 'text-white'
+                      : 'text-slate-400 font-mono'
                   }`}
                 >
-                  {todayReadiness.score}
+                  {hasGarminData ? todayReadiness.score : '--'}
                 </span>
                 <span
                   className={`text-[10px] font-semibold uppercase tracking-widest ${
                     isLight ? 'text-slate-400' : 'text-slate-500'
                   }`}
                 >
-                  / 100
+                  {hasGarminData ? '/ 100' : 'no data'}
                 </span>
               </div>
             </div>
@@ -336,15 +371,17 @@ export const RecoveryView: React.FC<RecoveryViewProps> = ({
               </span>
               <span
                 className={`text-sm font-bold leading-tight block ${
-                  isLight ? 'text-slate-900' : 'text-white'
+                  hasGarminData
+                    ? isLight ? 'text-slate-900' : 'text-white'
+                    : 'text-slate-400'
                 }`}
               >
-                {todayReadiness.recommendedIntensity}
+                {hasGarminData ? todayReadiness.recommendedIntensity : 'Connect Garmin'}
               </span>
               <span className={`text-[11px] block ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>
                 Date:{' '}
                 <strong className={isLight ? 'text-slate-800' : 'text-slate-200'}>
-                  {latestLog?.date || 'Today'}
+                  {hasGarminData ? (latestLog?.date || 'Today') : '--'}
                 </strong>
               </span>
             </div>
@@ -352,13 +389,23 @@ export const RecoveryView: React.FC<RecoveryViewProps> = ({
 
           {/* Actionable Training Prescription Banner */}
           <div
-            className={`p-3 rounded-xl border text-xs leading-relaxed ${
+            className={`p-3 rounded-xl border text-xs leading-relaxed flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 ${
               isLight
                 ? 'bg-slate-50 border-slate-200 text-slate-700'
                 : 'bg-slate-950/60 border-slate-800/80 text-slate-300'
             }`}
           >
-            {todayReadiness.trainingRecommendation}
+            <span>{todayReadiness.trainingRecommendation}</span>
+            {!hasGarminData && (
+              <button
+                type="button"
+                onClick={() => setIsGarminModalOpen(true)}
+                className="shrink-0 px-3 py-1.5 rounded-lg text-xs font-bold bg-sky-500 hover:bg-sky-400 text-slate-950 flex items-center justify-center gap-1 cursor-pointer transition-colors shadow-xs"
+              >
+                <Zap className="w-3.5 h-3.5" />
+                <span>Connect Garmin</span>
+              </button>
+            )}
           </div>
         </div>
 
@@ -384,21 +431,29 @@ export const RecoveryView: React.FC<RecoveryViewProps> = ({
 
             <div className="my-2 flex items-baseline gap-2">
               <span
-                className={`text-2xl font-extrabold ${isLight ? 'text-slate-900' : 'text-white'}`}
+                className={`text-2xl font-extrabold ${
+                  hasGarminData && latestLog
+                    ? isLight ? 'text-slate-900' : 'text-white'
+                    : 'text-slate-400 font-mono'
+                }`}
               >
-                {latestLog ? latestLog.restingHr : baselineRhr}
+                {hasGarminData && latestLog ? latestLog.restingHr : '--'}
               </span>
-              <span className="text-xs text-slate-400 font-semibold">bpm</span>
+              <span className="text-xs text-slate-400 font-semibold">{hasGarminData && latestLog ? 'bpm' : ''}</span>
               <span
                 className={`ml-auto text-xs font-bold px-2 py-0.5 rounded-md ${
-                  todayReadiness.rhrDelta <= 0
+                  !hasGarminData
+                    ? isLight ? 'bg-slate-100 text-slate-500 border border-slate-200' : 'bg-slate-800 text-slate-400 border border-slate-700/80'
+                    : todayReadiness.rhrDelta <= 0
                     ? 'bg-emerald-500/10 text-emerald-500 border border-emerald-500/20'
                     : todayReadiness.rhrDelta <= 2
                     ? 'bg-sky-500/10 text-sky-500 border border-sky-500/20'
                     : 'bg-amber-500/10 text-amber-500 border border-amber-500/20'
                 }`}
               >
-                {todayReadiness.rhrDelta > 0
+                {!hasGarminData
+                  ? 'No Garmin data'
+                  : todayReadiness.rhrDelta > 0
                   ? `+${todayReadiness.rhrDelta} bpm`
                   : todayReadiness.rhrDelta === 0
                   ? 'At Baseline'
@@ -414,11 +469,11 @@ export const RecoveryView: React.FC<RecoveryViewProps> = ({
               <span>
                 7-Day Average:{' '}
                 <strong className={isLight ? 'text-slate-800' : 'text-slate-200'}>
-                  {todayReadiness.rhr7dAvg} bpm
+                  {hasGarminData && todayReadiness.rhr7dAvg > 0 ? `${todayReadiness.rhr7dAvg} bpm` : '--'}
                 </strong>
               </span>
               <span className="text-slate-400">
-                {todayReadiness.rhrDelta <= 2 ? 'Calm tone' : 'Elevated strain'}
+                {!hasGarminData ? 'Awaiting sync' : todayReadiness.rhrDelta <= 2 ? 'Calm tone' : 'Elevated strain'}
               </span>
             </div>
           </div>
@@ -444,22 +499,26 @@ export const RecoveryView: React.FC<RecoveryViewProps> = ({
             <div className="my-2 flex items-baseline gap-2">
               <span
                 className={`text-2xl font-extrabold ${
-                  isLight ? 'text-purple-600' : 'text-purple-400'
+                  hasGarminData && latestLog
+                    ? isLight ? 'text-purple-600' : 'text-purple-400'
+                    : 'text-slate-400 font-mono'
                 }`}
               >
-                {latestLog ? latestLog.hrvRmssd : 78}
+                {hasGarminData && latestLog ? latestLog.hrvRmssd : '--'}
               </span>
-              <span className="text-xs text-slate-400 font-semibold">ms</span>
+              <span className="text-xs text-slate-400 font-semibold">{hasGarminData && latestLog ? 'ms' : ''}</span>
               <span
                 className={`ml-auto text-xs font-bold px-2 py-0.5 rounded-md capitalize ${
-                  todayReadiness.hrvStatus === 'balanced'
+                  !hasGarminData
+                    ? isLight ? 'bg-slate-100 text-slate-500 border border-slate-200' : 'bg-slate-800 text-slate-400 border border-slate-700/80'
+                    : todayReadiness.hrvStatus === 'balanced'
                     ? 'bg-emerald-500/10 text-emerald-500 border border-emerald-500/20'
                     : todayReadiness.hrvStatus === 'low'
                     ? 'bg-rose-500/10 text-rose-500 border border-rose-500/20'
                     : 'bg-amber-500/10 text-amber-500 border border-amber-500/20'
                 }`}
               >
-                {todayReadiness.hrvStatus}
+                {!hasGarminData ? 'No Garmin data' : todayReadiness.hrvStatus}
               </span>
             </div>
 
@@ -471,18 +530,16 @@ export const RecoveryView: React.FC<RecoveryViewProps> = ({
               <span>
                 7d Baseline:{' '}
                 <strong className={isLight ? 'text-slate-800' : 'text-slate-200'}>
-                  {todayReadiness.hrvBaseline7d} ms
+                  {hasGarminData && todayReadiness.hrvBaseline7d > 0 ? `${todayReadiness.hrvBaseline7d} ms` : '--'}
                 </strong>{' '}
-                (±{todayReadiness.hrvStdDev7d})
+                {hasGarminData && todayReadiness.hrvStdDev7d > 0 ? `(±${todayReadiness.hrvStdDev7d})` : ''}
               </span>
               <span
                 className={
-                  todayReadiness.hrvDelta >= 0 ? 'text-emerald-500 font-semibold' : 'text-slate-400'
+                  hasGarminData && todayReadiness.hrvDelta >= 0 ? 'text-emerald-500 font-semibold' : 'text-slate-400'
                 }
               >
-                {todayReadiness.hrvDelta >= 0
-                  ? `+${todayReadiness.hrvDelta} ms`
-                  : `${todayReadiness.hrvDelta} ms`}
+                {!hasGarminData ? '--' : todayReadiness.hrvDelta >= 0 ? `+${todayReadiness.hrvDelta} ms` : `${todayReadiness.hrvDelta} ms`}
               </span>
             </div>
           </div>
@@ -503,18 +560,28 @@ export const RecoveryView: React.FC<RecoveryViewProps> = ({
                 Sleep Duration &amp; Score
               </span>
               <span className="text-[11px] text-sky-500 font-semibold">
-                Score: {latestLog ? latestLog.sleepScore : 88}/100
+                Score: {hasGarminData && latestLog?.sleepScore ? `${latestLog.sleepScore}/100` : '--/100'}
               </span>
             </div>
 
             <div className="my-2 flex items-baseline gap-2">
               <span
-                className={`text-2xl font-extrabold ${isLight ? 'text-slate-900' : 'text-white'}`}
+                className={`text-2xl font-extrabold ${
+                  hasGarminData && latestLog
+                    ? isLight ? 'text-slate-900' : 'text-white'
+                    : 'text-slate-400 font-mono'
+                }`}
               >
-                {latestLog ? formatMinutesToHhMm(latestLog.sleepDurationMinutes) : '8h 00m'}
+                {hasGarminData && latestLog ? formatMinutesToHhMm(latestLog.sleepDurationMinutes) : '--'}
               </span>
-              <span className="ml-auto text-xs font-bold text-sky-500 bg-sky-500/10 px-2 py-0.5 rounded-md border border-sky-500/20 capitalize">
-                {todayReadiness.sleepQualityRating}
+              <span
+                className={`ml-auto text-xs font-bold px-2 py-0.5 rounded-md border capitalize ${
+                  !hasGarminData
+                    ? isLight ? 'bg-slate-100 text-slate-500 border border-slate-200' : 'bg-slate-800 text-slate-400 border border-slate-700/80'
+                    : 'text-sky-500 bg-sky-500/10 border-sky-500/20'
+                }`}
+              >
+                {!hasGarminData ? 'No Garmin data' : todayReadiness.sleepQualityRating}
               </span>
             </div>
 
@@ -526,13 +593,13 @@ export const RecoveryView: React.FC<RecoveryViewProps> = ({
               <span>
                 7d Avg:{' '}
                 <strong className={isLight ? 'text-slate-800' : 'text-slate-200'}>
-                  {formatMinutesToHhMm(todayReadiness.sleepAvg7dMinutes)}
+                  {hasGarminData && todayReadiness.sleepAvg7dMinutes > 0 ? formatMinutesToHhMm(todayReadiness.sleepAvg7dMinutes) : '--'}
                 </strong>
               </span>
               <span>
                 Avg Score:{' '}
                 <strong className={isLight ? 'text-slate-800' : 'text-slate-200'}>
-                  {todayReadiness.sleepScoreAvg7d}
+                  {hasGarminData && todayReadiness.sleepScoreAvg7d > 0 ? todayReadiness.sleepScoreAvg7d : '--'}
                 </strong>
               </span>
             </div>
@@ -554,12 +621,12 @@ export const RecoveryView: React.FC<RecoveryViewProps> = ({
                 Deep &amp; REM Architecture
               </span>
               <span className="text-[11px] text-indigo-500 font-semibold">
-                {latestLog ? `${latestLog.deepSleepMinutes}m Deep` : '85m Deep'}
+                {hasGarminData && latestLog ? `${latestLog.deepSleepMinutes}m Deep` : '-- Deep'}
               </span>
             </div>
 
             {/* Visual stage bar */}
-            {latestLog && (
+            {hasGarminData && latestLog ? (
               <div className="my-2">
                 <div
                   className={`w-full h-3 rounded-full overflow-hidden flex ${
@@ -602,6 +669,10 @@ export const RecoveryView: React.FC<RecoveryViewProps> = ({
                   <span className="text-rose-500">{latestLog.awakeMinutes}m awake</span>
                 </div>
               </div>
+            ) : (
+              <div className="my-4 py-1 text-center text-xs text-slate-400 font-mono">
+                --
+              </div>
             )}
 
             <div
@@ -612,15 +683,14 @@ export const RecoveryView: React.FC<RecoveryViewProps> = ({
               <span>
                 Deep %:{' '}
                 <strong className={isLight ? 'text-slate-800' : 'text-slate-200'}>
-                  {latestLog
-                    ? Math.round(
-                        (latestLog.deepSleepMinutes / latestLog.sleepDurationMinutes) * 100
-                      )
-                    : 18}
-                  %
+                  {hasGarminData && latestLog
+                    ? `${Math.round((latestLog.deepSleepMinutes / latestLog.sleepDurationMinutes) * 100)}%`
+                    : '--'}
                 </strong>
               </span>
-              <span className="text-emerald-500 font-semibold">Tissue Recovery</span>
+              <span className="text-slate-400">
+                {hasGarminData ? 'Tissue Recovery' : 'Awaiting sync'}
+              </span>
             </div>
           </div>
         </div>
@@ -778,9 +848,27 @@ export const RecoveryView: React.FC<RecoveryViewProps> = ({
               : 'bg-slate-950/60 border-slate-800/80'
           }`}
         >
-          {chartDays.length === 0 ? (
-            <div className="py-16 text-center text-slate-400 text-sm">
-              No historical data available. Please log or sync daily entries.
+          {!hasGarminData || chartDays.length === 0 ? (
+            <div className="py-16 text-center flex flex-col items-center justify-center gap-2.5">
+              <div className="w-10 h-10 rounded-xl bg-sky-500/10 border border-sky-500/20 flex items-center justify-center text-sky-400">
+                <TrendingUp className="w-5 h-5" />
+              </div>
+              <p className={`text-sm font-bold ${isLight ? 'text-slate-800' : 'text-slate-200'}`}>
+                {isGarminActive ? 'No Garmin Logs Available' : 'Garmin Connect Required'}
+              </p>
+              <p className="text-xs text-slate-400 max-w-sm">
+                {isGarminActive
+                  ? 'Click "Garmin Sync" to download historical sleep stages, resting HR, and HRV data.'
+                  : 'Connect your Garmin account to view cross-correlations and physiological trends.'}
+              </p>
+              <button
+                type="button"
+                onClick={() => setIsGarminModalOpen(true)}
+                className="mt-1 px-3.5 py-1.5 rounded-lg text-xs font-bold bg-sky-500 hover:bg-sky-400 text-slate-950 flex items-center gap-1.5 cursor-pointer shadow-xs transition-colors"
+              >
+                <Zap className="w-3.5 h-3.5" />
+                <span>{isGarminActive ? 'Sync Garmin Recovery Data' : 'Connect Garmin'}</span>
+              </button>
             </div>
           ) : (
             <div className="w-full h-64 sm:h-72">
@@ -1317,7 +1405,24 @@ export const RecoveryView: React.FC<RecoveryViewProps> = ({
                 isLight ? 'divide-y divide-slate-100' : 'divide-y divide-slate-800/60'
               }
             >
-              {[...sortedLogs].reverse().map((log) => {
+              {!hasGarminData || sortedLogs.length === 0 ? (
+                <tr>
+                  <td colSpan={8} className="py-14 text-center text-slate-400">
+                    <div className="flex flex-col items-center justify-center gap-2">
+                      <Moon className="w-8 h-8 text-slate-400/40 stroke-1" />
+                      <p className={`text-sm font-semibold ${isLight ? 'text-slate-700' : 'text-slate-300'}`}>
+                        No Garmin recovery data recorded
+                      </p>
+                      <p className="text-xs text-slate-500 max-w-sm">
+                        {isGarminActive
+                          ? 'Click "Garmin Sync" to download historical days, or click "Log Morning Stats" to log manually.'
+                          : 'Connect your Garmin account to automatically record and correlate daily recovery data.'}
+                      </p>
+                    </div>
+                  </td>
+                </tr>
+              ) : (
+                [...sortedLogs].reverse().map((log) => {
                 const read = computeDailyReadiness(log, sortedLogs, athleteProfile);
                 const rhrDiff = log.restingHr - baselineRhr;
 
@@ -1424,7 +1529,8 @@ export const RecoveryView: React.FC<RecoveryViewProps> = ({
                     </td>
                   </tr>
                 );
-              })}
+              })
+            )}
             </tbody>
           </table>
         </div>

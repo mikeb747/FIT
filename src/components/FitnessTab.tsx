@@ -145,9 +145,6 @@ export const FitnessTab: React.FC<FitnessTabProps> = ({
             >
               Triathlon Fitness &amp; Training Load
             </h1>
-            <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-500/10 border border-amber-500/20 text-amber-500">
-              FITNESS.md Model
-            </span>
           </div>
           <p className={`text-xs sm:text-sm mt-1 ${isLight ? 'text-slate-600' : 'text-slate-400'}`}>
             Running 42d CTL, 7d ATL, and Form (TSB) split between Swim, Bike, and Run with race-weighted geometric preparation index.
@@ -477,7 +474,7 @@ export const FitnessTab: React.FC<FitnessTabProps> = ({
       </div>
 
       {/* ========================================================= */}
-      {/* 4. RUNNING LOG CHART & TIMELINE (CTL / ATL / TSB) */}
+      {/* 4. DAILY TRAINING TIMELINE (CTL / ATL / TSB) */}
       {/* ========================================================= */}
       <div
         className={`p-4 sm:p-5 rounded-2xl border space-y-4 ${
@@ -538,69 +535,118 @@ export const FitnessTab: React.FC<FitnessTabProps> = ({
           </div>
         </div>
 
-        {/* SVG Running Log Chart */}
-        <div className="h-48 sm:h-64 w-full relative pt-2">
-          {fitnessTimeline.length === 0 ? (
-            <div className="h-full flex items-center justify-center text-xs text-slate-500">
-              No training activity data available to render timeline.
-            </div>
-          ) : (
-            <svg className="w-full h-full overflow-visible" preserveAspectRatio="none" viewBox="0 0 100 100">
-              {/* Neutral zero line for TSB */}
-              <line x1="0" y1="70" x2="100" y2="70" stroke="rgba(148, 163, 184, 0.15)" strokeWidth="0.5" strokeDasharray="1,1" />
-
-              {/* Render CTL curve (Fitness) */}
-              <polyline
-                fill="none"
-                stroke="#38bdf8"
-                strokeWidth="1.8"
-                points={fitnessTimeline
-                  .map((r, i) => {
-                    const x = (i / (fitnessTimeline.length - 1 || 1)) * 100;
-                    const ctl = selectedChartDiscipline === 'swim' ? r.swimCtl : selectedChartDiscipline === 'bike' ? r.bikeCtl : selectedChartDiscipline === 'run' ? r.runCtl : r.triCtl;
-                    const y = Math.max(5, 95 - (ctl / maxChartCtl) * 90);
-                    return `${x},${y}`;
-                  })
-                  .join(' ')}
-              />
-
-              {/* Render ATL curve (Fatigue) */}
-              <polyline
-                fill="none"
-                stroke="#c084fc"
-                strokeWidth="1.2"
-                strokeDasharray="2,1"
-                points={fitnessTimeline
-                  .map((r, i) => {
-                    const x = (i / (fitnessTimeline.length - 1 || 1)) * 100;
-                    const atl = selectedChartDiscipline === 'swim' ? r.swimAtl : selectedChartDiscipline === 'bike' ? r.bikeAtl : selectedChartDiscipline === 'run' ? r.runAtl : r.triAtl;
-                    const y = Math.max(5, 95 - (atl / maxChartCtl) * 90);
-                    return `${x},${y}`;
-                  })
-                  .join(' ')}
-              />
-            </svg>
-          )}
-
-          {/* Chart Legend */}
-          <div className="flex items-center justify-between text-[11px] text-slate-400 mt-2 px-1">
-            <div className="flex items-center gap-3">
-              <span className="flex items-center gap-1">
-                <span className="w-2.5 h-2.5 rounded-full bg-sky-400 inline-block" />
-                CTL (Fitness 42d)
-              </span>
-              <span className="flex items-center gap-1">
-                <span className="w-2.5 h-2.5 rounded-full bg-purple-400 inline-block" />
-                ATL (Fatigue 7d)
-              </span>
-            </div>
-            <span>Scale: 0 - {maxChartCtl} TSS/day</span>
+        {/* Chart Key / Legend at TOP */}
+        <div className={`p-2.5 rounded-xl border flex flex-wrap items-center justify-between gap-3 text-xs ${
+          isLight ? 'bg-slate-50 border-slate-200 text-slate-700' : 'bg-slate-950/80 border-slate-800/80 text-slate-300'
+        }`}>
+          <div className="flex items-center gap-4 flex-wrap">
+            <span className="flex items-center gap-1.5 font-medium">
+              <span className="w-3 h-3 rounded-full bg-sky-400 inline-block shadow-xs" />
+              <span className="font-bold text-sky-400">CTL</span> (Fitness 42d Rolling)
+            </span>
+            <span className="flex items-center gap-1.5 font-medium">
+              <span className="w-3 h-1 bg-purple-400 rounded-full inline-block border-b-2 border-dashed border-purple-400" />
+              <span className="font-bold text-purple-400">ATL</span> (Fatigue 7d Rolling)
+            </span>
+            <span className="flex items-center gap-1.5 font-medium">
+              <span className="w-2.5 h-0.5 bg-slate-400/50 inline-block border-t border-dashed border-slate-400" />
+              <span className="text-slate-400">Neutral Baseline (0 Form)</span>
+            </span>
           </div>
+          <span className="font-mono text-[11px] text-slate-400">
+            Scale: 0 – {maxChartCtl} TSS/day
+          </span>
+        </div>
+
+        {/* SVG Timeline Chart with X-Axis Date Markers */}
+        <div className="space-y-2 pt-1">
+          <div className="h-48 sm:h-64 w-full relative">
+            {fitnessTimeline.length === 0 ? (
+              <div className="h-full flex items-center justify-center text-xs text-slate-500">
+                No training activity data available to render timeline.
+              </div>
+            ) : (
+              <svg className="w-full h-full overflow-visible" preserveAspectRatio="none" viewBox="0 0 100 100">
+                {/* Horizontal reference grid lines */}
+                <line x1="0" y1="25" x2="100" y2="25" stroke="rgba(148, 163, 184, 0.08)" strokeWidth="0.5" strokeDasharray="1,2" />
+                <line x1="0" y1="50" x2="100" y2="50" stroke="rgba(148, 163, 184, 0.08)" strokeWidth="0.5" strokeDasharray="1,2" />
+                <line x1="0" y1="70" x2="100" y2="70" stroke="rgba(148, 163, 184, 0.2)" strokeWidth="0.8" strokeDasharray="2,2" />
+
+                {/* Render CTL curve (Fitness) */}
+                <polyline
+                  fill="none"
+                  stroke="#38bdf8"
+                  strokeWidth="2.2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  points={fitnessTimeline
+                    .map((r, i) => {
+                      const x = (i / (fitnessTimeline.length - 1 || 1)) * 100;
+                      const ctl = selectedChartDiscipline === 'swim' ? r.swimCtl : selectedChartDiscipline === 'bike' ? r.bikeCtl : selectedChartDiscipline === 'run' ? r.runCtl : r.triCtl;
+                      const y = Math.max(5, 95 - (ctl / maxChartCtl) * 90);
+                      return `${x},${y}`;
+                    })
+                    .join(' ')}
+                />
+
+                {/* Render ATL curve (Fatigue) */}
+                <polyline
+                  fill="none"
+                  stroke="#c084fc"
+                  strokeWidth="1.6"
+                  strokeDasharray="3,2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  points={fitnessTimeline
+                    .map((r, i) => {
+                      const x = (i / (fitnessTimeline.length - 1 || 1)) * 100;
+                      const atl = selectedChartDiscipline === 'swim' ? r.swimAtl : selectedChartDiscipline === 'bike' ? r.bikeAtl : selectedChartDiscipline === 'run' ? r.runAtl : r.triAtl;
+                      const y = Math.max(5, 95 - (atl / maxChartCtl) * 90);
+                      return `${x},${y}`;
+                    })
+                    .join(' ')}
+                />
+              </svg>
+            )}
+          </div>
+
+          {/* Several Evenly-Spaced Date Markers on the X-Axis */}
+          {fitnessTimeline.length > 0 && (
+            <div className="flex items-center justify-between text-[10px] font-mono font-medium text-slate-400 pt-1 border-t border-slate-800/40 px-0.5">
+              {(() => {
+                const stepCount = Math.min(6, fitnessTimeline.length);
+                const markers: { key: string; label: string }[] = [];
+                for (let s = 0; s < stepCount; s++) {
+                  const idx = Math.round((s / (stepCount - 1 || 1)) * (fitnessTimeline.length - 1));
+                  const item = fitnessTimeline[idx];
+                  if (item) {
+                    try {
+                      const [y, m, d] = item.date.split('-').map(Number);
+                      const dt = new Date(Date.UTC(y, m - 1, d, 12, 0, 0));
+                      const dayStr = String(d).padStart(2, '0');
+                      const monStr = dt.toLocaleDateString('en-GB', { month: 'short', timeZone: 'UTC' });
+                      markers.push({ key: item.date + s, label: `${dayStr} ${monStr}` });
+                    } catch {
+                      markers.push({ key: item.date + s, label: item.date });
+                    }
+                  }
+                }
+                return markers.map((m, i) => (
+                  <span
+                    key={m.key}
+                    className={i === 0 ? 'text-left' : i === markers.length - 1 ? 'text-right font-bold text-sky-400' : 'text-center'}
+                  >
+                    {m.label}
+                  </span>
+                ));
+              })()}
+            </div>
+          )}
         </div>
       </div>
 
       {/* ========================================================= */}
-      {/* 5. RUNNING LOG TABLE */}
+      {/* 5. DAILY TRAINING LOG TABLE */}
       {/* ========================================================= */}
       <div
         className={`rounded-2xl border overflow-hidden ${
@@ -609,7 +655,7 @@ export const FitnessTab: React.FC<FitnessTabProps> = ({
       >
         <div className="p-4 border-b border-slate-800/80 flex items-center justify-between">
           <h3 className={`text-xs font-bold uppercase tracking-wider ${isLight ? 'text-slate-800' : 'text-slate-200'}`}>
-            Daily Running Log (Recent {Math.min(14, fitnessTimeline.length)} Days)
+            Daily Training Log (Recent {Math.min(14, fitnessTimeline.length)} Days)
           </h3>
           <span className="text-[11px] text-slate-500 font-mono">
             {fitnessTimeline.length} total days analyzed
@@ -633,20 +679,36 @@ export const FitnessTab: React.FC<FitnessTabProps> = ({
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-800/40">
-              {fitnessTimeline.slice(-14).reverse().map((r) => (
-                <tr key={r.date} className="hover:bg-slate-800/30 transition-colors">
-                  <td className="py-2.5 px-4 font-sans font-medium text-slate-300">{r.date}</td>
-                  <td className="py-2.5 px-3 text-slate-300">{r.swimTss > 0 ? r.swimTss : '—'}</td>
-                  <td className="py-2.5 px-3 text-slate-300">{r.bikeTss > 0 ? r.bikeTss : '—'}</td>
-                  <td className="py-2.5 px-3 text-slate-300">{r.runTss > 0 ? r.runTss : '—'}</td>
-                  <td className="py-2.5 px-3 font-bold text-white">{r.totalTriTss > 0 ? r.totalTriTss : '0'}</td>
-                  <td className="py-2.5 px-3 font-bold text-sky-400">{r.triCtl}</td>
-                  <td className="py-2.5 px-3 font-bold text-purple-400">{r.triAtl}</td>
-                  <td className={`py-2.5 px-4 font-bold ${r.triTsb >= 0 ? 'text-emerald-400' : 'text-amber-400'}`}>
-                    {r.triTsb > 0 ? `+${r.triTsb}` : r.triTsb}
-                  </td>
-                </tr>
-              ))}
+              {fitnessTimeline.slice(-14).reverse().map((r) => {
+                let formattedDateWithWeekday = r.date;
+                try {
+                  const [y, m, d] = r.date.split('-').map(Number);
+                  const dt = new Date(Date.UTC(y, m - 1, d, 12, 0, 0));
+                  const weekday = dt.toLocaleDateString('en-GB', { weekday: 'short', timeZone: 'UTC' });
+                  const dayNum = String(d).padStart(2, '0');
+                  const monName = dt.toLocaleDateString('en-GB', { month: 'short', timeZone: 'UTC' });
+                  formattedDateWithWeekday = `${weekday}, ${dayNum} ${monName} ${y}`;
+                } catch {
+                  formattedDateWithWeekday = r.date;
+                }
+
+                return (
+                  <tr key={r.date} className="hover:bg-slate-800/30 transition-colors">
+                    <td className="py-2.5 px-4 font-sans font-medium text-slate-300 whitespace-nowrap">
+                      {formattedDateWithWeekday}
+                    </td>
+                    <td className="py-2.5 px-3 text-slate-300">{r.swimTss > 0 ? r.swimTss : '—'}</td>
+                    <td className="py-2.5 px-3 text-slate-300">{r.bikeTss > 0 ? r.bikeTss : '—'}</td>
+                    <td className="py-2.5 px-3 text-slate-300">{r.runTss > 0 ? r.runTss : '—'}</td>
+                    <td className="py-2.5 px-3 font-bold text-white">{r.totalTriTss > 0 ? r.totalTriTss : '0'}</td>
+                    <td className="py-2.5 px-3 font-bold text-sky-400">{r.triCtl}</td>
+                    <td className="py-2.5 px-3 font-bold text-purple-400">{r.triAtl}</td>
+                    <td className={`py-2.5 px-4 font-bold ${r.triTsb >= 0 ? 'text-emerald-400' : 'text-amber-400'}`}>
+                      {r.triTsb > 0 ? `+${r.triTsb}` : r.triTsb}
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>

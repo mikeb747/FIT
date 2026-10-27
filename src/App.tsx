@@ -72,9 +72,9 @@ export default function App() {
     try {
       const stored = localStorage.getItem(STORAGE_KEYS.THEME);
       if (stored === 'light' || stored === 'dark') return stored;
-      return 'dark';
+      return 'light';
     } catch {
-      return 'dark';
+      return 'light';
     }
   });
 
@@ -135,7 +135,37 @@ export default function App() {
   // Navigation & Recovery Tracking State
   // -------------------------------------------------------------
   const [activeMainTab, setActiveMainTab] = useState<'activities' | 'recovery' | 'fitness'>('activities');
-  const [recoveryLogs, setRecoveryLogs] = useState<DailyRecoveryLog[]>(() => loadRecoveryLogs());
+  
+  // Garmin Connect state
+  const [isGarminSyncOpen, setIsGarminSyncOpen] = useState(false);
+  const [garminEmail, setGarminEmail] = useState<string | null>(() => {
+    try {
+      return localStorage.getItem('fit_track_garmin_email') || null;
+    } catch {
+      return null;
+    }
+  });
+  const [garminConnected, setGarminConnected] = useState<boolean>(() => {
+    try {
+      return Boolean(
+        localStorage.getItem('fit_track_garmin_email') ||
+        localStorage.getItem('fit_track_garmin_token') ||
+        localStorage.getItem('fit_track_garmin_connected')
+      );
+    } catch {
+      return false;
+    }
+  });
+
+  const [recoveryLogs, setRecoveryLogs] = useState<DailyRecoveryLog[]>(() => {
+    const isConnected = Boolean(
+      localStorage.getItem('fit_track_garmin_email') ||
+      localStorage.getItem('fit_track_garmin_token') ||
+      localStorage.getItem('fit_track_garmin_connected')
+    );
+    if (!isConnected) return [];
+    return loadRecoveryLogs();
+  });
 
   const handleUpsertRecoveryLog = (log: DailyRecoveryLog) => {
     const updated = upsertRecoveryLog(log);
@@ -163,18 +193,35 @@ export default function App() {
   };
 
   const handleResetRecoveryDefaults = () => {
+    try {
+      localStorage.setItem('fit_track_garmin_connected', 'demo');
+    } catch {}
+    setGarminConnected(true);
     const defaults = resetRecoveryLogsToDefaults();
     setRecoveryLogs(defaults);
   };
 
   const latestRecoveryLog = recoveryLogs.length > 0 ? recoveryLogs[recoveryLogs.length - 1] : null;
   const headerReadiness = useMemo(() => {
-    if (!latestRecoveryLog) return null;
+    if (!latestRecoveryLog || !garminConnected) return null;
     return computeDailyReadiness(latestRecoveryLog, recoveryLogs, athleteProfile);
-  }, [latestRecoveryLog, recoveryLogs, athleteProfile]);
+  }, [latestRecoveryLog, recoveryLogs, athleteProfile, garminConnected]);
+
+  const handleDisconnectGarmin = () => {
+    try {
+      localStorage.removeItem('fit_track_garmin_email');
+      localStorage.removeItem('fit_track_garmin_token');
+      localStorage.removeItem('fit_track_garmin_connected');
+      localStorage.removeItem('fit_track_recovery_logs_v1');
+      localStorage.removeItem('ironfit_recovery_logs_v1');
+    } catch {}
+    setGarminEmail(null);
+    setGarminConnected(false);
+    setRecoveryLogs([]);
+  };
 
   // -------------------------------------------------------------
-  // Strava & Google Integration State
+  // Strava & Activities State
   // -------------------------------------------------------------
   const [stravaToken, setStravaToken] = useState<string | null>(() => {
     return localStorage.getItem(STORAGE_KEYS.STRAVA_TOKEN) || null;
@@ -201,34 +248,6 @@ export default function App() {
   const [stravaActivitiesError, setStravaActivitiesError] = useState<string | null>(null);
 
   const [isStravaSettingsOpen, setIsStravaSettingsOpen] = useState(false);
-
-  // Garmin Connect state
-  const [isGarminSyncOpen, setIsGarminSyncOpen] = useState(false);
-  const [garminEmail, setGarminEmail] = useState<string | null>(() => {
-    try {
-      return localStorage.getItem('fit_track_garmin_email') || null;
-    } catch {
-      return null;
-    }
-  });
-  const [garminConnected, setGarminConnected] = useState<boolean>(() => {
-    try {
-      return Boolean(
-        localStorage.getItem('fit_track_garmin_email') || localStorage.getItem('fit_track_garmin_token')
-      );
-    } catch {
-      return false;
-    }
-  });
-
-  const handleDisconnectGarmin = () => {
-    try {
-      localStorage.removeItem('fit_track_garmin_email');
-      localStorage.removeItem('fit_track_garmin_token');
-    } catch {}
-    setGarminEmail(null);
-    setGarminConnected(false);
-  };
 
   // Google Sheets state
   const [isGoogleConnected, setIsGoogleConnected] = useState(false);
@@ -425,14 +444,14 @@ export default function App() {
 
       let result;
       try {
-        result = await fetchOlderStravaActivities(currentToken, oldestEpoch, 50);
+        result = await fetchOlderStravaActivities(currentToken, oldestEpoch, 200);
       } catch (err) {
         if (tokenWasRefreshed || !isStravaAuthorizationError(err)) throw err;
         currentToken = await refreshStravaAccessToken();
         tokenWasRefreshed = true;
         setStravaToken(currentToken);
         localStorage.setItem(STORAGE_KEYS.STRAVA_TOKEN, currentToken);
-        result = await fetchOlderStravaActivities(currentToken, oldestEpoch, 50);
+        result = await fetchOlderStravaActivities(currentToken, oldestEpoch, 200);
       }
 
       setStravaActivities(result.activities);
@@ -699,6 +718,9 @@ export default function App() {
             athleteProfile={athleteProfile}
             stravaActivities={stravaActivities}
             theme={theme}
+            isGarminConnected={garminConnected}
+            garminEmail={garminEmail}
+            onOpenGarminSync={() => setIsGarminSyncOpen(true)}
             onUpsertLog={handleUpsertRecoveryLog}
             onDeleteLog={handleDeleteRecoveryLog}
             onImportLogs={handleImportRecoveryLogs}
@@ -778,13 +800,13 @@ export default function App() {
         onClose={() => setIsGarminSyncOpen(false)}
         existingLogs={recoveryLogs}
         onSyncComplete={(merged) => {
-          handleImportRecoveryLogs(merged);
           try {
+            localStorage.setItem('fit_track_garmin_connected', 'true');
             const savedEmail = localStorage.getItem('fit_track_garmin_email');
-            const savedToken = localStorage.getItem('fit_track_garmin_token');
             if (savedEmail) setGarminEmail(savedEmail);
-            if (savedEmail || savedToken) setGarminConnected(true);
           } catch {}
+          setGarminConnected(true);
+          handleImportRecoveryLogs(merged);
         }}
         baselineRhr={athleteProfile.restingHeartRate || 41}
         theme={theme}
