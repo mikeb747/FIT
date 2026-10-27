@@ -237,20 +237,21 @@ export const RecoveryView: React.FC<RecoveryViewProps> = ({
             )}
           </button>
 
-          {/* 28-Day Demo Recovery Data */}
-          <button
-            type="button"
-            onClick={onResetDefaults}
-            className={`px-3 py-2 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer border ${
-              isLight
-                ? 'bg-amber-50 hover:bg-amber-100 text-amber-900 border-amber-200'
-                : 'bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 border-amber-500/30'
-            }`}
-            title="Load 28-day sample recovery telemetry (HRV, Sleep stages, Resting HR)"
-          >
-            <Sparkles className="w-3.5 h-3.5 text-amber-500" />
-            <span>28d Demo Data</span>
-          </button>
+          {logs.length > 0 && (
+            <button
+              type="button"
+              onClick={onResetDefaults}
+              className={`px-3 py-2 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer border ${
+                isLight
+                  ? 'bg-rose-50 hover:bg-rose-100 text-rose-700 border-rose-200'
+                  : 'bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border-rose-500/30'
+              }`}
+              title="Clear all stored recovery logs"
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+              <span>Clear Logs</span>
+            </button>
+          )}
 
           <button
             type="button"

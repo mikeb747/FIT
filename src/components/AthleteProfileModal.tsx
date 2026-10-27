@@ -56,6 +56,7 @@ import { GoalsTab } from './GoalsTab';
 import type { StravaActivity } from '../utils/stravaActivities';
 import { classifyActivity } from '../utils/stravaActivities';
 import { StravaIcon } from './StravaIcon';
+import { getCachedBikeNames, setCachedBikeName, resolveMissingBikeNames } from '../utils/stravaGear';
 
 const GarminTriangleIcon: React.FC<{ className?: string }> = ({ className = 'w-4 h-4' }) => (
   <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" className={className}>
@@ -410,6 +411,34 @@ export const AthleteProfileModal: React.FC<AthleteProfileModalProps> = ({
     }
     return Array.from(bikes.values());
   }, [stravaActivities, bikeCrankLengths]);
+
+  // Cached bike names (gearId -> bikeName)
+  const [cachedBikeNames, setCachedBikeNamesState] = useState<Record<string, string>>(() => getCachedBikeNames());
+  const [isResolvingBikeNames, setIsResolvingBikeNames] = useState(false);
+  const [editingBikeId, setEditingBikeId] = useState<string | null>(null);
+  const [editingBikeName, setEditingBikeName] = useState('');
+
+  // Strictly get bike names ONLY when user opens bike settings (activeTab === 'cycling') AND the name is missing
+  useEffect(() => {
+    if (!isOpen || activeTab !== 'cycling') return;
+
+    const gearIds = detectedBikes.map((b) => b.gearId);
+    if (gearIds.length === 0) return;
+
+    const currentCache = getCachedBikeNames();
+    const hasMissing = gearIds.some((id) => !currentCache[id] || currentCache[id].trim() === '');
+
+    if (hasMissing && !isResolvingBikeNames) {
+      setIsResolvingBikeNames(true);
+      resolveMissingBikeNames(gearIds)
+        .then((resolved) => {
+          setCachedBikeNamesState({ ...resolved });
+        })
+        .finally(() => {
+          setIsResolvingBikeNames(false);
+        });
+    }
+  }, [isOpen, activeTab, detectedBikes, isResolvingBikeNames]);
 
   const numericDensity = typeof displayDensity === 'number'
     ? displayDensity
@@ -2629,8 +2658,13 @@ export const AthleteProfileModal: React.FC<AthleteProfileModalProps> = ({
                 {/* Per-Bike (Gear ID) Crank Lengths */}
                 <div className="space-y-2 pt-1">
                   <div className="flex items-center justify-between">
-                    <span className="text-[11px] font-bold text-slate-300 uppercase">
-                      Individual Bikes (Gear IDs)
+                    <span className="text-[11px] font-bold text-slate-300 uppercase flex items-center gap-2">
+                      <span>Individual Bikes (Gear IDs)</span>
+                      {isResolvingBikeNames && (
+                        <span className="text-[10px] text-orange-400 font-normal lowercase animate-pulse">
+                          (resolving bike name from Strava...)
+                        </span>
+                      )}
                     </span>
                     <span className="text-[10px] text-slate-500">
                       {detectedBikes.length} {detectedBikes.length === 1 ? 'bike' : 'bikes'} found
@@ -2645,18 +2679,84 @@ export const AthleteProfileModal: React.FC<AthleteProfileModalProps> = ({
                     <div className="space-y-1.5">
                       {detectedBikes.map((bike) => {
                         const currentLen = bikeCrankLengths[bike.gearId] ?? bikeCrankLengthMm ?? 172.5;
+                        const bikeName = cachedBikeNames[bike.gearId] || (isResolvingBikeNames ? 'Resolving name...' : bike.gearId);
+                        const isEditingThis = editingBikeId === bike.gearId;
+
                         return (
                           <div
                             key={bike.gearId}
                             className="p-2.5 rounded-xl bg-slate-900/90 border border-slate-800 flex items-center justify-between gap-2"
                           >
-                            <div className="min-w-0">
-                              <div className="flex items-center gap-2">
-                                <Bike className="w-3.5 h-3.5 text-orange-400 shrink-0" />
-                                <span className="text-xs font-bold text-white truncate">
-                                  {bike.name}
-                                </span>
-                              </div>
+                            <div className="min-w-0 flex-1">
+                              {isEditingThis ? (
+                                <div className="flex items-center gap-1.5 mb-1">
+                                  <input
+                                    type="text"
+                                    value={editingBikeName}
+                                    onChange={(e) => setEditingBikeName(e.target.value)}
+                                    placeholder="Bike name..."
+                                    className="bg-slate-950 border border-orange-500 rounded-lg px-2 py-0.5 text-xs text-white font-bold outline-none flex-1 max-w-[200px]"
+                                    autoFocus
+                                    onKeyDown={(e) => {
+                                      if (e.key === 'Enter') {
+                                        if (editingBikeName.trim()) {
+                                          setCachedBikeName(bike.gearId, editingBikeName.trim());
+                                          setCachedBikeNamesState((prev) => ({
+                                            ...prev,
+                                            [bike.gearId]: editingBikeName.trim(),
+                                          }));
+                                        }
+                                        setEditingBikeId(null);
+                                      } else if (e.key === 'Escape') {
+                                        setEditingBikeId(null);
+                                      }
+                                    }}
+                                  />
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      if (editingBikeName.trim()) {
+                                        setCachedBikeName(bike.gearId, editingBikeName.trim());
+                                        setCachedBikeNamesState((prev) => ({
+                                          ...prev,
+                                          [bike.gearId]: editingBikeName.trim(),
+                                        }));
+                                      }
+                                      setEditingBikeId(null);
+                                    }}
+                                    className="p-1 rounded bg-orange-500 text-slate-950 hover:bg-orange-400 cursor-pointer text-[10px] font-bold"
+                                    title="Save name"
+                                  >
+                                    <Check className="w-3 h-3" />
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => setEditingBikeId(null)}
+                                    className="p-1 rounded bg-slate-800 text-slate-400 hover:text-white cursor-pointer"
+                                    title="Cancel"
+                                  >
+                                    <X className="w-3 h-3" />
+                                  </button>
+                                </div>
+                              ) : (
+                                <div className="flex items-center gap-1.5 group">
+                                  <Bike className="w-3.5 h-3.5 text-orange-400 shrink-0" />
+                                  <span className="text-xs font-bold text-white truncate" title={bikeName}>
+                                    {bikeName}
+                                  </span>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setEditingBikeId(bike.gearId);
+                                      setEditingBikeName(cachedBikeNames[bike.gearId] || '');
+                                    }}
+                                    className="opacity-0 group-hover:opacity-100 text-slate-500 hover:text-orange-400 p-0.5 transition-opacity cursor-pointer"
+                                    title="Rename bike"
+                                  >
+                                    <Pencil className="w-3 h-3" />
+                                  </button>
+                                </div>
+                              )}
                               <span className="text-[10px] font-mono text-slate-500 block ml-5">
                                 ID: {bike.gearId}
                                 {bike.activityCount > 0 ? ` • ${bike.activityCount} activities` : ''}
@@ -2757,6 +2857,10 @@ export const AthleteProfileModal: React.FC<AthleteProfileModalProps> = ({
                           ...prev,
                           [trimmed]: len,
                         }));
+                        if (!cachedBikeNames[trimmed]) {
+                          setCachedBikeName(trimmed, trimmed);
+                          setCachedBikeNamesState((prev) => ({ ...prev, [trimmed]: trimmed }));
+                        }
                         setNewGearIdInput('');
                       }}
                       className="px-2.5 py-1.5 rounded-xl bg-orange-500 hover:bg-orange-400 disabled:opacity-40 text-slate-950 font-bold text-xs cursor-pointer shrink-0"

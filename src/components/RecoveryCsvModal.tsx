@@ -248,34 +248,39 @@ export const RecoveryCsvModal: React.FC<RecoveryCsvModalProps> = ({
             />
           </div>
 
-          {/* Preset Sample Data & Export */}
+          {/* Export & Actions */}
           <div
             className={`pt-3 border-t flex flex-wrap items-center justify-between gap-3 ${
               isLight ? 'border-slate-200' : 'border-slate-800'
             }`}
           >
             <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={() => {
-                  onResetDefaults();
-                  setSuccessMsg('Loaded 28-day historical baseline dataset (41 bpm baseline RHR).');
-                  setTimeout(() => onClose(), 1000);
-                }}
-                className={`px-3 py-1.5 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer border ${
-                  isLight
-                    ? 'bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-200'
-                    : 'bg-slate-900 hover:bg-slate-800 text-slate-300 hover:text-white border-slate-800'
-                }`}
-              >
-                <Sparkles className="w-3.5 h-3.5 text-amber-500" />
-                Load 28d Sample (41 bpm)
-              </button>
+              {logs.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    onResetDefaults();
+                    setSuccessMsg('Cleared stored recovery logs.');
+                    setTimeout(() => onClose(), 800);
+                  }}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer border ${
+                    isLight
+                      ? 'bg-rose-50 hover:bg-rose-100 text-rose-700 border-rose-200'
+                      : 'bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border-rose-500/30'
+                  }`}
+                >
+                  <RotateCcw className="w-3.5 h-3.5 text-rose-500" />
+                  Clear Logs
+                </button>
+              )}
               <button
                 type="button"
                 onClick={handleExportCurrent}
+                disabled={logs.length === 0}
                 className={`px-3 py-1.5 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer border ${
-                  isLight
+                  logs.length === 0
+                    ? 'opacity-50 cursor-not-allowed border-slate-700 text-slate-500'
+                    : isLight
                     ? 'bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-200'
                     : 'bg-slate-900 hover:bg-slate-800 text-slate-300 hover:text-white border-slate-800'
                 }`}

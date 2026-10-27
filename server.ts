@@ -356,6 +356,49 @@ app.get('/api/strava/activities/:activityId/streams', async (req, res) => {
   }
 });
 
+// Fetch athlete profile (includes bikes & shoes)
+app.get('/api/strava/athlete', async (req, res) => {
+  try {
+    const authHeader = req.headers.authorization;
+    if (!authHeader) {
+      return res.status(401).json({ error: 'Strava access token is required' });
+    }
+
+    const stravaRes = await fetch('https://www.strava.com/api/v3/athlete', {
+      method: 'GET',
+      headers: { Authorization: authHeader, Accept: 'application/json' },
+    });
+    const data = await stravaRes.json();
+    return res.status(stravaRes.status).json(data);
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message || 'Error fetching Strava athlete profile' });
+  }
+});
+
+// Fetch specific gear details (bike or shoe)
+app.get('/api/strava/gear/:gearId', async (req, res) => {
+  try {
+    const authHeader = req.headers.authorization;
+    if (!authHeader) {
+      return res.status(401).json({ error: 'Strava access token is required' });
+    }
+
+    const gearId = req.params.gearId;
+    if (!gearId) {
+      return res.status(400).json({ error: 'Gear ID is required' });
+    }
+
+    const stravaRes = await fetch(`https://www.strava.com/api/v3/gear/${encodeURIComponent(gearId)}`, {
+      method: 'GET',
+      headers: { Authorization: authHeader, Accept: 'application/json' },
+    });
+    const data = await stravaRes.json();
+    return res.status(stravaRes.status).json(data);
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message || 'Error fetching Strava gear details' });
+  }
+});
+
 // Token refresh endpoint if user provides refresh token
 app.post('/api/strava/refresh', async (req, res) => {
   try {
@@ -489,67 +532,17 @@ app.post('/api/garmin/sync-multiweek', async (req, res) => {
         }
       }
 
-      // If liveLogs is empty because Garmin Personal Developer keys operate via webhooks/push
-      // or remote host returned non-200, but token is valid:
+      // If liveLogs is empty because Garmin Developer keys operate via webhooks/push
+      // or remote endpoints returned non-200 / Cloudflare blocks:
       if (liveLogs.length === 0) {
-        // Generate calibrated multi-week records so athlete's Readiness tab displays real data
-        const now = new Date();
-        for (let i = requestedDays - 1; i >= 0; i--) {
-          const d = new Date(now);
-          d.setDate(d.getDate() - i);
-          const dateStr = d.toISOString().split('T')[0];
-          const phase = i % 7;
-          let rhrDelta = 0;
-          let hrvBase = 77;
-          let sleepHours = 7.8;
-          let sleepScore = 86;
-          let deepPct = 0.18;
-          let remPct = 0.22;
-
-          if (phase === 0 || phase === 4) {
-            rhrDelta = 3;
-            hrvBase = 68;
-            sleepHours = 7.3;
-            sleepScore = 74;
-            deepPct = 0.14;
-            remPct = 0.20;
-          } else if (phase === 1) {
-            rhrDelta = 4;
-            hrvBase = 64;
-            sleepHours = 7.1;
-            sleepScore = 71;
-            deepPct = 0.15;
-            remPct = 0.19;
-          } else if (phase === 2) {
-            rhrDelta = -1;
-            hrvBase = 84;
-            sleepHours = 8.3;
-            sleepScore = 92;
-            deepPct = 0.22;
-            remPct = 0.24;
-          }
-
-          const totalSleep = Math.round(sleepHours * 60);
-          const deepM = Math.round(totalSleep * deepPct);
-          const remM = Math.round(totalSleep * remPct);
-          const awakeM = Math.max(15, Math.round(totalSleep * 0.065));
-          const lightM = Math.max(60, totalSleep - deepM - remM - awakeM);
-
-          liveLogs.push({
-            id: `rec_garmin_${dateStr}`,
-            date: dateStr,
-            restingHr: Math.max(38, athleteBaselineRhr + rhrDelta),
-            hrvRmssd: hrvBase,
-            sleepDurationMinutes: totalSleep,
-            sleepScore,
-            deepSleepMinutes: deepM,
-            remSleepMinutes: remM,
-            lightSleepMinutes: lightM,
-            awakeMinutes: awakeM,
-            notes: 'Garmin Connect Authenticated Recovery Telemetry',
-            source: 'garmin',
-          });
-        }
+        return res.status(400).json({
+          success: false,
+          syncedDays: 0,
+          weeks: requestedWeeks,
+          logs: [],
+          error:
+            'Garmin Connect did not return live wellness telemetry for this token. Garmin Developer tokens receive data via server webhooks/push, while Garmin web endpoints require browser session cookies with Cloudflare clearance. Please use the CSV Export tab (Garmin Connect Web > Reports > Sleep) or log your daily recovery stats manually.',
+        });
       }
 
       return res.json({

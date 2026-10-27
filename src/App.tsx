@@ -203,12 +203,8 @@ export default function App() {
   };
 
   const handleResetRecoveryDefaults = () => {
-    try {
-      localStorage.setItem('fit_track_garmin_connected', 'demo');
-    } catch {}
-    setGarminConnected(true);
-    const defaults = resetRecoveryLogsToDefaults();
-    setRecoveryLogs(defaults);
+    const cleared = resetRecoveryLogsToDefaults();
+    setRecoveryLogs(cleared);
   };
 
   const latestRecoveryLog = recoveryLogs.length > 0 ? recoveryLogs[recoveryLogs.length - 1] : null;

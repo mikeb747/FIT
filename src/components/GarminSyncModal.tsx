@@ -15,7 +15,7 @@ import {
   Sparkles,
 } from 'lucide-react';
 import type { DailyRecoveryLog } from '../types/recovery';
-import { syncGarminMultiWeek, mergeRecoveryLogs, parseGarminOrTpCsv, generateMultiWeekGarminLogs } from '../utils/recoveryStorage';
+import { syncGarminMultiWeek, mergeRecoveryLogs, parseGarminOrTpCsv } from '../utils/recoveryStorage';
 
 interface GarminSyncModalProps {
   isOpen: boolean;
@@ -26,7 +26,7 @@ interface GarminSyncModalProps {
   theme?: 'light' | 'dark';
 }
 
-type SyncTab = 'auto' | 'token' | 'csv' | 'demo';
+type SyncTab = 'token' | 'auto' | 'csv';
 
 export const GarminSyncModal: React.FC<GarminSyncModalProps> = ({
   isOpen,
@@ -341,24 +341,6 @@ export const GarminSyncModal: React.FC<GarminSyncModalProps> = ({
             <button
               type="button"
               onClick={() => {
-                setActiveTab('auto');
-                setError(null);
-              }}
-              className={`flex-1 py-2 px-2.5 rounded-lg text-xs font-bold transition-all text-center cursor-pointer ${
-                activeTab === 'auto'
-                  ? isLight
-                    ? 'bg-white text-slate-900 shadow-xs'
-                    : 'bg-slate-800 text-white shadow-sm'
-                  : isLight
-                  ? 'text-slate-500 hover:text-slate-900'
-                  : 'text-slate-400 hover:text-slate-200'
-              }`}
-            >
-              Direct Login (Email/Pass)
-            </button>
-            <button
-              type="button"
-              onClick={() => {
                 setActiveTab('token');
                 setError(null);
               }}
@@ -390,16 +372,16 @@ export const GarminSyncModal: React.FC<GarminSyncModalProps> = ({
                   : 'text-slate-400 hover:text-slate-200'
               }`}
             >
-              CSV Export
+              CSV Export (Instant)
             </button>
             <button
               type="button"
               onClick={() => {
-                setActiveTab('demo');
+                setActiveTab('auto');
                 setError(null);
               }}
-              className={`flex-1 py-2 px-2 rounded-lg text-xs font-bold transition-all text-center cursor-pointer ${
-                activeTab === 'demo'
+              className={`flex-1 py-2 px-2.5 rounded-lg text-xs font-bold transition-all text-center cursor-pointer ${
+                activeTab === 'auto'
                   ? isLight
                     ? 'bg-white text-slate-900 shadow-xs'
                     : 'bg-slate-800 text-white shadow-sm'
@@ -408,7 +390,7 @@ export const GarminSyncModal: React.FC<GarminSyncModalProps> = ({
                   : 'text-slate-400 hover:text-slate-200'
               }`}
             >
-              Demo Data
+              Direct Login (Email/Pass)
             </button>
           </div>
 
@@ -650,67 +632,6 @@ export const GarminSyncModal: React.FC<GarminSyncModalProps> = ({
                   className="hidden"
                 />
               </label>
-            </div>
-          )}
-
-          {/* TAB 4: SAMPLE / DEMO RECOVERY DATA */}
-          {activeTab === 'demo' && (
-            <div
-              className={`p-4 rounded-xl border space-y-3.5 ${
-                isLight ? 'bg-slate-50/70 border-slate-200' : 'bg-slate-950/40 border-slate-800'
-              }`}
-            >
-              <div className="space-y-1">
-                <div className="flex items-center gap-2">
-                  <span
-                    className={`text-xs font-semibold ${
-                      isLight ? 'text-slate-700' : 'text-slate-300'
-                    }`}
-                  >
-                    Garmin Connect Sample Telemetry
-                  </span>
-                  <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-500/15 text-amber-500 border border-amber-500/30">
-                    Instant Demo
-                  </span>
-                </div>
-                <p className="text-[11px] text-slate-400 leading-relaxed">
-                  Populate <strong>{weeks} weeks ({weeks * 7} days)</strong> of realistic Garmin Connect telemetry calibrated to your <strong>{baselineRhr} bpm baseline RHR</strong>. Includes overnight HRV rMSSD fluctuations, sleep architecture (Deep / REM / Light / Awake), daily Sleep Scores (70–93), and training strain tags.
-                </p>
-              </div>
-
-              <div className={`p-3 rounded-xl border text-xs space-y-2 ${
-                isLight ? 'bg-white border-slate-200' : 'bg-slate-900/60 border-slate-800'
-              }`}>
-                <div className="grid grid-cols-3 gap-2 text-center">
-                  <div className={`p-2 rounded-lg ${isLight ? 'bg-slate-50' : 'bg-slate-950/60'}`}>
-                    <div className="text-[10px] text-slate-400 uppercase font-bold">RHR Range</div>
-                    <div className={`text-xs font-black mt-0.5 ${isLight ? 'text-slate-800' : 'text-slate-200'}`}>39 - 45 bpm</div>
-                  </div>
-                  <div className={`p-2 rounded-lg ${isLight ? 'bg-slate-50' : 'bg-slate-950/60'}`}>
-                    <div className="text-[10px] text-slate-400 uppercase font-bold">HRV Range</div>
-                    <div className={`text-xs font-black mt-0.5 ${isLight ? 'text-slate-800' : 'text-slate-200'}`}>63 - 88 ms</div>
-                  </div>
-                  <div className={`p-2 rounded-lg ${isLight ? 'bg-slate-50' : 'bg-slate-950/60'}`}>
-                    <div className="text-[10px] text-slate-400 uppercase font-bold">Sleep Quality</div>
-                    <div className={`text-xs font-black mt-0.5 ${isLight ? 'text-slate-800' : 'text-slate-200'}`}>7.2h - 8.6h / 85 avg</div>
-                  </div>
-                </div>
-              </div>
-
-              <button
-                type="button"
-                onClick={() => {
-                  setError(null);
-                  const demoLogs = generateMultiWeekGarminLogs(weeks * 7, baselineRhr);
-                  const merged = mergeRecoveryLogs(existingLogs, demoLogs);
-                  onSyncComplete(merged);
-                  setSuccess(`Successfully loaded ${demoLogs.length} days (${weeks} weeks) of Garmin Connect recovery demo data!`);
-                }}
-                className="w-full py-2.5 px-4 rounded-xl text-xs font-bold flex items-center justify-center gap-2 bg-gradient-to-r from-amber-500 to-sky-500 hover:from-amber-400 hover:to-sky-400 text-slate-950 cursor-pointer shadow-lg shadow-sky-500/20 transition-all active:scale-[0.99]"
-              >
-                <Sparkles className="w-4 h-4 text-slate-950" />
-                <span>Load {weeks} Weeks Demo Data ({weeks * 7} Days)</span>
-              </button>
             </div>
           )}
         </div>
