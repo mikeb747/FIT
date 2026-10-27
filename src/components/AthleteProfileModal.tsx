@@ -29,6 +29,7 @@ import {
   Briefcase,
   Dumbbell,
   ShieldCheck,
+  Zap,
 } from 'lucide-react';
 import type {
   AthleteProfile,
@@ -55,6 +56,13 @@ import { GoalsTab } from './GoalsTab';
 import type { StravaActivity } from '../utils/stravaActivities';
 import { classifyActivity } from '../utils/stravaActivities';
 import { StravaIcon } from './StravaIcon';
+
+const GarminTriangleIcon: React.FC<{ className?: string }> = ({ className = 'w-4 h-4' }) => (
+  <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" className={className}>
+    <polygon points="12,2 22,21 2,21" fill="#007cc3" />
+    <polygon points="12,9 18,20 6,20" fill="white" />
+  </svg>
+);
 
 export type AppTheme = 'dark' | 'light';
 export type DisplayDensity = number | 'standard' | 'compact' | 'comfortable';
@@ -87,6 +95,12 @@ interface AthleteProfileModalProps {
   athleteName?: string | null;
   onOpenStravaSettings?: () => void;
   onDisconnectStrava?: () => void;
+
+  // Garmin integration props inside App settings tab
+  garminEmail?: string | null;
+  garminConnected?: boolean;
+  onOpenGarminSync?: () => void;
+  onDisconnectGarmin?: () => void;
 }
 
 export const AthleteProfileModal: React.FC<AthleteProfileModalProps> = ({
@@ -111,6 +125,10 @@ export const AthleteProfileModal: React.FC<AthleteProfileModalProps> = ({
   athleteName,
   onOpenStravaSettings,
   onDisconnectStrava,
+  garminEmail,
+  garminConnected,
+  onOpenGarminSync,
+  onDisconnectGarmin,
 }) => {
   const [activeTab, setActiveTab] = useState<ProfileTab>('settings');
   const [savedFeedback, setSavedFeedback] = useState(false);
@@ -960,63 +978,190 @@ export const AthleteProfileModal: React.FC<AthleteProfileModalProps> = ({
           {/* TAB 0: APP (STRAVA, DARK/LIGHT, DENSITY, TITLE) */}
           {activeTab === 'settings' && (
             <div className="space-y-3.5">
-              {/* 1. Strava Account Connection */}
-              <div className="p-3.5 rounded-2xl bg-slate-950 border border-slate-800 space-y-2.5">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2.5">
-                    <StravaIcon className="w-6 h-6 rounded-full shrink-0" />
-                    <div>
-                      <h3 className="text-xs uppercase font-extrabold tracking-wider text-slate-300">
-                        Strava Connection
-                      </h3>
-                      <p className="text-[11px] text-slate-400 mt-0.5">
-                        {stravaToken ? `Connected as ${athleteName || 'Athlete'}` : 'Not connected to Strava'}
-                      </p>
-                    </div>
-                  </div>
-                  {stravaToken ? (
-                    <span className="text-[10px] font-bold text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-2 py-0.5 rounded-md flex items-center gap-1 font-mono">
-                      <Check className="w-3 h-3 stroke-[3]" /> Active
-                    </span>
-                  ) : (
-                    <span className="text-[10px] font-bold text-slate-400 bg-slate-900 border border-slate-800 px-2 py-0.5 rounded-md font-mono">
-                      Offline
-                    </span>
-                  )}
+              {/* 1. Connected Services & Integrations (Strava & Garmin in the SAME box) */}
+              <div
+                className={`p-3.5 rounded-2xl border space-y-3.5 ${
+                  theme === 'light'
+                    ? 'bg-slate-50 border-slate-200'
+                    : 'bg-slate-950 border-slate-800'
+                }`}
+              >
+                <div>
+                  <h3
+                    className={`text-xs uppercase font-extrabold tracking-wider ${
+                      theme === 'light' ? 'text-slate-700' : 'text-slate-300'
+                    }`}
+                  >
+                    Connected Services &amp; Integrations
+                  </h3>
+                  <p className="text-[11px] text-slate-400 mt-0.5">
+                    Manage your external fitness connections for workout activities and 24/7 recovery metrics.
+                  </p>
                 </div>
 
-                <div className="pt-1 flex items-center gap-2">
-                  {stravaToken ? (
-                    <>
+                {/* Section A: Strava Connection */}
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2.5">
+                      <StravaIcon className="w-6 h-6 rounded-full shrink-0" />
+                      <div>
+                        <div className="flex items-center gap-1.5">
+                          <span
+                            className={`text-xs font-bold ${
+                              theme === 'light' ? 'text-slate-800' : 'text-slate-200'
+                            }`}
+                          >
+                            Strava Connection
+                          </span>
+                          <span className="text-[10px] text-slate-400">Activities &amp; Workouts</span>
+                        </div>
+                        <p className="text-[11px] text-slate-400 mt-0.5">
+                          {stravaToken ? `Connected as ${athleteName || 'Athlete'}` : 'Not connected to Strava'}
+                        </p>
+                      </div>
+                    </div>
+                    {stravaToken ? (
+                      <span className="text-[10px] font-bold text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-2 py-0.5 rounded-md flex items-center gap-1 font-mono">
+                        <Check className="w-3 h-3 stroke-[3]" /> Active
+                      </span>
+                    ) : (
+                      <span
+                        className={`text-[10px] font-bold px-2 py-0.5 rounded-md font-mono ${
+                          theme === 'light'
+                            ? 'text-slate-500 bg-slate-200/60 border border-slate-300'
+                            : 'text-slate-400 bg-slate-900 border border-slate-800'
+                        }`}
+                      >
+                        Offline
+                      </span>
+                    )}
+                  </div>
+
+                  <div className="pt-0.5 flex items-center gap-2">
+                    {stravaToken ? (
+                      <>
+                        <button
+                          type="button"
+                          onClick={onOpenStravaSettings}
+                          className={`flex-1 py-2 px-3 rounded-xl text-xs font-bold border flex items-center justify-center gap-1.5 transition-colors cursor-pointer ${
+                            theme === 'light'
+                              ? 'bg-white hover:bg-slate-100 text-slate-700 border-slate-200 shadow-xs'
+                              : 'bg-slate-900 hover:bg-slate-800 text-slate-200 border-slate-800'
+                          }`}
+                        >
+                          <SettingsIcon className="w-3.5 h-3.5 text-amber-400" />
+                          <span>Manage / Reconnect</span>
+                        </button>
+                        {onDisconnectStrava && (
+                          <button
+                            type="button"
+                            onClick={onDisconnectStrava}
+                            className="py-2 px-3 rounded-xl bg-rose-950/40 hover:bg-rose-900/50 text-rose-300 text-xs font-bold border border-rose-800/60 flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
+                            title="Disconnect Strava account"
+                          >
+                            <span>Disconnect</span>
+                          </button>
+                        )}
+                      </>
+                    ) : (
                       <button
                         type="button"
                         onClick={onOpenStravaSettings}
-                        className="flex-1 py-2 px-3 rounded-xl bg-slate-900 hover:bg-slate-800 text-slate-200 text-xs font-bold border border-slate-800 flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
+                        className="w-full py-2.5 px-3 rounded-xl bg-[#fc5200] hover:bg-[#e04900] active:scale-95 text-white text-xs font-black shadow-md shadow-[#fc5200]/25 flex items-center justify-center gap-2 transition-all cursor-pointer"
                       >
-                        <SettingsIcon className="w-3.5 h-3.5 text-amber-400" />
-                        <span>Manage / Reconnect</span>
+                        <StravaIcon className="w-4 h-4 fill-white" />
+                        <span>Connect with Strava</span>
                       </button>
-                      {onDisconnectStrava && (
+                    )}
+                  </div>
+                </div>
+
+                {/* Divider between Strava and Garmin in the same card */}
+                <div
+                  className={`border-t ${
+                    theme === 'light' ? 'border-slate-200' : 'border-slate-800/80'
+                  }`}
+                />
+
+                {/* Section B: Garmin Connect */}
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2.5">
+                      <div className="w-6 h-6 rounded-full bg-sky-500/15 border border-sky-500/30 flex items-center justify-center shrink-0">
+                        <GarminTriangleIcon className="w-3.5 h-3.5" />
+                      </div>
+                      <div>
+                        <div className="flex items-center gap-1.5">
+                          <span
+                            className={`text-xs font-bold ${
+                              theme === 'light' ? 'text-slate-800' : 'text-slate-200'
+                            }`}
+                          >
+                            Garmin Connect
+                          </span>
+                          <span className="text-[10px] text-sky-500 font-medium">HRV, Sleep &amp; RHR</span>
+                        </div>
+                        <p className="text-[11px] text-slate-400 mt-0.5">
+                          {garminConnected || garminEmail
+                            ? `Connected${garminEmail ? ` as ${garminEmail}` : ''}`
+                            : 'Sync overnight recovery & 24/7 biometric telemetry'}
+                        </p>
+                      </div>
+                    </div>
+                    {garminConnected || garminEmail ? (
+                      <span className="text-[10px] font-bold text-sky-400 bg-sky-500/10 border border-sky-500/20 px-2 py-0.5 rounded-md flex items-center gap-1 font-mono">
+                        <Check className="w-3 h-3 stroke-[3]" /> Active
+                      </span>
+                    ) : (
+                      <span
+                        className={`text-[10px] font-bold px-2 py-0.5 rounded-md font-mono ${
+                          theme === 'light'
+                            ? 'text-slate-500 bg-slate-200/60 border border-slate-300'
+                            : 'text-slate-400 bg-slate-900 border border-slate-800'
+                        }`}
+                      >
+                        Offline
+                      </span>
+                    )}
+                  </div>
+
+                  <div className="pt-0.5 flex items-center gap-2">
+                    {garminConnected || garminEmail ? (
+                      <>
                         <button
                           type="button"
-                          onClick={onDisconnectStrava}
-                          className="py-2 px-3 rounded-xl bg-rose-950/40 hover:bg-rose-900/50 text-rose-300 text-xs font-bold border border-rose-800/60 flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
-                          title="Disconnect Strava account"
+                          onClick={onOpenGarminSync}
+                          className={`flex-1 py-2 px-3 rounded-xl text-xs font-bold border flex items-center justify-center gap-1.5 transition-colors cursor-pointer ${
+                            theme === 'light'
+                              ? 'bg-white hover:bg-slate-100 text-slate-700 border-slate-200 shadow-xs'
+                              : 'bg-slate-900 hover:bg-slate-800 text-slate-200 border-slate-800'
+                          }`}
                         >
-                          <span>Disconnect</span>
+                          <Zap className="w-3.5 h-3.5 text-sky-400" />
+                          <span>Sync / Manage Garmin</span>
                         </button>
-                      )}
-                    </>
-                  ) : (
-                    <button
-                      type="button"
-                      onClick={onOpenStravaSettings}
-                      className="w-full py-2.5 px-3 rounded-xl bg-[#fc5200] hover:bg-[#e04900] active:scale-95 text-white text-xs font-black shadow-md shadow-[#fc5200]/25 flex items-center justify-center gap-2 transition-all cursor-pointer"
-                    >
-                      <StravaIcon className="w-4 h-4 fill-white" />
-                      <span>Connect with Strava</span>
-                    </button>
-                  )}
+                        {onDisconnectGarmin && (
+                          <button
+                            type="button"
+                            onClick={onDisconnectGarmin}
+                            className="py-2 px-3 rounded-xl bg-rose-950/40 hover:bg-rose-900/50 text-rose-300 text-xs font-bold border border-rose-800/60 flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
+                            title="Disconnect Garmin account"
+                          >
+                            <span>Disconnect</span>
+                          </button>
+                        )}
+                      </>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={onOpenGarminSync}
+                        className="w-full py-2.5 px-3 rounded-xl bg-sky-600 hover:bg-sky-500 active:scale-95 text-white text-xs font-black shadow-md shadow-sky-600/25 flex items-center justify-center gap-2 transition-all cursor-pointer"
+                      >
+                        <Zap className="w-4 h-4 text-sky-100" />
+                        <span>Connect with Garmin</span>
+                      </button>
+                    )}
+                  </div>
                 </div>
               </div>
 

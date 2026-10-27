@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { StravaSettingsModal } from './components/StravaSettingsModal';
 import { AthleteProfileModal } from './components/AthleteProfileModal';
+import { GarminSyncModal } from './components/GarminSyncModal';
 import type { ProfileTab } from './components/AthleteProfileModal';
 import { PWAInstallButton } from './components/PWAInstallButton';
 import { StravaIcon } from './components/StravaIcon';
@@ -189,6 +190,34 @@ export default function App() {
   const [stravaActivitiesError, setStravaActivitiesError] = useState<string | null>(null);
 
   const [isStravaSettingsOpen, setIsStravaSettingsOpen] = useState(false);
+
+  // Garmin Connect state
+  const [isGarminSyncOpen, setIsGarminSyncOpen] = useState(false);
+  const [garminEmail, setGarminEmail] = useState<string | null>(() => {
+    try {
+      return localStorage.getItem('fit_track_garmin_email') || null;
+    } catch {
+      return null;
+    }
+  });
+  const [garminConnected, setGarminConnected] = useState<boolean>(() => {
+    try {
+      return Boolean(
+        localStorage.getItem('fit_track_garmin_email') || localStorage.getItem('fit_track_garmin_token')
+      );
+    } catch {
+      return false;
+    }
+  });
+
+  const handleDisconnectGarmin = () => {
+    try {
+      localStorage.removeItem('fit_track_garmin_email');
+      localStorage.removeItem('fit_track_garmin_token');
+    } catch {}
+    setGarminEmail(null);
+    setGarminConnected(false);
+  };
 
   // Google Sheets state
   const [isGoogleConnected, setIsGoogleConnected] = useState(false);
@@ -680,6 +709,10 @@ export default function App() {
         athleteName={athleteName}
         onOpenStravaSettings={() => setIsStravaSettingsOpen(true)}
         onDisconnectStrava={() => handleTokenUpdated(null)}
+        garminEmail={garminEmail}
+        garminConnected={garminConnected}
+        onOpenGarminSync={() => setIsGarminSyncOpen(true)}
+        onDisconnectGarmin={handleDisconnectGarmin}
       />
 
       <StravaSettingsModal
@@ -688,6 +721,23 @@ export default function App() {
         stravaAccessToken={stravaToken}
         athleteName={athleteName}
         onTokenUpdated={handleTokenUpdated}
+      />
+
+      <GarminSyncModal
+        isOpen={isGarminSyncOpen}
+        onClose={() => setIsGarminSyncOpen(false)}
+        existingLogs={recoveryLogs}
+        onSyncComplete={(merged) => {
+          handleImportRecoveryLogs(merged);
+          try {
+            const savedEmail = localStorage.getItem('fit_track_garmin_email');
+            const savedToken = localStorage.getItem('fit_track_garmin_token');
+            if (savedEmail) setGarminEmail(savedEmail);
+            if (savedEmail || savedToken) setGarminConnected(true);
+          } catch {}
+        }}
+        baselineRhr={athleteProfile.restingHeartRate || 41}
+        theme={theme}
       />
     </div>
   );

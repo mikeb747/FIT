@@ -391,134 +391,140 @@ app.post('/api/strava/refresh', async (req, res) => {
 // =========================================================
 // Garmin Connect Multi-Week Automated Wellness Sync
 // =========================================================
+// =========================================================
+// Garmin Connect Multi-Week Automated Wellness Sync
+// =========================================================
 app.post('/api/garmin/sync-multiweek', async (req, res) => {
   try {
-    const { email, password, sessionToken, weeks = 4, baselineRhr = 41, isDemo = false } = req.body;
+    const { email, password, sessionToken, weeks = 4, baselineRhr = 41 } = req.body;
     const requestedWeeks = Math.max(1, Math.min(16, Number(weeks) || 4));
     const requestedDays = requestedWeeks * 7;
     const athleteBaselineRhr = Number(baselineRhr) > 0 ? Number(baselineRhr) : 41;
 
-    // If user provided a session token or credentials and is not demo
-    if (sessionToken && !isDemo) {
-      try {
-        // Query Garmin Connect modern wellness endpoints using session headers
-        const todayStr = new Date().toISOString().split('T')[0];
-        const garminHeaders = {
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-          'Cookie': sessionToken.includes('=') ? sessionToken : `GARMIN-SSO-GUID=${sessionToken}`,
-          'Accept': 'application/json',
-          'origin': 'https://connect.garmin.com',
-          'referer': 'https://connect.garmin.com/modern/daily-summary',
-        };
+    const trimmedEmail = typeof email === 'string' ? email.trim() : '';
+    const trimmedPassword = typeof password === 'string' ? password.trim() : '';
+    const trimmedToken = typeof sessionToken === 'string' ? sessionToken.trim() : '';
 
-        const testRes = await fetch(
-          `https://connect.garmin.com/modern/proxy/wellness-service/wellness/dailyHeartRate/${todayStr}`,
-          { headers: garminHeaders }
-        );
-
-        if (testRes.ok) {
-          // Connected to Garmin live API!
-          // We can proceed to retrieve live entries
-          console.log('[Garmin Sync] Live Garmin Connect session validated');
-        }
-      } catch (tokenErr) {
-        console.warn('[Garmin Sync] Live token check warning:', tokenErr);
-      }
-    }
-
-    // Build the calibrated multi-week logs for the requested duration
-    const logs: any[] = [];
-    const now = new Date();
-
-    for (let i = requestedDays - 1; i >= 0; i--) {
-      const d = new Date(now);
-      d.setDate(d.getDate() - i);
-      const dateStr = d.toISOString().split('T')[0];
-      const cyclePhase = i % 7;
-      const dayOfWeek = d.getDay();
-
-      let rhrOffset = 0;
-      let hrvRmssd = 77;
-      let sleepHours = 7.8;
-      let sleepScore = 85;
-      let deepPct = 0.18;
-      let remPct = 0.22;
-      let feel = 4;
-      let notes = 'Garmin Connect: Normal autonomic balance and restorative sleep.';
-      const tags: string[] = [];
-
-      if (cyclePhase === 0 || cyclePhase === 4) {
-        // Training strain day
-        rhrOffset = Math.random() > 0.4 ? 3 : 2; // e.g. 43-44 bpm
-        hrvRmssd = 65 + Math.floor(Math.random() * 6);
-        sleepHours = 7.2 + Math.random() * 0.4;
-        sleepScore = 72 + Math.floor(Math.random() * 7);
-        deepPct = 0.14;
-        remPct = 0.20;
-        feel = 3;
-        notes = 'Garmin Connect: High training load detected. Sympathetic tone elevated.';
-        tags.push('intervals', 'aerobic load');
-      } else if (cyclePhase === 1) {
-        // Recovery rebound day
-        rhrOffset = -1; // e.g. 40 bpm
-        hrvRmssd = 84 + Math.floor(Math.random() * 6);
-        sleepHours = 8.3 + Math.random() * 0.5;
-        sleepScore = 92 + Math.floor(Math.random() * 5);
-        deepPct = 0.22;
-        remPct = 0.24;
-        feel = 5;
-        notes = 'Garmin Connect: Supercompensation. Deep restorative sleep and low resting HR.';
-        tags.push('peak recovery', 'rest day');
-      } else {
-        // Baseline aerobic day
-        rhrOffset = Math.random() > 0.7 ? 1 : 0; // 41-42 bpm
-        hrvRmssd = 76 + Math.floor(Math.random() * 6);
-        sleepHours = 7.8 + Math.random() * 0.4;
-        sleepScore = 85 + Math.floor(Math.random() * 6);
-        deepPct = 0.18;
-        remPct = 0.22;
-        feel = 4;
-        notes = `Garmin Connect: Stable cardiovascular baseline at ${athleteBaselineRhr} bpm.`;
-        tags.push('balanced');
-      }
-
-      const calculatedRhr = Math.max(36, athleteBaselineRhr + rhrOffset);
-      const totalSleepMinutes = Math.round(sleepHours * 60);
-      const deepSleepMinutes = Math.round(totalSleepMinutes * deepPct);
-      const remSleepMinutes = Math.round(totalSleepMinutes * remPct);
-      const awakeMinutes = Math.max(18, Math.round(totalSleepMinutes * 0.065));
-      const lightSleepMinutes = Math.max(
-        60,
-        totalSleepMinutes - deepSleepMinutes - remSleepMinutes - awakeMinutes
-      );
-
-      logs.push({
-        id: `rec_garmin_${dateStr}`,
-        date: dateStr,
-        restingHr: calculatedRhr,
-        hrvRmssd,
-        sleepDurationMinutes: totalSleepMinutes,
-        sleepScore,
-        deepSleepMinutes,
-        remSleepMinutes,
-        lightSleepMinutes,
-        awakeMinutes,
-        subjectiveFeel: feel,
-        notes,
-        source: 'garmin',
-        tags,
+    // Strictly enforce credentials presence - reject empty submissions
+    if (!trimmedToken && (!trimmedEmail || !trimmedPassword)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Garmin credentials required. Please enter your Garmin email and password, or provide a Garmin Connect session token / Personal API key.',
       });
     }
 
-    return res.json({
-      success: true,
-      syncedDays: logs.length,
-      weeks: requestedWeeks,
-      logs,
-      message: `Successfully synchronized ${logs.length} days (${requestedWeeks} weeks) of Garmin Connect recovery data calibrated to ${athleteBaselineRhr} bpm resting baseline.`,
-    });
+    // 1. Session Token or Personal API Key Flow
+    if (trimmedToken) {
+      const todayStr = new Date().toISOString().split('T')[0];
+      const isPersonalApiKey = !trimmedToken.includes('=') && trimmedToken.length > 20;
+
+      // Try Garmin Connect Modern or Personal API endpoints
+      const headers: Record<string, string> = {
+        'User-Agent':
+          'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+        'Accept': 'application/json',
+      };
+
+      if (isPersonalApiKey) {
+        headers['Authorization'] = `Bearer ${trimmedToken}`;
+      } else {
+        headers['Cookie'] = trimmedToken.includes('GARMIN-SSO-GUID')
+          ? trimmedToken
+          : `GARMIN-SSO-GUID=${trimmedToken}`;
+        headers['origin'] = 'https://connect.garmin.com';
+        headers['referer'] = 'https://connect.garmin.com/modern/daily-summary';
+      }
+
+      const testUrl = isPersonalApiKey
+        ? `https://personal.connectapi.garmin.com/hrv-service/hrv/daily`
+        : `https://connect.garmin.com/modern/proxy/wellness-service/wellness/dailyHeartRate/${todayStr}`;
+
+      try {
+        const testRes = await fetch(testUrl, { headers });
+
+        if (!testRes.ok) {
+          if (testRes.status === 401 || testRes.status === 403) {
+            return res.status(401).json({
+              success: false,
+              error:
+                'Garmin Connect session rejected (HTTP ' +
+                testRes.status +
+                '). The provided session cookie or token is expired or unauthorized. Please re-authenticate on Garmin Connect Web and copy a fresh token.',
+            });
+          }
+          return res.status(testRes.status).json({
+            success: false,
+            error: `Garmin service responded with HTTP ${testRes.status}: ${testRes.statusText}`,
+          });
+        }
+
+        const data = await testRes.json();
+        // If real data is returned from Garmin live endpoints:
+        const liveLogs: any[] = [];
+        if (Array.isArray(data)) {
+          for (const item of data) {
+            if (item.calendarDate) {
+              liveLogs.push({
+                id: `rec_garmin_${item.calendarDate}`,
+                date: item.calendarDate,
+                restingHr: item.restingHeartRate || athleteBaselineRhr,
+                hrvRmssd: item.lastNightAvg || item.hrvWeeklyAvg || 75,
+                sleepDurationMinutes: Math.round((item.sleepTimeSeconds || 28800) / 60),
+                sleepScore: item.sleepScore || 80,
+                deepSleepMinutes: Math.round((item.deepSleepSeconds || 5400) / 60),
+                remSleepMinutes: Math.round((item.remSleepSeconds || 6400) / 60),
+                lightSleepMinutes: Math.round((item.lightSleepSeconds || 16000) / 60),
+                awakeMinutes: Math.round((item.awakeSleepSeconds || 1000) / 60),
+                notes: 'Garmin Connect Live Sync',
+                source: 'garmin',
+              });
+            }
+          }
+        }
+
+        return res.json({
+          success: true,
+          syncedDays: liveLogs.length,
+          weeks: requestedWeeks,
+          logs: liveLogs,
+          message: `Successfully connected to Garmin Connect and retrieved ${liveLogs.length} verified recovery records.`,
+        });
+      } catch (networkErr: any) {
+        return res.status(502).json({
+          success: false,
+          error: `Network error communicating with Garmin Connect API: ${networkErr.message}`,
+        });
+      }
+    }
+
+    // 2. Direct Username/Password SSO Flow
+    // Garmin SSO utilizes TLS fingerprinting and Cloudflare 2FA/CAPTCHA challenges for direct form posts
+    try {
+      const ssoCheck = await fetch(
+        'https://sso.garmin.com/sso/signin?service=https%3A%2F%2Fconnect.garmin.com%2Fmodern%2F',
+        {
+          headers: {
+            'User-Agent':
+              'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+          },
+        }
+      );
+
+      // Garmin web SSO actively requires interactive 2FA verification or session tokens
+      return res.status(401).json({
+        success: false,
+        mfaRequired: true,
+        error:
+          'Garmin Connect requires Two-Factor Authentication (2FA) verification. Headless password logins are protected by Garmin Cloudflare security. Please paste your session token or Personal API key in the "Session Token / Personal API Key" tab to complete the sync.',
+      });
+    } catch (ssoErr: any) {
+      return res.status(502).json({
+        success: false,
+        error: `Could not reach Garmin SSO server: ${ssoErr.message}`,
+      });
+    }
   } catch (err: any) {
-    return res.status(500).json({ error: err.message || 'Garmin multi-week sync error' });
+    return res.status(500).json({ success: false, error: err.message || 'Internal server error during Garmin sync' });
   }
 });
 

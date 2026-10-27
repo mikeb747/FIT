@@ -4,18 +4,14 @@ import {
   RotateCw,
   CheckCircle2,
   AlertCircle,
-  HelpCircle,
-  Key,
   Shield,
-  Clock,
-  Calendar,
-  Sparkles,
   Zap,
   Info,
-  ChevronDown,
-  ChevronUp,
-  FileText,
+  Key,
+  Lock,
   Upload,
+  FileText,
+  AlertTriangle,
 } from 'lucide-react';
 import type { DailyRecoveryLog } from '../types/recovery';
 import { syncGarminMultiWeek, mergeRecoveryLogs, parseGarminOrTpCsv } from '../utils/recoveryStorage';
@@ -29,7 +25,7 @@ interface GarminSyncModalProps {
   theme?: 'light' | 'dark';
 }
 
-type SyncTab = 'auto' | 'token' | 'instant';
+type SyncTab = 'auto' | 'token' | 'csv';
 
 export const GarminSyncModal: React.FC<GarminSyncModalProps> = ({
   isOpen,
@@ -66,48 +62,71 @@ export const GarminSyncModal: React.FC<GarminSyncModalProps> = ({
 
   if (!isOpen) return null;
 
-  const handleSync = async (isInstant = false) => {
+  const isLight = theme === 'light';
+
+  // Validation rules
+  const isAutoValid = email.trim().length > 0 && password.trim().length > 0;
+  const isTokenValid = sessionToken.trim().length > 0;
+
+  const handleSync = async () => {
     setError(null);
     setSuccess(null);
+
+    if (activeTab === 'auto' && !isAutoValid) {
+      setError('Both Garmin email and password are required to sync.');
+      return;
+    }
+
+    if (activeTab === 'token' && !isTokenValid) {
+      setError('Please provide a Garmin session token or Personal API key.');
+      return;
+    }
+
     setIsLoading(true);
 
     try {
       if (saveCredentials && email) {
         try {
-          localStorage.setItem('fit_track_garmin_email', email);
-          if (sessionToken) {
-            localStorage.setItem('fit_track_garmin_token', sessionToken);
+          localStorage.setItem('fit_track_garmin_email', email.trim());
+          if (sessionToken.trim()) {
+            localStorage.setItem('fit_track_garmin_token', sessionToken.trim());
           }
         } catch {}
       }
 
       setProgressMsg('Connecting to Garmin Connect service...');
-      await new Promise((r) => setTimeout(r, 400));
+      await new Promise((r) => setTimeout(r, 300));
 
-      setProgressMsg(`Retrieving ${weeks} weeks of overnight sleep, HRV, and resting HR...`);
+      setProgressMsg(`Requesting ${weeks} weeks of recovery data from Garmin Connect...`);
       const result = await syncGarminMultiWeek({
-        email: isInstant ? undefined : email.trim(),
-        password: isInstant ? undefined : password.trim(),
-        sessionToken: isInstant ? undefined : sessionToken.trim(),
+        email: activeTab === 'auto' ? email.trim() : undefined,
+        password: activeTab === 'auto' ? password.trim() : undefined,
+        sessionToken: activeTab === 'token' ? sessionToken.trim() : undefined,
         weeks,
         baselineRhr,
-        isDemo: isInstant,
       });
 
       if (!result.success) {
         if (result.mfaRequired) {
           setError(
-            'Garmin Connect requested Two-Factor Authentication (2FA). Please switch to the "Session Token" tab or use "Instant Sync" to pull your multi-week history without waiting for SMS 2FA.'
+            result.error ||
+              'Garmin Connect requires Two-Factor Authentication (2FA) verification. Please switch to the "Personal API Key / Token" tab to connect securely.'
           );
         } else {
-          setError(result.error || 'Failed to sync with Garmin Connect.');
+          setError(result.error || 'Garmin authentication or sync failed.');
         }
         setIsLoading(false);
         return;
       }
 
-      setProgressMsg('Aligning physiological baselines and merging recovery logs...');
-      await new Promise((r) => setTimeout(r, 300));
+      if (result.logs.length === 0) {
+        setSuccess('Connected to Garmin Connect. No new recovery records were returned for this range.');
+        setIsLoading(false);
+        return;
+      }
+
+      setProgressMsg('Integrating physiological baselines and merging recovery logs...');
+      await new Promise((r) => setTimeout(r, 200));
 
       const merged = mergeRecoveryLogs(existingLogs, result.logs);
       onSyncComplete(merged);
@@ -148,8 +167,6 @@ export const GarminSyncModal: React.FC<GarminSyncModalProps> = ({
     reader.readAsText(file);
   };
 
-  const isLight = theme === 'light';
-
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/80 backdrop-blur-sm animate-in fade-in duration-200">
       <div
@@ -172,21 +189,21 @@ export const GarminSyncModal: React.FC<GarminSyncModalProps> = ({
             <div>
               <div className="flex items-center gap-2">
                 <h2 className={`text-base font-bold ${isLight ? 'text-slate-900' : 'text-white'}`}>
-                  Garmin Connect Automatic Sync
+                  Garmin Connect Wellness Sync
                 </h2>
-                <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-sky-500/15 text-sky-400 border border-sky-500/30">
-                  Multi-Week
+                <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-sky-500/15 text-sky-400 border border-sky-500/30 font-mono">
+                  Live Connect
                 </span>
               </div>
               <p className={`text-xs ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>
-                Automated Sleep, Resting HR &amp; HRV synchronization
+                Automated Sleep, Resting HR &amp; overnight HRV sync
               </p>
             </div>
           </div>
           <button
             type="button"
             onClick={onClose}
-            className={`p-1.5 rounded-lg transition-colors ${
+            className={`p-1.5 rounded-lg transition-colors cursor-pointer ${
               isLight
                 ? 'text-slate-400 hover:text-slate-700 hover:bg-slate-100'
                 : 'text-slate-400 hover:text-white hover:bg-slate-800'
@@ -202,7 +219,7 @@ export const GarminSyncModal: React.FC<GarminSyncModalProps> = ({
           <div
             className={`p-3.5 rounded-xl border transition-all text-xs ${
               isLight
-                ? 'bg-amber-50/80 border-amber-200/80 text-amber-900'
+                ? 'bg-amber-50/80 border-amber-200 text-amber-900'
                 : 'bg-amber-500/10 border-amber-500/25 text-amber-200'
             }`}
           >
@@ -225,7 +242,7 @@ export const GarminSyncModal: React.FC<GarminSyncModalProps> = ({
                     restricted to physical activity workouts (GPS traces, pace, power, and activity
                     HR). Strava does <em>not</em> store or expose 24/7 background biometric telemetry
                     such as sleep stages (Deep/REM), overnight HRV rMSSD, or waking resting heart
-                    rate. Garmin Connect is the true source of your overnight recovery telemetry.
+                    rate. Garmin Connect is the authentic source of your overnight recovery telemetry.
                   </p>
                 ) : (
                   <p className="mt-0.5 leading-snug text-[11px] opacity-80">
@@ -240,27 +257,30 @@ export const GarminSyncModal: React.FC<GarminSyncModalProps> = ({
           {/* Alerts */}
           {error && (
             <div
-              className={`p-3 rounded-xl border text-xs flex items-start gap-2 ${
+              className={`p-3.5 rounded-xl border text-xs flex items-start gap-2.5 ${
                 isLight
                   ? 'bg-rose-50 border-rose-200 text-rose-800'
                   : 'bg-rose-500/10 border-rose-500/30 text-rose-400'
               }`}
             >
-              <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
-              <span>{error}</span>
+              <AlertCircle className="w-4 h-4 shrink-0 mt-0.5 text-rose-500" />
+              <div className="space-y-1">
+                <span className="font-bold block">Garmin Connection Notice</span>
+                <span className="leading-relaxed block">{error}</span>
+              </div>
             </div>
           )}
 
           {success && (
             <div
-              className={`p-3 rounded-xl border text-xs flex items-start gap-2 ${
+              className={`p-3.5 rounded-xl border text-xs flex items-start gap-2.5 ${
                 isLight
                   ? 'bg-emerald-50 border-emerald-200 text-emerald-800'
                   : 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400'
               }`}
             >
-              <CheckCircle2 className="w-4 h-4 shrink-0 mt-0.5" />
-              <span>{success}</span>
+              <CheckCircle2 className="w-4 h-4 shrink-0 mt-0.5 text-emerald-500" />
+              <span className="leading-relaxed">{success}</span>
             </div>
           )}
 
@@ -316,8 +336,11 @@ export const GarminSyncModal: React.FC<GarminSyncModalProps> = ({
           >
             <button
               type="button"
-              onClick={() => setActiveTab('auto')}
-              className={`flex-1 py-1.5 px-2 rounded-lg text-xs font-bold transition-all text-center cursor-pointer ${
+              onClick={() => {
+                setActiveTab('auto');
+                setError(null);
+              }}
+              className={`flex-1 py-2 px-2.5 rounded-lg text-xs font-bold transition-all text-center cursor-pointer ${
                 activeTab === 'auto'
                   ? isLight
                     ? 'bg-white text-slate-900 shadow-xs'
@@ -327,27 +350,15 @@ export const GarminSyncModal: React.FC<GarminSyncModalProps> = ({
                   : 'text-slate-400 hover:text-slate-200'
               }`}
             >
-              Direct Login Sync
+              Direct Login (Email/Pass)
             </button>
             <button
               type="button"
-              onClick={() => setActiveTab('instant')}
-              className={`flex-1 py-1.5 px-2 rounded-lg text-xs font-bold transition-all text-center cursor-pointer ${
-                activeTab === 'instant'
-                  ? isLight
-                    ? 'bg-white text-slate-900 shadow-xs'
-                    : 'bg-slate-800 text-white shadow-sm'
-                  : isLight
-                  ? 'text-slate-500 hover:text-slate-900'
-                  : 'text-slate-400 hover:text-slate-200'
-              }`}
-            >
-              Instant 41 bpm Sync
-            </button>
-            <button
-              type="button"
-              onClick={() => setActiveTab('token')}
-              className={`flex-1 py-1.5 px-2 rounded-lg text-xs font-bold transition-all text-center cursor-pointer ${
+              onClick={() => {
+                setActiveTab('token');
+                setError(null);
+              }}
+              className={`flex-1 py-2 px-2.5 rounded-lg text-xs font-bold transition-all text-center cursor-pointer ${
                 activeTab === 'token'
                   ? isLight
                     ? 'bg-white text-slate-900 shadow-xs'
@@ -357,7 +368,25 @@ export const GarminSyncModal: React.FC<GarminSyncModalProps> = ({
                   : 'text-slate-400 hover:text-slate-200'
               }`}
             >
-              Session Token / 2FA
+              Personal API Key / Token
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setActiveTab('csv');
+                setError(null);
+              }}
+              className={`flex-1 py-2 px-2.5 rounded-lg text-xs font-bold transition-all text-center cursor-pointer ${
+                activeTab === 'csv'
+                  ? isLight
+                    ? 'bg-white text-slate-900 shadow-xs'
+                    : 'bg-slate-800 text-white shadow-sm'
+                  : isLight
+                  ? 'text-slate-500 hover:text-slate-900'
+                  : 'text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              CSV File Export
             </button>
           </div>
 
@@ -378,7 +407,7 @@ export const GarminSyncModal: React.FC<GarminSyncModalProps> = ({
                 </span>
                 <span className="text-[11px] text-slate-400 flex items-center gap-1">
                   <Shield className="w-3.5 h-3.5 text-emerald-400" />
-                  Direct server proxy (never shared)
+                  Credentials required
                 </span>
               </div>
 
@@ -389,7 +418,7 @@ export const GarminSyncModal: React.FC<GarminSyncModalProps> = ({
                       isLight ? 'text-slate-600' : 'text-slate-400'
                     }`}
                   >
-                    Garmin Email Address
+                    Garmin Email Address <span className="text-rose-500">*</span>
                   </label>
                   <input
                     type="email"
@@ -410,7 +439,7 @@ export const GarminSyncModal: React.FC<GarminSyncModalProps> = ({
                       isLight ? 'text-slate-600' : 'text-slate-400'
                     }`}
                   >
-                    Garmin Password
+                    Garmin Password <span className="text-rose-500">*</span>
                   </label>
                   <input
                     type="password"
@@ -439,16 +468,33 @@ export const GarminSyncModal: React.FC<GarminSyncModalProps> = ({
                       isLight ? 'text-slate-600' : 'text-slate-400'
                     }`}
                   >
-                    Remember email on this device for one-click future syncs
+                    Remember email on this device
                   </label>
                 </div>
               </div>
 
+              {!isAutoValid && (
+                <div
+                  className={`p-2.5 rounded-lg border text-[11px] flex items-center gap-2 ${
+                    isLight
+                      ? 'bg-amber-50 border-amber-200 text-amber-800'
+                      : 'bg-amber-500/10 border-amber-500/30 text-amber-300'
+                  }`}
+                >
+                  <AlertTriangle className="w-3.5 h-3.5 shrink-0 text-amber-500" />
+                  <span>Enter both your Garmin email and password to enable synchronization.</span>
+                </div>
+              )}
+
               <button
                 type="button"
-                onClick={() => handleSync(false)}
-                disabled={isLoading}
-                className="w-full mt-2 py-2.5 px-4 rounded-xl text-xs font-bold bg-sky-500 hover:bg-sky-400 text-slate-950 flex items-center justify-center gap-2 transition-all cursor-pointer shadow-lg shadow-sky-500/20 disabled:opacity-50"
+                onClick={handleSync}
+                disabled={isLoading || !isAutoValid}
+                className={`w-full mt-2 py-2.5 px-4 rounded-xl text-xs font-bold flex items-center justify-center gap-2 transition-all ${
+                  isAutoValid && !isLoading
+                    ? 'bg-sky-500 hover:bg-sky-400 text-slate-950 cursor-pointer shadow-lg shadow-sky-500/20'
+                    : 'bg-slate-800/60 text-slate-500 cursor-not-allowed border border-slate-700/40'
+                }`}
               >
                 <RotateCw className={`w-4 h-4 ${isLoading ? 'animate-spin' : ''}`} />
                 <span>
@@ -460,68 +506,7 @@ export const GarminSyncModal: React.FC<GarminSyncModalProps> = ({
             </div>
           )}
 
-          {/* TAB 2: INSTANT 41 BPM CALIBRATED SYNC */}
-          {activeTab === 'instant' && (
-            <div
-              className={`p-4 rounded-xl border space-y-3.5 ${
-                isLight ? 'bg-slate-50/70 border-slate-200' : 'bg-slate-950/40 border-slate-800'
-              }`}
-            >
-              <div className="flex items-start gap-2.5">
-                <Sparkles className="w-5 h-5 text-amber-500 shrink-0 mt-0.5" />
-                <div className="text-xs space-y-1">
-                  <h4 className={`font-bold ${isLight ? 'text-slate-900' : 'text-white'}`}>
-                    Instant Multi-Week Sync (Calibrated to 41 bpm Baseline)
-                  </h4>
-                  <p className={`leading-relaxed ${isLight ? 'text-slate-600' : 'text-slate-400'}`}>
-                    Pulls or generates {weeks} weeks ({weeks * 7} continuous days) of authentic
-                    Garmin recovery telemetry calibrated around your exact{' '}
-                    <strong>41 bpm baseline resting heart rate</strong>, rolling 7-day HRV corridor
-                    (65-92 ms), and full sleep architecture (Deep, REM, Light, and Awake cycles).
-                  </p>
-                </div>
-              </div>
-
-              <div
-                className={`p-3 rounded-lg border text-[11px] space-y-1 ${
-                  isLight
-                    ? 'bg-white border-slate-200 text-slate-600'
-                    : 'bg-slate-900 border-slate-800 text-slate-300'
-                }`}
-              >
-                <div className="flex justify-between">
-                  <span>Target Range:</span>
-                  <strong className={isLight ? 'text-slate-900' : 'text-white'}>
-                    {weeks * 7} Days ({weeks} Weeks)
-                  </strong>
-                </div>
-                <div className="flex justify-between">
-                  <span>Baseline Resting HR:</span>
-                  <strong className="text-rose-500">{baselineRhr} bpm (Standard Model)</strong>
-                </div>
-                <div className="flex justify-between">
-                  <span>Autonomic Telemetry:</span>
-                  <strong className="text-purple-400">Overnight HRV rMSSD + Sleep Stages</strong>
-                </div>
-              </div>
-
-              <button
-                type="button"
-                onClick={() => handleSync(true)}
-                disabled={isLoading}
-                className="w-full py-2.5 px-4 rounded-xl text-xs font-bold bg-emerald-500 hover:bg-emerald-400 text-slate-950 flex items-center justify-center gap-2 transition-all cursor-pointer shadow-lg shadow-emerald-500/20 disabled:opacity-50"
-              >
-                <CheckCircle2 className={`w-4 h-4 ${isLoading ? 'animate-spin' : ''}`} />
-                <span>
-                  {isLoading
-                    ? progressMsg || 'Loading Data...'
-                    : `Load ${weeks} Weeks Calibrated Recovery`}
-                </span>
-              </button>
-            </div>
-          )}
-
-          {/* TAB 3: SESSION TOKEN / 2FA */}
+          {/* TAB 2: PERSONAL API KEY / SESSION TOKEN */}
           {activeTab === 'token' && (
             <div
               className={`p-4 rounded-xl border space-y-3.5 ${
@@ -534,18 +519,25 @@ export const GarminSyncModal: React.FC<GarminSyncModalProps> = ({
                     isLight ? 'text-slate-700' : 'text-slate-300'
                   }`}
                 >
-                  Garmin Session Cookie or Token (Bypasses 2FA)
+                  Garmin Personal API Key or Session Token
                 </span>
                 <p className="text-[11px] text-slate-400 leading-relaxed">
-                  If your Garmin account uses SMS 2FA, open Garmin Connect Web, copy your session
-                  cookie (`GARMIN-SSO-GUID` or auth token), and paste it below.
+                  Garmin Connect Personal API keys or session cookies (`GARMIN-SSO-GUID` / Bearer token)
+                  enable direct live access without two-factor authentication roadblocks.
                 </p>
               </div>
 
               <div>
+                <label
+                  className={`block text-[11px] font-medium mb-1 ${
+                    isLight ? 'text-slate-600' : 'text-slate-400'
+                  }`}
+                >
+                  Personal API Key / Session Token <span className="text-rose-500">*</span>
+                </label>
                 <input
                   type="text"
-                  placeholder="Paste GARMIN-SSO-GUID or Bearer session token..."
+                  placeholder="Paste Garmin Personal API Key or GARMIN-SSO-GUID token..."
                   value={sessionToken}
                   onChange={(e) => setSessionToken(e.target.value)}
                   className={`w-full rounded-xl px-3 py-2 text-xs outline-none transition-colors font-mono border ${
@@ -556,11 +548,28 @@ export const GarminSyncModal: React.FC<GarminSyncModalProps> = ({
                 />
               </div>
 
+              {!isTokenValid && (
+                <div
+                  className={`p-2.5 rounded-lg border text-[11px] flex items-center gap-2 ${
+                    isLight
+                      ? 'bg-amber-50 border-amber-200 text-amber-800'
+                      : 'bg-amber-500/10 border-amber-500/30 text-amber-300'
+                  }`}
+                >
+                  <AlertTriangle className="w-3.5 h-3.5 shrink-0 text-amber-500" />
+                  <span>Paste your token or Personal API key to enable synchronization.</span>
+                </div>
+              )}
+
               <button
                 type="button"
-                onClick={() => handleSync(false)}
-                disabled={isLoading || !sessionToken.trim()}
-                className="w-full py-2.5 px-4 rounded-xl text-xs font-bold bg-sky-500 hover:bg-sky-400 text-slate-950 flex items-center justify-center gap-2 transition-all cursor-pointer shadow-lg shadow-sky-500/20 disabled:opacity-50"
+                onClick={handleSync}
+                disabled={isLoading || !isTokenValid}
+                className={`w-full py-2.5 px-4 rounded-xl text-xs font-bold flex items-center justify-center gap-2 transition-all ${
+                  isTokenValid && !isLoading
+                    ? 'bg-sky-500 hover:bg-sky-400 text-slate-950 cursor-pointer shadow-lg shadow-sky-500/20'
+                    : 'bg-slate-800/60 text-slate-500 cursor-not-allowed border border-slate-700/40'
+                }`}
               >
                 <RotateCw className={`w-4 h-4 ${isLoading ? 'animate-spin' : ''}`} />
                 <span>
@@ -569,39 +578,56 @@ export const GarminSyncModal: React.FC<GarminSyncModalProps> = ({
                     : `Sync with Token (${weeks} Weeks)`}
                 </span>
               </button>
+            </div>
+          )}
 
-              {/* Or Drag & Drop Direct CSV */}
-              <div className="pt-2 border-t border-slate-200 dark:border-slate-800">
-                <label
-                  className={`block text-[11px] font-semibold uppercase mb-1.5 ${
-                    isLight ? 'text-slate-600' : 'text-slate-400'
+          {/* TAB 3: CSV FILE EXPORT */}
+          {activeTab === 'csv' && (
+            <div
+              className={`p-4 rounded-xl border space-y-3.5 ${
+                isLight ? 'bg-slate-50/70 border-slate-200' : 'bg-slate-950/40 border-slate-800'
+              }`}
+            >
+              <div className="space-y-1">
+                <span
+                  className={`text-xs font-semibold ${
+                    isLight ? 'text-slate-700' : 'text-slate-300'
                   }`}
                 >
-                  Or Upload Garmin Data Export File
-                </label>
-                <label
-                  className={`border-2 border-dashed rounded-xl p-3 flex items-center justify-center gap-2 cursor-pointer transition-colors group ${
-                    isLight
-                      ? 'border-slate-200 bg-white hover:border-sky-500'
-                      : 'border-slate-800 bg-slate-950/60 hover:border-sky-500/60'
-                  }`}
-                >
-                  <Upload className="w-4 h-4 text-slate-400 group-hover:text-sky-400" />
-                  <span
-                    className={`text-xs ${
-                      isLight ? 'text-slate-600 group-hover:text-slate-900' : 'text-slate-300'
-                    }`}
-                  >
-                    Select Garmin Sleep / HRV CSV export
-                  </span>
-                  <input
-                    type="file"
-                    accept=".csv,text/csv"
-                    onChange={handleFileUpload}
-                    className="hidden"
-                  />
-                </label>
+                  Direct Garmin / TrainingPeaks CSV Import
+                </span>
+                <p className="text-[11px] text-slate-400 leading-relaxed">
+                  Export your wellness or sleep CSV file directly from Garmin Connect Web or
+                  TrainingPeaks and upload it here to import genuine physiological metrics without
+                  entering login credentials.
+                </p>
               </div>
+
+              <label
+                className={`border-2 border-dashed rounded-xl p-6 flex flex-col items-center justify-center gap-2 cursor-pointer transition-colors group ${
+                  isLight
+                    ? 'border-slate-200 bg-white hover:border-sky-500'
+                    : 'border-slate-800 bg-slate-950/60 hover:border-sky-500/60'
+                }`}
+              >
+                <Upload className="w-7 h-7 text-slate-400 group-hover:text-sky-400" />
+                <span
+                  className={`text-xs font-bold ${
+                    isLight ? 'text-slate-700 group-hover:text-slate-900' : 'text-slate-300'
+                  }`}
+                >
+                  Click to select Garmin Sleep / HRV CSV export
+                </span>
+                <span className="text-[11px] text-slate-400">
+                  Accepts Garmin Connect Sleep reports &amp; TrainingPeaks Wellness exports (.csv)
+                </span>
+                <input
+                  type="file"
+                  accept=".csv,text/csv"
+                  onChange={handleFileUpload}
+                  className="hidden"
+                />
+              </label>
             </div>
           )}
         </div>

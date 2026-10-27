@@ -427,8 +427,8 @@ export function generateMultiWeekGarminLogs(
 }
 
 /**
- * Triggers multi-week Garmin sync via backend server endpoint /api/garmin/sync-multiweek
- * with automatic fallback to client-side calibrated generator if server is offline.
+ * Triggers multi-week Garmin sync via backend server endpoint /api/garmin/sync-multiweek.
+ * Strictly validates credentials and returns genuine live errors without synthetic demo fallbacks.
  */
 export async function syncGarminMultiWeek(options: {
   email?: string;
@@ -436,7 +436,6 @@ export async function syncGarminMultiWeek(options: {
   sessionToken?: string;
   weeks: number;
   baselineRhr?: number;
-  isDemo?: boolean;
 }): Promise<{
   success: boolean;
   syncedDays: number;
@@ -446,52 +445,59 @@ export async function syncGarminMultiWeek(options: {
   error?: string;
   mfaRequired?: boolean;
 }> {
-  const days = options.weeks * 7;
   const baseline = options.baselineRhr || 41;
+  const email = options.email?.trim();
+  const password = options.password?.trim();
+  const sessionToken = options.sessionToken?.trim();
+
+  if (!sessionToken && (!email || !password)) {
+    return {
+      success: false,
+      syncedDays: 0,
+      weeks: options.weeks,
+      logs: [],
+      message: 'Garmin credentials required. Please provide your Garmin email and password, or an active session token.',
+      error: 'Missing Garmin credentials',
+    };
+  }
 
   try {
     const res = await fetch('/api/garmin/sync-multiweek', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        email: options.email,
-        password: options.password,
-        sessionToken: options.sessionToken,
+        email,
+        password,
+        sessionToken,
         weeks: options.weeks,
         baselineRhr: baseline,
-        isDemo: options.isDemo,
       }),
     });
 
-    if (res.ok) {
-      const data = await res.json();
+    const data = await res.json().catch(() => ({}));
+
+    if (res.ok && data.success) {
       return data;
     }
 
-    const errData = await res.json().catch(() => ({}));
-    if (errData.mfaRequired) {
-      return {
-        success: false,
-        syncedDays: 0,
-        weeks: options.weeks,
-        logs: [],
-        message: 'Garmin requested 2FA authentication.',
-        error: errData.error || 'Garmin 2FA requested',
-        mfaRequired: true,
-      };
-    }
-  } catch (err) {
-    console.warn('Backend Garmin sync unreachable, falling back to local multi-week generator:', err);
+    return {
+      success: false,
+      syncedDays: 0,
+      weeks: options.weeks,
+      logs: [],
+      message: data.message || data.error || 'Garmin synchronization failed.',
+      error: data.error || `HTTP ${res.status}: ${res.statusText}`,
+      mfaRequired: Boolean(data.mfaRequired),
+    };
+  } catch (err: any) {
+    return {
+      success: false,
+      syncedDays: 0,
+      weeks: options.weeks,
+      logs: [],
+      message: `Could not reach Garmin sync service: ${err.message || 'Network error'}`,
+      error: err.message || 'Network connection failed',
+    };
   }
-
-  // Graceful fallback to client generation calibrated to 41 bpm baseline
-  const localLogs = generateMultiWeekGarminLogs(days, baseline);
-  return {
-    success: true,
-    syncedDays: localLogs.length,
-    weeks: options.weeks,
-    logs: localLogs,
-    message: `Generated and synchronized ${localLogs.length} days (${options.weeks} weeks) of Garmin Connect recovery data calibrated to your 41 bpm baseline.`,
-  };
 }
 
