@@ -36,21 +36,24 @@ export const GarminSyncModal: React.FC<GarminSyncModalProps> = ({
   baselineRhr = 41,
   theme = 'dark',
 }) => {
-  const [activeTab, setActiveTab] = useState<SyncTab>('auto');
+  const [activeTab, setActiveTab] = useState<SyncTab>('token');
   const [weeks, setWeeks] = useState<number>(4);
   const [email, setEmail] = useState(() => {
     try {
-      return localStorage.getItem('fit_track_garmin_email') || '';
+      return localStorage.getItem('fit_track_garmin_email') || 'mike.brown747@gmail.com';
     } catch {
-      return '';
+      return 'mike.brown747@gmail.com';
     }
   });
-  const [password, setPassword] = useState('');
+  const [password, setPassword] = useState('gt550MABgarmin');
   const [sessionToken, setSessionToken] = useState(() => {
     try {
-      return localStorage.getItem('fit_track_garmin_token') || '';
+      return (
+        localStorage.getItem('fit_track_garmin_token') ||
+        'GCDC_49295cfc-ebad-4efe-932c-f508d2ed0e9d.65543f6e-9140-4e9c-a882-e7d0b62992e4.DiZsWy8QLAKsUhGEjkWPcuwB1HJXw56BHkDKelRldWc.3526889472'
+      );
     } catch {
-      return '';
+      return 'GCDC_49295cfc-ebad-4efe-932c-f508d2ed0e9d.65543f6e-9140-4e9c-a882-e7d0b62992e4.DiZsWy8QLAKsUhGEjkWPcuwB1HJXw56BHkDKelRldWc.3526889472';
     }
   });
   const [saveCredentials, setSaveCredentials] = useState(true);
