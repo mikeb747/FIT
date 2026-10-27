@@ -66,6 +66,148 @@ getGarminAccessToken(myApiKey)
   ``` 
 ---
 
+## 0.6 How do I use this access token in a GET request to fetch my HRV and sleep data from the Garmin API?
+
+Once you have extracted the access_token from your previous POST request, you can use it to make GET requests to the Personal API endpoints.
+Unlike the initial request which used ApiKey [your-key], data endpoints require you to pass this new token as a Bearer token in the Authorization header.
+Here is a clean, reusable TypeScript class to handle your HRV and sleep data fetching based on the Garmin Personal API endpoints:
+
+  ```
+export class GarminPersonalAPI {
+  private baseUrl = 'https://personal.connectapi.garmin.com';
+
+  constructor(private accessToken: string) {}
+
+  /**
+   * Internal method to handle the GET requests and headers
+   */
+  private async get<T>(endpoint: string): Promise<T> {
+    const url = `${this.baseUrl}${endpoint}`;
+    
+    const response = await fetch(url, {
+      method: 'GET',
+      headers: {
+        'Authorization': `Bearer ${this.accessToken}`,
+        'Accept': 'application/json'
+      }
+    });
+
+    if (!response.ok) {
+      throw new Error(`Garmin API Error fetching ${endpoint}: ${response.status} ${response.statusText}`);
+    }
+
+    return response.json() as Promise<T>;
+  }
+
+  /**
+   * Fetch HRV data for a specific date
+   * @param date Format: YYYY-MM-DD
+   */
+  async getHRV(date: string) {
+    // Uses the path variable endpoint from the Personal API swagger docs
+    return this.get<any>(`/hrv-service/hrv/${date}`);
+  }
+
+  /**
+   * Fetch a range of HRV summaries
+   * @param fromDate Format: YYYY-MM-DD
+   * @param toDate Format: YYYY-MM-DD (Garmin usually limits this to 180 days per call)
+   */
+  async getHRVRange(fromDate: string, toDate: string) {
+    return this.get<any>(`/hrv-service/hrv/daily/${fromDate}/${toDate}`);
+  }
+
+  /**
+   * Fetch Sleep data
+   * @param date Format: YYYY-MM-DD 
+   */
+  async getSleep(date: string) {
+    // Note: The dailySleep endpoint typically accepts a date query parameter
+    return this.get<any>(`/sleep-service/sleep/dailySleep?date=${date}`);
+  }
+}
+  ```
+---
+
+## 0.7 What is available to sync
+
+The official Garmin Personal API provides a broad spectrum of health and activity data categorized into dailies, body metrics, and activities.All-Day Health & Wellness (Dailies & Epochs)Stress: All-day stress scores and time spent in different stress zones.   Heart Rate: Daily resting heart rate (RHR), max heart rate, and continuous beat-to-beat or 15-minute epoch summaries.   Pulse Ox (SpO2) & Respiration: Blood oxygen saturation levels and breathing rates.Movement: Total steps, intensity minutes, and active vs. resting calories.Body Composition & VitalsWeight & Body Metrics: Logged weight, BMI, body fat percentage, and muscle mass.   Blood Pressure: Systolic and diastolic readings.Women's Health: Menstrual cycle tracking data.Activities & WorkoutsActivity JSON Summaries: High-level metrics for recorded workouts, including distance, average pace, elevation, and power output.Raw FIT Files: The Personal API allows you to download the actual .fit files for your activities. Parsing these files provides second-by-second telemetry, including GPS tracks, cadence, and continuous sensor streams.   Note: The official Personal tier restricts access to advanced performance metrics like VO2 Max, Training Status, and Training Readiness. If your application requires those specific data points, the unofficial garminconnect-js library can pull them by mimicking the Garmin Connect web dashboard.
+
+---
+
+## 0.8 Fetching FIT Files
+
+To download the raw .fit file using the new Garmin Personal API, you will use the /download-service/files/activity/{id} endpoint.   There is one crucial detail to be aware of: Garmin does not return the raw .fit file directly. It returns a .zip archive containing the FIT file. Because of this, your TypeScript code must handle the response as binary data (an ArrayBuffer or Blob) rather than parsing it as JSON.   Here is the TypeScript code extending the previous API class to handle binary ZIP downloads and save the file to your disk using Node.js:
+  ```
+import * as fs from 'fs';
+import * as path from 'path';
+
+export class GarminPersonalAPI {
+  private baseUrl = 'https://personal.connectapi.garmin.com';
+
+  constructor(private accessToken: string) {}
+
+  /**
+   * Download the zipped FIT file for a specific activity
+   * @param activityId The Garmin Activity ID (e.g., 1234567890)
+   * @returns ArrayBuffer containing the ZIP file data
+   */
+  async downloadActivityFitZip(activityId: number | string): Promise<ArrayBuffer> {
+    const url = `${this.baseUrl}/download-service/files/activity/${activityId}`;
+    
+    const response = await fetch(url, {
+      method: 'GET',
+      headers: {
+        'Authorization': `Bearer ${this.accessToken}`,
+        'Accept': 'application/zip' // Requesting the zip file
+      }
+    });
+
+    if (!response.ok) {
+      throw new Error(`Garmin API Error downloading FIT: ${response.status} ${response.statusText}`);
+    }
+
+    // Return as binary data instead of .json()
+    return response.arrayBuffer();
+  }
+}
+
+// === Usage Example ===
+
+async function saveWorkoutFile(activityId: number) {
+  const garmin = new GarminPersonalAPI(process.env.GARMIN_BEARER_TOKEN!);
+
+  try {
+    console.log(`Downloading activity ${activityId}...`);
+    
+    // 1. Fetch the binary data
+    const zipArrayBuffer = await garmin.downloadActivityFitZip(activityId);
+    
+    // 2. Convert ArrayBuffer to a Node.js Buffer
+    const buffer = Buffer.from(zipArrayBuffer);
+    
+    // 3. Write the ZIP file to your local disk
+    const filename = `activity_${activityId}.zip`;
+    const outputPath = path.join(__dirname, filename);
+    
+    fs.writeFileSync(outputPath, buffer);
+    
+    console.log(`Success! Saved zip archive to: ${outputPath}`);
+
+  } catch (error) {
+    console.error('Failed to download activity:', error);
+  }
+}
+  ```
+Important Integration Notes for Applications
+If you are planning to feed this data into the backend of your custom app:
+
+Activity IDs: You will first need to query the /activitylist-service/activities/search/activities endpoint to get a list of your recent activities so you know which activityId to pass to the download function.
+
+Decompression: You will need an unzipping library (like adm-zip or Node's built-in zlib) to extract the .fit file from the downloaded archive before you can read the actual telemetry data.
+
+---
+
 
 ## 1. Executive Summary & Overview
 
