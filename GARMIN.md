@@ -3,6 +3,69 @@
 This document provides a comprehensive evaluation of the **Garmin Connect Developer Program - Personal API** (`https://developer.garmin.com/gc-developer-program/personal/swagger-docs/`) in comparison with the **Strava V3 API**. It details what data FIT Track currently retrieves from Strava, what data can be retrieved directly from Garmin Connect, and an architectural blueprint for migrating or dual-sourcing data.
 
 ---
+## 0.5 Obtaining an access token
+Your personal API key can be used to generate an access token that allows you to access Garmin Connect resources. To obtain an access token, call the Obtain Token endpoint and replace your-api-key with the API key you generated.
+
+curl -X POST 'https://personal.connectapi.garmin.com/personalapitoken-service/personal-api/personal-api-key/token' -H 'Authorization: ApiKey [your-api-key]'
+
+For example
+
+GCDC_49295cfc-ebad-4efe-932c-f508d2ed0e9d.65543f6e-9140-4e9c-a882-e7d0b62992e4.DiZsWy8QLAKsUhGEjkWPcuwB1HJXw56BHkDKelRldWc.3526889472
+
+```
+// Define a basic interface for the expected response
+// Note: You may need to adjust this based on Garmin's exact response structure
+interface GarminTokenResponse {
+  access_token: string;
+  token_type: string;
+  expires_in: number;
+  [key: string]: any; 
+}
+
+async function getGarminAccessToken(apiKey: string): Promise<GarminTokenResponse> {
+  const url = 'https://personal.connectapi.garmin.com/personalapitoken-service/personal-api/personal-api-key/token';
+
+  try {
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        // Ensure there is a space between 'ApiKey' and the actual key
+        'Authorization': `ApiKey ${apiKey}`,
+        'Content-Type': 'application/json' 
+      }
+    });
+
+    if (!response.ok) {
+      throw new Error(`Failed to obtain token: ${response.status} ${response.statusText}`);
+    }
+
+    const data: GarminTokenResponse = await response.json();
+    return data;
+    
+  } catch (error) {
+    console.error('Error fetching Garmin token:', error);
+    throw error;
+  }
+}
+
+// === Usage Example ===
+
+// Best Practice: Store this in a .env file and access it via process.env.GARMIN_API_KEY
+const myApiKey = 'GCDC_49295cfc-ebad-4efe-932c-f508d2ed0e9d.65543f6e-9140-4e9c-a882-e7d0b62992e4.DiZsWy8QLAKsUhGEjkWPcuwB1HJXw56BHkDKelRldWc.3526889472';
+
+// Call the function
+getGarminAccessToken(myApiKey)
+  .then(tokenData => {
+    console.log('Access Token acquired successfully!');
+    console.log(tokenData);
+    // You can now use tokenData.access_token for subsequent requests
+  })
+  .catch(err => {
+    console.error('Failed to get token:', err);
+  });
+  ``` 
+---
+
 
 ## 1. Executive Summary & Overview
 
