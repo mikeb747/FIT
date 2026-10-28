@@ -9,6 +9,7 @@
   b. "New" badge, move to the top right, with no top or right spacing
   c. Kudos / Deleted badge, move to the bottom right, with no bottom or right spacing
   d. Add TSS to the Bottom left, with no bottom or left spacing.
+5. Swimming activties 50m/100m/400m/1.9k/3.8k, 5k/10k?
 
 **Larger fixes**
 Removed the unpublished badge for now until we have the data we need to perform complex analysis.
