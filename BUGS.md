@@ -1,15 +1,14 @@
 
 ## Missing Features & Roadmap Backlog
-**Quick fixes**
-1. Activities with the Ignored badge should not show New or UNPUBLISHED badge, also remove the UNPUBLISHED badge. 
-2. Remove the delete button from the list of activities, only have it when clicking on the activities. 
-3. Remove spacing between activity type tabs & put a line, about twice the standard width between the tabs. The aim is All, Swim, Bike, Run, Gym, with their (numbers) will take up less total space.
-4. For an activity on the activities list I want to alter some of the spacing and position of Icons or badges, by removing the spacing between the Icon or badge, to the outside box;
-  a. for the activity icon, move it more to the top left corner, by removing the spacing above and to the left of the icon.
-  b. "New" badge, move to the top right, with no top or right spacing
-  c. Kudos / Deleted badge, move to the bottom right, with no bottom or right spacing
-  d. Add TSS to the Bottom left, with no bottom or left spacing.
-5. Swimming activties 50m/100m/400m/1.9k/3.8k, 5k/10k?
+**Quick fixes (Completed)**
+- [x] 1. Activities with the Ignored badge do not show New or UNPUBLISHED badge, and the UNPUBLISHED badge has been removed.
+- [x] 2. Removed the delete button from the list of activities (deletion is accessed when clicking into an activity).
+- [x] 3. Removed spacing between activity type tabs and placed a 2px vertical dividing line between tabs so All, Swim, Bike, Run, Gym with counts take up minimal space.
+- [x] 4. Altered spacing and position of icons/badges flush to outer box corners:
+  - a. Category icon moved flush to top-left corner (no spacing above or left).
+  - b. "New" badge moved flush to top-right corner (no top or right spacing, omitted if Ignored).
+  - c. Kudos / Deleted badge moved flush to bottom-right corner (no bottom or right spacing).
+  - d. TSS added flush to bottom-left corner (no bottom or left spacing).
 
 **Larger fixes**
 Removed the unpublished badge for now until we have the data we need to perform complex analysis.

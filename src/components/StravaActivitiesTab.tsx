@@ -13,13 +13,12 @@ import {
   ThumbsUp,
   AlertCircle,
   Sparkles,
-  UploadCloud,
   Check,
   FileSpreadsheet,
   LogOut,
   ChevronRight,
   Loader2,
-  Trash2,
+  Zap,
 } from 'lucide-react';
 import { StravaIcon } from './StravaIcon';
 import type {
@@ -32,9 +31,8 @@ import {
   classifyActivity,
   formatSportMetrics,
   isActivityNew,
-  isActivityUnpublished,
   getLastStravaRefreshTime,
-  markActivityAsDeleted,
+  calculateActivityTSS,
 } from '../utils/stravaActivities';
 import type { AthleteProfile } from '../types/athlete';
 import { StravaActivityModal } from './StravaActivityModal';
@@ -138,7 +136,6 @@ export const StravaActivitiesTab: React.FC<StravaActivitiesTabProps> = ({
 }) => {
   const [selectedCategory, setSelectedCategory] = useState<ActivityFilterCategory>('All');
   const [activeModalActivity, setActiveModalActivity] = useState<StravaActivity | null>(null);
-  const [activityToDelete, setActivityToDelete] = useState<StravaActivity | null>(null);
 
   const lastRefreshTime = getLastStravaRefreshTime();
   const lastRefreshFormatted = formatLastRefresh(lastRefreshTime);
@@ -315,7 +312,7 @@ export const StravaActivitiesTab: React.FC<StravaActivitiesTabProps> = ({
       {/* ========================================================= */}
       {/* CATEGORY FILTER TABS: All, Swim, Bike, Run, Gym (EXACT ORDER) */}
       {/* ========================================================= */}
-      <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-none">
+      <div className="inline-flex items-center rounded-xl bg-slate-950 border border-slate-800 overflow-x-auto scrollbar-none divide-x-2 divide-slate-700/80 shadow-xs max-w-full">
         {(['All', 'Swim', 'Bike', 'Run', 'Gym'] as const).map((cat) => {
           const count = categoryCounts[cat] || 0;
           const isActive = selectedCategory === cat;
@@ -324,10 +321,10 @@ export const StravaActivitiesTab: React.FC<StravaActivitiesTabProps> = ({
               key={cat}
               type="button"
               onClick={() => setSelectedCategory(cat)}
-              className={`px-3.5 py-1.5 rounded-xl text-xs font-bold whitespace-nowrap flex items-center gap-1.5 transition-all cursor-pointer ${
+              className={`px-3 py-1.5 text-xs font-bold whitespace-nowrap flex items-center gap-1.5 transition-all cursor-pointer ${
                 isActive
-                  ? 'bg-amber-500 text-slate-950 shadow-md font-black'
-                  : 'bg-slate-950 hover:bg-slate-800 text-slate-400 hover:text-white border border-slate-800'
+                  ? 'bg-amber-500 text-slate-950 font-black shadow-xs'
+                  : 'bg-slate-950 hover:bg-slate-900 text-slate-400 hover:text-white'
               }`}
             >
               {cat === 'Swim' && <Waves className="w-3.5 h-3.5 text-sky-400" />}
@@ -397,17 +394,19 @@ export const StravaActivitiesTab: React.FC<StravaActivitiesTabProps> = ({
             const classification = classifyActivity(act);
             const details = activityDetails[activityId];
             const metrics = formatSportMetrics(act, details);
-            const isNew = isActivityNew(act);
-            const isUnpublished = isActivityUnpublished(details);
             const isIgnored = Boolean(details?.calibration?.isIgnoredFromTrainingStatus);
+            const isNew = isActivityNew(act);
+            const showNew = isNew && !isIgnored;
             const hasCalibration = Boolean(details?.calibration);
             const duration = details?.calibration?.calibratedMovingTimeSec ?? act.moving_time ?? act.elapsed_time ?? 0;
+            const tssResult = calculateActivityTSS(act, details, athleteProfile);
+            const tssValue = tssResult ? tssResult.tss : null;
 
             return (
               <div
                 key={act.id}
                 onClick={() => setActiveModalActivity(act)}
-                className={`bg-slate-900 border rounded-2xl p-4 transition-all shadow-sm flex flex-col gap-3 group cursor-pointer active:scale-[0.99] ${
+                className={`relative overflow-hidden bg-slate-900 border rounded-2xl transition-all shadow-sm group cursor-pointer active:scale-[0.99] ${
                   isIgnored
                     ? 'border-rose-950/50 opacity-60 hover:opacity-100 hover:border-rose-900/60'
                     : hasCalibration
@@ -415,13 +414,49 @@ export const StravaActivitiesTab: React.FC<StravaActivitiesTabProps> = ({
                     : 'border-slate-800 hover:border-slate-700'
                 }`}
               >
-                {/* Header row */}
-                <div className="flex items-start justify-between gap-3">
-                  <div className="flex items-start gap-3 min-w-0">
-                    <div className="w-10 h-10 rounded-xl bg-slate-800/90 border border-slate-700/60 flex items-center justify-center shrink-0 mt-0.5 group-hover:border-amber-400/50 transition-colors">
-                      {getCategoryIcon(classification.category)}
-                    </div>
-                    <div className="min-w-0">
+                {/* 4.a: Category Icon flush in top-left corner */}
+                <div className="absolute top-0 left-0 w-11 h-11 rounded-tl-2xl rounded-br-xl bg-slate-800/95 border-r border-b border-slate-700/60 flex items-center justify-center shrink-0 group-hover:border-amber-400/50 transition-colors z-10">
+                  {getCategoryIcon(classification.category)}
+                </div>
+
+                {/* 4.b: "New" badge flush in top-right corner (omitted if Ignored) */}
+                {showNew && (
+                  <div className="absolute top-0 right-0 px-2.5 py-1 rounded-tr-2xl rounded-bl-xl bg-emerald-500/15 border-l border-b border-emerald-500/30 text-emerald-300 text-[10px] font-black uppercase tracking-wider flex items-center gap-1 z-10 shadow-xs">
+                    <Sparkles className="w-2.5 h-2.5" />
+                    <span>New</span>
+                  </div>
+                )}
+
+                {/* 4.d: TSS flush in bottom-left corner */}
+                <div
+                  className="absolute bottom-0 left-0 px-2.5 py-1 rounded-bl-2xl rounded-tr-xl bg-slate-950/95 border-r border-t border-slate-800 text-white font-mono font-bold text-xs flex items-center gap-1.5 z-10 shadow-xs"
+                  title={tssResult?.description || 'Training Stress Score'}
+                >
+                  <Zap className="w-3 h-3 text-amber-400" />
+                  <span>{isIgnored ? '0 TSS' : tssValue !== null ? `${tssValue} TSS` : '-- TSS'}</span>
+                </div>
+
+                {/* 4.c: Kudos / Deleted badge flush in bottom-right corner */}
+                {act.isDeleted ? (
+                  <div
+                    className="absolute bottom-0 right-0 px-2.5 py-1 rounded-br-2xl rounded-tl-xl bg-rose-500/20 border-l border-t border-rose-500/35 text-rose-400 font-sans font-bold text-[11px] flex items-center gap-1.5 z-10 shadow-xs"
+                    title="This activity was deleted"
+                  >
+                    <span className="w-1.5 h-1.5 rounded-full bg-rose-400" />
+                    <span>Deleted</span>
+                  </div>
+                ) : act.kudos_count && act.kudos_count > 0 ? (
+                  <div className="absolute bottom-0 right-0 px-2.5 py-1 rounded-br-2xl rounded-tl-xl bg-amber-500/15 border-l border-t border-amber-500/25 text-amber-300 font-sans font-bold text-[11px] flex items-center gap-1 z-10">
+                    <ThumbsUp className="w-3 h-3 text-amber-400" />
+                    <span>{act.kudos_count}</span>
+                  </div>
+                ) : null}
+
+                {/* Card Content with padding offset clearing the corner badges */}
+                <div className="pt-2.5 pb-8 pl-13 pr-3.5 flex flex-col gap-1.5">
+                  {/* Title & Subtype Row */}
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0 pr-12">
                       <h4 className="text-sm sm:text-base font-extrabold text-white group-hover:text-amber-400 transition-colors truncate">
                         {act.name}
                       </h4>
@@ -431,109 +466,60 @@ export const StravaActivitiesTab: React.FC<StravaActivitiesTabProps> = ({
                         <span className="font-medium text-slate-300">{classification.subType}</span>
                       </div>
                     </div>
+
+                    <div className="flex items-center gap-1.5 shrink-0 pt-0.5">
+                      {/* Ignored or Calibrated Badge */}
+                      {isIgnored ? (
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-rose-500/10 border border-rose-500/25 text-rose-300 text-[10px] font-bold">
+                          <span>Ignored</span>
+                        </span>
+                      ) : hasCalibration ? (
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-amber-500/10 border border-amber-500/25 text-amber-300 text-[10px] font-bold">
+                          <span>Calibrated</span>
+                        </span>
+                      ) : null}
+
+                      <ChevronRight className="w-4 h-4 text-slate-500 group-hover:text-amber-400 transition-colors ml-1" />
+                    </div>
                   </div>
 
-                  <div className="flex items-center gap-2 shrink-0">
-                    {/* Ignored or Calibrated Badge */}
-                    {isIgnored ? (
-                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-rose-500/10 border border-rose-500/25 text-rose-300 text-[10px] font-bold">
-                        <span>Ignored</span>
-                      </span>
-                    ) : hasCalibration ? (
-                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-amber-500/10 border border-amber-500/25 text-amber-300 text-[10px] font-bold">
-                        <span>Calibrated</span>
-                      </span>
-                    ) : null}
+                  {/* Primary Metrics Row Tailored to Sport */}
+                  <div className="flex items-center flex-wrap gap-2 text-xs font-mono pt-0.5">
+                    {/* Primary metric badge */}
+                    <span className="px-2 py-0.5 rounded-lg bg-slate-950/80 border border-slate-800 text-white font-bold">
+                      {metrics.primaryMetricLabel}
+                    </span>
 
-                    {/* "New" badge stays for 24h even if published */}
-                    {isNew && (
-                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-emerald-500/10 border border-emerald-500/25 text-emerald-300 text-[10px] font-black uppercase tracking-wide">
-                        <Sparkles className="w-2.5 h-2.5" />
-                        <span>New</span>
+                    {/* Secondary metric badge */}
+                    {metrics.secondaryMetricLabel && (
+                      <span className="px-2 py-0.5 rounded-lg bg-slate-950/80 border border-slate-800 text-amber-300 font-bold">
+                        {metrics.secondaryMetricLabel}
                       </span>
                     )}
 
-                    {/* "Unpublished" badge until sent to Google Sheets */}
-                    {isUnpublished ? (
-                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-amber-500/10 border border-amber-500/25 text-amber-300 text-[10px] font-black uppercase tracking-wide">
-                        <UploadCloud className="w-2.5 h-2.5" />
-                        <span>Unpublished</span>
-                      </span>
-                    ) : (
-                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-emerald-500/10 border border-emerald-500/25 text-emerald-400 text-[10px] font-bold">
-                        <Check className="w-2.5 h-2.5 stroke-[3]" />
-                        <span>Sheets</span>
+                    {/* Duration */}
+                    {duration > 0 && (
+                      <span className="flex items-center gap-1 px-2 py-0.5 rounded-lg bg-slate-950/70 border border-slate-800 text-slate-300">
+                        <Clock className="w-3 h-3 text-slate-400" />
+                        <span>{formatDuration(duration)}</span>
                       </span>
                     )}
 
-                    <button
-                      type="button"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setActivityToDelete(act);
-                      }}
-                      className="p-1 rounded-lg text-slate-500 hover:text-rose-400 hover:bg-rose-500/10 transition-colors cursor-pointer"
-                      title="Delete activity"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </button>
+                    {/* Elevation for outdoor run/bike */}
+                    {metrics.elevationLabel && (
+                      <span className="px-2 py-0.5 rounded-lg bg-slate-950/70 border border-slate-800 text-slate-400">
+                        {metrics.elevationLabel}
+                      </span>
+                    )}
 
-                    <ChevronRight className="w-4 h-4 text-slate-500 group-hover:text-amber-400 transition-colors" />
+                    {/* Average Heart Rate */}
+                    {act.average_heartrate && (
+                      <span className="flex items-center gap-1 px-2 py-0.5 rounded-lg bg-rose-500/10 border border-rose-500/20 text-rose-300">
+                        <Heart className="w-3 h-3 text-rose-400" />
+                        <span>{Math.round(act.average_heartrate)} bpm</span>
+                      </span>
+                    )}
                   </div>
-                </div>
-
-                {/* Primary Metrics Row Tailored to Sport */}
-                <div className="flex items-center flex-wrap gap-2 text-xs font-mono pt-1">
-                  {/* Primary metric badge */}
-                  <span className="px-2.5 py-1 rounded-lg bg-slate-950/80 border border-slate-800 text-white font-bold">
-                    {metrics.primaryMetricLabel}
-                  </span>
-
-                  {/* Secondary metric badge */}
-                  {metrics.secondaryMetricLabel && (
-                    <span className="px-2.5 py-1 rounded-lg bg-slate-950/80 border border-slate-800 text-amber-300 font-bold">
-                      {metrics.secondaryMetricLabel}
-                    </span>
-                  )}
-
-                  {/* Duration */}
-                  {duration > 0 && (
-                    <span className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-slate-950/70 border border-slate-800 text-slate-300">
-                      <Clock className="w-3 h-3 text-slate-400" />
-                      <span>{formatDuration(duration)}</span>
-                    </span>
-                  )}
-
-                  {/* Elevation for outdoor run/bike */}
-                  {metrics.elevationLabel && (
-                    <span className="px-2.5 py-1 rounded-lg bg-slate-950/70 border border-slate-800 text-slate-400">
-                      {metrics.elevationLabel}
-                    </span>
-                  )}
-
-                  {/* Average Heart Rate */}
-                  {act.average_heartrate && (
-                    <span className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-rose-500/10 border border-rose-500/20 text-rose-300">
-                      <Heart className="w-3 h-3 text-rose-400" />
-                      <span>{Math.round(act.average_heartrate)} bpm</span>
-                    </span>
-                  )}
-
-                  {/* Deleted Badge or Kudos */}
-                  {act.isDeleted ? (
-                    <span
-                      className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-lg bg-rose-500/15 border border-rose-500/30 text-rose-400 font-sans font-bold text-[11px] ml-auto shadow-xs"
-                      title="This activity was deleted"
-                    >
-                      <span className="w-1.5 h-1.5 rounded-full bg-rose-400" />
-                      <span>Deleted</span>
-                    </span>
-                  ) : act.kudos_count && act.kudos_count > 0 ? (
-                    <span className="flex items-center gap-1 px-2 py-0.5 rounded-lg bg-amber-500/10 border border-amber-500/20 text-amber-300 ml-auto font-sans font-bold text-[11px]">
-                      <ThumbsUp className="w-3 h-3 text-amber-400" />
-                      <span>{act.kudos_count}</span>
-                    </span>
-                  ) : null}
                 </div>
               </div>
             );
@@ -567,52 +553,6 @@ export const StravaActivitiesTab: React.FC<StravaActivitiesTabProps> = ({
                 ✓ All historical Strava activities loaded ({activities.length} total)
               </div>
             )}
-          </div>
-        </div>
-      )}
-
-      {/* Delete Confirmation Modal */}
-      {activityToDelete && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-xs animate-in fade-in duration-150">
-          <div className="bg-slate-900 border border-slate-700 rounded-2xl max-w-md w-full p-6 shadow-2xl space-y-4 animate-in zoom-in-95 duration-150">
-            <div className="flex items-start gap-3">
-              <div className="p-3 rounded-2xl bg-rose-500/10 border border-rose-500/20 text-rose-400 shrink-0">
-                <Trash2 className="w-6 h-6" />
-              </div>
-              <div className="space-y-1">
-                <h3 className="text-base font-extrabold text-white">Delete Activity</h3>
-                <p className="text-xs text-slate-300">
-                  Are you sure you want to delete <span className="font-bold text-amber-400 font-mono">"{activityToDelete.name}"</span>?
-                </p>
-              </div>
-            </div>
-
-            <p className="text-xs text-slate-400 bg-slate-950/60 p-3 rounded-xl border border-slate-800 leading-relaxed">
-              This will mark the activity as deleted, display a red <span className="text-rose-400 font-bold">Deleted</span> badge, and exclude it from your fitness metrics (CTL, ATL, TSB) and weekly mileage.
-            </p>
-
-            <div className="flex items-center justify-end gap-3 pt-2">
-              <button
-                type="button"
-                onClick={() => setActivityToDelete(null)}
-                className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-xs font-bold text-slate-200 transition-colors cursor-pointer"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  if (activityToDelete) {
-                    markActivityAsDeleted(activityToDelete.id);
-                    onDeleteActivity?.(activityToDelete.id);
-                    setActivityToDelete(null);
-                  }
-                }}
-                className="px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-500 text-xs font-bold text-white transition-colors cursor-pointer shadow-lg shadow-rose-950/50"
-              >
-                Yes, Delete Activity
-              </button>
-            </div>
           </div>
         </div>
       )}
