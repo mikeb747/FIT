@@ -93,8 +93,9 @@ export function computeWeeklyRunningMileage(
   weeks: WeeklyMileageBucket[];
   stats: MileageSummaryStats;
 } {
-  // 1. Filter running activities only
+  // 1. Filter running activities only (exclude deleted)
   const runningActivities = activities.filter((act) => {
+    if (act.isDeleted) return false;
     const cls = classifyActivity(act);
     return (
       cls.category === 'Run' ||

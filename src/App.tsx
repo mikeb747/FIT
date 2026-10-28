@@ -30,6 +30,7 @@ import {
   ensureStravaActivityRecord,
   saveCachedStravaNewActivityIds,
   saveStravaActivityDetails,
+  markActivityAsDeleted,
   StravaActivity,
   StravaActivityDetailsRecord,
 } from './utils/stravaActivities';
@@ -383,6 +384,13 @@ export default function App() {
     }
   };
 
+  const handleDeleteActivity = (activityId: string | number) => {
+    markActivityAsDeleted(activityId);
+    setStravaActivities((prev) =>
+      prev.map((a) => (String(a.id) === String(activityId) ? { ...a, isDeleted: true } : a))
+    );
+  };
+
   // -------------------------------------------------------------
   // Strava Activities Synchronization
   // -------------------------------------------------------------
@@ -718,6 +726,7 @@ export default function App() {
               setProfileModalTab('settings');
               setIsAthleteProfileOpen(true);
             }}
+            onDeleteActivity={handleDeleteActivity}
           />
         ) : activeMainTab === 'recovery' ? (
           <RecoveryView
@@ -750,6 +759,7 @@ export default function App() {
               setProfileModalTab('goals');
               setIsAthleteProfileOpen(true);
             }}
+            onDeleteActivity={handleDeleteActivity}
           />
         )}
       </main>

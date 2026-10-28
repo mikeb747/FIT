@@ -65,7 +65,7 @@ export interface TriathlonFitnessIndexResult {
 
 export const DISTANCE_MODEL_PROFILES: Record<Exclude<TriathlonDistanceModel, 'custom_goal'>, TriathlonTargetWeights> = {
   sprint: {
-    label: 'Sprint (750m / 20km / 5km)',
+    label: 'Sprint',
     swimWeight: 0.20,
     bikeWeight: 0.48,
     runWeight: 0.32,
@@ -75,7 +75,7 @@ export const DISTANCE_MODEL_PROFILES: Record<Exclude<TriathlonDistanceModel, 'cu
     targetTriCtl: 105,
   },
   olympic: {
-    label: 'Olympic (1.5km / 40km / 10km)',
+    label: 'Olympic',
     swimWeight: 0.16,
     bikeWeight: 0.51,
     runWeight: 0.33,
@@ -85,7 +85,7 @@ export const DISTANCE_MODEL_PROFILES: Record<Exclude<TriathlonDistanceModel, 'cu
     targetTriCtl: 135,
   },
   middle_70_3: {
-    label: 'Middle Distance / 70.3 (Cotswold Classic V2)',
+    label: '70.3',
     swimWeight: 0.123,
     bikeWeight: 0.526,
     runWeight: 0.351,
@@ -95,7 +95,7 @@ export const DISTANCE_MODEL_PROFILES: Record<Exclude<TriathlonDistanceModel, 'cu
     targetTriCtl: 160,
   },
   ironman: {
-    label: 'Full IRONMAN (3.8km / 180km / 42.2km)',
+    label: 'Full IRONMAN',
     swimWeight: 0.118,
     bikeWeight: 0.529,
     runWeight: 0.353,
@@ -103,6 +103,101 @@ export const DISTANCE_MODEL_PROFILES: Record<Exclude<TriathlonDistanceModel, 'cu
     targetBikeCtl: 95,
     targetRunCtl: 65,
     targetTriCtl: 205,
+  },
+};
+
+// -------------------------------------------------------------
+// Running Performance Readiness Models (26.2M down to 5K)
+// -------------------------------------------------------------
+export type RunningDistanceModel = 'marathon_26_2' | 'half_13_1' | 'ten_miler_10' | 'ten_k_10' | 'five_k_5';
+
+export interface RunningTargetProfile {
+  id: RunningDistanceModel;
+  label: string;
+  shortLabel: string;
+  targetRunCtl: number;
+  description: string;
+}
+
+export const RUNNING_MODEL_PROFILES: Record<RunningDistanceModel, RunningTargetProfile> = {
+  marathon_26_2: {
+    id: 'marathon_26_2',
+    label: '26.2M (Marathon)',
+    shortLabel: '26.2M',
+    targetRunCtl: 70,
+    description: 'Full 26.2-mile marathon road race readiness (~45-60+ mi/wk peak volume)',
+  },
+  half_13_1: {
+    id: 'half_13_1',
+    label: '13.1M (Half Marathon)',
+    shortLabel: '13.1M',
+    targetRunCtl: 55,
+    description: 'Half marathon 13.1-mile road race readiness (~35-45 mi/wk peak volume)',
+  },
+  ten_miler_10: {
+    id: 'ten_miler_10',
+    label: '10M (10 Miler)',
+    shortLabel: '10M',
+    targetRunCtl: 50,
+    description: '10.0-mile road race readiness (e.g. Oldbury 10 Miler, ~30-40 mi/wk)',
+  },
+  ten_k_10: {
+    id: 'ten_k_10',
+    label: '10K Road Race',
+    shortLabel: '10K',
+    targetRunCtl: 45,
+    description: '10km (6.2-mile) threshold speed endurance road race readiness (~25-35 mi/wk)',
+  },
+  five_k_5: {
+    id: 'five_k_5',
+    label: '5K Road Race',
+    shortLabel: '5K',
+    targetRunCtl: 38,
+    description: '5km (3.1-mile) VO2 max race sharpness and speed readiness (~20-30 mi/wk)',
+  },
+};
+
+// -------------------------------------------------------------
+// Cycling Performance Readiness Models (Century down to 10M TT)
+// -------------------------------------------------------------
+export type CyclingDistanceModel = 'century_100' | 'fifty_m_50' | 'twenty_five_m_25' | 'ten_m_tt_10';
+
+export interface CyclingTargetProfile {
+  id: CyclingDistanceModel;
+  label: string;
+  shortLabel: string;
+  targetBikeCtl: number;
+  description: string;
+}
+
+export const CYCLING_MODEL_PROFILES: Record<CyclingDistanceModel, CyclingTargetProfile> = {
+  century_100: {
+    id: 'century_100',
+    label: 'Century (100M)',
+    shortLabel: 'Century',
+    targetBikeCtl: 90,
+    description: 'Flat 100-mile road ride / sportive endurance readiness (~150-200+ mi/wk)',
+  },
+  fifty_m_50: {
+    id: 'fifty_m_50',
+    label: '50M TT / Road',
+    shortLabel: '50M',
+    targetBikeCtl: 75,
+    description: '50-mile time trial and long road race aerobic power readiness',
+  },
+  twenty_five_m_25: {
+    id: 'twenty_five_m_25',
+    label: '25M TT',
+    shortLabel: '25M',
+    targetBikeCtl: 65,
+    description: '25-mile time trial sustainable threshold power readiness',
+  },
+  ten_m_tt_10: {
+    id: 'ten_m_tt_10',
+    label: '10M TT',
+    shortLabel: '10M TT',
+    targetBikeCtl: 55,
+    description: '10-mile time trial maximal threshold power and aerodynamic readiness',
   },
 };
 
@@ -123,7 +218,7 @@ export function computeFitnessTimeline(
   const todayStr = now.toISOString().split('T')[0];
 
   activities.forEach((act) => {
-    if (!act.start_date) return;
+    if (!act.start_date || act.isDeleted) return;
     const dateStr = act.start_date.split('T')[0];
 
     // Check calibration or manual TSS override

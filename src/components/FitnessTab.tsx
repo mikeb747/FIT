@@ -18,8 +18,16 @@ import {
   BarChart2,
   PieChart,
   Filter,
+  Loader2,
+  ExternalLink,
 } from 'lucide-react';
-import { StravaActivity, StravaActivityDetailsRecord, classifyActivity } from '../utils/stravaActivities';
+import {
+  StravaActivity,
+  StravaActivityDetailsRecord,
+  classifyActivity,
+  getCachedStravaActivityRecord,
+  fetchStravaActivityDetails,
+} from '../utils/stravaActivities';
 import { AthleteProfile, formatSecondsToMinSec } from '../types/athlete';
 import { TrainingGoal } from '../types/goals';
 import {
@@ -28,6 +36,10 @@ import {
   TriathlonDistanceModel,
   DISTANCE_MODEL_PROFILES,
   DailyFitnessRecord,
+  RunningDistanceModel,
+  RUNNING_MODEL_PROFILES,
+  CyclingDistanceModel,
+  CYCLING_MODEL_PROFILES,
 } from '../utils/fitnessEngine';
 import { WeeklyMileageChart } from './WeeklyMileageChart';
 import { ActivityZoneChart } from './ActivityZoneChart';
@@ -44,6 +56,7 @@ interface FitnessTabProps {
   onOpenSettings?: () => void;
   onConnectGoogle?: () => void;
   onActivityPublished?: (activityId: string) => void;
+  onDeleteActivity?: (activityId: string | number) => void;
 }
 
 type SportFilter = 'triathlon' | 'run' | 'bike' | 'swim';
@@ -59,6 +72,7 @@ export const FitnessTab: React.FC<FitnessTabProps> = ({
   onOpenSettings,
   onConnectGoogle = () => {},
   onActivityPublished,
+  onDeleteActivity,
 }) => {
   const isLight = theme === 'light';
 
@@ -67,6 +81,8 @@ export const FitnessTab: React.FC<FitnessTabProps> = ({
 
   // Race Distance Model for Triathlon preparation targets
   const [selectedModel, setSelectedModel] = useState<TriathlonDistanceModel>('middle_70_3');
+  const [selectedRunningModel, setSelectedRunningModel] = useState<RunningDistanceModel>('ten_miler_10');
+  const [selectedCyclingModel, setSelectedCyclingModel] = useState<CyclingDistanceModel>('fifty_m_50');
   const [timelineLookback, setTimelineLookback] = useState<number>(60); // 30, 60, 90 days
   const [selectedChartDiscipline, setSelectedChartDiscipline] = useState<'combined' | 'swim' | 'bike' | 'run'>('combined');
   const [hoveredRecord, setHoveredRecord] = useState<DailyFitnessRecord | null>(null);
@@ -123,16 +139,14 @@ export const FitnessTab: React.FC<FitnessTabProps> = ({
 
   // Dynamic Discipline-specific metrics
   const disciplineFitness = useMemo(() => {
-    const targetRun = fitnessIndexResult.weights.targetRunCtl || 50;
-    const targetBike = fitnessIndexResult.weights.targetBikeCtl || 75;
-    const targetSwim = fitnessIndexResult.weights.targetSwimCtl || 35;
-
     if (selectedSport === 'run') {
+      const runProfile = RUNNING_MODEL_PROFILES[selectedRunningModel];
+      const targetRun = runProfile.targetRunCtl;
       const score = Math.min(100, Math.round((latestRecord.runCtl / targetRun) * 100));
       return {
-        title: 'Running Fitness Index',
-        headerTitle: 'Running Fitness & Training Load',
-        subtitle: 'Running 42d rCTL, 7d rATL, Form (rTSB), weekly Monday–Sunday mileage, and zone distribution.',
+        title: 'Running Performance Readiness',
+        headerTitle: 'Running Readiness & Training Load',
+        subtitle: `${runProfile.description}. Running 42d rCTL, 7d rATL, Form (rTSB), and weekly Monday–Sunday mileage.`,
         score,
         target: targetRun,
         ctl: latestRecord.runCtl,
@@ -140,16 +154,18 @@ export const FitnessTab: React.FC<FitnessTabProps> = ({
         tsb: latestRecord.runTsb,
         label: `${latestRecord.runCtl} / ${targetRun} rCTL Target`,
         formula: `rCTL (42d) / Target (${targetRun} rCTL)`,
-        badge: 'Running Focus',
+        badge: runProfile.label,
       };
     }
 
     if (selectedSport === 'bike') {
+      const bikeProfile = CYCLING_MODEL_PROFILES[selectedCyclingModel];
+      const targetBike = bikeProfile.targetBikeCtl;
       const score = Math.min(100, Math.round((latestRecord.bikeCtl / targetBike) * 100));
       return {
-        title: 'Cycling Fitness Index',
-        headerTitle: 'Cycling Fitness & Training Load',
-        subtitle: 'Cycling 42d bCTL, 7d bATL, Form (bTSB), power metrics, and Coggan power zone distribution.',
+        title: 'Cycling Performance Readiness',
+        headerTitle: 'Cycling Readiness & Training Load',
+        subtitle: `${bikeProfile.description}. Cycling 42d bCTL, 7d bATL, Form (bTSB), and Coggan power zones.`,
         score,
         target: targetBike,
         ctl: latestRecord.bikeCtl,
@@ -157,15 +173,16 @@ export const FitnessTab: React.FC<FitnessTabProps> = ({
         tsb: latestRecord.bikeTsb,
         label: `${latestRecord.bikeCtl} / ${targetBike} bCTL Target`,
         formula: `bCTL (42d) / Target (${targetBike} bCTL)`,
-        badge: 'Cycling Focus',
+        badge: bikeProfile.label,
       };
     }
 
     if (selectedSport === 'swim') {
+      const targetSwim = fitnessIndexResult.weights.targetSwimCtl || 35;
       const score = Math.min(100, Math.round((latestRecord.swimCtl / targetSwim) * 100));
       return {
-        title: 'Swimming Fitness Index',
-        headerTitle: 'Swimming Fitness & Training Load',
+        title: 'Swimming Performance Readiness',
+        headerTitle: 'Swimming Readiness & Training Load',
         subtitle: 'Swimming 42d sCTL, 7d sATL, Form (sTSB), CSS pace, and consistency.',
         score,
         target: targetSwim,
@@ -180,8 +197,8 @@ export const FitnessTab: React.FC<FitnessTabProps> = ({
 
     // Default: Triathlon
     return {
-      title: 'Triathlon Fitness Index',
-      headerTitle: 'Triathlon Fitness & Training Load',
+      title: 'Triathlon Performance Readiness',
+      headerTitle: 'Triathlon Readiness & Training Load',
       subtitle: 'Running 42d CTL, 7d ATL, and Form (TSB) split between Swim, Bike, and Run with race-weighted geometric preparation index.',
       score: Math.round(fitnessIndexResult.tfi),
       target: fitnessIndexResult.weights.targetTriCtl,
@@ -192,7 +209,7 @@ export const FitnessTab: React.FC<FitnessTabProps> = ({
       formula: `S^${fitnessIndexResult.weights.swimWeight} · B^${fitnessIndexResult.weights.bikeWeight} · R^${fitnessIndexResult.weights.runWeight}`,
       badge: fitnessIndexResult.weights.label,
     };
-  }, [selectedSport, latestRecord, fitnessIndexResult]);
+  }, [selectedSport, selectedRunningModel, selectedCyclingModel, latestRecord, fitnessIndexResult]);
 
   // Filter activities matching the sport for the Activity Zone Analyzer
   const relevantActivitiesForZones = useMemo(() => {
@@ -214,6 +231,60 @@ export const FitnessTab: React.FC<FitnessTabProps> = ({
     // Default to the most recent relevant activity
     return relevantActivitiesForZones.length > 0 ? relevantActivitiesForZones[0] : null;
   }, [selectedZoneActivityId, activities, relevantActivitiesForZones]);
+
+  // Local cache of loaded activity details records (with 1-sec streams) for zone analysis
+  const [loadedZoneDetails, setLoadedZoneDetails] = useState<Record<string, StravaActivityDetailsRecord>>({});
+  const [isLoadingZoneStreams, setIsLoadingZoneStreams] = useState(false);
+
+  // Auto-load 1-sec telemetry streams for the active zone activity from IndexedDB or Strava API
+  React.useEffect(() => {
+    if (!activeZoneActivity) return;
+    const actId = String(activeZoneActivity.id);
+
+    // If streams are already present in activityDetails prop or in loadedZoneDetails, skip
+    if (activityDetails[actId]?.streams || loadedZoneDetails[actId]?.streams) return;
+
+    let isCancelled = false;
+    async function loadStreams() {
+      setIsLoadingZoneStreams(true);
+      try {
+        // 1. Try reading from IndexedDB
+        const cached = await getCachedStravaActivityRecord(actId);
+        if (cached?.streams) {
+          if (!isCancelled) {
+            setLoadedZoneDetails((prev) => ({ ...prev, [actId]: cached }));
+          }
+          return;
+        }
+
+        // 2. If not cached, fetch via Strava API if token is provided
+        if (stravaToken) {
+          const fresh = await fetchStravaActivityDetails(actId, stravaToken);
+          if (!isCancelled && fresh) {
+            const updated = await getCachedStravaActivityRecord(actId);
+            if (updated) {
+              setLoadedZoneDetails((prev) => ({ ...prev, [actId]: updated }));
+            }
+          }
+        }
+      } catch (err) {
+        console.warn('Could not load streams for fitness zone chart:', err);
+      } finally {
+        if (!isCancelled) setIsLoadingZoneStreams(false);
+      }
+    }
+
+    loadStreams();
+    return () => {
+      isCancelled = true;
+    };
+  }, [activeZoneActivity, activityDetails, loadedZoneDetails, stravaToken]);
+
+  const currentZoneStreams =
+    activeZoneActivity
+      ? (activityDetails[String(activeZoneActivity.id)]?.streams ||
+         loadedZoneDetails[String(activeZoneActivity.id)]?.streams)
+      : undefined;
 
   // Active A-Goal Triathlon for custom display
   const activeTriGoal = useMemo(() => {
@@ -351,13 +422,14 @@ export const FitnessTab: React.FC<FitnessTabProps> = ({
             </button>
           </div>
 
-          {/* Model Preset selector if in Triathlon mode */}
+          {/* Triathlon Performance Readiness Presets */}
           {selectedSport === 'triathlon' && (
             <div className="flex items-center gap-1 p-1 rounded-xl bg-slate-950/60 border border-slate-800 text-xs">
               {[
-                { id: 'middle_70_3' as const, label: '70.3 (Cotswold)' },
-                { id: 'ironman' as const, label: 'Full IRONMAN' },
+                { id: 'sprint' as const, label: 'Sprint' },
                 { id: 'olympic' as const, label: 'Olympic' },
+                { id: 'middle_70_3' as const, label: '70.3' },
+                { id: 'ironman' as const, label: 'Full IRONMAN' },
               ].map((m) => (
                 <button
                   key={m.id}
@@ -365,9 +437,62 @@ export const FitnessTab: React.FC<FitnessTabProps> = ({
                   onClick={() => setSelectedModel(m.id)}
                   className={`px-2.5 py-1.5 rounded-lg font-bold transition-all cursor-pointer text-xs whitespace-nowrap ${
                     selectedModel === m.id
-                      ? 'bg-slate-800 text-amber-400 border border-amber-500/40'
+                      ? 'bg-slate-800 text-amber-400 border border-amber-500/40 shadow-xs'
                       : 'text-slate-400 hover:text-white'
                   }`}
+                >
+                  {m.label}
+                </button>
+              ))}
+            </div>
+          )}
+
+          {/* Running Performance Readiness Presets (26.2M down to 5K) */}
+          {selectedSport === 'run' && (
+            <div className="flex items-center gap-1 p-1 rounded-xl bg-slate-950/60 border border-slate-800 text-xs">
+              {[
+                { id: 'marathon_26_2' as const, label: '26.2M' },
+                { id: 'half_13_1' as const, label: '13.1M' },
+                { id: 'ten_miler_10' as const, label: '10M' },
+                { id: 'ten_k_10' as const, label: '10K' },
+                { id: 'five_k_5' as const, label: '5K' },
+              ].map((m) => (
+                <button
+                  key={m.id}
+                  type="button"
+                  onClick={() => setSelectedRunningModel(m.id)}
+                  className={`px-2.5 py-1.5 rounded-lg font-bold transition-all cursor-pointer text-xs whitespace-nowrap ${
+                    selectedRunningModel === m.id
+                      ? 'bg-slate-800 text-amber-400 border border-amber-500/40 shadow-xs'
+                      : 'text-slate-400 hover:text-white'
+                  }`}
+                  title={RUNNING_MODEL_PROFILES[m.id].description}
+                >
+                  {m.label}
+                </button>
+              ))}
+            </div>
+          )}
+
+          {/* Cycling Performance Readiness Presets (Century down to 10M TT) */}
+          {selectedSport === 'bike' && (
+            <div className="flex items-center gap-1 p-1 rounded-xl bg-slate-950/60 border border-slate-800 text-xs">
+              {[
+                { id: 'century_100' as const, label: 'Century' },
+                { id: 'fifty_m_50' as const, label: '50M' },
+                { id: 'twenty_five_m_25' as const, label: '25M' },
+                { id: 'ten_m_tt_10' as const, label: '10M TT' },
+              ].map((m) => (
+                <button
+                  key={m.id}
+                  type="button"
+                  onClick={() => setSelectedCyclingModel(m.id)}
+                  className={`px-2.5 py-1.5 rounded-lg font-bold transition-all cursor-pointer text-xs whitespace-nowrap ${
+                    selectedCyclingModel === m.id
+                      ? 'bg-slate-800 text-amber-400 border border-amber-500/40 shadow-xs'
+                      : 'text-slate-400 hover:text-white'
+                  }`}
+                  title={CYCLING_MODEL_PROFILES[m.id].description}
                 >
                   {m.label}
                 </button>
@@ -642,7 +767,7 @@ export const FitnessTab: React.FC<FitnessTabProps> = ({
                     : 'bg-slate-950 border-slate-800 text-slate-200'
                 }`}
               >
-                {relevantActivitiesForZones.slice(0, 15).map((act) => {
+                {relevantActivitiesForZones.slice(0, 20).map((act) => {
                   const actDate = act.start_date ? act.start_date.split('T')[0] : '';
                   return (
                     <option key={act.id} value={String(act.id)}>
@@ -651,18 +776,42 @@ export const FitnessTab: React.FC<FitnessTabProps> = ({
                   );
                 })}
               </select>
+
+              {activeZoneActivity && (
+                <button
+                  type="button"
+                  onClick={() => handleOpenActivityModal(activeZoneActivity.id)}
+                  className={`p-1.5 rounded-lg border text-xs font-bold flex items-center gap-1 transition-colors cursor-pointer ${
+                    isLight
+                      ? 'bg-slate-100 hover:bg-slate-200 border-slate-300 text-slate-700'
+                      : 'bg-slate-800 hover:bg-slate-700 border-slate-700 text-slate-300'
+                  }`}
+                  title="Open activity details & stream inspection modal"
+                >
+                  <ExternalLink className="w-3.5 h-3.5" />
+                  <span className="hidden sm:inline">Details</span>
+                </button>
+              )}
             </div>
           )}
         </div>
 
         {activeZoneActivity ? (
-          <ActivityZoneChart
-            activity={activeZoneActivity}
-            streams={activityDetails[String(activeZoneActivity.id)]?.streams}
-            athleteProfile={athleteProfile}
-            theme={theme}
-            title={`${activeZoneActivity.name} — Training Zones`}
-          />
+          <div className="relative">
+            {isLoadingZoneStreams && !currentZoneStreams && (
+              <div className="p-4 rounded-xl border border-amber-500/30 bg-amber-500/10 text-amber-300 text-xs flex items-center gap-2 mb-2">
+                <Loader2 className="w-4 h-4 animate-spin text-amber-400" />
+                <span>Loading 1-sec streams from Strava for exact zone calculations...</span>
+              </div>
+            )}
+            <ActivityZoneChart
+              activity={activeZoneActivity}
+              streams={currentZoneStreams}
+              athleteProfile={athleteProfile}
+              theme={theme}
+              title={`${activeZoneActivity.name} — Training Zones`}
+            />
+          </div>
         ) : (
           <div
             className={`p-6 rounded-2xl border text-center text-xs ${
@@ -970,6 +1119,10 @@ export const FitnessTab: React.FC<FitnessTabProps> = ({
           onConnectGoogle={onConnectGoogle}
           onClose={() => setActiveModalActivity(null)}
           onActivityPublished={onActivityPublished}
+          onDeleteActivity={(id) => {
+            onDeleteActivity?.(id);
+            setActiveModalActivity(null);
+          }}
         />
       )}
     </div>

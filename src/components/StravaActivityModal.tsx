@@ -24,6 +24,7 @@ import {
   Gauge,
   Flame,
   HeartHandshake,
+  Trash2,
 } from 'lucide-react';
 import type {
   StravaActivity,
@@ -38,6 +39,8 @@ import {
   fetchStravaActivityDetails,
   saveStravaActivityDetails,
   getCachedStravaActivityRecord,
+  markActivityAsDeleted,
+  unmarkActivityAsDeleted,
   markStravaActivityPublishedToGoogleSheets,
   calculateActivityTSS,
   calculateNormalizedPower,
@@ -64,6 +67,7 @@ interface StravaActivityModalProps {
   onClose: () => void;
   onActivityPublished?: (activityId: string) => void;
   onOpenAthleteProfile?: () => void;
+  onDeleteActivity?: (activityId: string | number) => void;
 }
 
 function formatActivityDate(dateString: string): string {
@@ -109,7 +113,10 @@ export const StravaActivityModal: React.FC<StravaActivityModalProps> = ({
   onClose,
   onActivityPublished,
   onOpenAthleteProfile,
+  onDeleteActivity,
 }) => {
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [isDeletedLocally, setIsDeletedLocally] = useState(false);
   const [detailsRecord, setDetailsRecord] = useState<StravaActivityDetailsRecord | null>(null);
   const [loadingDetails, setLoadingDetails] = useState(false);
   const [detailsError, setDetailsError] = useState<string | null>(null);
@@ -382,6 +389,15 @@ export const StravaActivityModal: React.FC<StravaActivityModalProps> = ({
 
             <button
               type="button"
+              onClick={() => setShowDeleteConfirm(true)}
+              className="p-2 rounded-xl bg-slate-800 hover:bg-rose-950/50 text-slate-400 hover:text-rose-400 transition-colors cursor-pointer border border-slate-700 hover:border-rose-500/30"
+              title="Delete Activity"
+            >
+              <Trash2 className="w-4 h-4" />
+            </button>
+
+            <button
+              type="button"
               onClick={onClose}
               className="p-2 rounded-xl text-slate-400 hover:text-white hover:bg-slate-800 transition-colors cursor-pointer"
               title="Close modal"
@@ -399,6 +415,14 @@ export const StravaActivityModal: React.FC<StravaActivityModalProps> = ({
               {getCategoryIcon(classification.category, 'w-3.5 h-3.5')}
               <span>{classification.subType}</span>
             </span>
+
+            {/* Deleted Badge */}
+            {(activity.isDeleted || isDeletedLocally) && (
+              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-rose-500/15 border border-rose-500/30 text-rose-400 text-[11px] font-black uppercase tracking-wide">
+                <span className="w-1.5 h-1.5 rounded-full bg-rose-400" />
+                <span>Deleted</span>
+              </span>
+            )}
 
             {/* Ignored or Calibrated Badge */}
             {isIgnored ? (
@@ -1449,6 +1473,53 @@ export const StravaActivityModal: React.FC<StravaActivityModalProps> = ({
             setDetailsRecord(updatedRecord);
           }}
         />
+      )}
+
+      {/* Delete Activity Confirmation Modal */}
+      {showDeleteConfirm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-xs animate-in fade-in duration-200">
+          <div className="max-w-md w-full rounded-2xl bg-slate-900 border border-rose-500/40 p-5 sm:p-6 shadow-2xl space-y-4">
+            <div className="flex items-center gap-3 text-rose-400">
+              <div className="p-2.5 rounded-xl bg-rose-500/15 border border-rose-500/30">
+                <Trash2 className="w-5 h-5 text-rose-400" />
+              </div>
+              <div>
+                <h3 className="text-base font-bold text-white">Delete Activity</h3>
+                <p className="text-xs text-slate-400">Are you sure you want to delete this activity?</p>
+              </div>
+            </div>
+
+            <p className="text-xs text-slate-300 bg-slate-950/60 p-3 rounded-xl border border-slate-800 leading-relaxed">
+              &ldquo;{activity.name}&rdquo; will be marked as deleted and excluded from your training stress balance, weekly mileage, and fitness calculations.
+            </p>
+
+            <div className="flex items-center justify-end gap-2.5 pt-2">
+              <button
+                type="button"
+                onClick={() => setShowDeleteConfirm(false)}
+                className="px-4 py-2 rounded-xl text-xs font-bold text-slate-300 hover:text-white bg-slate-800 hover:bg-slate-700 cursor-pointer transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  if (activity) {
+                    markActivityAsDeleted(activity.id);
+                    setIsDeletedLocally(true);
+                    onDeleteActivity?.(activity.id);
+                    setShowDeleteConfirm(false);
+                    onClose();
+                  }
+                }}
+                className="px-4 py-2 rounded-xl text-xs font-bold text-white bg-rose-600 hover:bg-rose-500 cursor-pointer transition-colors flex items-center gap-1.5 shadow-md shadow-rose-900/30"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                <span>Yes, Delete Activity</span>
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

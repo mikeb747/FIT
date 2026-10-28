@@ -23,6 +23,7 @@ export interface StravaActivity {
   average_cadence?: number;
   calories?: number;
   suffer_score?: number;
+  isDeleted?: boolean;
 }
 
 export interface CalibratedSwimLap {
@@ -81,10 +82,57 @@ export interface StravaActivityDetailsResponse {
 export const STRAVA_ACTIVITIES_CACHE_KEY = 'gymfit_strava_activities_cache';
 export const STRAVA_NEW_ACTIVITY_IDS_KEY = 'gymfit_strava_new_activity_ids';
 export const STRAVA_LAST_REFRESH_KEY = 'gymfit_strava_last_refresh_timestamp';
+export const STRAVA_DELETED_ACTIVITY_IDS_KEY = 'gymfit_strava_deleted_activity_ids';
+
+export function getDeletedActivityIds(): Set<string> {
+  if (typeof window === 'undefined') return new Set();
+  try {
+    const raw = localStorage.getItem(STRAVA_DELETED_ACTIVITY_IDS_KEY);
+    if (!raw) return new Set();
+    const parsed = JSON.parse(raw);
+    return new Set(Array.isArray(parsed) ? parsed.map(String) : []);
+  } catch {
+    return new Set();
+  }
+}
+
+export function markActivityAsDeleted(activityId: string | number): void {
+  const idStr = String(activityId);
+  const current = getDeletedActivityIds();
+  current.add(idStr);
+  if (typeof window !== 'undefined') {
+    try {
+      localStorage.setItem(STRAVA_DELETED_ACTIVITY_IDS_KEY, JSON.stringify(Array.from(current)));
+    } catch {}
+  }
+  const cached = getCachedStravaActivitiesSnapshot() || [];
+  const updated = cached.map((act) =>
+    String(act.id) === idStr ? { ...act, isDeleted: true } : act
+  );
+  saveCachedStravaActivities(updated);
+}
+
+export function unmarkActivityAsDeleted(activityId: string | number): void {
+  const idStr = String(activityId);
+  const current = getDeletedActivityIds();
+  current.delete(idStr);
+  if (typeof window !== 'undefined') {
+    try {
+      localStorage.setItem(STRAVA_DELETED_ACTIVITY_IDS_KEY, JSON.stringify(Array.from(current)));
+    } catch {}
+  }
+  const cached = getCachedStravaActivitiesSnapshot() || [];
+  const updated = cached.map((act) =>
+    String(act.id) === idStr ? { ...act, isDeleted: false } : act
+  );
+  saveCachedStravaActivities(updated);
+}
 
 export function isStravaAuthorizationError(error: unknown): boolean {
-  return error instanceof Error &&
-    /authorization|unauthorized|access token|401/i.test(error.message);
+  return (
+    error instanceof Error &&
+    /authorization|unauthorized|access token|401/i.test(error.message)
+  );
 }
 
 const STRAVA_ACTIVITY_DB_NAME = 'gymfit_strava_activity_data';
@@ -104,7 +152,13 @@ export function getCachedStravaActivitiesSnapshot(): StravaActivity[] | null {
 }
 
 export function getCachedStravaActivities(): StravaActivity[] {
-  return getCachedStravaActivitiesSnapshot() || [];
+  const list = getCachedStravaActivitiesSnapshot() || [];
+  const deletedIds = getDeletedActivityIds();
+  if (deletedIds.size === 0) return list;
+  return list.map((act) => ({
+    ...act,
+    isDeleted: deletedIds.has(String(act.id)) || Boolean(act.isDeleted),
+  }));
 }
 
 export function saveCachedStravaActivities(activities: StravaActivity[]): void {
@@ -1382,20 +1436,27 @@ export async function fetchStravaActivityDetails(
  * Merge new activities into existing cached list without duplicates, maintaining reverse chronological order
  */
 export function mergeStravaActivities(existing: StravaActivity[], incoming: StravaActivity[]): StravaActivity[] {
+  const deletedIds = getDeletedActivityIds();
   const map = new Map<string, StravaActivity>();
+
   // Existing loaded first
   for (const act of existing) {
+    const isDel = deletedIds.has(String(act.id)) || Boolean(act.isDeleted);
     map.set(String(act.id), {
       ...act,
+      isDeleted: isDel,
       gear_id: act.gear_id ?? (act as any).gear?.id ?? null,
     });
   }
+
   // Incoming merged (updates existing or adds new)
   for (const act of incoming) {
     const prev = map.get(String(act.id));
+    const isDel = deletedIds.has(String(act.id)) || Boolean(prev?.isDeleted);
     map.set(String(act.id), {
       ...prev,
       ...act,
+      isDeleted: isDel,
       gear_id: act.gear_id ?? (act as any).gear?.id ?? prev?.gear_id ?? null,
     });
   }
@@ -1472,6 +1533,34 @@ export async function syncStravaActivitiesDelta(accessToken: string): Promise<St
         ...item,
         gear_id: item.gear_id || item.gear?.id || null,
       }));
+    }
+  }
+
+  // Check if recent activities (within the last 2 weeks) still exist on Strava.
+  // If a previously cached activity from the last 2 weeks is not in the fetched 200 activities,
+  // mark it as isDeleted = true to display a red "Deleted" badge without deleting the activity.
+  if (incoming.length > 0) {
+    const incomingIdSet = new Set(incoming.map((a) => String(a.id)));
+    const twoWeeksAgoMs = Date.now() - 14 * 24 * 60 * 60 * 1000;
+    const deletedIds = getDeletedActivityIds();
+    let foundMissing = false;
+
+    for (const prevAct of existingActivities) {
+      if (!prevAct.start_date) continue;
+      const t = new Date(prevAct.start_date).getTime();
+      if (!isNaN(t) && t >= twoWeeksAgoMs) {
+        if (!incomingIdSet.has(String(prevAct.id))) {
+          prevAct.isDeleted = true;
+          deletedIds.add(String(prevAct.id));
+          foundMissing = true;
+        }
+      }
+    }
+
+    if (foundMissing && typeof window !== 'undefined') {
+      try {
+        localStorage.setItem(STRAVA_DELETED_ACTIVITY_IDS_KEY, JSON.stringify(Array.from(deletedIds)));
+      } catch {}
     }
   }
 

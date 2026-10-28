@@ -19,6 +19,7 @@ import {
   LogOut,
   ChevronRight,
   Loader2,
+  Trash2,
 } from 'lucide-react';
 import { StravaIcon } from './StravaIcon';
 import type {
@@ -33,6 +34,7 @@ import {
   isActivityNew,
   isActivityUnpublished,
   getLastStravaRefreshTime,
+  markActivityAsDeleted,
 } from '../utils/stravaActivities';
 import type { AthleteProfile } from '../types/athlete';
 import { StravaActivityModal } from './StravaActivityModal';
@@ -57,6 +59,7 @@ interface StravaActivitiesTabProps {
   onOpenStravaSettings: () => void;
   onActivityPublished: (activityId: string) => void;
   onOpenAthleteProfile?: () => void;
+  onDeleteActivity?: (activityId: string | number) => void;
 }
 
 function formatDuration(seconds: number): string {
@@ -131,9 +134,11 @@ export const StravaActivitiesTab: React.FC<StravaActivitiesTabProps> = ({
   onOpenStravaSettings,
   onActivityPublished,
   onOpenAthleteProfile,
+  onDeleteActivity,
 }) => {
   const [selectedCategory, setSelectedCategory] = useState<ActivityFilterCategory>('All');
   const [activeModalActivity, setActiveModalActivity] = useState<StravaActivity | null>(null);
+  const [activityToDelete, setActivityToDelete] = useState<StravaActivity | null>(null);
 
   const lastRefreshTime = getLastStravaRefreshTime();
   const lastRefreshFormatted = formatLastRefresh(lastRefreshTime);
@@ -461,6 +466,18 @@ export const StravaActivitiesTab: React.FC<StravaActivitiesTabProps> = ({
                       </span>
                     )}
 
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setActivityToDelete(act);
+                      }}
+                      className="p-1 rounded-lg text-slate-500 hover:text-rose-400 hover:bg-rose-500/10 transition-colors cursor-pointer"
+                      title="Delete activity"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+
                     <ChevronRight className="w-4 h-4 text-slate-500 group-hover:text-amber-400 transition-colors" />
                   </div>
                 </div>
@@ -502,8 +519,16 @@ export const StravaActivitiesTab: React.FC<StravaActivitiesTabProps> = ({
                     </span>
                   )}
 
-                  {/* Kudos */}
-                  {act.kudos_count && act.kudos_count > 0 ? (
+                  {/* Deleted Badge or Kudos */}
+                  {act.isDeleted ? (
+                    <span
+                      className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-lg bg-rose-500/15 border border-rose-500/30 text-rose-400 font-sans font-bold text-[11px] ml-auto shadow-xs"
+                      title="This activity was deleted"
+                    >
+                      <span className="w-1.5 h-1.5 rounded-full bg-rose-400" />
+                      <span>Deleted</span>
+                    </span>
+                  ) : act.kudos_count && act.kudos_count > 0 ? (
                     <span className="flex items-center gap-1 px-2 py-0.5 rounded-lg bg-amber-500/10 border border-amber-500/20 text-amber-300 ml-auto font-sans font-bold text-[11px]">
                       <ThumbsUp className="w-3 h-3 text-amber-400" />
                       <span>{act.kudos_count}</span>
@@ -546,6 +571,52 @@ export const StravaActivitiesTab: React.FC<StravaActivitiesTabProps> = ({
         </div>
       )}
 
+      {/* Delete Confirmation Modal */}
+      {activityToDelete && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-xs animate-in fade-in duration-150">
+          <div className="bg-slate-900 border border-slate-700 rounded-2xl max-w-md w-full p-6 shadow-2xl space-y-4 animate-in zoom-in-95 duration-150">
+            <div className="flex items-start gap-3">
+              <div className="p-3 rounded-2xl bg-rose-500/10 border border-rose-500/20 text-rose-400 shrink-0">
+                <Trash2 className="w-6 h-6" />
+              </div>
+              <div className="space-y-1">
+                <h3 className="text-base font-extrabold text-white">Delete Activity</h3>
+                <p className="text-xs text-slate-300">
+                  Are you sure you want to delete <span className="font-bold text-amber-400 font-mono">"{activityToDelete.name}"</span>?
+                </p>
+              </div>
+            </div>
+
+            <p className="text-xs text-slate-400 bg-slate-950/60 p-3 rounded-xl border border-slate-800 leading-relaxed">
+              This will mark the activity as deleted, display a red <span className="text-rose-400 font-bold">Deleted</span> badge, and exclude it from your fitness metrics (CTL, ATL, TSB) and weekly mileage.
+            </p>
+
+            <div className="flex items-center justify-end gap-3 pt-2">
+              <button
+                type="button"
+                onClick={() => setActivityToDelete(null)}
+                className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-xs font-bold text-slate-200 transition-colors cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  if (activityToDelete) {
+                    markActivityAsDeleted(activityToDelete.id);
+                    onDeleteActivity?.(activityToDelete.id);
+                    setActivityToDelete(null);
+                  }
+                }}
+                className="px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-500 text-xs font-bold text-white transition-colors cursor-pointer shadow-lg shadow-rose-950/50"
+              >
+                Yes, Delete Activity
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Detailed Activity Pop-up Modal */}
       <StravaActivityModal
         isOpen={Boolean(activeModalActivity)}
@@ -557,6 +628,10 @@ export const StravaActivitiesTab: React.FC<StravaActivitiesTabProps> = ({
         onClose={() => setActiveModalActivity(null)}
         onActivityPublished={onActivityPublished}
         onOpenAthleteProfile={onOpenAthleteProfile}
+        onDeleteActivity={(actId) => {
+          onDeleteActivity?.(actId);
+          setActiveModalActivity(null);
+        }}
       />
     </div>
   );
