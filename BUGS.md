@@ -1,11 +1,11 @@
 
 ## Missing Features & Roadmap Backlog
-0.1 Ability to delete an activity
-0.2 When resyncing, check if recent activities still exist on Strava. If the activity isnt on the list of 200, and is in the last 2 weeks, add a red badge saying "Deleted". Do not delete the activity.
-0.3 Remove the "Heart Rate Zone Distribution" and "Pace Zone Distribution" from the "Interactive Streams & Plot" box within an activity
-0.4 When I select an activity from "Time In Training Zones (Per Activity)" in the Fitness Tab, it doesn't match when I click on the same activity in the Activities tab, which is correct.
+0.1  **Ability:** to delete an activity
+0.2  **When:** resyncing, check if recent activities still exist on Strava. If the activity isnt on the list of 200, and is in the last 2 weeks, add a red badge saying "Deleted". Do not delete the activity.
+0.3  **Remove:** the "Heart Rate Zone Distribution" and "Pace Zone Distribution" from the "Interactive Streams & Plot" box within an activity
+0.4  **When:** I select an activity from "Time In Training Zones (Per Activity)" in the Fitness Tab, it doesn't match when I click on the same activity in the Activities tab, which is correct. 
 The "Time in Training Zones, "Heart Rate Zones" and "Pace Zones" do not match, Not generated, "Session average"
-0.5 Rename "70.3 (Cotswold)" to just "70.3" Also add a "Sprint" to the Triathlon Tab too. 26.2M, 13.1M, 10M, 10K & 5K too
+0.5 **Rename:** "70.3 (Cotswold)" to just "70.3" Also add a "Sprint" to the Triathlon Tab too. 26.2M, 13.1M, 10M, 10K & 5K too
 
 0.7. **Lap Display & Stream Overlay Markers:** Lap markers and split flags overlaid directly on the stream graph, with rolling averages for Power (NP), Pace, and Heart Rate resetting cleanly at lap demarcation points.
 0.8. **Editable Laps with True Data Overwrite:** In-depth lap editor with direct stream recalculation and permanent data overwrite for watch sensor corruptions.
