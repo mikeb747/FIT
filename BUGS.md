@@ -1,46 +1,14 @@
-# Bug log
-
-This log tracks confirmed behavior issues noted during code review. Items remain
-open until fixed and verified.
-
-## Open
-
-### High: Strava client secret is exposed in frontend code
-
-- **Location:** `src/utils/stravaOAuth.ts`; the default client secret is bundled
-  with the browser app and used during OAuth token exchange.
-- **Observed:** Anyone with access to the deployed app can inspect its frontend
-  code and retrieve the client secret.
-- **Current scope:** A single connection is sufficient during development, and
-  use of this code is currently limited to the developer. This exposure is
-  acknowledged for that development-only use.
-- **Expected before broader use:** Rotate the exposed secret and move OAuth code
-  exchange and secret handling to a server-side endpoint. Upgrade the Strava API
-  connection before allowing other users or a wider deployment.
-
-### Medium: Expired Strava access tokens are not refreshed
-
-- **Location:** `src/utils/stravaOAuth.ts` (token persistence); upload entry points
-  in `src/utils/stravaUpload.ts` and `src/App.tsx`.
-- **Observed:** OAuth saves the refresh token and access-token expiry, but uploads
-  use the saved access token without checking its expiry or refreshing it. The UI
-  can therefore continue to show a connection that can no longer upload.
-- **Expected:** Refresh an expired access token through the server, save the
-  returned access token, refresh token, and expiry, then retry the upload or
-  report a clear reconnection error.
-
-### Low: FIT set timeline can end before the workout end time
-
-- **Location:** `src/utils/fitGenerator.ts`, set timeline construction.
-- **Observed:** Time scaling includes each set's rest period, including the last
-  set, but a rest FIT record is emitted only between sets. The final rest is
-  therefore included in the scale but omitted from the generated timeline.
-- **Expected:** Scale against only the durations represented in the FIT timeline,
-  or otherwise ensure the generated timeline ends at the workout end time.
 
 ## Missing Features & Roadmap Backlog
-7. **Lap Display & Stream Overlay Markers:** Lap markers and split flags overlaid directly on the stream graph, with rolling averages for Power (NP), Pace, and Heart Rate resetting cleanly at lap demarcation points.
-8. **Editable Laps with True Data Overwrite:** In-depth lap editor with direct stream recalculation and permanent data overwrite for watch sensor corruptions.
+0.1 Ability to delete an activity
+0.2 When resyncing, check if recent activities still exist on Strava. If the activity isnt on the list of 200, and is in the last 2 weeks, add a red badge saying "Deleted". Do not delete the activity.
+0.3 Remove the "Heart Rate Zone Distribution" and "Pace Zone Distribution" from the "Interactive Streams & Plot" box within an activity
+0.4 When I select an activity from "Time In Training Zones (Per Activity)" in the Fitness Tab, it doesn't match when I click on the same activity in the Activities tab, which is correct.
+The "Time in Training Zones, "Heart Rate Zones" and "Pace Zones" do not match, Not generated, "Session average"
+0.5 Rename "70.3 (Cotswold)" to just "70.3" Also add a "Sprint" to the Triathlon Tab too. 26.2M, 13.1M, 10M, 10K & 5K too
+
+0.7. **Lap Display & Stream Overlay Markers:** Lap markers and split flags overlaid directly on the stream graph, with rolling averages for Power (NP), Pace, and Heart Rate resetting cleanly at lap demarcation points.
+0.8. **Editable Laps with True Data Overwrite:** In-depth lap editor with direct stream recalculation and permanent data overwrite for watch sensor corruptions.
 
 
 1. **Training Periodization Features:** Expanded periodization engine beyond the 0/3wk/4wk cycle models (macrocycle / mesocycle phase planning, base, build, peak, taper, race week).
