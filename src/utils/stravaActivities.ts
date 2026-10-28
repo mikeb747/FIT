@@ -1,3 +1,5 @@
+import { processActivitiesWithRenameRules } from './activityRenameRules';
+
 export interface StravaActivity {
   id: number | string;
   name: string;
@@ -1536,6 +1538,16 @@ export async function syncStravaActivitiesDelta(accessToken: string): Promise<St
     }
   }
 
+  // Auto-apply configured activity rename rules and sync corrected names to Strava
+  if (incoming.length > 0) {
+    try {
+      const renameRes = await processActivitiesWithRenameRules(incoming, accessToken, { syncToStrava: true });
+      incoming = renameRes.updatedActivities;
+    } catch (e) {
+      console.warn('Could not auto-rename incoming Strava activities:', e);
+    }
+  }
+
   // Check if recent activities (within the last 2 weeks) still exist on Strava.
   // If a previously cached activity from the last 2 weeks is not in the fetched 200 activities,
   // mark it as isDeleted = true to display a red "Deleted" badge without deleting the activity.
@@ -1638,6 +1650,15 @@ export async function fetchOlderStravaActivities(
         ...item,
         gear_id: item.gear_id || item.gear?.id || null,
       }));
+    }
+  }
+
+  if (olderData.length > 0) {
+    try {
+      const renameRes = await processActivitiesWithRenameRules(olderData, accessToken, { syncToStrava: false });
+      olderData = renameRes.updatedActivities;
+    } catch (e) {
+      console.warn('Could not auto-rename older Strava activities:', e);
     }
   }
 

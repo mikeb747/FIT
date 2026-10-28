@@ -329,6 +329,36 @@ app.get('/api/strava/activities/:activityId', async (req, res) => {
   }
 });
 
+// Update an individual activity (name, description, sport_type, etc.) on Strava
+app.put('/api/strava/activities/:activityId', async (req, res) => {
+  try {
+    const authHeader = req.headers.authorization;
+    if (!authHeader) {
+      return res.status(401).json({ error: 'Strava access token is required' });
+    }
+
+    const activityId = Number(req.params.activityId);
+    if (!Number.isSafeInteger(activityId) || activityId <= 0) {
+      return res.status(400).json({ error: 'A valid Strava activity ID is required' });
+    }
+
+    const stravaRes = await fetch(`https://www.strava.com/api/v3/activities/${activityId}`, {
+      method: 'PUT',
+      headers: {
+        Authorization: authHeader,
+        'Content-Type': 'application/json',
+        Accept: 'application/json',
+      },
+      body: JSON.stringify(req.body),
+    });
+
+    const data = await stravaRes.json();
+    return res.status(stravaRes.status).json(data);
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message || 'Error updating Strava activity' });
+  }
+});
+
 app.get('/api/strava/activities/:activityId/streams', async (req, res) => {
   try {
     const authHeader = req.headers.authorization;

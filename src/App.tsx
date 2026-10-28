@@ -804,6 +804,7 @@ export default function App() {
         garminConnected={garminConnected}
         onOpenGarminSync={() => setIsGarminSyncOpen(true)}
         onDisconnectGarmin={handleDisconnectGarmin}
+        onActivitiesUpdated={(updated) => setStravaActivities(updated)}
       />
 
       <StravaSettingsModal

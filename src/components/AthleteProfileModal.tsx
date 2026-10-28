@@ -57,6 +57,7 @@ import type { StravaActivity } from '../utils/stravaActivities';
 import { classifyActivity } from '../utils/stravaActivities';
 import { StravaIcon } from './StravaIcon';
 import { getCachedBikeNames, setCachedBikeName, resolveMissingBikeNames } from '../utils/stravaGear';
+import { ActivityRenameRulesSection } from './ActivityRenameRulesSection';
 
 const GarminTriangleIcon: React.FC<{ className?: string }> = ({ className = 'w-4 h-4' }) => (
   <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" className={className}>
@@ -102,6 +103,9 @@ interface AthleteProfileModalProps {
   garminConnected?: boolean;
   onOpenGarminSync?: () => void;
   onDisconnectGarmin?: () => void;
+
+  // Auto-rename sync update callback
+  onActivitiesUpdated?: (activities: StravaActivity[]) => void;
 }
 
 export const AthleteProfileModal: React.FC<AthleteProfileModalProps> = ({
@@ -130,6 +134,7 @@ export const AthleteProfileModal: React.FC<AthleteProfileModalProps> = ({
   garminConnected,
   onOpenGarminSync,
   onDisconnectGarmin,
+  onActivitiesUpdated,
 }) => {
   const [activeTab, setActiveTab] = useState<ProfileTab>('settings');
   const [savedFeedback, setSavedFeedback] = useState(false);
@@ -1395,6 +1400,14 @@ export const AthleteProfileModal: React.FC<AthleteProfileModalProps> = ({
                   </div>
                 )}
               </div>
+
+              {/* 4. Activity Name Auto-Rename Rules */}
+              <ActivityRenameRulesSection
+                activities={stravaActivities}
+                stravaToken={stravaToken}
+                theme={theme}
+                onActivitiesUpdated={onActivitiesUpdated}
+              />
             </div>
           )}
 
