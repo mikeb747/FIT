@@ -39,8 +39,7 @@ If you want live automated synchronization using your Garmin Personal API Key on
 2. Click **Create Application** &rarr; **Create Worker**.
 3. Replace the worker code with the following snippet:
 
-```javascript
-export default {
+```export default {
   async fetch(request) {
     // Handle CORS preflight
     if (request.method === "OPTIONS") {
@@ -68,7 +67,8 @@ export default {
 
     const responseHeaders = new Headers(response.headers);
     responseHeaders.set("Access-Control-Allow-Origin", "*");
-    responseHeaders.set("Access-Control-Allow-Methods": "GET, POST, OPTIONS");
+    // The colon here was changed to a comma
+    responseHeaders.set("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
 
     return new Response(response.body, {
       status: response.status,
