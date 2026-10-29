@@ -9,7 +9,7 @@
   - b. "New" badge moved flush to top-right corner (no top or right spacing, omitted if Ignored).
   - c. Kudos / Deleted badge moved flush to bottom-right corner (no bottom or right spacing).
   - d. TSS added flush to bottom-left corner (no bottom or left spacing).
-  5. Swimming activties 50m/100m/400m/1.9k/3.8k, 5k/10k?
+- [x] 5. Swimming activities 50m/100m/400m/1.9k/3.8k, 5k/10k performance readiness models.
 
 **Larger fixes**
 Removed the unpublished badge for now until we have the data we need to perform complex analysis.

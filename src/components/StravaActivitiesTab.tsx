@@ -34,6 +34,7 @@ import {
   getLastStravaRefreshTime,
   calculateActivityTSS,
 } from '../utils/stravaActivities';
+import { applyRenameRulesToName } from '../utils/activityRenameRules';
 import type { AthleteProfile } from '../types/athlete';
 import { StravaActivityModal } from './StravaActivityModal';
 
@@ -458,7 +459,7 @@ export const StravaActivitiesTab: React.FC<StravaActivitiesTabProps> = ({
                   <div className="flex items-start justify-between gap-2">
                     <div className="min-w-0 pr-12">
                       <h4 className="text-sm sm:text-base font-extrabold text-white group-hover:text-amber-400 transition-colors truncate">
-                        {act.name}
+                        {applyRenameRulesToName(act.name).newName}
                       </h4>
                       <div className="flex items-center gap-2 text-[11px] text-slate-400 mt-0.5">
                         <span>{formatActivityDate(act.start_date_local || act.start_date)}</span>

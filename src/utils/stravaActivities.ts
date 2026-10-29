@@ -1,4 +1,4 @@
-import { processActivitiesWithRenameRules } from './activityRenameRules';
+import { processActivitiesWithRenameRules, applyRenameRulesToActivities } from './activityRenameRules';
 
 export interface StravaActivity {
   id: number | string;
@@ -156,8 +156,9 @@ export function getCachedStravaActivitiesSnapshot(): StravaActivity[] | null {
 export function getCachedStravaActivities(): StravaActivity[] {
   const list = getCachedStravaActivitiesSnapshot() || [];
   const deletedIds = getDeletedActivityIds();
-  if (deletedIds.size === 0) return list;
-  return list.map((act) => ({
+  const withRules = applyRenameRulesToActivities(list);
+  if (deletedIds.size === 0) return withRules;
+  return withRules.map((act) => ({
     ...act,
     isDeleted: deletedIds.has(String(act.id)) || Boolean(act.isDeleted),
   }));
@@ -166,7 +167,8 @@ export function getCachedStravaActivities(): StravaActivity[] {
 export function saveCachedStravaActivities(activities: StravaActivity[]): void {
   if (typeof window === 'undefined') return;
   try {
-    localStorage.setItem(STRAVA_ACTIVITIES_CACHE_KEY, JSON.stringify(activities));
+    const cleaned = applyRenameRulesToActivities(activities);
+    localStorage.setItem(STRAVA_ACTIVITIES_CACHE_KEY, JSON.stringify(cleaned));
   } catch (err) {
     console.warn('[Strava Cache] localStorage quota warning:', err);
   }
@@ -1234,7 +1236,7 @@ function openStravaActivityDatabase(): Promise<IDBDatabase> {
   });
 }
 
-async function updateStravaActivityRecord(
+export async function updateStravaActivityRecord(
   activityId: number | string,
   update: (record: StravaActivityDetailsRecord) => StravaActivityDetailsRecord
 ): Promise<StravaActivityDetailsRecord> {
@@ -1577,9 +1579,10 @@ export async function syncStravaActivitiesDelta(accessToken: string): Promise<St
   }
 
   const merged = mergeStravaActivities(existingActivities, incoming);
-  saveCachedStravaActivities(merged);
+  const finalCleaned = applyRenameRulesToActivities(merged);
+  saveCachedStravaActivities(finalCleaned);
   setLastStravaRefreshTime(Date.now());
-  return merged;
+  return finalCleaned;
 }
 
 /**
@@ -1663,10 +1666,11 @@ export async function fetchOlderStravaActivities(
   }
 
   const merged = mergeStravaActivities(existingActivities, olderData);
-  saveCachedStravaActivities(merged);
+  const finalCleaned = applyRenameRulesToActivities(merged);
+  saveCachedStravaActivities(finalCleaned);
 
   return {
-    activities: merged,
+    activities: finalCleaned,
     hasMore: olderData.length >= perPage,
     newCount: olderData.length,
   };

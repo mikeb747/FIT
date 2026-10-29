@@ -56,6 +56,7 @@ import { StravaStreamPlot } from './StravaStreamPlot';
 import { ActivityZoneChart } from './ActivityZoneChart';
 import { ActivityCalibrationModal } from './ActivityCalibrationModal';
 import { appendActivityToTrainingLog } from '../utils/googleSheets';
+import { applyRenameRulesToName } from '../utils/activityRenameRules';
 
 interface StravaActivityModalProps {
   isOpen: boolean;
@@ -369,7 +370,7 @@ export const StravaActivityModal: React.FC<StravaActivityModalProps> = ({
             </div>
             <div className="min-w-0">
               <h3 className="text-base sm:text-lg font-black text-white leading-tight truncate">
-                {activity.name}
+                {applyRenameRulesToName(activity.name).newName}
               </h3>
               <p className="text-xs text-slate-400 mt-1">
                 {formatActivityDate(activity.start_date_local || activity.start_date)}

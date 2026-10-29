@@ -40,6 +40,8 @@ import {
   RUNNING_MODEL_PROFILES,
   CyclingDistanceModel,
   CYCLING_MODEL_PROFILES,
+  SwimmingDistanceModel,
+  SWIMMING_MODEL_PROFILES,
 } from '../utils/fitnessEngine';
 import { WeeklyMileageChart } from './WeeklyMileageChart';
 import { ActivityZoneChart } from './ActivityZoneChart';
@@ -83,6 +85,7 @@ export const FitnessTab: React.FC<FitnessTabProps> = ({
   const [selectedModel, setSelectedModel] = useState<TriathlonDistanceModel>('middle_70_3');
   const [selectedRunningModel, setSelectedRunningModel] = useState<RunningDistanceModel>('ten_miler_10');
   const [selectedCyclingModel, setSelectedCyclingModel] = useState<CyclingDistanceModel>('fifty_m_50');
+  const [selectedSwimmingModel, setSelectedSwimmingModel] = useState<SwimmingDistanceModel>('swim_1_9k');
   const [timelineLookback, setTimelineLookback] = useState<number>(60); // 30, 60, 90 days
   const [selectedChartDiscipline, setSelectedChartDiscipline] = useState<'combined' | 'swim' | 'bike' | 'run'>('combined');
   const [hoveredRecord, setHoveredRecord] = useState<DailyFitnessRecord | null>(null);
@@ -178,12 +181,13 @@ export const FitnessTab: React.FC<FitnessTabProps> = ({
     }
 
     if (selectedSport === 'swim') {
-      const targetSwim = fitnessIndexResult.weights.targetSwimCtl || 35;
+      const swimProfile = SWIMMING_MODEL_PROFILES[selectedSwimmingModel];
+      const targetSwim = swimProfile.targetSwimCtl;
       const score = Math.min(100, Math.round((latestRecord.swimCtl / targetSwim) * 100));
       return {
         title: 'Swimming Performance Readiness',
         headerTitle: 'Swimming Readiness & Training Load',
-        subtitle: 'Swimming 42d sCTL, 7d sATL, Form (sTSB), CSS pace, and consistency.',
+        subtitle: `${swimProfile.description}. Swimming 42d sCTL, 7d sATL, Form (sTSB), CSS pace, and consistency.`,
         score,
         target: targetSwim,
         ctl: latestRecord.swimCtl,
@@ -191,7 +195,7 @@ export const FitnessTab: React.FC<FitnessTabProps> = ({
         tsb: latestRecord.swimTsb,
         label: `${latestRecord.swimCtl} / ${targetSwim} sCTL Target`,
         formula: `sCTL (42d) / Target (${targetSwim} sCTL)`,
-        badge: 'Swimming Focus',
+        badge: swimProfile.label,
       };
     }
 
@@ -209,7 +213,7 @@ export const FitnessTab: React.FC<FitnessTabProps> = ({
       formula: `S^${fitnessIndexResult.weights.swimWeight} · B^${fitnessIndexResult.weights.bikeWeight} · R^${fitnessIndexResult.weights.runWeight}`,
       badge: fitnessIndexResult.weights.label,
     };
-  }, [selectedSport, selectedRunningModel, selectedCyclingModel, latestRecord, fitnessIndexResult]);
+  }, [selectedSport, selectedRunningModel, selectedCyclingModel, selectedSwimmingModel, latestRecord, fitnessIndexResult]);
 
   // Filter activities matching the sport for the Activity Zone Analyzer
   const relevantActivitiesForZones = useMemo(() => {
@@ -493,6 +497,35 @@ export const FitnessTab: React.FC<FitnessTabProps> = ({
                       : 'text-slate-400 hover:text-white'
                   }`}
                   title={CYCLING_MODEL_PROFILES[m.id].description}
+                >
+                  {m.label}
+                </button>
+              ))}
+            </div>
+          )}
+
+          {/* Swimming Performance Readiness Presets (50m down to 10k) */}
+          {selectedSport === 'swim' && (
+            <div className="flex items-center gap-1 p-1 rounded-xl bg-slate-950/60 border border-slate-800 text-xs">
+              {[
+                { id: 'swim_50m' as const, label: '50m' },
+                { id: 'swim_100m' as const, label: '100m' },
+                { id: 'swim_400m' as const, label: '400m' },
+                { id: 'swim_1_9k' as const, label: '1.9k' },
+                { id: 'swim_3_8k' as const, label: '3.8k' },
+                { id: 'swim_5k' as const, label: '5k' },
+                { id: 'swim_10k' as const, label: '10k' },
+              ].map((m) => (
+                <button
+                  key={m.id}
+                  type="button"
+                  onClick={() => setSelectedSwimmingModel(m.id)}
+                  className={`px-2 py-1.5 rounded-lg font-bold transition-all cursor-pointer text-xs whitespace-nowrap ${
+                    selectedSwimmingModel === m.id
+                      ? 'bg-slate-800 text-amber-400 border border-amber-500/40 shadow-xs'
+                      : 'text-slate-400 hover:text-white'
+                  }`}
+                  title={SWIMMING_MODEL_PROFILES[m.id].description}
                 >
                   {m.label}
                 </button>

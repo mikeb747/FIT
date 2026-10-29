@@ -21,6 +21,7 @@ import {
   getActivityRenameRules,
   saveActivityRenameRules,
   applyRenameRulesToName,
+  applyRenameRulesToActivities,
   processActivitiesWithRenameRules,
   DEFAULT_ACTIVITY_RENAME_RULES,
 } from '../utils/activityRenameRules';
@@ -61,6 +62,17 @@ export const ActivityRenameRulesSection: React.FC<ActivityRenameRulesSectionProp
   const handleUpdateRules = (updated: ActivityRenameRule[]) => {
     setRules(updated);
     saveActivityRenameRules(updated);
+
+    if (activities && activities.length > 0) {
+      const renamed = applyRenameRulesToActivities(activities, updated);
+      saveCachedStravaActivities(renamed);
+      onActivitiesUpdated?.(renamed);
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(
+          new CustomEvent('fit_track_activities_updated', { detail: { activities: renamed } })
+        );
+      }
+    }
   };
 
   const handleToggleRule = (id: string) => {
@@ -159,9 +171,17 @@ export const ActivityRenameRulesSection: React.FC<ActivityRenameRulesSectionProp
         forceAll: true,
       });
 
-      // Save updated activities in cache
-      saveCachedStravaActivities(result.updatedActivities);
-      onActivitiesUpdated?.(result.updatedActivities);
+      // Save updated activities in cache and propagate locally
+      const freshUpdated = [...result.updatedActivities];
+      saveCachedStravaActivities(freshUpdated);
+      onActivitiesUpdated?.(freshUpdated);
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(
+          new CustomEvent('fit_track_activities_updated', {
+            detail: { activities: freshUpdated },
+          })
+        );
+      }
 
       setSyncResult({
         renamed: result.renamedCount,

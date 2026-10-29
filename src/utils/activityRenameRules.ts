@@ -1,4 +1,5 @@
 import type { StravaActivity } from './stravaActivities';
+import { updateStravaActivityRecord, saveCachedStravaActivities } from './stravaActivities';
 
 export interface ActivityRenameRule {
   id: string;
@@ -170,6 +171,32 @@ export function applyRenameRulesToName(
 }
 
 /**
+ * Transforms an array of activities by applying enabled rename rules to each activity's name.
+ */
+export function applyRenameRulesToActivities(
+  activities: StravaActivity[],
+  rules: ActivityRenameRule[] = getActivityRenameRules()
+): StravaActivity[] {
+  if (!activities || !Array.isArray(activities) || activities.length === 0) return activities || [];
+  const hasActiveRules = rules.some((r) => r.isEnabled);
+  if (!hasActiveRules) return activities;
+
+  let anyChanged = false;
+  const transformed = activities.map((act) => {
+    if (!act || !act.name) return act;
+    const { newName, changed } = applyRenameRulesToName(act.name, rules);
+    if (!changed) return act;
+    anyChanged = true;
+    return {
+      ...act,
+      name: newName,
+    };
+  });
+
+  return anyChanged ? transformed : activities;
+}
+
+/**
  * Updates an activity name on Strava via PUT /api/v3/activities/:id.
  */
 export async function updateStravaActivityName(
@@ -286,6 +313,14 @@ export async function processActivitiesWithRenameRules(
         }
       }
 
+      // Update local IndexedDB activity details record so modal and analytics also reflect the new name
+      if (typeof window !== 'undefined') {
+        updateStravaActivityRecord(act.id, (rec: any) => ({
+          ...rec,
+          activity: rec.activity ? { ...rec.activity, name: newName } : rec.activity,
+        })).catch(() => {});
+      }
+
       changes.push({
         id: act.id,
         oldName,
@@ -293,6 +328,18 @@ export async function processActivitiesWithRenameRules(
         syncedToStrava: synced,
         error: syncError,
       });
+    }
+  }
+
+  // Ensure local cache is updated and notify listeners
+  if (renamedCount > 0) {
+    saveCachedStravaActivities(updatedActivities);
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(
+        new CustomEvent('fit_track_activities_updated', {
+          detail: { activities: updatedActivities },
+        })
+      );
     }
   }
 

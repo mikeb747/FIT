@@ -201,6 +201,78 @@ export const CYCLING_MODEL_PROFILES: Record<CyclingDistanceModel, CyclingTargetP
   },
 };
 
+// -------------------------------------------------------------
+// Swimming Performance Readiness Models (50m to 10k)
+// -------------------------------------------------------------
+export type SwimmingDistanceModel =
+  | 'swim_50m'
+  | 'swim_100m'
+  | 'swim_400m'
+  | 'swim_1_9k'
+  | 'swim_3_8k'
+  | 'swim_5k'
+  | 'swim_10k';
+
+export interface SwimmingTargetProfile {
+  id: SwimmingDistanceModel;
+  label: string;
+  shortLabel: string;
+  targetSwimCtl: number;
+  description: string;
+}
+
+export const SWIMMING_MODEL_PROFILES: Record<SwimmingDistanceModel, SwimmingTargetProfile> = {
+  swim_50m: {
+    id: 'swim_50m',
+    label: '50m Sprint',
+    shortLabel: '50m',
+    targetSwimCtl: 15,
+    description: '50m explosive sprint sharpness and anaerobic swim power',
+  },
+  swim_100m: {
+    id: 'swim_100m',
+    label: '100m Freestyle',
+    shortLabel: '100m',
+    targetSwimCtl: 22,
+    description: '100m all-out sprint endurance and Critical Swim Speed (CSS) sharpness',
+  },
+  swim_400m: {
+    id: 'swim_400m',
+    label: '400m / CSS Test',
+    shortLabel: '400m',
+    targetSwimCtl: 30,
+    description: '400m middle-distance threshold speed endurance (standard CSS test benchmark)',
+  },
+  swim_1_9k: {
+    id: 'swim_1_9k',
+    label: '1.9k (70.3 Swim)',
+    shortLabel: '1.9k',
+    targetSwimCtl: 38,
+    description: '1.9km Half IRONMAN / 70.3 open water middle-distance swim endurance',
+  },
+  swim_3_8k: {
+    id: 'swim_3_8k',
+    label: '3.8k (Ironman Swim)',
+    shortLabel: '3.8k',
+    targetSwimCtl: 48,
+    description: '3.8km Full IRONMAN endurance swim preparation and pacing efficiency',
+  },
+  swim_5k: {
+    id: 'swim_5k',
+    label: '5k Marathon Swim',
+    shortLabel: '5k',
+    targetSwimCtl: 58,
+    description: '5km open water marathon swim volume and aerobic stamina',
+  },
+  swim_10k: {
+    id: 'swim_10k',
+    label: '10k Marathon Swim',
+    shortLabel: '10k',
+    targetSwimCtl: 70,
+    description: '10km ultra-marathon open water swim volume and continuous aerobic load',
+  },
+};
+
 /**
  * Computes daily TSS records and 42d CTL / 7d ATL / TSB running logs across Swim, Bike, Run and Combined.
  */

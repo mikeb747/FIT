@@ -307,6 +307,17 @@ export default function App() {
     }
   }, [displayDensity]);
 
+  // Synchronize activities whenever rename rules or batch processing updates local activities
+  useEffect(() => {
+    const handleUpdate = (e: any) => {
+      if (e.detail?.activities && Array.isArray(e.detail.activities)) {
+        setStravaActivities([...e.detail.activities]);
+      }
+    };
+    window.addEventListener('fit_track_activities_updated', handleUpdate);
+    return () => window.removeEventListener('fit_track_activities_updated', handleUpdate);
+  }, []);
+
   // Handle incoming Strava OAuth redirect code
   useEffect(() => {
     checkAndProcessOAuthRedirect().then((result) => {
