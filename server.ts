@@ -474,18 +474,101 @@ async function exchangeGarminApiKeyForToken(
       headers: {
         'Authorization': `ApiKey ${cleanKey}`,
         'Content-Type': 'application/json',
+        'Accept': 'application/json, text/plain, */*',
       },
     });
 
-    const data = await response.json().catch(() => ({}));
+    const responseBody = await response.text();
+    const contentType = response.headers.get('content-type') || 'unknown content type';
+    let data: unknown;
+    try {
+      data = responseBody ? JSON.parse(responseBody) : undefined;
+    } catch {
+      data = undefined;
+    }
+
+    const responseData =
+      data && typeof data === 'object' && !Array.isArray(data)
+        ? (data as Record<string, unknown>)
+        : undefined;
+
     if (!response.ok) {
-      const errMsg = data?.message || data?.error || `Garmin token exchange failed (${response.status} ${response.statusText})`;
+      const errMsg =
+        (typeof responseData?.message === 'string' && responseData.message) ||
+        (typeof responseData?.error === 'string' && responseData.error) ||
+        (typeof responseData?.error_description === 'string' && responseData.error_description) ||
+        `Garmin token exchange failed (${response.status} ${response.statusText}; ${contentType})`;
       return { success: false, error: errMsg };
     }
 
-    const token = data.access_token || data.accessToken || data.token;
+    // 1. Try finding token in standard JSON candidates
+    let token = [
+      responseData?.access_token,
+      responseData?.accessToken,
+      responseData?.token,
+      responseData?.bearer_token,
+      responseData?.jwt,
+      (responseData?.data as Record<string, unknown> | undefined)?.access_token,
+      (responseData?.data as Record<string, unknown> | undefined)?.token,
+    ].find(
+      (candidate): candidate is string =>
+        typeof candidate === 'string' && candidate.trim().length > 0
+    );
+
+    // 2. If data parsed as a primitive string
+    if (!token && typeof data === 'string' && data.trim().length > 0) {
+      token = data.trim();
+    }
+
+    // 3. Accept non-JSON returns: URL-encoded query string (e.g. access_token=...&token_type=bearer)
+    if (!token && responseBody.trim()) {
+      try {
+        const params = new URLSearchParams(responseBody.trim());
+        const paramToken =
+          params.get('access_token') ||
+          params.get('accessToken') ||
+          params.get('token') ||
+          params.get('oauth_token') ||
+          params.get('bearer_token');
+        if (paramToken && paramToken.trim()) {
+          token = paramToken.trim();
+        }
+      } catch {}
+    }
+
+    // 4. Accept non-JSON returns: key-value pattern (e.g. access_token: xyz or access_token = xyz)
+    if (!token && responseBody.trim()) {
+      const kvMatch = responseBody.match(/(?:access_token|accessToken|bearer_token|oauth_token|token)\s*[:=]\s*["']?([A-Za-z0-9_\-\.~]+)["']?/i);
+      if (kvMatch && kvMatch[1]) {
+        token = kvMatch[1].trim();
+      }
+    }
+
+    // 5. Accept non-JSON returns: plain text token (e.g. raw JWT "eyJ...", UUID, or alphanumeric string without HTML)
+    if (!token && responseBody.trim()) {
+      const isHtml = /<!DOCTYPE|<html|<head|<body|<xml/i.test(responseBody);
+      const cleanText = responseBody.trim().replace(/^["']|["']$/g, '');
+      if (!isHtml && cleanText.length >= 10 && !/\s/.test(cleanText)) {
+        token = cleanText;
+      }
+    }
+
     if (!token) {
-      return { success: false, error: 'Garmin token endpoint did not return access_token in response.' };
+      const responseShape = Array.isArray(data)
+        ? 'JSON array'
+        : responseData
+          ? `JSON object with fields: ${Object.keys(responseData).join(', ') || '(none)'}`
+          : data === null
+            ? 'JSON null'
+            : data !== undefined
+              ? `JSON ${typeof data}`
+              : responseBody.trim()
+                ? 'non-JSON response'
+                : 'empty response';
+      return {
+        success: false,
+        error: `Garmin returned HTTP ${response.status} without a recognized access token (${contentType}; ${responseShape}).`,
+      };
     }
 
     return { success: true, accessToken: token };
@@ -638,6 +721,23 @@ app.post('/api/garmin/sync-multiweek', async (req, res) => {
           }
         };
 
+        // 1. Request Sleep first (GARMIN.md Section 0.6)
+        const sleepResponse = await requestJson(sleepUrl);
+        const sleepRoot =
+          sleepResponse.payload && typeof sleepResponse.payload === 'object'
+            ? sleepResponse.payload
+            : {};
+        const sleepData = sleepRoot.dailySleepDTO || sleepRoot;
+        const sleepSeconds = Number(
+          sleepData.sleepTimeSeconds ?? sleepData.durationInSeconds
+        );
+        const sleepScore = Number(
+          sleepData.sleepScores?.overall?.value ?? sleepData.sleepScore
+        );
+        const hasSleepDuration =
+          Number.isFinite(sleepSeconds) && sleepSeconds > 0;
+
+        // 2. Request Daily Summary second (heart rate, steps, calories)
         const summaryResponse = await requestJson(summaryUrl);
         const summaryRoot =
           summaryResponse.payload && typeof summaryResponse.payload === 'object'
@@ -669,12 +769,15 @@ app.post('/api/garmin/sync-multiweek', async (req, res) => {
         );
         const heartRate = readNumber('heartRate', 'averageHeartRate') ?? restingHeartRate;
         const hrvRmssd = readNumber('lastNightAvg', 'averageHRV', 'hrvRmssd', 'overnightHrv');
+
         const summaryCheck = (received: boolean, value: string | number | undefined) => ({
           received: summaryResponse.ok && received,
           status: summaryResponse.status,
           value: summaryResponse.ok ? value : undefined,
           message: summaryResponse.message || 'HTTP response received, but this metric was not present.',
         });
+
+        // Diagnostic checks list: Sleep first, then Heart rate, Steps, Calories
         const checks: {
           metric: string;
           received: boolean;
@@ -682,6 +785,21 @@ app.post('/api/garmin/sync-multiweek', async (req, res) => {
           value?: string | number;
           message: string;
         }[] = [
+          {
+            metric: 'Sleep',
+            received: sleepResponse.ok && hasSleepDuration,
+            status: sleepResponse.status,
+            value: hasSleepDuration
+              ? `${Math.round(sleepSeconds / 60)} min${Number.isFinite(sleepScore) && sleepScore > 0 ? `; score ${sleepScore}` : ''}`
+              : undefined,
+            message:
+              sleepResponse.message ||
+              'HTTP response received, but sleep duration was not present.',
+          },
+          {
+            metric: 'Heart rate',
+            ...summaryCheck(heartRate !== undefined, heartRate === undefined ? undefined : `${heartRate} bpm`),
+          },
           {
             metric: 'Steps',
             ...summaryCheck(steps !== undefined, steps),
@@ -695,37 +813,7 @@ app.post('/api/garmin/sync-multiweek', async (req, res) => {
                 : `${calories} kcal`
             ),
           },
-          {
-            metric: 'Heart rate',
-            ...summaryCheck(heartRate !== undefined, heartRate === undefined ? undefined : `${heartRate} bpm`),
-          },
         ];
-
-        const sleepResponse = await requestJson(sleepUrl);
-        const sleepRoot =
-          sleepResponse.payload && typeof sleepResponse.payload === 'object'
-            ? sleepResponse.payload
-            : {};
-        const sleepData = sleepRoot.dailySleepDTO || sleepRoot;
-        const sleepSeconds = Number(
-          sleepData.sleepTimeSeconds ?? sleepData.durationInSeconds
-        );
-        const sleepScore = Number(
-          sleepData.sleepScores?.overall?.value ?? sleepData.sleepScore
-        );
-        const hasSleepDuration =
-          Number.isFinite(sleepSeconds) && sleepSeconds > 0;
-        checks.push({
-          metric: 'Sleep',
-          received: sleepResponse.ok && hasSleepDuration,
-          status: sleepResponse.status,
-          value: hasSleepDuration
-            ? `${Math.round(sleepSeconds / 60)} min${Number.isFinite(sleepScore) && sleepScore > 0 ? `; score ${sleepScore}` : ''}`
-            : undefined,
-          message:
-            sleepResponse.message ||
-            'HTTP response received, but sleep duration was not present.',
-        });
 
         const sleepMinutes = hasSleepDuration ? Math.round(sleepSeconds / 60) : undefined;
         const logs =

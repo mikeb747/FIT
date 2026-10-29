@@ -51,6 +51,7 @@ interface StravaActivitiesTabProps {
   isGoogleConnected: boolean;
   googleUserEmail?: string | null;
   googleSheetUrl?: string | null;
+  theme?: 'dark' | 'light';
   onRefresh: () => void;
   onLoadMore: () => void;
   onConnectGoogle: () => void;
@@ -87,18 +88,18 @@ function formatActivityDate(dateString: string): string {
   }
 }
 
-function getCategoryIcon(category: ActivityCategory, className = 'w-5 h-5') {
+function getCategoryIcon(category: ActivityCategory, className = 'w-5 h-5', isLight = false) {
   switch (category) {
     case 'Swim':
-      return <Waves className={`${className} text-sky-400`} />;
+      return <Waves className={`${className} ${isLight ? 'text-sky-600' : 'text-sky-400'}`} />;
     case 'Bike':
-      return <Bike className={`${className} text-orange-400`} />;
+      return <Bike className={`${className} ${isLight ? 'text-amber-600' : 'text-orange-400'}`} />;
     case 'Run':
-      return <Footprints className={`${className} text-amber-400`} />;
+      return <Footprints className={`${className} ${isLight ? 'text-amber-700' : 'text-amber-400'}`} />;
     case 'Gym':
-      return <Dumbbell className={`${className} text-emerald-400`} />;
+      return <Dumbbell className={`${className} ${isLight ? 'text-emerald-600' : 'text-emerald-400'}`} />;
     default:
-      return <Activity className={`${className} text-purple-400`} />;
+      return <Activity className={`${className} ${isLight ? 'text-purple-600' : 'text-purple-400'}`} />;
   }
 }
 
@@ -126,6 +127,7 @@ export const StravaActivitiesTab: React.FC<StravaActivitiesTabProps> = ({
   isGoogleConnected,
   googleUserEmail,
   googleSheetUrl,
+  theme = 'dark',
   onRefresh,
   onLoadMore,
   onConnectGoogle,
@@ -135,6 +137,7 @@ export const StravaActivitiesTab: React.FC<StravaActivitiesTabProps> = ({
   onOpenAthleteProfile,
   onDeleteActivity,
 }) => {
+  const isLight = theme === 'light';
   const [selectedCategory, setSelectedCategory] = useState<ActivityFilterCategory>('All');
   const [activeModalActivity, setActiveModalActivity] = useState<StravaActivity | null>(null);
 
@@ -192,16 +195,36 @@ export const StravaActivitiesTab: React.FC<StravaActivitiesTabProps> = ({
       {/* ========================================================= */}
       {/* DUAL CONNECTION STATUS BOX: STRAVA (LEFT) | GOOGLE (RIGHT) */}
       {/* ========================================================= */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-3 bg-slate-900 border border-slate-800 rounded-2xl p-3.5 sm:p-4 shadow-sm">
+      <div
+        className={`grid grid-cols-1 md:grid-cols-2 gap-3 rounded-2xl p-3.5 sm:p-4 shadow-sm border ${
+          isLight
+            ? 'bg-white border-slate-200 text-slate-900 shadow-xs'
+            : 'bg-slate-900 border-slate-800 text-white'
+        }`}
+      >
         {/* Left Side: Strava Connection Status */}
-        <div className="flex items-center justify-between gap-3 pr-0 md:pr-3 md:border-r md:border-slate-800/80">
+        <div
+          className={`flex items-center justify-between gap-3 pr-0 md:pr-3 md:border-r ${
+            isLight ? 'md:border-slate-200' : 'md:border-slate-800/80'
+          }`}
+        >
           <div className="flex items-center gap-3 min-w-0">
-            <div className="w-10 h-10 rounded-xl bg-[#FC5200]/20 border border-[#FC5200]/30 flex items-center justify-center shrink-0">
+            <div
+              className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 border ${
+                isLight
+                  ? 'bg-[#FC5200]/10 border-[#FC5200]/25'
+                  : 'bg-[#FC5200]/20 border-[#FC5200]/30'
+              }`}
+            >
               <StravaIcon className="w-5 h-5" />
             </div>
             <div className="min-w-0">
               <div className="flex items-center gap-2">
-                <span className="text-xs sm:text-sm font-extrabold text-white truncate">
+                <span
+                  className={`text-xs sm:text-sm font-extrabold truncate ${
+                    isLight ? 'text-slate-900' : 'text-white'
+                  }`}
+                >
                   {athleteName || 'Strava Athlete'}
                 </span>
                 <span className="inline-flex items-center gap-1 text-[10px] font-bold text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-2 py-0.5 rounded-full shrink-0">
@@ -209,7 +232,11 @@ export const StravaActivitiesTab: React.FC<StravaActivitiesTabProps> = ({
                   Connected
                 </span>
               </div>
-              <p className="text-[11px] text-slate-400 mt-0.5 truncate">
+              <p
+                className={`text-[11px] mt-0.5 truncate ${
+                  isLight ? 'text-slate-500' : 'text-slate-400'
+                }`}
+              >
                 {lastRefreshFormatted ? `Refreshed ${lastRefreshFormatted}` : 'Live Strava feed'}
               </p>
             </div>
@@ -219,7 +246,11 @@ export const StravaActivitiesTab: React.FC<StravaActivitiesTabProps> = ({
             type="button"
             onClick={onRefresh}
             disabled={loading}
-            className="px-2.5 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer shrink-0 disabled:opacity-50"
+            className={`px-2.5 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer shrink-0 disabled:opacity-50 border ${
+              isLight
+                ? 'bg-slate-100 hover:bg-slate-200 text-slate-700 hover:text-slate-900 border-slate-200'
+                : 'bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white border-slate-700'
+            }`}
             title="Refresh activities (smart delta sync)"
           >
             <RotateCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin text-amber-400' : ''}`} />
@@ -228,14 +259,28 @@ export const StravaActivitiesTab: React.FC<StravaActivitiesTabProps> = ({
         </div>
 
         {/* Right Side: Google Sheets Connection Status */}
-        <div className="flex items-center justify-between gap-3 pt-3 md:pt-0 border-t md:border-t-0 border-slate-800/80">
+        <div
+          className={`flex items-center justify-between gap-3 pt-3 md:pt-0 border-t md:border-t-0 ${
+            isLight ? 'border-slate-200' : 'border-slate-800/80'
+          }`}
+        >
           <div className="flex items-center gap-3 min-w-0">
-            <div className="w-10 h-10 rounded-xl bg-emerald-500/15 border border-emerald-500/25 flex items-center justify-center shrink-0">
+            <div
+              className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 border ${
+                isLight
+                  ? 'bg-emerald-500/10 border-emerald-500/25'
+                  : 'bg-emerald-500/15 border-emerald-500/25'
+              }`}
+            >
               <FileSpreadsheet className="w-5 h-5 text-emerald-400" />
             </div>
             <div className="min-w-0">
               <div className="flex items-center gap-2">
-                <span className="text-xs sm:text-sm font-extrabold text-white truncate">
+                <span
+                  className={`text-xs sm:text-sm font-extrabold truncate ${
+                    isLight ? 'text-slate-900' : 'text-white'
+                  }`}
+                >
                   {isGoogleConnected ? 'Google Sheets' : 'Google Account'}
                 </span>
                 {isGoogleConnected ? (
@@ -244,12 +289,22 @@ export const StravaActivitiesTab: React.FC<StravaActivitiesTabProps> = ({
                     Connected
                   </span>
                 ) : (
-                  <span className="text-[10px] font-bold text-slate-400 bg-slate-800 px-2 py-0.5 rounded-full shrink-0">
+                  <span
+                    className={`text-[10px] font-bold px-2 py-0.5 rounded-full shrink-0 ${
+                      isLight
+                        ? 'text-slate-600 bg-slate-100 border border-slate-200'
+                        : 'text-slate-400 bg-slate-800'
+                    }`}
+                  >
                     Not Linked
                   </span>
                 )}
               </div>
-              <p className="text-[11px] text-slate-400 mt-0.5 truncate">
+              <p
+                className={`text-[11px] mt-0.5 truncate ${
+                  isLight ? 'text-slate-500' : 'text-slate-400'
+                }`}
+              >
                 {isGoogleConnected ? (
                   googleSheetUrl ? (
                     <a
@@ -313,7 +368,13 @@ export const StravaActivitiesTab: React.FC<StravaActivitiesTabProps> = ({
       {/* ========================================================= */}
       {/* CATEGORY FILTER TABS: All, Swim, Bike, Run, Gym (EXACT ORDER) */}
       {/* ========================================================= */}
-      <div className="inline-flex items-center rounded-xl bg-slate-950 border border-slate-800 overflow-x-auto scrollbar-none divide-x-2 divide-slate-700/80 shadow-xs max-w-full">
+      <div
+        className={`inline-flex items-center rounded-xl border overflow-x-auto scrollbar-none divide-x-2 shadow-xs max-w-full ${
+          isLight
+            ? 'bg-slate-100 border-slate-200 divide-slate-200'
+            : 'bg-slate-950 border-slate-800 divide-slate-700/80'
+        }`}
+      >
         {(['All', 'Swim', 'Bike', 'Run', 'Gym'] as const).map((cat) => {
           const count = categoryCounts[cat] || 0;
           const isActive = selectedCategory === cat;
@@ -324,18 +385,36 @@ export const StravaActivitiesTab: React.FC<StravaActivitiesTabProps> = ({
               onClick={() => setSelectedCategory(cat)}
               className={`px-3 py-1.5 text-xs font-bold whitespace-nowrap flex items-center gap-1.5 transition-all cursor-pointer ${
                 isActive
-                  ? 'bg-amber-500 text-slate-950 font-black shadow-xs'
+                  ? isLight
+                    ? 'bg-amber-500 text-white font-black shadow-xs'
+                    : 'bg-amber-500 text-slate-950 font-black shadow-xs'
+                  : isLight
+                  ? 'bg-white hover:bg-slate-50 text-slate-700 hover:text-slate-900'
                   : 'bg-slate-950 hover:bg-slate-900 text-slate-400 hover:text-white'
               }`}
             >
-              {cat === 'Swim' && <Waves className="w-3.5 h-3.5 text-sky-400" />}
-              {cat === 'Bike' && <Bike className="w-3.5 h-3.5 text-orange-400" />}
-              {cat === 'Run' && <Footprints className="w-3.5 h-3.5 text-amber-400" />}
-              {cat === 'Gym' && <Dumbbell className="w-3.5 h-3.5 text-emerald-400" />}
+              {cat === 'Swim' && (
+                <Waves className={`w-3.5 h-3.5 ${isLight && !isActive ? 'text-sky-600' : 'text-sky-400'}`} />
+              )}
+              {cat === 'Bike' && (
+                <Bike className={`w-3.5 h-3.5 ${isLight && !isActive ? 'text-amber-600' : 'text-orange-400'}`} />
+              )}
+              {cat === 'Run' && (
+                <Footprints className={`w-3.5 h-3.5 ${isLight && !isActive ? 'text-amber-700' : 'text-amber-400'}`} />
+              )}
+              {cat === 'Gym' && (
+                <Dumbbell className={`w-3.5 h-3.5 ${isLight && !isActive ? 'text-emerald-600' : 'text-emerald-400'}`} />
+              )}
               <span>{cat}</span>
               <span
                 className={`text-[10px] px-1.5 py-0.2 rounded-full font-mono ${
-                  isActive ? 'bg-slate-950/20 text-slate-950 font-black' : 'bg-slate-800 text-slate-400'
+                  isActive
+                    ? isLight
+                      ? 'bg-white/20 text-white font-black'
+                      : 'bg-slate-950/20 text-slate-950 font-black'
+                    : isLight
+                    ? 'bg-slate-100 text-slate-700 border border-slate-200'
+                    : 'bg-slate-800 text-slate-400'
                 }`}
               >
                 {count}
@@ -351,16 +430,18 @@ export const StravaActivitiesTab: React.FC<StravaActivitiesTabProps> = ({
           {[1, 2, 3].map((i) => (
             <div
               key={i}
-              className="bg-slate-900 border border-slate-800 rounded-2xl p-4 animate-pulse flex flex-col gap-3"
+              className={`border rounded-2xl p-4 animate-pulse flex flex-col gap-3 ${
+                isLight ? 'bg-white border-slate-200' : 'bg-slate-900 border-slate-800'
+              }`}
             >
               <div className="flex items-center justify-between">
-                <div className="h-4 bg-slate-800 rounded w-1/3" />
-                <div className="h-4 bg-slate-800 rounded w-1/5" />
+                <div className={`h-4 rounded w-1/3 ${isLight ? 'bg-slate-200' : 'bg-slate-800'}`} />
+                <div className={`h-4 rounded w-1/5 ${isLight ? 'bg-slate-200' : 'bg-slate-800'}`} />
               </div>
-              <div className="h-3 bg-slate-800/60 rounded w-1/4" />
+              <div className={`h-3 rounded w-1/4 ${isLight ? 'bg-slate-200/60' : 'bg-slate-800/60'}`} />
               <div className="flex gap-2">
-                <div className="h-6 bg-slate-800 rounded-lg w-20" />
-                <div className="h-6 bg-slate-800 rounded-lg w-20" />
+                <div className={`h-6 rounded-lg w-20 ${isLight ? 'bg-slate-200' : 'bg-slate-800'}`} />
+                <div className={`h-6 rounded-lg w-20 ${isLight ? 'bg-slate-200' : 'bg-slate-800'}`} />
               </div>
             </div>
           ))}
@@ -369,10 +450,18 @@ export const StravaActivitiesTab: React.FC<StravaActivitiesTabProps> = ({
 
       {/* Empty State */}
       {!loading && filteredActivities.length === 0 && !error && (
-        <div className="py-16 text-center text-slate-500 bg-slate-950/50 rounded-2xl border border-slate-800 flex flex-col items-center">
-          <Activity className="w-8 h-8 text-slate-600 mb-2" />
-          <p className="text-sm font-bold text-slate-300">No {selectedCategory !== 'All' ? selectedCategory : ''} activities found</p>
-          <p className="text-xs text-slate-400 mt-1 max-w-sm">
+        <div
+          className={`py-16 text-center rounded-2xl border flex flex-col items-center ${
+            isLight
+              ? 'bg-white border-slate-200 text-slate-600'
+              : 'bg-slate-950/50 border-slate-800 text-slate-500'
+          }`}
+        >
+          <Activity className={`w-8 h-8 mb-2 ${isLight ? 'text-slate-400' : 'text-slate-600'}`} />
+          <p className={`text-sm font-bold ${isLight ? 'text-slate-800' : 'text-slate-300'}`}>
+            No {selectedCategory !== 'All' ? selectedCategory : ''} activities found
+          </p>
+          <p className={`text-xs mt-1 max-w-sm ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>
             {selectedCategory !== 'All'
               ? `No activities classified as ${selectedCategory} found in current cache.`
               : 'Completed workouts uploaded from FIT Track or Strava will appear here.'}
@@ -380,7 +469,11 @@ export const StravaActivitiesTab: React.FC<StravaActivitiesTabProps> = ({
           <button
             type="button"
             onClick={onRefresh}
-            className="mt-4 px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-xs font-bold text-white transition-colors cursor-pointer"
+            className={`mt-4 px-4 py-2 rounded-xl text-xs font-bold transition-colors cursor-pointer border ${
+              isLight
+                ? 'bg-slate-100 hover:bg-slate-200 text-slate-800 border-slate-200'
+                : 'bg-slate-800 hover:bg-slate-700 text-white border-slate-700'
+            }`}
           >
             Sync from Strava
           </button>
@@ -407,22 +500,34 @@ export const StravaActivitiesTab: React.FC<StravaActivitiesTabProps> = ({
               <div
                 key={act.id}
                 onClick={() => setActiveModalActivity(act)}
-                className={`relative overflow-hidden bg-slate-900 border rounded-2xl transition-all shadow-sm group cursor-pointer active:scale-[0.99] ${
-                  isIgnored
-                    ? 'border-rose-950/50 opacity-60 hover:opacity-100 hover:border-rose-900/60'
+                className={`relative overflow-hidden border rounded-2xl transition-all shadow-sm group cursor-pointer active:scale-[0.99] ${
+                  isLight
+                    ? isIgnored
+                      ? 'bg-white border-rose-200/80 opacity-60 hover:opacity-100 hover:border-rose-300'
+                      : hasCalibration
+                      ? 'bg-white border-amber-300 hover:border-amber-400 shadow-xs'
+                      : 'bg-white border-slate-200 hover:border-slate-300 hover:shadow-md'
+                    : isIgnored
+                    ? 'bg-slate-900 border-rose-950/50 opacity-60 hover:opacity-100 hover:border-rose-900/60'
                     : hasCalibration
-                    ? 'border-amber-500/30 hover:border-amber-500/60'
-                    : 'border-slate-800 hover:border-slate-700'
+                    ? 'bg-slate-900 border-amber-500/30 hover:border-amber-500/60'
+                    : 'bg-slate-900 border-slate-800 hover:border-slate-700'
                 }`}
               >
                 {/* 4.a: Category Icon flush in top-left corner */}
-                <div className="absolute top-0 left-0 w-11 h-11 rounded-tl-2xl rounded-br-xl bg-slate-800/95 border-r border-b border-slate-700/60 flex items-center justify-center shrink-0 group-hover:border-amber-400/50 transition-colors z-10">
-                  {getCategoryIcon(classification.category)}
+                <div
+                  className={`absolute top-0 left-0 w-11 h-11 rounded-tl-2xl rounded-br-xl flex items-center justify-center shrink-0 transition-colors z-10 ${
+                    isLight
+                      ? 'bg-slate-100 border-r border-b border-slate-200 group-hover:border-amber-500/50'
+                      : 'bg-slate-800/95 border-r border-b border-slate-700/60 group-hover:border-amber-400/50'
+                  }`}
+                >
+                  {getCategoryIcon(classification.category, 'w-5 h-5', isLight)}
                 </div>
 
                 {/* 4.b: "New" badge flush in top-right corner (omitted if Ignored) */}
                 {showNew && (
-                  <div className="absolute top-0 right-0 px-2.5 py-1 rounded-tr-2xl rounded-bl-xl bg-emerald-500/15 border-l border-b border-emerald-500/30 text-emerald-300 text-[10px] font-black uppercase tracking-wider flex items-center gap-1 z-10 shadow-xs">
+                  <div className="absolute top-0 right-0 px-2.5 py-1 rounded-tr-2xl rounded-bl-xl bg-emerald-500/15 border-l border-b border-emerald-500/30 text-emerald-400 text-[10px] font-black uppercase tracking-wider flex items-center gap-1 z-10 shadow-xs">
                     <Sparkles className="w-2.5 h-2.5" />
                     <span>New</span>
                   </div>
@@ -430,10 +535,14 @@ export const StravaActivitiesTab: React.FC<StravaActivitiesTabProps> = ({
 
                 {/* 4.d: TSS flush in bottom-left corner */}
                 <div
-                  className="absolute bottom-0 left-0 px-2.5 py-1 rounded-bl-2xl rounded-tr-xl bg-slate-950/95 border-r border-t border-slate-800 text-white font-mono font-bold text-xs flex items-center gap-1.5 z-10 shadow-xs"
+                  className={`absolute bottom-0 left-0 px-2.5 py-1 rounded-bl-2xl rounded-tr-xl font-mono font-bold text-xs flex items-center gap-1.5 z-10 shadow-xs ${
+                    isLight
+                      ? 'bg-slate-100 border-r border-t border-slate-200 text-slate-800'
+                      : 'bg-slate-950/95 border-r border-t border-slate-800 text-white'
+                  }`}
                   title={tssResult?.description || 'Training Stress Score'}
                 >
-                  <Zap className="w-3 h-3 text-amber-400" />
+                  <Zap className={`w-3 h-3 ${isLight ? 'text-amber-500' : 'text-amber-400'}`} />
                   <span>{isIgnored ? '0 TSS' : tssValue !== null ? `${tssValue} TSS` : '-- TSS'}</span>
                 </div>
 
@@ -447,8 +556,14 @@ export const StravaActivitiesTab: React.FC<StravaActivitiesTabProps> = ({
                     <span>Deleted</span>
                   </div>
                 ) : act.kudos_count && act.kudos_count > 0 ? (
-                  <div className="absolute bottom-0 right-0 px-2.5 py-1 rounded-br-2xl rounded-tl-xl bg-amber-500/15 border-l border-t border-amber-500/25 text-amber-300 font-sans font-bold text-[11px] flex items-center gap-1 z-10">
-                    <ThumbsUp className="w-3 h-3 text-amber-400" />
+                  <div
+                    className={`absolute bottom-0 right-0 px-2.5 py-1 rounded-br-2xl rounded-tl-xl border-l border-t font-sans font-bold text-[11px] flex items-center gap-1 z-10 ${
+                      isLight
+                        ? 'bg-amber-100/70 border-amber-300/80 text-amber-800'
+                        : 'bg-amber-500/15 border-amber-500/25 text-amber-300'
+                    }`}
+                  >
+                    <ThumbsUp className={`w-3 h-3 ${isLight ? 'text-amber-600' : 'text-amber-400'}`} />
                     <span>{act.kudos_count}</span>
                   </div>
                 ) : null}
@@ -458,65 +573,113 @@ export const StravaActivitiesTab: React.FC<StravaActivitiesTabProps> = ({
                   {/* Title & Subtype Row */}
                   <div className="flex items-start justify-between gap-2">
                     <div className="min-w-0 pr-12">
-                      <h4 className="text-sm sm:text-base font-extrabold text-white group-hover:text-amber-400 transition-colors truncate">
+                      <h4
+                        className={`text-sm sm:text-base font-extrabold transition-colors truncate ${
+                          isLight
+                            ? 'text-slate-900 group-hover:text-amber-600'
+                            : 'text-white group-hover:text-amber-400'
+                        }`}
+                      >
                         {applyRenameRulesToName(act.name).newName}
                       </h4>
-                      <div className="flex items-center gap-2 text-[11px] text-slate-400 mt-0.5">
+                      <div
+                        className={`flex items-center gap-2 text-[11px] mt-0.5 ${
+                          isLight ? 'text-slate-500' : 'text-slate-400'
+                        }`}
+                      >
                         <span>{formatActivityDate(act.start_date_local || act.start_date)}</span>
                         <span>·</span>
-                        <span className="font-medium text-slate-300">{classification.subType}</span>
+                        <span className={`font-medium ${isLight ? 'text-slate-700' : 'text-slate-300'}`}>
+                          {classification.subType}
+                        </span>
                       </div>
                     </div>
 
                     <div className="flex items-center gap-1.5 shrink-0 pt-0.5">
                       {/* Ignored or Calibrated Badge */}
                       {isIgnored ? (
-                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-rose-500/10 border border-rose-500/25 text-rose-300 text-[10px] font-bold">
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-rose-500/10 border border-rose-500/25 text-rose-500 text-[10px] font-bold">
                           <span>Ignored</span>
                         </span>
                       ) : hasCalibration ? (
-                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-amber-500/10 border border-amber-500/25 text-amber-300 text-[10px] font-bold">
+                        <span
+                          className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-lg border text-[10px] font-bold ${
+                            isLight
+                              ? 'bg-amber-50 border-amber-300 text-amber-800'
+                              : 'bg-amber-500/10 border-amber-500/25 text-amber-300'
+                          }`}
+                        >
                           <span>Calibrated</span>
                         </span>
                       ) : null}
 
-                      <ChevronRight className="w-4 h-4 text-slate-500 group-hover:text-amber-400 transition-colors ml-1" />
+                      <ChevronRight
+                        className={`w-4 h-4 transition-colors ml-1 ${
+                          isLight
+                            ? 'text-slate-400 group-hover:text-amber-600'
+                            : 'text-slate-500 group-hover:text-amber-400'
+                        }`}
+                      />
                     </div>
                   </div>
 
                   {/* Primary Metrics Row Tailored to Sport */}
                   <div className="flex items-center flex-wrap gap-2 text-xs font-mono pt-0.5">
                     {/* Primary metric badge */}
-                    <span className="px-2 py-0.5 rounded-lg bg-slate-950/80 border border-slate-800 text-white font-bold">
+                    <span
+                      className={`px-2 py-0.5 rounded-lg font-bold border ${
+                        isLight
+                          ? 'bg-slate-100 border-slate-200 text-slate-800'
+                          : 'bg-slate-950/80 border-slate-800 text-white'
+                      }`}
+                    >
                       {metrics.primaryMetricLabel}
                     </span>
 
                     {/* Secondary metric badge */}
                     {metrics.secondaryMetricLabel && (
-                      <span className="px-2 py-0.5 rounded-lg bg-slate-950/80 border border-slate-800 text-amber-300 font-bold">
+                      <span
+                        className={`px-2 py-0.5 rounded-lg font-bold border ${
+                          isLight
+                            ? 'bg-amber-50 border-amber-200 text-amber-800'
+                            : 'bg-slate-950/80 border-slate-800 text-amber-300'
+                        }`}
+                      >
                         {metrics.secondaryMetricLabel}
                       </span>
                     )}
 
                     {/* Duration */}
                     {duration > 0 && (
-                      <span className="flex items-center gap-1 px-2 py-0.5 rounded-lg bg-slate-950/70 border border-slate-800 text-slate-300">
-                        <Clock className="w-3 h-3 text-slate-400" />
+                      <span
+                        className={`flex items-center gap-1 px-2 py-0.5 rounded-lg border ${
+                          isLight
+                            ? 'bg-slate-100 border-slate-200 text-slate-700'
+                            : 'bg-slate-950/70 border-slate-800 text-slate-300'
+                        }`}
+                      >
+                        <Clock className={`w-3 h-3 ${isLight ? 'text-slate-500' : 'text-slate-400'}`} />
                         <span>{formatDuration(duration)}</span>
                       </span>
                     )}
 
                     {/* Elevation for outdoor run/bike */}
                     {metrics.elevationLabel && (
-                      <span className="px-2 py-0.5 rounded-lg bg-slate-950/70 border border-slate-800 text-slate-400">
+                      <span
+                        className={`px-2 py-0.5 rounded-lg border ${
+                          isLight
+                            ? 'bg-slate-100 border-slate-200 text-slate-600'
+                            : 'bg-slate-950/70 border-slate-800 text-slate-400'
+                        }`}
+                      >
                         {metrics.elevationLabel}
                       </span>
                     )}
 
                     {/* Average Heart Rate */}
                     {act.average_heartrate && (
-                      <span className="flex items-center gap-1 px-2 py-0.5 rounded-lg bg-rose-500/10 border border-rose-500/20 text-rose-300">
-                        <Heart className="w-3 h-3 text-rose-400" />
+                      <span className="flex items-center gap-1 px-2 py-0.5 rounded-lg bg-rose-500/10 border border-rose-500/20 text-rose-500">
+                        <Heart className="w-3 h-3 text-rose-500" />
                         <span>{Math.round(act.average_heartrate)} bpm</span>
                       </span>
                     )}
@@ -535,22 +698,30 @@ export const StravaActivitiesTab: React.FC<StravaActivitiesTabProps> = ({
                 type="button"
                 onClick={onLoadMore}
                 disabled={loadingMore || loading}
-                className="w-full sm:w-auto px-6 py-3 rounded-2xl bg-slate-900 hover:bg-slate-800 text-slate-200 hover:text-white border border-slate-700/80 font-bold text-xs flex items-center justify-center gap-2 shadow-sm transition-all cursor-pointer disabled:opacity-50 active:scale-98"
+                className={`w-full sm:w-auto px-6 py-3 rounded-2xl font-bold text-xs flex items-center justify-center gap-2 shadow-sm transition-all cursor-pointer disabled:opacity-50 active:scale-98 border ${
+                  isLight
+                    ? 'bg-white hover:bg-slate-100 text-slate-800 border-slate-200 shadow-xs'
+                    : 'bg-slate-900 hover:bg-slate-800 text-slate-200 hover:text-white border-slate-700/80'
+                }`}
               >
                 {loadingMore ? (
                   <>
-                    <Loader2 className="w-4 h-4 animate-spin text-amber-400" />
+                    <Loader2 className="w-4 h-4 animate-spin text-amber-500" />
                     <span>Loading 200 older activities...</span>
                   </>
                 ) : (
                   <>
-                    <RotateCw className="w-3.5 h-3.5 text-amber-400" />
+                    <RotateCw className="w-3.5 h-3.5 text-amber-500" />
                     <span>Load 200 More Activities</span>
                   </>
                 )}
               </button>
             ) : (
-              <div className="text-center py-2 text-xs text-slate-500 font-medium">
+              <div
+                className={`text-center py-2 text-xs font-medium ${
+                  isLight ? 'text-slate-500' : 'text-slate-400'
+                }`}
+              >
                 ✓ All historical Strava activities loaded ({activities.length} total)
               </div>
             )}
@@ -565,6 +736,7 @@ export const StravaActivitiesTab: React.FC<StravaActivitiesTabProps> = ({
         stravaToken={stravaToken}
         athleteProfile={athleteProfile}
         isGoogleConnected={isGoogleConnected}
+        theme={theme}
         onConnectGoogle={onConnectGoogle}
         onClose={() => setActiveModalActivity(null)}
         onActivityPublished={onActivityPublished}

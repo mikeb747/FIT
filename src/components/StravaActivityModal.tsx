@@ -64,6 +64,7 @@ interface StravaActivityModalProps {
   stravaToken: string | null;
   athleteProfile: AthleteProfile;
   isGoogleConnected: boolean;
+  theme?: 'dark' | 'light';
   onConnectGoogle: () => void;
   onClose: () => void;
   onActivityPublished?: (activityId: string) => void;
@@ -88,19 +89,19 @@ function formatActivityDate(dateString: string): string {
   }
 }
 
-function getCategoryIcon(category: string, className = 'w-5 h-5') {
+function getCategoryIcon(category: string, className = 'w-5 h-5', isLight = false) {
   switch (category) {
     case 'Swim':
-      return <Waves className={`${className} text-sky-400`} />;
+      return <Waves className={`${className} ${isLight ? 'text-sky-600' : 'text-sky-400'}`} />;
     case 'Bike':
-      return <Bike className={`${className} text-orange-400`} />;
+      return <Bike className={`${className} ${isLight ? 'text-amber-600' : 'text-orange-400'}`} />;
     case 'Run':
-      return <Footprints className={`${className} text-amber-400`} />;
+      return <Footprints className={`${className} ${isLight ? 'text-amber-700' : 'text-amber-400'}`} />;
     case 'Gym':
     case 'Strength':
-      return <Dumbbell className={`${className} text-emerald-400`} />;
+      return <Dumbbell className={`${className} ${isLight ? 'text-emerald-600' : 'text-emerald-400'}`} />;
     default:
-      return <Activity className={`${className} text-purple-400`} />;
+      return <Activity className={`${className} ${isLight ? 'text-purple-600' : 'text-purple-400'}`} />;
   }
 }
 
@@ -110,12 +111,14 @@ export const StravaActivityModal: React.FC<StravaActivityModalProps> = ({
   stravaToken,
   athleteProfile,
   isGoogleConnected,
+  theme = 'dark',
   onConnectGoogle,
   onClose,
   onActivityPublished,
   onOpenAthleteProfile,
   onDeleteActivity,
 }) => {
+  const isLight = theme === 'light';
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [isDeletedLocally, setIsDeletedLocally] = useState(false);
   const [detailsRecord, setDetailsRecord] = useState<StravaActivityDetailsRecord | null>(null);
@@ -361,18 +364,36 @@ export const StravaActivityModal: React.FC<StravaActivityModalProps> = ({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/80 backdrop-blur-sm animate-fade-in">
-      <div className="bg-slate-900 border border-slate-800 rounded-3xl w-full max-w-xl max-h-[90vh] flex flex-col shadow-2xl overflow-hidden">
+      <div
+        className={`rounded-3xl w-full max-w-xl max-h-[90vh] flex flex-col shadow-2xl overflow-hidden border ${
+          isLight
+            ? 'bg-white border-slate-200 text-slate-900 shadow-xl'
+            : 'bg-slate-900 border-slate-800 text-white'
+        }`}
+      >
         {/* Modal Header */}
-        <div className="p-4 sm:p-5 border-b border-slate-800 flex items-start justify-between gap-3 bg-slate-950/60 shrink-0">
+        <div
+          className={`p-4 sm:p-5 border-b flex items-start justify-between gap-3 shrink-0 ${
+            isLight ? 'bg-slate-50 border-slate-200' : 'bg-slate-950/60 border-slate-800'
+          }`}
+        >
           <div className="flex items-start gap-3 min-w-0">
-            <div className="w-11 h-11 rounded-2xl bg-slate-800 border border-slate-700 flex items-center justify-center shrink-0 mt-0.5">
-              {getCategoryIcon(classification.category, 'w-6 h-6')}
+            <div
+              className={`w-11 h-11 rounded-2xl flex items-center justify-center shrink-0 mt-0.5 border ${
+                isLight ? 'bg-slate-100 border-slate-200' : 'bg-slate-800 border-slate-700'
+              }`}
+            >
+              {getCategoryIcon(classification.category, 'w-6 h-6', isLight)}
             </div>
             <div className="min-w-0">
-              <h3 className="text-base sm:text-lg font-black text-white leading-tight truncate">
+              <h3
+                className={`text-base sm:text-lg font-black leading-tight truncate ${
+                  isLight ? 'text-slate-900' : 'text-white'
+                }`}
+              >
                 {applyRenameRulesToName(activity.name).newName}
               </h3>
-              <p className="text-xs text-slate-400 mt-1">
+              <p className={`text-xs mt-1 ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>
                 {formatActivityDate(activity.start_date_local || activity.start_date)}
               </p>
             </div>
@@ -382,7 +403,11 @@ export const StravaActivityModal: React.FC<StravaActivityModalProps> = ({
             <button
               type="button"
               onClick={() => setIsCalibrationOpen(true)}
-              className="p-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-amber-400 hover:text-amber-300 transition-colors cursor-pointer border border-slate-700"
+              className={`p-2 rounded-xl transition-colors cursor-pointer border ${
+                isLight
+                  ? 'bg-slate-100 hover:bg-slate-200 text-amber-600 border-slate-200'
+                  : 'bg-slate-800 hover:bg-slate-700 text-amber-400 border-slate-700'
+              }`}
               title="Calibrate / Fix Inaccurate Data"
             >
               <Wrench className="w-4 h-4" />
@@ -391,7 +416,11 @@ export const StravaActivityModal: React.FC<StravaActivityModalProps> = ({
             <button
               type="button"
               onClick={() => setShowDeleteConfirm(true)}
-              className="p-2 rounded-xl bg-slate-800 hover:bg-rose-950/50 text-slate-400 hover:text-rose-400 transition-colors cursor-pointer border border-slate-700 hover:border-rose-500/30"
+              className={`p-2 rounded-xl transition-colors cursor-pointer border ${
+                isLight
+                  ? 'bg-slate-100 hover:bg-rose-50 text-slate-400 hover:text-rose-500 border-slate-200'
+                  : 'bg-slate-800 hover:bg-rose-950/50 text-slate-400 hover:text-rose-400 border-slate-700 hover:border-rose-500/30'
+              }`}
               title="Delete Activity"
             >
               <Trash2 className="w-4 h-4" />
@@ -400,7 +429,11 @@ export const StravaActivityModal: React.FC<StravaActivityModalProps> = ({
             <button
               type="button"
               onClick={onClose}
-              className="p-2 rounded-xl text-slate-400 hover:text-white hover:bg-slate-800 transition-colors cursor-pointer"
+              className={`p-2 rounded-xl transition-colors cursor-pointer ${
+                isLight
+                  ? 'text-slate-400 hover:text-slate-800 hover:bg-slate-100'
+                  : 'text-slate-400 hover:text-white hover:bg-slate-800'
+              }`}
               title="Close modal"
             >
               <X className="w-5 h-5" />
@@ -412,8 +445,14 @@ export const StravaActivityModal: React.FC<StravaActivityModalProps> = ({
         <div className="p-4 sm:p-5 overflow-y-auto space-y-4">
           {/* Badges strip */}
           <div className="flex flex-wrap items-center gap-2">
-            <span className="px-2.5 py-1 rounded-xl bg-slate-800 text-slate-200 text-xs font-bold flex items-center gap-1.5">
-              {getCategoryIcon(classification.category, 'w-3.5 h-3.5')}
+            <span
+              className={`px-2.5 py-1 rounded-xl text-xs font-bold flex items-center gap-1.5 border ${
+                isLight
+                  ? 'bg-slate-100 text-slate-700 border-slate-200'
+                  : 'bg-slate-800 text-slate-200 border-slate-700'
+              }`}
+            >
+              {getCategoryIcon(classification.category, 'w-3.5 h-3.5', isLight)}
               <span>{classification.subType}</span>
             </span>
 
@@ -565,21 +604,43 @@ export const StravaActivityModal: React.FC<StravaActivityModalProps> = ({
 
           {/* Dedicated Cycling Power & Normalized Power & Energy (kJ) Card */}
           {isBikeOrTurbo && (effectiveAvgWatts || normalizedPower) && (
-            <div className="p-4 rounded-2xl bg-gradient-to-r from-amber-500/15 via-slate-950 to-slate-900 border border-amber-500/30 space-y-3">
+            <div
+              className={`p-4 rounded-2xl space-y-3 border ${
+                isLight
+                  ? 'bg-slate-50 border-amber-300/80 text-slate-900'
+                  : 'bg-slate-950 border-amber-500/30 text-white'
+              }`}
+            >
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
-                  <Zap className="w-4 h-4 text-amber-400" />
-                  <h4 className="text-xs font-black text-amber-300 uppercase tracking-wider">
+                  <Zap className={`w-4 h-4 ${isLight ? 'text-amber-500' : 'text-amber-400'}`} />
+                  <h4
+                    className={`text-xs font-black uppercase tracking-wider ${
+                      isLight ? 'text-amber-700' : 'text-amber-300'
+                    }`}
+                  >
                     Cycling Power & Mechanical Work
                   </h4>
                 </div>
                 {classification.subType === 'Bike' && (
-                  <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-800 text-slate-300 border border-slate-700">
+                  <span
+                    className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${
+                      isLight
+                        ? 'bg-slate-100 text-slate-700 border-slate-200'
+                        : 'bg-slate-800 text-slate-300 border-slate-700'
+                    }`}
+                  >
                     Outdoor Ride
                   </span>
                 )}
                 {classification.subType === 'Turbo Trainer' && (
-                  <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-800 text-slate-300 border border-slate-700">
+                  <span
+                    className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${
+                      isLight
+                        ? 'bg-slate-100 text-slate-700 border-slate-200'
+                        : 'bg-slate-800 text-slate-300 border-slate-700'
+                    }`}
+                  >
                     Turbo Trainer
                   </span>
                 )}
@@ -587,30 +648,70 @@ export const StravaActivityModal: React.FC<StravaActivityModalProps> = ({
 
               {/* Power Grid */}
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
-                <div className="p-2.5 rounded-xl bg-slate-900/90 border border-slate-800 flex flex-col">
-                  <span className="text-[10px] text-slate-400">Average Power</span>
-                  <span className="text-base sm:text-lg font-black font-mono text-white mt-0.5">
+                <div
+                  className={`p-2.5 rounded-xl border flex flex-col ${
+                    isLight ? 'bg-white border-slate-200' : 'bg-slate-900/90 border-slate-800'
+                  }`}
+                >
+                  <span className={`text-[10px] ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>
+                    Average Power
+                  </span>
+                  <span
+                    className={`text-base sm:text-lg font-black font-mono mt-0.5 ${
+                      isLight ? 'text-slate-900' : 'text-white'
+                    }`}
+                  >
                     {effectiveAvgWatts ? `${Math.round(effectiveAvgWatts)}W` : '--'}
                   </span>
                 </div>
 
-                <div className="p-2.5 rounded-xl bg-slate-900/90 border border-slate-800 flex flex-col">
-                  <span className="text-[10px] text-slate-400">Normalized Power (NP)</span>
-                  <span className="text-base sm:text-lg font-black font-mono text-amber-400 mt-0.5">
+                <div
+                  className={`p-2.5 rounded-xl border flex flex-col ${
+                    isLight ? 'bg-white border-slate-200' : 'bg-slate-900/90 border-slate-800'
+                  }`}
+                >
+                  <span className={`text-[10px] ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>
+                    Normalized Power (NP)
+                  </span>
+                  <span
+                    className={`text-base sm:text-lg font-black font-mono mt-0.5 ${
+                      isLight ? 'text-amber-600' : 'text-amber-400'
+                    }`}
+                  >
                     {normalizedPower ? `${Math.round(normalizedPower)}W` : '--'}
                   </span>
                 </div>
 
-                <div className="p-2.5 rounded-xl bg-slate-900/90 border border-slate-800 flex flex-col">
-                  <span className="text-[10px] text-slate-400">Mechanical Work</span>
-                  <span className="text-base sm:text-lg font-black font-mono text-emerald-400 mt-0.5">
+                <div
+                  className={`p-2.5 rounded-xl border flex flex-col ${
+                    isLight ? 'bg-white border-slate-200' : 'bg-slate-900/90 border-slate-800'
+                  }`}
+                >
+                  <span className={`text-[10px] ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>
+                    Mechanical Work
+                  </span>
+                  <span
+                    className={`text-base sm:text-lg font-black font-mono mt-0.5 ${
+                      isLight ? 'text-emerald-600' : 'text-emerald-400'
+                    }`}
+                  >
                     {workResult ? workResult.formattedKj : '--'}
                   </span>
                 </div>
 
-                <div className="p-2.5 rounded-xl bg-slate-900/90 border border-slate-800 flex flex-col">
-                  <span className="text-[10px] text-slate-400">Est. Energy Burn</span>
-                  <span className="text-base sm:text-lg font-black font-mono text-amber-300 mt-0.5">
+                <div
+                  className={`p-2.5 rounded-xl border flex flex-col ${
+                    isLight ? 'bg-white border-slate-200' : 'bg-slate-900/90 border-slate-800'
+                  }`}
+                >
+                  <span className={`text-[10px] ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>
+                    Est. Energy Burn
+                  </span>
+                  <span
+                    className={`text-base sm:text-lg font-black font-mono mt-0.5 ${
+                      isLight ? 'text-amber-700' : 'text-amber-300'
+                    }`}
+                  >
                     {workResult ? `~${workResult.kcal} kcal` : calories ? `${Math.round(calories)} kcal` : '--'}
                   </span>
                 </div>
@@ -618,16 +719,26 @@ export const StravaActivityModal: React.FC<StravaActivityModalProps> = ({
 
               {/* Work Formula Callout */}
               {workResult && effectiveAvgWatts && (
-                <div className="p-3 rounded-xl bg-slate-950/80 border border-slate-800 text-[11px] text-slate-300 space-y-1">
-                  <div className="font-bold text-amber-300 flex items-center gap-1.5">
-                    <Flame className="w-3.5 h-3.5 text-amber-400" />
+                <div
+                  className={`p-3 rounded-xl border text-[11px] space-y-1 ${
+                    isLight
+                      ? 'bg-white border-slate-200 text-slate-700'
+                      : 'bg-slate-950/80 border-slate-800 text-slate-300'
+                  }`}
+                >
+                  <div
+                    className={`font-bold flex items-center gap-1.5 ${
+                      isLight ? 'text-amber-700' : 'text-amber-300'
+                    }`}
+                  >
+                    <Flame className="w-3.5 h-3.5 text-amber-500" />
                     <span>Energy / Work Calculation:</span>
                   </div>
-                  <div className="text-slate-400 font-mono space-y-0.5 pl-5">
+                  <div className={`font-mono space-y-0.5 pl-5 ${isLight ? 'text-slate-600' : 'text-slate-400'}`}>
                     <div>• {(durationMoving / 3600).toFixed(1)}-Hour Ride at {Math.round(effectiveAvgWatts)} Watts</div>
                     <div>• Hours = {(durationMoving / 3600).toFixed(2)} h ({durationMoving.toLocaleString()} seconds)</div>
                     <div>
-                      • kJ = {Math.round(effectiveAvgWatts)} W × {(durationMoving / 3600).toFixed(2)} h × 3.6 = <strong className="text-white">{workResult.formattedKj}</strong> (roughly {workResult.kcal} kcal)
+                      • kJ = {Math.round(effectiveAvgWatts)} W × {(durationMoving / 3600).toFixed(2)} h × 3.6 = <strong className={isLight ? 'text-slate-900' : 'text-white'}>{workResult.formattedKj}</strong> (roughly {workResult.kcal} kcal)
                     </div>
                   </div>
                 </div>
@@ -1379,6 +1490,7 @@ export const StravaActivityModal: React.FC<StravaActivityModalProps> = ({
               activity={activity}
               streams={streams}
               athleteProfile={athleteProfile}
+              theme={theme}
               title="Time in Training Zones"
             />
           )}

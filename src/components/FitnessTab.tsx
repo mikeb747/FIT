@@ -1149,6 +1149,7 @@ export const FitnessTab: React.FC<FitnessTabProps> = ({
           stravaToken={stravaToken}
           athleteProfile={athleteProfile}
           isGoogleConnected={isGoogleConnected}
+          theme={theme}
           onConnectGoogle={onConnectGoogle}
           onClose={() => setActiveModalActivity(null)}
           onActivityPublished={onActivityPublished}

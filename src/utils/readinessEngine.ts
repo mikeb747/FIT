@@ -10,7 +10,17 @@ import type {
  * Calculates Pearson correlation coefficient (r) between two numeric arrays
  */
 export function calculatePearsonCorrelation(x: number[], y: number[]): number {
-  const n = Math.min(x.length, y.length);
+  const pairs: [number, number][] = [];
+  const len = Math.min(x.length, y.length);
+  for (let i = 0; i < len; i++) {
+    const xi = Number(x[i]);
+    const yi = Number(y[i]);
+    if (Number.isFinite(xi) && Number.isFinite(yi)) {
+      pairs.push([xi, yi]);
+    }
+  }
+
+  const n = pairs.length;
   if (n < 3) return 0;
 
   let sumX = 0;
@@ -20,18 +30,20 @@ export function calculatePearsonCorrelation(x: number[], y: number[]): number {
   let sumY2 = 0;
 
   for (let i = 0; i < n; i++) {
-    sumX += x[i];
-    sumY += y[i];
-    sumXY += x[i] * y[i];
-    sumX2 += x[i] * x[i];
-    sumY2 += y[i] * y[i];
+    const [xi, yi] = pairs[i];
+    sumX += xi;
+    sumY += yi;
+    sumXY += xi * yi;
+    sumX2 += xi * xi;
+    sumY2 += yi * yi;
   }
 
   const numerator = n * sumXY - sumX * sumY;
   const denominator = Math.sqrt((n * sumX2 - sumX * sumX) * (n * sumY2 - sumY * sumY));
 
-  if (denominator === 0 || isNaN(denominator)) return 0;
+  if (!Number.isFinite(denominator) || denominator === 0) return 0;
   const r = numerator / denominator;
+  if (!Number.isFinite(r)) return 0;
   return Math.max(-1, Math.min(1, Math.round(r * 100) / 100));
 }
 
@@ -43,32 +55,39 @@ export function computeDailyReadiness(
   allLogs: DailyRecoveryLog[],
   athleteProfile: AthleteProfile
 ): ReadinessScoreResult {
-  const baselineRhr = athleteProfile.restingHeartRate || 41;
+  const baselineRhr = Number(athleteProfile?.restingHeartRate) || 41;
   const targetSleepHours = 8.0;
   const targetSleepMinutes = targetSleepHours * 60; // 480 mins
 
   // Sort logs chronologically to get historical context up to targetLog's date
-  const sorted = [...allLogs].sort((a, b) => a.date.localeCompare(b.date));
-  const targetIndex = sorted.findIndex((l) => l.date === targetLog.date);
+  const sorted = [...(allLogs || [])]
+    .filter((l): l is DailyRecoveryLog => Boolean(l && l.date))
+    .sort((a, b) => a.date.localeCompare(b.date));
+  const targetIndex = sorted.findIndex((l) => l.date === targetLog?.date);
 
   // Take up to 7 prior days for rolling baselines
   const historyStart = Math.max(0, targetIndex - 7);
   const rollingWindow = sorted.slice(historyStart, targetIndex > -1 ? targetIndex : undefined);
 
   // 1. HRV Rolling Baseline & Standard Deviation
-  const hrvValues = rollingWindow.map((l) => l.hrvRmssd).filter((v) => v > 0);
+  const hrvValues = rollingWindow
+    .map((l) => Number(l.hrvRmssd))
+    .filter((v) => Number.isFinite(v) && v > 0);
+  const rawTargetHrv = Number(targetLog?.hrvRmssd);
+  const targetHrv = Number.isFinite(rawTargetHrv) && rawTargetHrv > 0 ? rawTargetHrv : 65;
+
   const hrvBaseline7d =
     hrvValues.length > 0
       ? Math.round(hrvValues.reduce((acc, v) => acc + v, 0) / hrvValues.length)
-      : targetLog.hrvRmssd;
+      : targetHrv;
 
   const hrvVariance =
     hrvValues.length > 1
       ? hrvValues.reduce((acc, v) => acc + Math.pow(v - hrvBaseline7d, 2), 0) / (hrvValues.length - 1)
       : 36; // sensible default standard deviation ~6ms
-  const hrvStdDev7d = Math.max(3, Math.round(Math.sqrt(hrvVariance)));
+  const hrvStdDev7d = Math.max(3, Math.round(Math.sqrt(Math.max(0, hrvVariance))));
 
-  const hrvDelta = targetLog.hrvRmssd - hrvBaseline7d;
+  const hrvDelta = targetHrv - hrvBaseline7d;
   const hrvZScore = hrvStdDev7d > 0 ? hrvDelta / hrvStdDev7d : 0;
 
   // Determine HRV Status
@@ -91,15 +110,20 @@ export function computeDailyReadiness(
     hrvStatus = 'elevated';
     hrvScore = Math.max(65, Math.round(85 - (hrvZScore - 1.2) * 15));
   }
+  if (!Number.isFinite(hrvScore)) hrvScore = 80;
 
   // 2. Resting Heart Rate Score
-  const rhrValues = rollingWindow.map((l) => l.restingHr).filter((v) => v > 0);
+  const rawTargetRhr = Number(targetLog?.restingHr);
+  const targetRhr = Number.isFinite(rawTargetRhr) && rawTargetRhr > 0 ? rawTargetRhr : baselineRhr;
+  const rhrValues = rollingWindow
+    .map((l) => Number(l.restingHr))
+    .filter((v) => Number.isFinite(v) && v > 0);
   const rhr7dAvg =
     rhrValues.length > 0
       ? Math.round((rhrValues.reduce((acc, v) => acc + v, 0) / rhrValues.length) * 10) / 10
-      : targetLog.restingHr;
+      : targetRhr;
 
-  const rhrDelta = targetLog.restingHr - baselineRhr;
+  const rhrDelta = targetRhr - baselineRhr;
   let rhrScore = 90;
 
   if (rhrDelta <= 0) {
@@ -118,31 +142,44 @@ export function computeDailyReadiness(
   } else {
     rhrScore = Math.max(20, 45 - (rhrDelta - 6) * 8);
   }
+  if (!Number.isFinite(rhrScore)) rhrScore = 90;
 
   // 3. Sleep Architecture & Duration Score
-  const sleepMinutesValues = rollingWindow.map((l) => l.sleepDurationMinutes).filter((v) => v > 0);
+  const rawSleepDuration = Number(targetLog?.sleepDurationMinutes);
+  const targetSleepMins =
+    Number.isFinite(rawSleepDuration) && rawSleepDuration > 0 ? rawSleepDuration : 450;
+  const sleepMinutesValues = rollingWindow
+    .map((l) => Number(l.sleepDurationMinutes))
+    .filter((v) => Number.isFinite(v) && v > 0);
   const sleepAvg7dMinutes =
     sleepMinutesValues.length > 0
       ? Math.round(sleepMinutesValues.reduce((acc, v) => acc + v, 0) / sleepMinutesValues.length)
-      : targetLog.sleepDurationMinutes;
+      : targetSleepMins;
 
-  const sleepScoreValues = rollingWindow.map((l) => l.sleepScore).filter((v) => v > 0);
+  const rawSleepScore = Number(targetLog?.sleepScore);
+  const targetSleepScore =
+    Number.isFinite(rawSleepScore) && rawSleepScore > 0 ? rawSleepScore : 75;
+  const sleepScoreValues = rollingWindow
+    .map((l) => Number(l.sleepScore))
+    .filter((v) => Number.isFinite(v) && v > 0);
   const sleepScoreAvg7d =
     sleepScoreValues.length > 0
       ? Math.round(sleepScoreValues.reduce((acc, v) => acc + v, 0) / sleepScoreValues.length)
-      : targetLog.sleepScore;
+      : targetSleepScore;
 
   // Duration component
-  const durationRatio = targetLog.sleepDurationMinutes / targetSleepMinutes;
+  const durationRatio = targetSleepMins / targetSleepMinutes;
   const durationScore = Math.min(100, Math.round(durationRatio * 100));
 
   // Garmin Sleep Score is 0-100
-  const garminSleepScore = targetLog.sleepScore || 75;
+  const garminSleepScore = targetSleepScore;
 
   // Deep Sleep quality bonus/penalty (ideal is 15% - 25% of total sleep)
+  const rawDeepMins = Number(targetLog?.deepSleepMinutes);
+  const safeDeepMins = Number.isFinite(rawDeepMins) && rawDeepMins >= 0 ? rawDeepMins : 0;
   const deepPct =
-    targetLog.sleepDurationMinutes > 0
-      ? (targetLog.deepSleepMinutes / targetLog.sleepDurationMinutes) * 100
+    targetSleepMins > 0
+      ? (safeDeepMins / targetSleepMins) * 100
       : 18;
   let deepModifier = 0;
   if (deepPct >= 18) deepModifier = 5;
@@ -162,7 +199,7 @@ export function computeDailyReadiness(
 
   // 4. Subjective modifier
   let feelModifier = 0;
-  if (targetLog.subjectiveFeel) {
+  if (targetLog?.subjectiveFeel) {
     if (targetLog.subjectiveFeel === 5) feelModifier = 3;
     else if (targetLog.subjectiveFeel === 4) feelModifier = 1;
     else if (targetLog.subjectiveFeel === 2) feelModifier = -3;
@@ -174,7 +211,7 @@ export function computeDailyReadiness(
   const rawScore = Math.round(
     hrvScore * 0.35 + sleepCompositeScore * 0.35 + rhrScore * 0.25 + feelModifier + 4
   );
-  const score = Math.max(15, Math.min(100, rawScore));
+  const score = Math.max(15, Math.min(100, Number.isFinite(rawScore) ? rawScore : 75));
 
   // Determine Category, Color, and Training Recommendations
   let status: ReadinessStatus = 'good';

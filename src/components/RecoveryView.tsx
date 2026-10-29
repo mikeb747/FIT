@@ -134,10 +134,17 @@ export const RecoveryView: React.FC<RecoveryViewProps> = ({
   const tssByDate = useMemo(() => {
     const map: Record<string, number> = {};
     stravaActivities.forEach((act) => {
-      if (act.start_date) {
+      if (act && act.start_date) {
         const d = act.start_date.split('T')[0];
-        const tss = act.suffer_score || Math.round((act.moving_time / 3600) * 55);
-        map[d] = (map[d] || 0) + tss;
+        const rawSuffer = Number(act.suffer_score);
+        const rawMoving = Number(act.moving_time);
+        const tss =
+          Number.isFinite(rawSuffer) && rawSuffer > 0
+            ? rawSuffer
+            : Number.isFinite(rawMoving) && rawMoving > 0
+            ? Math.round((rawMoving / 3600) * 55)
+            : 0;
+        map[d] = (map[d] || 0) + (Number.isFinite(tss) ? tss : 0);
       }
     });
     return map;
@@ -148,7 +155,8 @@ export const RecoveryView: React.FC<RecoveryViewProps> = ({
     const slice = sortedLogs.slice(-14);
     return slice.map((l) => {
       const read = computeDailyReadiness(l, sortedLogs, athleteProfile);
-      const tss = tssByDate[l.date] || 0;
+      const rawTss = tssByDate[l.date];
+      const tss = Number.isFinite(rawTss) ? rawTss : 0;
       return {
         log: l,
         readiness: read,
@@ -159,8 +167,9 @@ export const RecoveryView: React.FC<RecoveryViewProps> = ({
 
   // Helpers
   const formatMinutesToHhMm = (mins: number) => {
-    const h = Math.floor(mins / 60);
-    const m = mins % 60;
+    const safeMins = Number.isFinite(mins) ? Math.max(0, Math.round(mins)) : 0;
+    const h = Math.floor(safeMins / 60);
+    const m = safeMins % 60;
     return `${h}h ${m < 10 ? '0' : ''}${m}m`;
   };
 
@@ -336,7 +345,11 @@ export const RecoveryView: React.FC<RecoveryViewProps> = ({
                   stroke={hasGarminData ? todayReadiness.accentColor : 'currentColor'}
                   strokeWidth="8"
                   strokeDasharray={`${2 * Math.PI * 42}`}
-                  strokeDashoffset={hasGarminData ? `${2 * Math.PI * 42 * (1 - todayReadiness.score / 100)}` : `${2 * Math.PI * 42}`}
+                  strokeDashoffset={
+                    hasGarminData && Number.isFinite(todayReadiness.score)
+                      ? `${2 * Math.PI * 42 * (1 - Math.max(0, Math.min(100, todayReadiness.score)) / 100)}`
+                      : `${2 * Math.PI * 42}`
+                  }
                   strokeLinecap="round"
                   fill="transparent"
                   className={hasGarminData ? 'transition-all duration-1000 ease-out' : 'text-slate-800 opacity-20'}
@@ -350,7 +363,7 @@ export const RecoveryView: React.FC<RecoveryViewProps> = ({
                       : 'text-slate-400 font-mono'
                   }`}
                 >
-                  {hasGarminData ? todayReadiness.score : '--'}
+                  {hasGarminData && Number.isFinite(todayReadiness.score) ? todayReadiness.score : '--'}
                 </span>
                 <span
                   className={`text-[10px] font-semibold uppercase tracking-widest ${
@@ -438,7 +451,7 @@ export const RecoveryView: React.FC<RecoveryViewProps> = ({
                     : 'text-slate-400 font-mono'
                 }`}
               >
-                {hasGarminData && latestLog ? latestLog.restingHr : '--'}
+                {hasGarminData && latestLog && Number.isFinite(latestLog.restingHr) ? latestLog.restingHr : '--'}
               </span>
               <span className="text-xs text-slate-400 font-semibold">{hasGarminData && latestLog ? 'bpm' : ''}</span>
               <span
@@ -470,7 +483,7 @@ export const RecoveryView: React.FC<RecoveryViewProps> = ({
               <span>
                 7-Day Average:{' '}
                 <strong className={isLight ? 'text-slate-800' : 'text-slate-200'}>
-                  {hasGarminData && todayReadiness.rhr7dAvg > 0 ? `${todayReadiness.rhr7dAvg} bpm` : '--'}
+                  {hasGarminData && Number.isFinite(todayReadiness.rhr7dAvg) && todayReadiness.rhr7dAvg > 0 ? `${todayReadiness.rhr7dAvg} bpm` : '--'}
                 </strong>
               </span>
               <span className="text-slate-400">
@@ -505,7 +518,7 @@ export const RecoveryView: React.FC<RecoveryViewProps> = ({
                     : 'text-slate-400 font-mono'
                 }`}
               >
-                {hasGarminData && latestLog ? latestLog.hrvRmssd : '--'}
+                {hasGarminData && latestLog && Number.isFinite(latestLog.hrvRmssd) ? latestLog.hrvRmssd : '--'}
               </span>
               <span className="text-xs text-slate-400 font-semibold">{hasGarminData && latestLog ? 'ms' : ''}</span>
               <span
@@ -531,9 +544,9 @@ export const RecoveryView: React.FC<RecoveryViewProps> = ({
               <span>
                 7d Baseline:{' '}
                 <strong className={isLight ? 'text-slate-800' : 'text-slate-200'}>
-                  {hasGarminData && todayReadiness.hrvBaseline7d > 0 ? `${todayReadiness.hrvBaseline7d} ms` : '--'}
+                  {hasGarminData && Number.isFinite(todayReadiness.hrvBaseline7d) && todayReadiness.hrvBaseline7d > 0 ? `${todayReadiness.hrvBaseline7d} ms` : '--'}
                 </strong>{' '}
-                {hasGarminData && todayReadiness.hrvStdDev7d > 0 ? `(±${todayReadiness.hrvStdDev7d})` : ''}
+                {hasGarminData && Number.isFinite(todayReadiness.hrvStdDev7d) && todayReadiness.hrvStdDev7d > 0 ? `(±${todayReadiness.hrvStdDev7d})` : ''}
               </span>
               <span
                 className={
@@ -561,7 +574,7 @@ export const RecoveryView: React.FC<RecoveryViewProps> = ({
                 Sleep Duration &amp; Score
               </span>
               <span className="text-[11px] text-sky-500 font-semibold">
-                Score: {hasGarminData && latestLog?.sleepScore ? `${latestLog.sleepScore}/100` : '--/100'}
+                Score: {hasGarminData && latestLog && Number.isFinite(latestLog.sleepScore) ? `${latestLog.sleepScore}/100` : '--/100'}
               </span>
             </div>
 
@@ -594,13 +607,13 @@ export const RecoveryView: React.FC<RecoveryViewProps> = ({
               <span>
                 7d Avg:{' '}
                 <strong className={isLight ? 'text-slate-800' : 'text-slate-200'}>
-                  {hasGarminData && todayReadiness.sleepAvg7dMinutes > 0 ? formatMinutesToHhMm(todayReadiness.sleepAvg7dMinutes) : '--'}
+                  {hasGarminData && Number.isFinite(todayReadiness.sleepAvg7dMinutes) && todayReadiness.sleepAvg7dMinutes > 0 ? formatMinutesToHhMm(todayReadiness.sleepAvg7dMinutes) : '--'}
                 </strong>
               </span>
               <span>
                 Avg Score:{' '}
                 <strong className={isLight ? 'text-slate-800' : 'text-slate-200'}>
-                  {hasGarminData && todayReadiness.sleepScoreAvg7d > 0 ? todayReadiness.sleepScoreAvg7d : '--'}
+                  {hasGarminData && Number.isFinite(todayReadiness.sleepScoreAvg7d) && todayReadiness.sleepScoreAvg7d > 0 ? todayReadiness.sleepScoreAvg7d : '--'}
                 </strong>
               </span>
             </div>
@@ -622,55 +635,58 @@ export const RecoveryView: React.FC<RecoveryViewProps> = ({
                 Deep &amp; REM Architecture
               </span>
               <span className="text-[11px] text-indigo-500 font-semibold">
-                {hasGarminData && latestLog ? `${latestLog.deepSleepMinutes}m Deep` : '-- Deep'}
+                {hasGarminData && latestLog && Number.isFinite(latestLog.deepSleepMinutes) ? `${latestLog.deepSleepMinutes}m Deep` : '-- Deep'}
               </span>
             </div>
 
             {/* Visual stage bar */}
-            {hasGarminData && latestLog ? (
-              <div className="my-2">
-                <div
-                  className={`w-full h-3 rounded-full overflow-hidden flex ${
-                    isLight ? 'bg-slate-100' : 'bg-slate-950'
-                  }`}
-                >
+            {hasGarminData && latestLog ? (() => {
+              const totalSleep = Math.max(1, Number(latestLog.sleepDurationMinutes) || 0);
+              const deepMins = Math.max(0, Number(latestLog.deepSleepMinutes) || 0);
+              const remMins = Math.max(0, Number(latestLog.remSleepMinutes) || 0);
+              const lightMins = Math.max(0, Number(latestLog.lightSleepMinutes) || 0);
+              const awakeMins = Math.max(0, Number(latestLog.awakeMinutes) || 0);
+              const deepPct = Math.min(100, Math.round((deepMins / totalSleep) * 100));
+              const remPct = Math.min(100, Math.round((remMins / totalSleep) * 100));
+              const lightPct = Math.min(100, Math.round((lightMins / totalSleep) * 100));
+              const awakePct = Math.min(100, Math.max(0, 100 - deepPct - remPct - lightPct));
+              return (
+                <div className="my-2">
                   <div
-                    style={{
-                      width: `${(latestLog.deepSleepMinutes / latestLog.sleepDurationMinutes) * 100}%`,
-                    }}
-                    className="bg-indigo-500 h-full"
-                    title={`Deep: ${latestLog.deepSleepMinutes}m`}
-                  />
-                  <div
-                    style={{
-                      width: `${(latestLog.remSleepMinutes / latestLog.sleepDurationMinutes) * 100}%`,
-                    }}
-                    className="bg-cyan-400 h-full"
-                    title={`REM: ${latestLog.remSleepMinutes}m`}
-                  />
-                  <div
-                    style={{
-                      width: `${(latestLog.lightSleepMinutes / latestLog.sleepDurationMinutes) * 100}%`,
-                    }}
-                    className="bg-slate-400 dark:bg-slate-600 h-full"
-                    title={`Light: ${latestLog.lightSleepMinutes}m`}
-                  />
-                  <div
-                    style={{
-                      width: `${(latestLog.awakeMinutes / latestLog.sleepDurationMinutes) * 100}%`,
-                    }}
-                    className="bg-rose-500/80 h-full"
-                    title={`Awake: ${latestLog.awakeMinutes}m`}
-                  />
+                    className={`w-full h-3 rounded-full overflow-hidden flex ${
+                      isLight ? 'bg-slate-100' : 'bg-slate-950'
+                    }`}
+                  >
+                    <div
+                      style={{ width: `${deepPct}%` }}
+                      className="bg-indigo-500 h-full"
+                      title={`Deep: ${deepMins}m`}
+                    />
+                    <div
+                      style={{ width: `${remPct}%` }}
+                      className="bg-cyan-400 h-full"
+                      title={`REM: ${remMins}m`}
+                    />
+                    <div
+                      style={{ width: `${lightPct}%` }}
+                      className="bg-slate-400 dark:bg-slate-600 h-full"
+                      title={`Light: ${lightMins}m`}
+                    />
+                    <div
+                      style={{ width: `${awakePct}%` }}
+                      className="bg-rose-500/80 h-full"
+                      title={`Awake: ${awakeMins}m`}
+                    />
+                  </div>
+                  <div className="flex items-center justify-between text-[10px] text-slate-400 mt-1">
+                    <span className="text-indigo-500 font-bold">Deep {deepMins}m</span>
+                    <span className="text-cyan-500 font-bold">REM {remMins}m</span>
+                    <span className="text-slate-400">Light {lightMins}m</span>
+                    <span className="text-rose-500">{awakeMins}m awake</span>
+                  </div>
                 </div>
-                <div className="flex items-center justify-between text-[10px] text-slate-400 mt-1">
-                  <span className="text-indigo-500 font-bold">Deep {latestLog.deepSleepMinutes}m</span>
-                  <span className="text-cyan-500 font-bold">REM {latestLog.remSleepMinutes}m</span>
-                  <span className="text-slate-400">Light {latestLog.lightSleepMinutes}m</span>
-                  <span className="text-rose-500">{latestLog.awakeMinutes}m awake</span>
-                </div>
-              </div>
-            ) : (
+              );
+            })() : (
               <div className="my-4 py-1 text-center text-xs text-slate-400 font-mono">
                 --
               </div>
@@ -684,8 +700,8 @@ export const RecoveryView: React.FC<RecoveryViewProps> = ({
               <span>
                 Deep %:{' '}
                 <strong className={isLight ? 'text-slate-800' : 'text-slate-200'}>
-                  {hasGarminData && latestLog
-                    ? `${Math.round((latestLog.deepSleepMinutes / latestLog.sleepDurationMinutes) * 100)}%`
+                  {hasGarminData && latestLog && Number(latestLog.sleepDurationMinutes) > 0
+                    ? `${Math.round(((Number(latestLog.deepSleepMinutes) || 0) / Number(latestLog.sleepDurationMinutes)) * 100)}%`
                     : '--'}
                 </strong>
               </span>
@@ -941,18 +957,27 @@ export const RecoveryView: React.FC<RecoveryViewProps> = ({
                       const x = 50 + idx * step;
                       const barWidth = Math.min(26, step * 0.6);
 
-                      const totalMin = Math.max(180, item.log.sleepDurationMinutes);
+                      const rawSleep = Number(item.log.sleepDurationMinutes);
+                      const safeSleep = Number.isFinite(rawSleep) && rawSleep > 0 ? rawSleep : 0;
+                      const totalMin = Math.max(180, safeSleep);
                       const maxChartMin = 600; // 10 hrs
                       const totalBarHeight = (totalMin / maxChartMin) * 150;
 
-                      const deepH = (item.log.deepSleepMinutes / totalMin) * totalBarHeight;
-                      const remH = (item.log.remSleepMinutes / totalMin) * totalBarHeight;
-                      const lightH = (item.log.lightSleepMinutes / totalMin) * totalBarHeight;
+                      const rawDeep = Number(item.log.deepSleepMinutes);
+                      const safeDeep = Number.isFinite(rawDeep) && rawDeep > 0 ? rawDeep : 0;
+                      const rawRem = Number(item.log.remSleepMinutes);
+                      const safeRem = Number.isFinite(rawRem) && rawRem > 0 ? rawRem : 0;
+                      const rawLight = Number(item.log.lightSleepMinutes);
+                      const safeLight = Number.isFinite(rawLight) && rawLight > 0 ? rawLight : 0;
+
+                      const deepH = Math.max(0, safeSleep > 0 ? (safeDeep / totalMin) * totalBarHeight : 0);
+                      const remH = Math.max(0, safeSleep > 0 ? (safeRem / totalMin) * totalBarHeight : 0);
+                      const lightH = Math.max(0, safeSleep > 0 ? (safeLight / totalMin) * totalBarHeight : 0);
 
                       const baseY = 200;
-                      const deepY = baseY - deepH;
-                      const remY = deepY - remH;
-                      const lightY = remY - lightH;
+                      const deepY = Number.isFinite(baseY - deepH) ? baseY - deepH : baseY;
+                      const remY = Number.isFinite(deepY - remH) ? deepY - remH : baseY;
+                      const lightY = Number.isFinite(remY - lightH) ? remY - lightH : baseY;
 
                       return (
                         <g
@@ -964,26 +989,26 @@ export const RecoveryView: React.FC<RecoveryViewProps> = ({
                           {/* Deep sleep bottom segment */}
                           <rect
                             x={x - barWidth / 2}
-                            y={deepY}
+                            y={Number.isFinite(deepY) ? deepY : baseY}
                             width={barWidth}
-                            height={deepH}
+                            height={Number.isFinite(deepH) ? deepH : 0}
                             fill="#6366f1"
                             rx="1"
                           />
                           {/* REM sleep middle segment */}
                           <rect
                             x={x - barWidth / 2}
-                            y={remY}
+                            y={Number.isFinite(remY) ? remY : baseY}
                             width={barWidth}
-                            height={remH}
+                            height={Number.isFinite(remH) ? remH : 0}
                             fill="#22d3ee"
                           />
                           {/* Light sleep top segment */}
                           <rect
                             x={x - barWidth / 2}
-                            y={lightY}
+                            y={Number.isFinite(lightY) ? lightY : baseY}
                             width={barWidth}
-                            height={lightH}
+                            height={Number.isFinite(lightH) ? lightH : 0}
                             fill={isLight ? '#94a3b8' : '#475569'}
                             rx="2"
                           />
@@ -1006,8 +1031,10 @@ export const RecoveryView: React.FC<RecoveryViewProps> = ({
                       const step = 720 / Math.max(1, chartDays.length);
                       const points = chartDays.map((item, idx) => {
                         const x = 50 + idx * step;
-                        // RHR mapped between 37 and 48 bpm to y 180 to 50
-                        const y = 180 - ((item.log.restingHr - 37) / 12) * 130;
+                        const rawRhr = Number(item.log.restingHr);
+                        const safeRhr = Number.isFinite(rawRhr) && rawRhr > 0 ? rawRhr : baselineRhr;
+                        const rawY = 180 - ((safeRhr - 37) / 12) * 130;
+                        const y = Number.isFinite(rawY) ? rawY : 180;
                         return `${x},${y}`;
                       });
 
@@ -1023,7 +1050,11 @@ export const RecoveryView: React.FC<RecoveryViewProps> = ({
                           />
                           {chartDays.map((item, idx) => {
                             const x = 50 + idx * step;
-                            const y = 180 - ((item.log.restingHr - 37) / 12) * 130;
+                            const rawRhr = Number(item.log.restingHr);
+                            const safeRhr = Number.isFinite(rawRhr) && rawRhr > 0 ? rawRhr : baselineRhr;
+                            const rawY = 180 - ((safeRhr - 37) / 12) * 130;
+                            const y = Number.isFinite(rawY) ? rawY : 180;
+                            const displayRhr = Number.isFinite(rawRhr) && rawRhr > 0 ? String(rawRhr) : '--';
                             return (
                               <g
                                 key={`rhr-pt-${idx}`}
@@ -1047,7 +1078,7 @@ export const RecoveryView: React.FC<RecoveryViewProps> = ({
                                   fontWeight="bold"
                                   textAnchor="middle"
                                 >
-                                  {item.log.restingHr}
+                                  {displayRhr}
                                 </text>
                               </g>
                             );
@@ -1067,14 +1098,20 @@ export const RecoveryView: React.FC<RecoveryViewProps> = ({
                       // HRV line points
                       const hrvPoints = chartDays.map((item, idx) => {
                         const x = 50 + idx * step;
-                        const y = 200 - ((item.log.hrvRmssd - 50) / 60) * 150;
+                        const rawHrv = Number(item.log.hrvRmssd);
+                        const safeHrv = Number.isFinite(rawHrv) && rawHrv > 0 ? rawHrv : 65;
+                        const rawY = 200 - ((safeHrv - 50) / 60) * 150;
+                        const y = Number.isFinite(rawY) ? rawY : 200;
                         return `${x},${y}`;
                       });
 
                       // Readiness line points
                       const readPoints = chartDays.map((item, idx) => {
                         const x = 50 + idx * step;
-                        const y = 200 - (item.readiness.score / 100) * 150;
+                        const rawScore = Number(item.readiness?.score);
+                        const safeScore = Number.isFinite(rawScore) ? rawScore : 0;
+                        const rawY = 200 - (safeScore / 100) * 150;
+                        const y = Number.isFinite(rawY) ? rawY : 200;
                         return `${x},${y}`;
                       });
 
@@ -1099,8 +1136,15 @@ export const RecoveryView: React.FC<RecoveryViewProps> = ({
 
                           {chartDays.map((item, idx) => {
                             const x = 50 + idx * step;
-                            const yHrv = 200 - ((item.log.hrvRmssd - 50) / 60) * 150;
-                            const yRead = 200 - (item.readiness.score / 100) * 150;
+                            const rawHrv = Number(item.log.hrvRmssd);
+                            const safeHrv = Number.isFinite(rawHrv) && rawHrv > 0 ? rawHrv : 65;
+                            const rawYHrv = 200 - ((safeHrv - 50) / 60) * 150;
+                            const yHrv = Number.isFinite(rawYHrv) ? rawYHrv : 200;
+
+                            const rawScore = Number(item.readiness?.score);
+                            const safeScore = Number.isFinite(rawScore) ? rawScore : 0;
+                            const rawYRead = 200 - (safeScore / 100) * 150;
+                            const yRead = Number.isFinite(rawYRead) ? rawYRead : 200;
 
                             return (
                               <g
@@ -1158,8 +1202,11 @@ export const RecoveryView: React.FC<RecoveryViewProps> = ({
                         <g>
                           {chartDays.map((item, idx) => {
                             const x = 50 + idx * step;
-                            const tssHeight = Math.min(140, (item.tss / 200) * 140);
-                            const y = 200 - tssHeight;
+                            const rawTss = Number(item.tss);
+                            const safeTss = Number.isFinite(rawTss) && rawTss > 0 ? rawTss : 0;
+                            const tssHeight = Math.max(0, Math.min(140, (safeTss / 200) * 140));
+                            const rawY = 200 - tssHeight;
+                            const y = Number.isFinite(rawY) ? rawY : 200;
 
                             return (
                               <g key={idx}>
@@ -1167,7 +1214,7 @@ export const RecoveryView: React.FC<RecoveryViewProps> = ({
                                   x={x - barWidth / 2}
                                   y={y}
                                   width={barWidth}
-                                  height={tssHeight}
+                                  height={Number.isFinite(tssHeight) ? tssHeight : 0}
                                   fill="#f97316"
                                   opacity="0.85"
                                   rx="2"
@@ -1180,7 +1227,7 @@ export const RecoveryView: React.FC<RecoveryViewProps> = ({
                                   fontWeight="bold"
                                   textAnchor="middle"
                                 >
-                                  {item.tss > 0 ? item.tss : ''}
+                                  {safeTss > 0 ? String(safeTss) : ''}
                                 </text>
                                 <text
                                   x={x}
@@ -1204,40 +1251,52 @@ export const RecoveryView: React.FC<RecoveryViewProps> = ({
           )}
 
           {/* Hover Details Ribbon */}
-          {hoveredDataIndex !== null && chartDays[hoveredDataIndex] && (
-            <div
-              className={`mt-2 p-2.5 rounded-lg border flex flex-wrap items-center justify-between text-xs gap-3 ${
-                isLight
-                  ? 'bg-white border-slate-200 text-slate-800 shadow-md'
-                  : 'bg-slate-900 border-slate-700/80 text-white'
-              }`}
-            >
-              <span className={`font-bold ${isLight ? 'text-slate-900' : 'text-white'}`}>
-                {chartDays[hoveredDataIndex].log.date}
-              </span>
-              <span className="text-rose-500 font-semibold">
-                Morning RHR: <strong>{chartDays[hoveredDataIndex].log.restingHr} bpm</strong> (
-                {chartDays[hoveredDataIndex].log.restingHr - baselineRhr > 0
-                  ? `+${chartDays[hoveredDataIndex].log.restingHr - baselineRhr}`
-                  : chartDays[hoveredDataIndex].log.restingHr - baselineRhr}{' '}
-                vs {baselineRhr} bpm baseline)
-              </span>
-              <span className="text-purple-500 font-semibold">
-                HRV: <strong>{chartDays[hoveredDataIndex].log.hrvRmssd} ms</strong>
-              </span>
-              <span className="text-sky-500 font-semibold">
-                Total Sleep:{' '}
-                <strong>
-                  {formatMinutesToHhMm(chartDays[hoveredDataIndex].log.sleepDurationMinutes)}
-                </strong>{' '}
-                (Deep: {chartDays[hoveredDataIndex].log.deepSleepMinutes}m, REM:{' '}
-                {chartDays[hoveredDataIndex].log.remSleepMinutes}m)
-              </span>
-              <span className="text-emerald-500 font-bold">
-                Readiness: {chartDays[hoveredDataIndex].readiness.score}%
-              </span>
-            </div>
-          )}
+          {hoveredDataIndex !== null && chartDays[hoveredDataIndex] && (() => {
+            const hItem = chartDays[hoveredDataIndex];
+            const rhrVal = Number(hItem.log.restingHr);
+            const safeRhr = Number.isFinite(rhrVal) ? rhrVal : null;
+            const diff = safeRhr !== null && Number.isFinite(baselineRhr) ? safeRhr - baselineRhr : null;
+            const hrvVal = Number(hItem.log.hrvRmssd);
+            const safeHrv = Number.isFinite(hrvVal) ? hrvVal : null;
+            const deepVal = Number(hItem.log.deepSleepMinutes);
+            const safeDeep = Number.isFinite(deepVal) ? deepVal : 0;
+            const remVal = Number(hItem.log.remSleepMinutes);
+            const safeRem = Number.isFinite(remVal) ? remVal : 0;
+            const scoreVal = Number(hItem.readiness?.score);
+            const safeScore = Number.isFinite(scoreVal) ? scoreVal : null;
+
+            return (
+              <div
+                className={`mt-2 p-2.5 rounded-lg border flex flex-wrap items-center justify-between text-xs gap-3 ${
+                  isLight
+                    ? 'bg-white border-slate-200 text-slate-800 shadow-md'
+                    : 'bg-slate-900 border-slate-700/80 text-white'
+                }`}
+              >
+                <span className={`font-bold ${isLight ? 'text-slate-900' : 'text-white'}`}>
+                  {hItem.log.date}
+                </span>
+                <span className="text-rose-500 font-semibold">
+                  Morning RHR: <strong>{safeRhr !== null ? `${safeRhr} bpm` : '--'}</strong>{' '}
+                  {diff !== null && (
+                    <>
+                      ({diff > 0 ? `+${diff}` : String(diff)} vs {baselineRhr} bpm baseline)
+                    </>
+                  )}
+                </span>
+                <span className="text-purple-500 font-semibold">
+                  HRV: <strong>{safeHrv !== null ? `${safeHrv} ms` : '--'}</strong>
+                </span>
+                <span className="text-sky-500 font-semibold">
+                  Total Sleep: <strong>{formatMinutesToHhMm(hItem.log.sleepDurationMinutes)}</strong>{' '}
+                  (Deep: {safeDeep}m, REM: {safeRem}m)
+                </span>
+                <span className="text-emerald-500 font-bold">
+                  Readiness: {safeScore !== null ? `${safeScore}%` : '--'}
+                </span>
+              </div>
+            );
+          })()}
         </div>
       </div>
 
@@ -1425,7 +1484,9 @@ export const RecoveryView: React.FC<RecoveryViewProps> = ({
               ) : (
                 [...sortedLogs].reverse().map((log) => {
                 const read = computeDailyReadiness(log, sortedLogs, athleteProfile);
-                const rhrDiff = log.restingHr - baselineRhr;
+                const rawRhr = Number(log.restingHr);
+                const safeRhr = Number.isFinite(rawRhr) ? rawRhr : null;
+                const rhrDiff = safeRhr !== null && Number.isFinite(baselineRhr) ? safeRhr - baselineRhr : null;
 
                 return (
                   <tr
@@ -1446,7 +1507,7 @@ export const RecoveryView: React.FC<RecoveryViewProps> = ({
                       <span
                         className={`px-2 py-0.5 rounded-md text-[11px] font-bold ${read.badgeBg} ${read.badgeText}`}
                       >
-                        {read.score}% • {read.status}
+                        {Number.isFinite(read.score) ? read.score : '--'}% • {read.status}
                       </span>
                     </td>
 
@@ -1454,19 +1515,21 @@ export const RecoveryView: React.FC<RecoveryViewProps> = ({
                       <span
                         className={`font-bold ${isLight ? 'text-slate-900' : 'text-white'}`}
                       >
-                        {log.restingHr} bpm
+                        {safeRhr !== null ? `${safeRhr} bpm` : '-- bpm'}
                       </span>
-                      <span
-                        className={`ml-1.5 text-[10px] ${
-                          rhrDiff <= 0
-                            ? 'text-emerald-500 font-semibold'
-                            : rhrDiff <= 2
-                            ? 'text-sky-500 font-semibold'
-                            : 'text-amber-500 font-semibold'
-                        }`}
-                      >
-                        ({rhrDiff > 0 ? `+${rhrDiff}` : rhrDiff})
-                      </span>
+                      {rhrDiff !== null && (
+                        <span
+                          className={`ml-1.5 text-[10px] ${
+                            rhrDiff <= 0
+                              ? 'text-emerald-500 font-semibold'
+                              : rhrDiff <= 2
+                              ? 'text-sky-500 font-semibold'
+                              : 'text-amber-500 font-semibold'
+                          }`}
+                        >
+                          ({rhrDiff > 0 ? `+${rhrDiff}` : rhrDiff})
+                        </span>
+                      )}
                     </td>
 
                     <td
@@ -1474,7 +1537,7 @@ export const RecoveryView: React.FC<RecoveryViewProps> = ({
                         isLight ? 'text-purple-600' : 'text-purple-400'
                       }`}
                     >
-                      {log.hrvRmssd} ms
+                      {Number.isFinite(log.hrvRmssd) ? `${log.hrvRmssd} ms` : '-- ms'}
                     </td>
 
                     <td
@@ -1483,12 +1546,19 @@ export const RecoveryView: React.FC<RecoveryViewProps> = ({
                       }`}
                     >
                       {formatMinutesToHhMm(log.sleepDurationMinutes)}
-                      <span className="text-slate-400 ml-1.5">({log.sleepScore}/100)</span>
+                      <span className="text-slate-400 ml-1.5">
+                        ({Number.isFinite(log.sleepScore) ? log.sleepScore : '--'}/100)
+                      </span>
                     </td>
 
                     <td className="py-2.5 px-3 whitespace-nowrap text-slate-400">
-                      <span className="text-indigo-500 font-medium">{log.deepSleepMinutes}m</span> /{' '}
-                      <span className="text-cyan-500 font-medium">{log.remSleepMinutes}m</span>
+                      <span className="text-indigo-500 font-medium">
+                        {Number.isFinite(log.deepSleepMinutes) ? `${log.deepSleepMinutes}m` : '--'}
+                      </span>{' '}
+                      /{' '}
+                      <span className="text-cyan-500 font-medium">
+                        {Number.isFinite(log.remSleepMinutes) ? `${log.remSleepMinutes}m` : '--'}
+                      </span>
                     </td>
 
                     <td

@@ -647,7 +647,7 @@ export default function App() {
             >
               <Heart className="w-3.5 h-3.5 text-rose-500" />
               <span>Readiness</span>
-              {headerReadiness && (
+              {headerReadiness && Number.isFinite(headerReadiness.score) && (
                 <span
                   className={`text-[10px] px-1.5 py-0.5 rounded-md font-extrabold ${headerReadiness.badgeBg} ${headerReadiness.badgeText}`}
                 >
@@ -715,6 +715,7 @@ export default function App() {
       <main className="flex-1 max-w-4xl w-full mx-auto p-4 sm:p-6 space-y-6">
         {activeMainTab === 'activities' ? (
           <StravaActivitiesTab
+            theme={theme}
             stravaToken={stravaToken}
             athleteName={athleteName}
             activities={stravaActivities}
