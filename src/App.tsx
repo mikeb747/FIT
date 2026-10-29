@@ -42,7 +42,7 @@ import {
 import {
   getCachedSpreadsheetId,
 } from './utils/googleSheets';
-import { Settings, Activity, Moon, Heart, Zap } from 'lucide-react';
+import { Settings, Activity, Moon, Heart, Zap, RotateCw } from 'lucide-react';
 import { RecoveryView } from './components/RecoveryView';
 import { FitnessTab } from './components/FitnessTab';
 import { computeFitnessTimeline, calculateTriathlonFitnessIndex } from './utils/fitnessEngine';
@@ -576,27 +576,7 @@ export default function App() {
         }`}
       >
         <div className="max-w-4xl mx-auto flex items-center justify-between gap-3">
-          {/* Brand Wordmark */}
-          <div className="flex flex-col min-w-0 select-none text-left p-1 -m-1">
-            <span
-              className={`text-sm sm:text-base font-extrabold tracking-tight leading-snug ${
-                theme === 'light' ? 'text-slate-900' : 'text-white'
-              }`}
-            >
-              {brandTitle}
-            </span>
-            {brandSubtitle && (
-              <span
-                className={`text-[11px] sm:text-xs font-medium leading-tight truncate block max-w-[170px] sm:max-w-xs ${
-                  theme === 'light' ? 'text-slate-500' : 'text-slate-400'
-                }`}
-              >
-                {brandSubtitle}
-              </span>
-            )}
-          </div>
-
-          {/* Center Navigation Switcher */}
+          {/* Navigation Switcher */}
           <div
             className={`flex items-center gap-1 p-1 rounded-xl border transition-colors ${
               theme === 'light'
@@ -684,7 +664,7 @@ export default function App() {
             </button>
           </div>
 
-          {/* Action cluster: PWA Install, Settings */}
+          {/* Action cluster: PWA Install, Settings, Strava Sync */}
           <div className="flex items-center gap-2">
             <PWAInstallButton />
 
@@ -704,6 +684,34 @@ export default function App() {
             >
               <Settings className="w-4 h-4 text-amber-400" />
               <span className="hidden sm:inline">Settings</span>
+            </button>
+
+            {/* Strava Sync Button */}
+            <button
+              type="button"
+              onClick={() => {
+                if (stravaToken) {
+                  refreshStravaActivities();
+                } else {
+                  setIsStravaSettingsOpen(true);
+                }
+              }}
+              disabled={isLoadingStravaActivities}
+              title={stravaToken ? 'Sync Strava activities (smart delta sync)' : 'Connect Strava'}
+              className={`h-8 px-2.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all active:scale-95 cursor-pointer border shadow-sm disabled:opacity-50 ${
+                theme === 'light'
+                  ? 'bg-white hover:bg-slate-100 text-slate-700 hover:text-slate-900 border-slate-200'
+                  : 'bg-slate-900 hover:bg-slate-800 text-slate-300 hover:text-white border-slate-800'
+              }`}
+            >
+              <RotateCw
+                className={`w-3.5 h-3.5 ${
+                  isLoadingStravaActivities ? 'animate-spin text-amber-500' : 'text-[#FC5200]'
+                }`}
+              />
+              <span className="hidden sm:inline">
+                {isLoadingStravaActivities ? 'Syncing...' : 'Sync'}
+              </span>
             </button>
           </div>
         </div>

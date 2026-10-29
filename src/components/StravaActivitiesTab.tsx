@@ -1,6 +1,5 @@
 import React, { useState, useMemo } from 'react';
 import {
-  ExternalLink,
   RotateCw,
   Dumbbell,
   Bike,
@@ -14,8 +13,6 @@ import {
   AlertCircle,
   Sparkles,
   Check,
-  FileSpreadsheet,
-  LogOut,
   ChevronRight,
   Loader2,
   Zap,
@@ -31,7 +28,6 @@ import {
   classifyActivity,
   formatSportMetrics,
   isActivityNew,
-  getLastStravaRefreshTime,
   calculateActivityTSS,
 } from '../utils/stravaActivities';
 import { applyRenameRulesToName } from '../utils/activityRenameRules';
@@ -103,17 +99,6 @@ function getCategoryIcon(category: ActivityCategory, className = 'w-5 h-5', isLi
   }
 }
 
-function formatLastRefresh(timestamp: number): string {
-  if (!timestamp || timestamp <= 0) return '';
-  const diffSec = Math.floor((Date.now() - timestamp) / 1000);
-  if (diffSec < 60) return 'just now';
-  const diffMin = Math.floor(diffSec / 60);
-  if (diffMin < 60) return `${diffMin}m ago`;
-  const diffHours = Math.floor(diffMin / 60);
-  if (diffHours < 24) return `${diffHours}h ago`;
-  return `${Math.floor(diffHours / 24)}d ago`;
-}
-
 export const StravaActivitiesTab: React.FC<StravaActivitiesTabProps> = ({
   stravaToken,
   athleteName,
@@ -140,9 +125,6 @@ export const StravaActivitiesTab: React.FC<StravaActivitiesTabProps> = ({
   const isLight = theme === 'light';
   const [selectedCategory, setSelectedCategory] = useState<ActivityFilterCategory>('All');
   const [activeModalActivity, setActiveModalActivity] = useState<StravaActivity | null>(null);
-
-  const lastRefreshTime = getLastStravaRefreshTime();
-  const lastRefreshFormatted = formatLastRefresh(lastRefreshTime);
 
   // Filter activities by selected category: All, Swim, Bike, Run, Gym
   const filteredActivities = useMemo(() => {
@@ -192,162 +174,6 @@ export const StravaActivitiesTab: React.FC<StravaActivitiesTabProps> = ({
 
   return (
     <div className="space-y-4 animate-fade-in">
-      {/* ========================================================= */}
-      {/* DUAL CONNECTION STATUS BOX: STRAVA (LEFT) | GOOGLE (RIGHT) */}
-      {/* ========================================================= */}
-      <div
-        className={`grid grid-cols-1 md:grid-cols-2 gap-3 rounded-2xl p-3.5 sm:p-4 shadow-sm border ${
-          isLight
-            ? 'bg-white border-slate-200 text-slate-900 shadow-xs'
-            : 'bg-slate-900 border-slate-800 text-white'
-        }`}
-      >
-        {/* Left Side: Strava Connection Status */}
-        <div
-          className={`flex items-center justify-between gap-3 pr-0 md:pr-3 md:border-r ${
-            isLight ? 'md:border-slate-200' : 'md:border-slate-800/80'
-          }`}
-        >
-          <div className="flex items-center gap-3 min-w-0">
-            <div
-              className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 border ${
-                isLight
-                  ? 'bg-[#FC5200]/10 border-[#FC5200]/25'
-                  : 'bg-[#FC5200]/20 border-[#FC5200]/30'
-              }`}
-            >
-              <StravaIcon className="w-5 h-5" />
-            </div>
-            <div className="min-w-0">
-              <div className="flex items-center gap-2">
-                <span
-                  className={`text-xs sm:text-sm font-extrabold truncate ${
-                    isLight ? 'text-slate-900' : 'text-white'
-                  }`}
-                >
-                  {athleteName || 'Strava Athlete'}
-                </span>
-                <span className="inline-flex items-center gap-1 text-[10px] font-bold text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-2 py-0.5 rounded-full shrink-0">
-                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-                  Connected
-                </span>
-              </div>
-              <p
-                className={`text-[11px] mt-0.5 truncate ${
-                  isLight ? 'text-slate-500' : 'text-slate-400'
-                }`}
-              >
-                {lastRefreshFormatted ? `Refreshed ${lastRefreshFormatted}` : 'Live Strava feed'}
-              </p>
-            </div>
-          </div>
-
-          <button
-            type="button"
-            onClick={onRefresh}
-            disabled={loading}
-            className={`px-2.5 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer shrink-0 disabled:opacity-50 border ${
-              isLight
-                ? 'bg-slate-100 hover:bg-slate-200 text-slate-700 hover:text-slate-900 border-slate-200'
-                : 'bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white border-slate-700'
-            }`}
-            title="Refresh activities (smart delta sync)"
-          >
-            <RotateCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin text-amber-400' : ''}`} />
-            <span className="hidden sm:inline">{loading ? 'Syncing...' : 'Sync'}</span>
-          </button>
-        </div>
-
-        {/* Right Side: Google Sheets Connection Status */}
-        <div
-          className={`flex items-center justify-between gap-3 pt-3 md:pt-0 border-t md:border-t-0 ${
-            isLight ? 'border-slate-200' : 'border-slate-800/80'
-          }`}
-        >
-          <div className="flex items-center gap-3 min-w-0">
-            <div
-              className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 border ${
-                isLight
-                  ? 'bg-emerald-500/10 border-emerald-500/25'
-                  : 'bg-emerald-500/15 border-emerald-500/25'
-              }`}
-            >
-              <FileSpreadsheet className="w-5 h-5 text-emerald-400" />
-            </div>
-            <div className="min-w-0">
-              <div className="flex items-center gap-2">
-                <span
-                  className={`text-xs sm:text-sm font-extrabold truncate ${
-                    isLight ? 'text-slate-900' : 'text-white'
-                  }`}
-                >
-                  {isGoogleConnected ? 'Google Sheets' : 'Google Account'}
-                </span>
-                {isGoogleConnected ? (
-                  <span className="inline-flex items-center gap-1 text-[10px] font-bold text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-2 py-0.5 rounded-full shrink-0">
-                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
-                    Connected
-                  </span>
-                ) : (
-                  <span
-                    className={`text-[10px] font-bold px-2 py-0.5 rounded-full shrink-0 ${
-                      isLight
-                        ? 'text-slate-600 bg-slate-100 border border-slate-200'
-                        : 'text-slate-400 bg-slate-800'
-                    }`}
-                  >
-                    Not Linked
-                  </span>
-                )}
-              </div>
-              <p
-                className={`text-[11px] mt-0.5 truncate ${
-                  isLight ? 'text-slate-500' : 'text-slate-400'
-                }`}
-              >
-                {isGoogleConnected ? (
-                  googleSheetUrl ? (
-                    <a
-                      href={googleSheetUrl}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="text-emerald-400 hover:underline flex items-center gap-1"
-                    >
-                      <span>FIT Track Training Log</span>
-                      <ExternalLink className="w-2.5 h-2.5" />
-                    </a>
-                  ) : (
-                    googleUserEmail || 'FIT Track Training Log ready'
-                  )
-                ) : (
-                  'Export streams & workouts to Sheets'
-                )}
-              </p>
-            </div>
-          </div>
-
-          {isGoogleConnected ? (
-            <button
-              type="button"
-              onClick={onDisconnectGoogle}
-              className="p-1.5 rounded-xl text-slate-400 hover:text-rose-400 hover:bg-slate-800 transition-colors cursor-pointer shrink-0"
-              title="Disconnect Google account"
-            >
-              <LogOut className="w-4 h-4" />
-            </button>
-          ) : (
-            <button
-              type="button"
-              onClick={onConnectGoogle}
-              className="px-3 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer shadow-sm shadow-blue-600/20 shrink-0"
-            >
-              <FileSpreadsheet className="w-3.5 h-3.5" />
-              <span>Connect</span>
-            </button>
-          )}
-        </div>
-      </div>
-
       {/* Error state */}
       {error && (
         <div className="p-3.5 rounded-2xl bg-rose-500/10 border border-rose-500/25 text-rose-300 text-xs flex items-center justify-between gap-3">
