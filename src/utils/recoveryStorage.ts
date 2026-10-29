@@ -1,5 +1,13 @@
 import type { DailyRecoveryLog, SubjectiveFeel } from '../types/recovery';
 
+export interface GarminMetricCheck {
+  metric: 'Steps' | 'Calories' | 'Heart rate' | 'Sleep';
+  received: boolean;
+  status?: number;
+  value?: string | number;
+  message: string;
+}
+
 const RECOVERY_STORAGE_KEY = 'fit_track_recovery_logs_v1';
 const LEGACY_STORAGE_KEY = 'ironfit_recovery_logs_v1';
 
@@ -310,12 +318,14 @@ export async function syncGarminMultiWeek(options: {
   password?: string;
   sessionToken?: string;
   weeks: number;
+  debugDate?: string;
   baselineRhr?: number;
 }): Promise<{
   success: boolean;
   syncedDays: number;
   weeks: number;
   logs: DailyRecoveryLog[];
+  checks?: GarminMetricCheck[];
   message: string;
   error?: string;
   mfaRequired?: boolean;
@@ -345,11 +355,36 @@ export async function syncGarminMultiWeek(options: {
         password,
         sessionToken,
         weeks: options.weeks,
+        debugDate: options.debugDate,
         baselineRhr: baseline,
       }),
     });
 
     const data = await res.json().catch(() => ({}));
+
+    if (options.debugDate && Array.isArray(data.checks)) {
+      if (res.ok && data.success) {
+        try {
+          localStorage.setItem('fit_track_garmin_connected', 'true');
+          localStorage.removeItem('fit_track_garmin_disconnected');
+          if (sessionToken) {
+            localStorage.setItem('fit_track_garmin_token', sessionToken);
+          }
+        } catch {}
+        return data;
+      }
+
+      return {
+        success: false,
+        syncedDays: 0,
+        weeks: options.weeks,
+        logs: [],
+        checks: data.checks,
+        message: data.error || 'Garmin daily data check failed.',
+        error: data.error || 'Garmin daily data check failed.',
+        mfaRequired: data.mfaRequired,
+      };
+    }
 
     if (res.ok && data.success && Array.isArray(data.logs) && data.logs.length > 0) {
       try {
