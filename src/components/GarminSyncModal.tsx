@@ -92,7 +92,6 @@ export const GarminSyncModal: React.FC<GarminSyncModalProps> = ({
     setSuccess(null);
     setMetricChecks(null);
     setCheckedDate(selectedDate);
-    setDebugTraces(null);
 
     if (activeTab === 'auto' && !isAutoValid) {
       setError('Both Garmin email and password are required to sync.');
@@ -104,6 +103,44 @@ export const GarminSyncModal: React.FC<GarminSyncModalProps> = ({
       return;
     }
 
+    const queryDate = activeTab === 'token' ? selectedDate : undefined;
+
+    // Immediately create an in-flight trace so the user sees live request progress
+    const inFlightTrace: GarminApiDebugTrace = {
+      id: `trace_client_${Date.now()}`,
+      timestamp: new Date().toISOString(),
+      label: `Local Client Request Dispatched -> /api/garmin/sync-multiweek (${queryDate || `${weeks}w`} UTC)`,
+      request: {
+        method: 'POST',
+        url: '/api/garmin/sync-multiweek',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': sessionToken.trim()
+            ? (sessionToken.trim().startsWith('GCDC_') ? 'ApiKey GCDC_...***' : 'Bearer ***')
+            : '(none)',
+        },
+        body: JSON.stringify(
+          {
+            activeTab,
+            targetDate: queryDate,
+            weeks,
+            hasSessionToken: Boolean(sessionToken.trim()),
+          },
+          null,
+          2
+        ),
+      },
+      response: {
+        status: 0,
+        statusText: 'Connecting to Garmin proxy...',
+        contentType: 'application/json',
+        body: 'Connecting to Garmin Connect endpoints: API Key Exchange, Sleep, Daily Summary, and HRV...',
+        durationMs: 0,
+      },
+    };
+
+    setDebugTraces([inFlightTrace]);
+    setExpandedTraceIds(new Set([inFlightTrace.id]));
     setIsLoading(true);
 
     try {
@@ -121,7 +158,6 @@ export const GarminSyncModal: React.FC<GarminSyncModalProps> = ({
       setProgressMsg('Connecting to Garmin Connect service...');
       await new Promise((r) => setTimeout(r, 200));
 
-      const queryDate = activeTab === 'token' ? selectedDate : undefined;
       setProgressMsg(
         activeTab === 'token'
           ? `Querying Garmin Connect live API endpoints for ${selectedDate} (UTC)...`
@@ -137,11 +173,10 @@ export const GarminSyncModal: React.FC<GarminSyncModalProps> = ({
         baselineRhr,
       });
 
+      const finalTraces = result.traces && result.traces.length > 0 ? result.traces : [inFlightTrace];
       setMetricChecks(result.checks || null);
-      setDebugTraces(result.traces || null);
-      if (result.traces && result.traces.length > 0) {
-        setExpandedTraceIds(new Set(result.traces.map((t) => t.id)));
-      }
+      setDebugTraces(finalTraces);
+      setExpandedTraceIds(new Set(finalTraces.map((t) => t.id)));
 
       if (!result.success) {
         if (result.mfaRequired) {
@@ -178,6 +213,27 @@ export const GarminSyncModal: React.FC<GarminSyncModalProps> = ({
       );
     } catch (err: any) {
       setError(err.message || 'An unexpected error occurred during Garmin synchronization.');
+      const errTrace: GarminApiDebugTrace = {
+        id: `trace_err_${Date.now()}`,
+        timestamp: new Date().toISOString(),
+        label: `Synchronization Exception`,
+        request: {
+          method: 'POST',
+          url: '/api/garmin/sync-multiweek',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ queryDate, activeTab }, null, 2),
+        },
+        response: {
+          status: 0,
+          statusText: 'Client Exception',
+          contentType: 'text/plain',
+          body: err.message || 'Client Exception during fetch',
+          durationMs: 0,
+        },
+        error: err.message,
+      };
+      setDebugTraces([errTrace]);
+      setExpandedTraceIds(new Set([errTrace.id]));
     } finally {
       setIsLoading(false);
       setProgressMsg('');
@@ -354,6 +410,25 @@ export const GarminSyncModal: React.FC<GarminSyncModalProps> = ({
           {/* ========================================================= */}
           {/* LIVE REQUEST & RESPONSE DEBUG INSPECTOR */}
           {/* ========================================================= */}
+          {(!debugTraces || debugTraces.length === 0) && activeTab === 'token' && (
+            <div
+              className={`p-3.5 rounded-xl border text-xs flex items-center justify-between gap-3 ${
+                isLight ? 'bg-slate-50 border-slate-200 text-slate-600' : 'bg-slate-900/40 border-slate-800 text-slate-400'
+              }`}
+            >
+              <div className="flex items-center gap-2">
+                <Terminal className="w-4 h-4 text-sky-400 shrink-0" />
+                <span>
+                  <strong className={isLight ? 'text-slate-800' : 'text-slate-200'}>Garmin API Request & Response Inspector: </strong>
+                  Ready. Tap &quot;Sync with Token&quot; below to send live requests and inspect each response in real time.
+                </span>
+              </div>
+              <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-sky-500/10 text-sky-400 border border-sky-500/20 shrink-0">
+                Ready
+              </span>
+            </div>
+          )}
+
           {debugTraces && debugTraces.length > 0 && (
             <div
               className={`rounded-2xl border overflow-hidden text-xs shadow-sm ${

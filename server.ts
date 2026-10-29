@@ -709,6 +709,7 @@ app.post('/api/garmin/sync-multiweek', async (req, res) => {
           method,
           headers: reqHeaders,
           body: bodyPayload,
+          signal: AbortSignal.timeout(9000),
         });
 
         const durationMs = Date.now() - startTime;
@@ -743,7 +744,8 @@ app.post('/api/garmin/sync-multiweek', async (req, res) => {
         trace.error = err.message || 'Network fetch failed';
         trace.response = {
           status: 0,
-          statusText: 'Network Error',
+          statusText: err.name === 'TimeoutError' ? 'Garmin Timeout (9s)' : 'Network Error',
+          contentType: 'text/plain',
           body: err.message || 'Network fetch failed',
           durationMs,
         };
@@ -815,19 +817,45 @@ app.post('/api/garmin/sync-multiweek', async (req, res) => {
 
       // 1. Request Sleep first (GARMIN.md Section 0.6)
       const sleepUrl = `${apiBase}/sleep-service/sleep/dailySleep?date=${encodeURIComponent(targetDate)}`;
-      const sleepRes = await fetchWithTrace(
+      let sleepRes = await fetchWithTrace(
         `2. Sleep Data (GET /sleep-service/sleep/dailySleep?date=${targetDate})`,
         sleepUrl,
         headers
       );
 
+      // If dailySleep returned 404, try alternative path endpoint (/sleep-service/sleep/{date})
+      if (!sleepRes.ok && sleepRes.status === 404) {
+        const altSleepUrl = `${apiBase}/sleep-service/sleep/${encodeURIComponent(targetDate)}`;
+        const altSleepRes = await fetchWithTrace(
+          `2b. Sleep Data Alternative (GET /sleep-service/sleep/${targetDate})`,
+          altSleepUrl,
+          headers
+        );
+        if (altSleepRes.ok || altSleepRes.payload) {
+          sleepRes = altSleepRes;
+        }
+      }
+
       // 2. Request Daily Summary second (heart rate, steps, calories)
       const summaryUrl = `${apiBase}/usersummary-service/usersummary/daily?calendarDate=${encodeURIComponent(targetDate)}`;
-      const summaryRes = await fetchWithTrace(
+      let summaryRes = await fetchWithTrace(
         `3. Daily Summary (GET /usersummary-service/usersummary/daily?calendarDate=${targetDate})`,
         summaryUrl,
         headers
       );
+
+      // If daily summary returned 404, try alternative path endpoint (/usersummary-service/usersummary/daily/{date})
+      if (!summaryRes.ok && summaryRes.status === 404) {
+        const altSummaryUrl = `${apiBase}/usersummary-service/usersummary/daily/${encodeURIComponent(targetDate)}`;
+        const altSummaryRes = await fetchWithTrace(
+          `3b. Daily Summary Alternative (GET /usersummary-service/usersummary/daily/${targetDate})`,
+          altSummaryUrl,
+          headers
+        );
+        if (altSummaryRes.ok || altSummaryRes.payload) {
+          summaryRes = altSummaryRes;
+        }
+      }
 
       // 3. Request HRV Daily endpoint (GARMIN.md Section 0.6)
       const hrvUrl = `${apiBase}/hrv-service/hrv/${encodeURIComponent(targetDate)}`;
@@ -842,14 +870,6 @@ app.post('/api/garmin/sync-multiweek', async (req, res) => {
       const hrvRangeRes = await fetchWithTrace(
         `5. HRV Range (GET /hrv-service/hrv/daily/${targetDate}/${targetDate})`,
         hrvRangeUrl,
-        headers
-      );
-
-      // 5. Request Wellness Dailies
-      const dailiesUrl = `${apiBase}/wellness-service/rest/dailies?uploadStartTimeInSeconds=${startSec}&uploadEndTimeInSeconds=${nowSec}`;
-      const dailiesRes = await fetchWithTrace(
-        `6. Wellness Dailies (GET /wellness-service/rest/dailies)`,
-        dailiesUrl,
         headers
       );
 
