@@ -1156,7 +1156,6 @@ export const FitnessTab: React.FC<FitnessTabProps> = ({
             onDeleteActivity?.(id);
             setActiveModalActivity(null);
           }}
-          theme={theme}
         />
       )}
     </div>

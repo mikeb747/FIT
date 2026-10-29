@@ -69,7 +69,6 @@ interface StravaActivityModalProps {
   onActivityPublished?: (activityId: string) => void;
   onOpenAthleteProfile?: () => void;
   onDeleteActivity?: (activityId: string | number) => void;
-  theme?: 'dark' | 'light';
 }
 
 function formatActivityDate(dateString: string): string {
@@ -116,7 +115,6 @@ export const StravaActivityModal: React.FC<StravaActivityModalProps> = ({
   onActivityPublished,
   onOpenAthleteProfile,
   onDeleteActivity,
-  theme = 'dark',
 }) => {
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [isDeletedLocally, setIsDeletedLocally] = useState(false);
@@ -245,8 +243,6 @@ export const StravaActivityModal: React.FC<StravaActivityModalProps> = ({
     };
   }, [isOpen, activity, stravaToken]);
 
-  const isLight = theme === 'light';
-
   if (!isOpen || !activity) return null;
 
   const classification = classifyActivity(activity);
@@ -365,18 +361,18 @@ export const StravaActivityModal: React.FC<StravaActivityModalProps> = ({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/80 backdrop-blur-sm animate-fade-in">
-      <div className={`rounded-3xl w-full max-w-xl max-h-[90vh] flex flex-col shadow-2xl overflow-hidden border ${isLight ? 'bg-white border-slate-200 text-slate-900' : 'bg-slate-900 border-slate-800 text-white'}`}>
+      <div className="bg-slate-900 border border-slate-800 rounded-3xl w-full max-w-xl max-h-[90vh] flex flex-col shadow-2xl overflow-hidden">
         {/* Modal Header */}
-        <div className={`p-4 sm:p-5 border-b flex items-start justify-between gap-3 shrink-0 ${isLight ? 'bg-slate-50/90 border-slate-200' : 'bg-slate-950/60 border-slate-800'}`}>
+        <div className="p-4 sm:p-5 border-b border-slate-800 flex items-start justify-between gap-3 bg-slate-950/60 shrink-0">
           <div className="flex items-start gap-3 min-w-0">
-            <div className={`w-11 h-11 rounded-2xl border flex items-center justify-center shrink-0 mt-0.5 ${isLight ? 'bg-slate-100 border-slate-200' : 'bg-slate-800 border-slate-700'}`}>
+            <div className="w-11 h-11 rounded-2xl bg-slate-800 border border-slate-700 flex items-center justify-center shrink-0 mt-0.5">
               {getCategoryIcon(classification.category, 'w-6 h-6')}
             </div>
             <div className="min-w-0">
-              <h3 className={`text-base sm:text-lg font-black leading-tight truncate ${isLight ? 'text-slate-900' : 'text-white'}`}>
+              <h3 className="text-base sm:text-lg font-black text-white leading-tight truncate">
                 {applyRenameRulesToName(activity.name).newName}
               </h3>
-              <p className={`text-xs mt-1 ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>
+              <p className="text-xs text-slate-400 mt-1">
                 {formatActivityDate(activity.start_date_local || activity.start_date)}
               </p>
             </div>
@@ -386,7 +382,7 @@ export const StravaActivityModal: React.FC<StravaActivityModalProps> = ({
             <button
               type="button"
               onClick={() => setIsCalibrationOpen(true)}
-              className={`p-2 rounded-xl transition-colors cursor-pointer border ${isLight ? 'bg-slate-100 hover:bg-slate-200 text-amber-600 border-slate-200' : 'bg-slate-800 hover:bg-slate-700 text-amber-400 border-slate-700'}`}
+              className="p-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-amber-400 hover:text-amber-300 transition-colors cursor-pointer border border-slate-700"
               title="Calibrate / Fix Inaccurate Data"
             >
               <Wrench className="w-4 h-4" />
@@ -395,7 +391,7 @@ export const StravaActivityModal: React.FC<StravaActivityModalProps> = ({
             <button
               type="button"
               onClick={() => setShowDeleteConfirm(true)}
-              className={`p-2 rounded-xl transition-colors cursor-pointer border ${isLight ? 'bg-slate-100 hover:bg-rose-100 text-slate-500 hover:text-rose-600 border-slate-200' : 'bg-slate-800 hover:bg-rose-950/50 text-slate-400 hover:text-rose-400 border-slate-700'}`}
+              className="p-2 rounded-xl bg-slate-800 hover:bg-rose-950/50 text-slate-400 hover:text-rose-400 transition-colors cursor-pointer border border-slate-700 hover:border-rose-500/30"
               title="Delete Activity"
             >
               <Trash2 className="w-4 h-4" />
@@ -404,7 +400,7 @@ export const StravaActivityModal: React.FC<StravaActivityModalProps> = ({
             <button
               type="button"
               onClick={onClose}
-              className={`p-2 rounded-xl transition-colors cursor-pointer ${isLight ? 'text-slate-500 hover:text-slate-900 hover:bg-slate-100' : 'text-slate-400 hover:text-white hover:bg-slate-800'}`}
+              className="p-2 rounded-xl text-slate-400 hover:text-white hover:bg-slate-800 transition-colors cursor-pointer"
               title="Close modal"
             >
               <X className="w-5 h-5" />
@@ -416,7 +412,7 @@ export const StravaActivityModal: React.FC<StravaActivityModalProps> = ({
         <div className="p-4 sm:p-5 overflow-y-auto space-y-4">
           {/* Badges strip */}
           <div className="flex flex-wrap items-center gap-2">
-            <span className={`px-2.5 py-1 rounded-xl text-xs font-bold flex items-center gap-1.5 border ${isLight ? 'bg-slate-100 text-slate-800 border-slate-200' : 'bg-slate-800 text-slate-200 border-slate-700'}`}>
+            <span className="px-2.5 py-1 rounded-xl bg-slate-800 text-slate-200 text-xs font-bold flex items-center gap-1.5">
               {getCategoryIcon(classification.category, 'w-3.5 h-3.5')}
               <span>{classification.subType}</span>
             </span>
@@ -467,7 +463,7 @@ export const StravaActivityModal: React.FC<StravaActivityModalProps> = ({
             <button
               type="button"
               onClick={() => setIsCalibrationOpen(true)}
-              className="inline-flex items-center gap-1 text-xs text-amber-500 hover:text-amber-400 font-bold hover:underline cursor-pointer"
+              className="inline-flex items-center gap-1 text-xs text-amber-400 hover:text-amber-300 font-bold hover:underline cursor-pointer"
             >
               <Wrench className="w-3 h-3" />
               <span>{hasCalibration ? 'Edit Calibration' : 'Fix Data'}</span>
@@ -484,11 +480,11 @@ export const StravaActivityModal: React.FC<StravaActivityModalProps> = ({
             </a>
           </div>
 
-          {/* Description / Notes if available */}
+          {/* Description / Notes if available - at the top of Activity Details */}
           {description && (
-            <div className={`p-3.5 rounded-2xl border space-y-1 ${isLight ? 'bg-slate-50 border-slate-200' : 'bg-slate-950 border-slate-800'}`}>
-              <span className={`text-[11px] font-semibold block ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>Description / Notes</span>
-              <p className={`text-xs whitespace-pre-wrap p-2.5 rounded-xl border leading-relaxed ${isLight ? 'bg-white border-slate-200 text-slate-800' : 'bg-slate-900/60 border-slate-800/80 text-slate-200'}`}>
+            <div className="p-3.5 rounded-2xl bg-slate-950 border border-slate-800 space-y-1">
+              <span className="text-[11px] font-semibold text-slate-400 block">Description / Notes</span>
+              <p className="text-xs text-slate-200 whitespace-pre-wrap bg-slate-900/60 p-2.5 rounded-xl border border-slate-800/80 leading-relaxed">
                 {description}
               </p>
             </div>
@@ -496,41 +492,41 @@ export const StravaActivityModal: React.FC<StravaActivityModalProps> = ({
 
           {/* Core Metrics Grid */}
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
-            <div className={`p-3 rounded-2xl border flex flex-col ${isLight ? 'bg-slate-50 border-slate-200' : 'bg-slate-950 border-slate-800'}`}>
-              <span className={`text-[11px] font-medium ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>Duration</span>
-              <span className={`text-sm sm:text-base font-bold font-mono mt-1 ${isLight ? 'text-slate-900' : 'text-white'}`}>
+            <div className="p-3 rounded-2xl bg-slate-950 border border-slate-800 flex flex-col">
+              <span className="text-[11px] font-medium text-slate-400">Duration</span>
+              <span className="text-sm sm:text-base font-bold font-mono text-white mt-1">
                 {formatDuration(durationMoving)}
               </span>
               {durationElapsed > durationMoving && (
-                <span className={`text-[10px] font-mono ${isLight ? 'text-slate-500' : 'text-slate-500'}`}>
+                <span className="text-[10px] text-slate-500 font-mono">
                   {formatDuration(durationElapsed)} elapsed
                 </span>
               )}
             </div>
 
-            <div className={`p-3 rounded-2xl border flex flex-col ${isLight ? 'bg-slate-50 border-slate-200' : 'bg-slate-950 border-slate-800'}`}>
-              <span className={`text-[11px] font-medium ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>
+            <div className="p-3 rounded-2xl bg-slate-950 border border-slate-800 flex flex-col">
+              <span className="text-[11px] font-medium text-slate-400">
                 {classification.category === 'Swim' ? 'Distance' : 'Distance / Effort'}
               </span>
-              <span className={`text-sm sm:text-base font-bold font-mono mt-1 ${isLight ? 'text-slate-900' : 'text-white'}`}>
+              <span className="text-sm sm:text-base font-bold font-mono text-white mt-1">
                 {metrics.primaryMetricLabel}
               </span>
               {metrics.secondaryMetricLabel && (
-                <span className="text-[10px] text-amber-500 font-mono">
+                <span className="text-[10px] text-amber-400 font-mono">
                   {metrics.secondaryMetricLabel}
                 </span>
               )}
             </div>
 
-            <div className={`p-3 rounded-2xl border flex flex-col ${isLight ? 'bg-slate-50 border-slate-200' : 'bg-slate-950 border-slate-800'}`}>
-              <span className={`text-[11px] font-medium ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>
+            <div className="p-3 rounded-2xl bg-slate-950 border border-slate-800 flex flex-col">
+              <span className="text-[11px] font-medium text-slate-400">
                 {classification.category === 'Swim'
                   ? 'Avg Pace / 100m'
                   : classification.subType === 'Bike'
                   ? 'Avg Speed'
                   : 'Elevation'}
               </span>
-              <span className={`text-sm sm:text-base font-bold font-mono mt-1 ${isLight ? 'text-slate-900' : 'text-white'}`}>
+              <span className="text-sm sm:text-base font-bold font-mono text-white mt-1">
                 {classification.category === 'Swim'
                   ? (swimPace?.pacePer100mFormatted || '0:00/100m')
                   : classification.subType === 'Bike'
@@ -538,29 +534,29 @@ export const StravaActivityModal: React.FC<StravaActivityModalProps> = ({
                   : (activity.total_elevation_gain ? `↑ ${Math.round(activity.total_elevation_gain)}m` : 'Flat / Indoor')}
               </span>
               {classification.subType === 'Bike' && outdoorMaxSpeedKph ? (
-                <span className={`text-[10px] font-mono ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>
+                <span className="text-[10px] text-slate-400 font-mono">
                   max {outdoorMaxSpeedKph} kph
                 </span>
               ) : classification.category !== 'Swim' && activity.max_speed ? (
-                <span className={`text-[10px] font-mono ${isLight ? 'text-slate-500' : 'text-slate-500'}`}>
+                <span className="text-[10px] text-slate-500 font-mono">
                   max {(activity.max_speed * 3.6).toFixed(1)} kph
                 </span>
               ) : null}
             </div>
 
-            <div className={`p-3 rounded-2xl border flex flex-col ${isLight ? 'bg-slate-50 border-slate-200' : 'bg-slate-950 border-slate-800'}`}>
-              <span className={`text-[11px] font-medium ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>
+            <div className="p-3 rounded-2xl bg-slate-950 border border-slate-800 flex flex-col">
+              <span className="text-[11px] font-medium text-slate-400">
                 {workResult ? 'Energy / Work' : 'Energy / HR'}
               </span>
-              <span className={`text-sm sm:text-base font-bold font-mono mt-1 ${isLight ? 'text-slate-900' : 'text-white'}`}>
+              <span className="text-sm sm:text-base font-bold font-mono text-white mt-1">
                 {workResult ? workResult.formattedKj : calories ? `${Math.round(calories)} kcal` : activity.average_heartrate ? `${Math.round(activity.average_heartrate)} bpm` : '--'}
               </span>
               {workResult ? (
-                <span className="text-[10px] text-amber-500 font-mono">
+                <span className="text-[10px] text-amber-400 font-mono">
                   ~{workResult.kcal} kcal
                 </span>
               ) : activity.suffer_score ? (
-                <span className="text-[10px] text-rose-500 font-mono">
+                <span className="text-[10px] text-rose-400 font-mono">
                   suffer score: {activity.suffer_score}
                 </span>
               ) : null}
@@ -569,21 +565,21 @@ export const StravaActivityModal: React.FC<StravaActivityModalProps> = ({
 
           {/* Dedicated Cycling Power & Normalized Power & Energy (kJ) Card */}
           {isBikeOrTurbo && (effectiveAvgWatts || normalizedPower) && (
-            <div className={`p-4 rounded-2xl border space-y-3 ${isLight ? 'bg-slate-50 border-slate-200' : 'bg-slate-950 border-slate-800'}`}>
+            <div className="p-4 rounded-2xl bg-gradient-to-r from-amber-500/15 via-slate-950 to-slate-900 border border-amber-500/30 space-y-3">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
-                  <Zap className="w-4 h-4 text-amber-500" />
-                  <h4 className={`text-xs font-black uppercase tracking-wider ${isLight ? 'text-amber-600' : 'text-amber-300'}`}>
-                    Cycling Power &amp; Mechanical Work
+                  <Zap className="w-4 h-4 text-amber-400" />
+                  <h4 className="text-xs font-black text-amber-300 uppercase tracking-wider">
+                    Cycling Power & Mechanical Work
                   </h4>
                 </div>
                 {classification.subType === 'Bike' && (
-                  <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${isLight ? 'bg-white text-slate-700 border-slate-200' : 'bg-slate-800 text-slate-300 border-slate-700'}`}>
+                  <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-800 text-slate-300 border border-slate-700">
                     Outdoor Ride
                   </span>
                 )}
                 {classification.subType === 'Turbo Trainer' && (
-                  <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${isLight ? 'bg-white text-slate-700 border-slate-200' : 'bg-slate-800 text-slate-300 border-slate-700'}`}>
+                  <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-800 text-slate-300 border border-slate-700">
                     Turbo Trainer
                   </span>
                 )}
@@ -591,30 +587,30 @@ export const StravaActivityModal: React.FC<StravaActivityModalProps> = ({
 
               {/* Power Grid */}
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
-                <div className={`p-2.5 rounded-xl border flex flex-col ${isLight ? 'bg-white border-slate-200 shadow-2xs' : 'bg-slate-900/90 border-slate-800'}`}>
-                  <span className={`text-[10px] ${isLight ? 'text-slate-500 font-medium' : 'text-slate-400'}`}>Average Power</span>
-                  <span className={`text-base sm:text-lg font-black font-mono mt-0.5 ${isLight ? 'text-slate-900' : 'text-white'}`}>
+                <div className="p-2.5 rounded-xl bg-slate-900/90 border border-slate-800 flex flex-col">
+                  <span className="text-[10px] text-slate-400">Average Power</span>
+                  <span className="text-base sm:text-lg font-black font-mono text-white mt-0.5">
                     {effectiveAvgWatts ? `${Math.round(effectiveAvgWatts)}W` : '--'}
                   </span>
                 </div>
 
-                <div className={`p-2.5 rounded-xl border flex flex-col ${isLight ? 'bg-white border-slate-200 shadow-2xs' : 'bg-slate-900/90 border-slate-800'}`}>
-                  <span className={`text-[10px] ${isLight ? 'text-slate-500 font-medium' : 'text-slate-400'}`}>Normalized Power (NP)</span>
-                  <span className="text-base sm:text-lg font-black font-mono text-amber-600 dark:text-amber-400 mt-0.5">
+                <div className="p-2.5 rounded-xl bg-slate-900/90 border border-slate-800 flex flex-col">
+                  <span className="text-[10px] text-slate-400">Normalized Power (NP)</span>
+                  <span className="text-base sm:text-lg font-black font-mono text-amber-400 mt-0.5">
                     {normalizedPower ? `${Math.round(normalizedPower)}W` : '--'}
                   </span>
                 </div>
 
-                <div className={`p-2.5 rounded-xl border flex flex-col ${isLight ? 'bg-white border-slate-200 shadow-2xs' : 'bg-slate-900/90 border-slate-800'}`}>
-                  <span className={`text-[10px] ${isLight ? 'text-slate-500 font-medium' : 'text-slate-400'}`}>Mechanical Work</span>
-                  <span className="text-base sm:text-lg font-black font-mono text-emerald-600 dark:text-emerald-400 mt-0.5">
+                <div className="p-2.5 rounded-xl bg-slate-900/90 border border-slate-800 flex flex-col">
+                  <span className="text-[10px] text-slate-400">Mechanical Work</span>
+                  <span className="text-base sm:text-lg font-black font-mono text-emerald-400 mt-0.5">
                     {workResult ? workResult.formattedKj : '--'}
                   </span>
                 </div>
 
-                <div className={`p-2.5 rounded-xl border flex flex-col ${isLight ? 'bg-white border-slate-200 shadow-2xs' : 'bg-slate-900/90 border-slate-800'}`}>
-                  <span className={`text-[10px] ${isLight ? 'text-slate-500 font-medium' : 'text-slate-400'}`}>Est. Energy Burn</span>
-                  <span className="text-base sm:text-lg font-black font-mono text-amber-600 dark:text-amber-300 mt-0.5">
+                <div className="p-2.5 rounded-xl bg-slate-900/90 border border-slate-800 flex flex-col">
+                  <span className="text-[10px] text-slate-400">Est. Energy Burn</span>
+                  <span className="text-base sm:text-lg font-black font-mono text-amber-300 mt-0.5">
                     {workResult ? `~${workResult.kcal} kcal` : calories ? `${Math.round(calories)} kcal` : '--'}
                   </span>
                 </div>
@@ -622,16 +618,16 @@ export const StravaActivityModal: React.FC<StravaActivityModalProps> = ({
 
               {/* Work Formula Callout */}
               {workResult && effectiveAvgWatts && (
-                <div className={`p-3 rounded-xl border text-[11px] space-y-1 ${isLight ? 'bg-amber-500/10 border-amber-500/20 text-slate-800' : 'bg-slate-950/80 border-slate-800 text-slate-300'}`}>
-                  <div className="font-bold text-amber-600 dark:text-amber-300 flex items-center gap-1.5">
-                    <Flame className="w-3.5 h-3.5 text-amber-500" />
+                <div className="p-3 rounded-xl bg-slate-950/80 border border-slate-800 text-[11px] text-slate-300 space-y-1">
+                  <div className="font-bold text-amber-300 flex items-center gap-1.5">
+                    <Flame className="w-3.5 h-3.5 text-amber-400" />
                     <span>Energy / Work Calculation:</span>
                   </div>
-                  <div className={`font-mono space-y-0.5 pl-5 ${isLight ? 'text-slate-600' : 'text-slate-400'}`}>
+                  <div className="text-slate-400 font-mono space-y-0.5 pl-5">
                     <div>• {(durationMoving / 3600).toFixed(1)}-Hour Ride at {Math.round(effectiveAvgWatts)} Watts</div>
                     <div>• Hours = {(durationMoving / 3600).toFixed(2)} h ({durationMoving.toLocaleString()} seconds)</div>
                     <div>
-                      • kJ = {Math.round(effectiveAvgWatts)} W × {(durationMoving / 3600).toFixed(2)} h × 3.6 = <strong className={isLight ? 'text-slate-900 font-black' : 'text-white font-black'}>{workResult.formattedKj}</strong> (roughly {workResult.kcal} kcal)
+                      • kJ = {Math.round(effectiveAvgWatts)} W × {(durationMoving / 3600).toFixed(2)} h × 3.6 = <strong className="text-white">{workResult.formattedKj}</strong> (roughly {workResult.kcal} kcal)
                     </div>
                   </div>
                 </div>
@@ -673,27 +669,27 @@ export const StravaActivityModal: React.FC<StravaActivityModalProps> = ({
 
           {/* TSS (Training Stress Score) & Recovery Estimation Card */}
           {tssResult && (
-            <div className={`p-4 rounded-2xl border flex flex-col gap-3 ${isLight ? 'bg-amber-500/10 border-amber-300/80' : 'bg-slate-950 border-amber-500/30'}`}>
+            <div className="p-4 rounded-2xl bg-gradient-to-r from-amber-500/15 via-slate-900 to-slate-950 border border-amber-500/30 flex flex-col gap-3">
               <div className="flex items-start justify-between gap-3">
                 <div className="flex items-start gap-3">
                   <div className="w-10 h-10 rounded-2xl bg-amber-500/20 border border-amber-500/30 flex items-center justify-center shrink-0 mt-0.5">
-                    <Award className="w-5 h-5 text-amber-500" />
+                    <Award className="w-5 h-5 text-amber-400" />
                   </div>
                   <div>
                     <div className="flex items-center gap-2 flex-wrap">
-                      <span className="text-xs font-black text-amber-600 dark:text-amber-300 uppercase tracking-wider">
+                      <span className="text-xs font-black text-amber-300 uppercase tracking-wider">
                         Training Stress Score
                       </span>
-                      <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-800 dark:text-amber-200">
+                      <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-200">
                         {tssResult.type}
                       </span>
                       {detailsRecord?.calibration?.manualTss !== undefined && (
-                        <span className="text-[10px] font-bold px-1.5 py-0.2 rounded bg-purple-500/20 text-purple-700 dark:text-purple-300 border border-purple-500/30">
+                        <span className="text-[10px] font-bold px-1.5 py-0.2 rounded bg-purple-500/20 text-purple-300 border border-purple-500/30">
                           Custom
                         </span>
                       )}
                     </div>
-                    <p className={`text-[11px] mt-0.5 ${isLight ? 'text-slate-600' : 'text-slate-400'}`}>
+                    <p className="text-[11px] text-slate-400 mt-0.5">
                       {tssResult.description}
                     </p>
                   </div>
@@ -701,7 +697,7 @@ export const StravaActivityModal: React.FC<StravaActivityModalProps> = ({
 
                 <div className="flex items-center gap-3 shrink-0">
                   <div className="text-right">
-                    <span className="text-2xl sm:text-3xl font-black font-mono text-amber-500">
+                    <span className="text-2xl sm:text-3xl font-black font-mono text-amber-400">
                       {tssResult.tss}
                     </span>
                     <span className="text-[10px] text-slate-500 block font-sans font-bold">TSS</span>
@@ -710,7 +706,7 @@ export const StravaActivityModal: React.FC<StravaActivityModalProps> = ({
                   <button
                     type="button"
                     onClick={() => setIsEditingTss((prev) => !prev)}
-                    className={`p-1.5 rounded-xl border transition-all cursor-pointer shadow-xs ${isLight ? 'bg-white hover:bg-slate-100 text-amber-600 border-slate-200' : 'bg-slate-800 hover:bg-slate-700 text-amber-400 border-slate-700'}`}
+                    className="p-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-amber-400 hover:text-amber-300 border border-slate-700 transition-all cursor-pointer shadow-xs"
                     title="Edit TSS value or change calculation model"
                   >
                     <Sliders className="w-4 h-4" />
@@ -720,12 +716,12 @@ export const StravaActivityModal: React.FC<StravaActivityModalProps> = ({
 
               {/* Collapsible TSS Editing Drawer */}
               {isEditingTss && (
-                <div className={`p-3.5 rounded-xl border space-y-3 animate-in fade-in duration-200 ${isLight ? 'bg-white border-amber-300 shadow-xs' : 'bg-slate-950/95 border-amber-500/40'}`}>
+                <div className="p-3.5 rounded-xl bg-slate-950/95 border border-amber-500/40 space-y-3 animate-in fade-in duration-200">
                   <div className="flex items-center justify-between">
-                    <span className="text-xs font-bold text-amber-600 dark:text-amber-300 uppercase tracking-wider">
+                    <span className="text-xs font-bold text-amber-300 uppercase tracking-wider">
                       Customize Activity TSS &amp; Calculation Model
                     </span>
-                    <span className={`text-[10px] ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>
+                    <span className="text-[10px] text-slate-400">
                       Per-activity override
                     </span>
                   </div>
@@ -911,21 +907,21 @@ export const StravaActivityModal: React.FC<StravaActivityModalProps> = ({
           )}
 
           {/* Athlete Perceived Exertion (sRPE) & Pre-Workout Readiness */}
-          <div className={`p-4 rounded-2xl border space-y-3.5 ${isLight ? 'bg-slate-50 border-slate-200' : 'bg-slate-950/80 border-slate-800'}`}>
+          <div className="p-4 rounded-2xl bg-slate-950/80 border border-slate-800 space-y-3.5">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
-                <HeartHandshake className="w-4 h-4 text-amber-500" />
+                <HeartHandshake className="w-4 h-4 text-amber-400" />
                 <div>
-                  <h4 className={`text-xs font-black uppercase tracking-wider ${isLight ? 'text-slate-900' : 'text-white'}`}>
-                    Internal Load &amp; Readiness
+                  <h4 className="text-xs font-black text-white uppercase tracking-wider">
+                    Internal Load & Readiness
                   </h4>
-                  <span className={`text-[11px] ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>
-                    Pre-Workout Feeling &amp; Post-Workout RPE
+                  <span className="text-[11px] text-slate-400">
+                    Pre-Workout Feeling & Post-Workout RPE
                   </span>
                 </div>
               </div>
               {effortFeedback?.sRpeLoad ? (
-                <span className="text-xs font-mono font-bold text-amber-600 dark:text-amber-400 bg-amber-500/10 border border-amber-500/20 px-2 py-0.5 rounded-lg">
+                <span className="text-xs font-mono font-bold text-amber-400 bg-amber-500/10 border border-amber-500/20 px-2 py-0.5 rounded-lg">
                   {effortFeedback.sRpeLoad} sRPE
                 </span>
               ) : null}
@@ -934,7 +930,7 @@ export const StravaActivityModal: React.FC<StravaActivityModalProps> = ({
             {/* Pre-Workout Feeling (1 to 5) */}
             <div className="space-y-1.5">
               <div className="flex items-center justify-between text-[11px]">
-                <span className={`font-semibold ${isLight ? 'text-slate-700' : 'text-slate-300'}`}>How were you feeling before this workout?</span>
+                <span className="text-slate-300 font-semibold">How were you feeling before this workout?</span>
                 <span className="text-slate-500 font-mono text-[10px]">Readiness</span>
               </div>
               <div className="grid grid-cols-5 gap-1.5">
@@ -953,9 +949,7 @@ export const StravaActivityModal: React.FC<StravaActivityModalProps> = ({
                       onClick={() => handleSaveFeeling(item.score)}
                       className={`p-2 rounded-xl border flex flex-col items-center text-center transition-all cursor-pointer ${
                         isSelected
-                          ? 'bg-amber-500/20 border-amber-400 text-amber-600 dark:text-amber-300 font-bold shadow-xs'
-                          : isLight
-                          ? 'bg-white border-slate-200 text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+                          ? 'bg-amber-500/20 border-amber-400 text-amber-300 font-bold shadow-sm'
                           : 'bg-slate-900 border-slate-800 text-slate-400 hover:text-white hover:bg-slate-800 hover:border-slate-700'
                       }`}
                     >
@@ -970,7 +964,7 @@ export const StravaActivityModal: React.FC<StravaActivityModalProps> = ({
             {/* Post-Workout RPE (1 to 10 Borg CR-10 scale) */}
             <div className="space-y-1.5 pt-1">
               <div className="flex items-center justify-between text-[11px]">
-                <span className={`font-semibold ${isLight ? 'text-slate-700' : 'text-slate-300'}`}>Perceived Exertion of the Workout (RPE)</span>
+                <span className="text-slate-300 font-semibold">Perceived Exertion of the Workout (RPE)</span>
                 <span className="text-slate-500 font-mono text-[10px]">Borg CR-10</span>
               </div>
               <div className="grid grid-cols-5 sm:grid-cols-10 gap-1">
@@ -996,8 +990,6 @@ export const StravaActivityModal: React.FC<StravaActivityModalProps> = ({
                       className={`py-1.5 px-1 rounded-xl border text-center transition-all cursor-pointer flex flex-col items-center ${
                         isSelected
                           ? 'bg-amber-500 border-amber-400 text-slate-950 font-black shadow-md'
-                          : isLight
-                          ? 'bg-white border-slate-200 text-slate-700 hover:text-slate-900 hover:bg-slate-100 font-bold'
                           : 'bg-slate-900 border-slate-800 text-slate-300 hover:text-white hover:bg-slate-800 hover:border-slate-700 font-bold'
                       }`}
                     >
@@ -1011,23 +1003,23 @@ export const StravaActivityModal: React.FC<StravaActivityModalProps> = ({
 
             {/* sRPE load summary & discrepancy insight */}
             {effortFeedback?.rpe && (
-              <div className={`p-3 rounded-xl border text-xs flex flex-col gap-1 ${isLight ? 'bg-white border-slate-200' : 'bg-slate-900/90 border-slate-800'}`}>
+              <div className="p-3 rounded-xl bg-slate-900/90 border border-slate-800 text-xs flex flex-col gap-1">
                 <div className="flex items-center justify-between flex-wrap gap-1">
-                  <span className={isLight ? 'text-slate-600' : 'text-slate-400'}>
+                  <span className="text-slate-400">
                     Foster's Session-RPE Load:
                   </span>
-                  <span className="font-mono font-bold text-amber-600 dark:text-amber-300">
+                  <span className="font-mono font-bold text-amber-300">
                     {effortFeedback.rpe} RPE × {Math.max(1, Math.round(durationMoving / 60))} min = {effortFeedback.sRpeLoad} load units
                   </span>
                 </div>
                 {/* Decoupling / Overtraining detection insight */}
                 {effortFeedback.preWorkoutFeeling && effortFeedback.preWorkoutFeeling <= 2 && effortFeedback.rpe >= 7 && (
-                  <p className="text-[11px] text-amber-700 dark:text-amber-300/90 bg-amber-500/10 p-2 rounded-lg border border-amber-500/20 mt-1">
+                  <p className="text-[11px] text-amber-300/90 bg-amber-500/10 p-2 rounded-lg border border-amber-500/20 mt-1">
                     ⚠️ <strong>Under-Recovery Flag:</strong> You felt drained/low pre-workout and reported a very high RPE ({effortFeedback.rpe}/10). Consider prioritizing hydration, sleep, and an active recovery or rest day.
                   </p>
                 )}
                 {effortFeedback.preWorkoutFeeling && effortFeedback.preWorkoutFeeling >= 4 && effortFeedback.rpe <= 4 && (
-                  <p className="text-[11px] text-emerald-700 dark:text-emerald-300/90 bg-emerald-500/10 p-2 rounded-lg border border-emerald-500/20 mt-1">
+                  <p className="text-[11px] text-emerald-300/90 bg-emerald-500/10 p-2 rounded-lg border border-emerald-500/20 mt-1">
                     ✨ <strong>High Efficiency:</strong> High readiness and low perceived exertion. Body is adapting well to current training block.
                   </p>
                 )}
@@ -1037,13 +1029,13 @@ export const StravaActivityModal: React.FC<StravaActivityModalProps> = ({
 
           {/* Swim Moving Laps Breakdown if Swim activity and laps are present */}
           {classification.category === 'Swim' && swimPace?.laps && swimPace.laps.length > 0 && (
-            <div className={`p-3.5 rounded-2xl border space-y-2 ${isLight ? 'bg-slate-50 border-slate-200' : 'bg-slate-950/70 border-slate-800'}`}>
+            <div className="p-3.5 rounded-2xl bg-slate-950/70 border border-slate-800 space-y-2">
               <div className="flex items-center justify-between">
-                <h4 className="text-xs font-bold text-sky-500 dark:text-sky-300 uppercase tracking-wider flex items-center gap-1.5">
+                <h4 className="text-xs font-bold text-sky-300 uppercase tracking-wider flex items-center gap-1.5">
                   <Waves className="w-3.5 h-3.5 text-sky-400" />
                   <span>Moving Laps ({swimPace.laps.length} Laps)</span>
                 </h4>
-                <span className="text-xs font-mono font-bold text-sky-500 dark:text-sky-400">
+                <span className="text-xs font-mono font-bold text-sky-400">
                   Avg {swimPace.pacePer100mFormatted}
                 </span>
               </div>
@@ -1055,22 +1047,20 @@ export const StravaActivityModal: React.FC<StravaActivityModalProps> = ({
                       key={lap.lapIndex}
                       className={`p-2 rounded-xl border flex flex-col text-xs transition-colors ${
                         isRestLap || lap.isIgnored
-                          ? 'bg-slate-200/50 dark:bg-slate-950/40 border-slate-300/40 dark:border-slate-800/40 opacity-55'
-                          : isLight
-                          ? 'bg-white border-slate-200'
+                          ? 'bg-slate-950/40 border-slate-800/40 opacity-55'
                           : 'bg-slate-900 border-slate-800/80'
                       }`}
                     >
-                      <div className={`flex items-center justify-between text-[10px] ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>
-                        <span className={isRestLap ? 'text-slate-400 font-semibold' : ''}>
+                      <div className="flex items-center justify-between text-slate-400 text-[10px]">
+                        <span className={isRestLap ? 'text-slate-500 font-semibold' : ''}>
                           {isRestLap ? `Rest ${lap.lapIndex}` : `Lap ${lap.lapIndex}`}
                         </span>
                         {!isRestLap && <span>{lap.distanceM}m</span>}
                       </div>
-                      <div className={`flex items-center justify-between font-mono font-bold mt-1 ${isLight ? 'text-slate-900' : 'text-white'}`}>
+                      <div className="flex items-center justify-between font-mono font-bold text-white mt-1">
                         <span>{formatDuration(lap.movingTimeSec)}</span>
                         {!isRestLap && (
-                          <span className="text-sky-500 dark:text-sky-300">{lap.pacePer100mFormatted}</span>
+                          <span className="text-sky-300">{lap.pacePer100mFormatted}</span>
                         )}
                       </div>
                     </div>
@@ -1082,33 +1072,33 @@ export const StravaActivityModal: React.FC<StravaActivityModalProps> = ({
 
           {/* Running Kilometer Splits & Pacing Dynamics Breakdown */}
           {classification.category === 'Run' && runDetails && (
-            <div className={`p-3.5 rounded-2xl border space-y-3 ${isLight ? 'bg-slate-50 border-slate-200' : 'bg-slate-950/70 border-slate-800'}`}>
+            <div className="p-3.5 rounded-2xl bg-slate-950/70 border border-slate-800 space-y-3">
               <div className="flex items-center justify-between flex-wrap gap-2">
                 <div className="flex items-center gap-2">
-                  <div className="w-7 h-7 rounded-lg bg-amber-500/15 border border-amber-500/30 flex items-center justify-center text-amber-500">
+                  <div className="w-7 h-7 rounded-lg bg-amber-500/15 border border-amber-500/30 flex items-center justify-center text-amber-400">
                     <Footprints className="w-4 h-4" />
                   </div>
                   <div>
-                    <h4 className="text-xs font-bold text-amber-600 dark:text-amber-300 uppercase tracking-wider">
+                    <h4 className="text-xs font-bold text-amber-300 uppercase tracking-wider">
                       Kilometer Splits ({runDetails.splits.length} Splits)
                     </h4>
-                    <span className={`text-[10px] ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>
+                    <span className="text-[10px] text-slate-400">
                       {runDetails.consistencySummary}
                     </span>
                   </div>
                 </div>
 
                 <div className="flex items-center gap-2 text-right">
-                  <div className={`px-2 py-0.5 rounded-md border text-[11px] font-mono font-bold text-amber-600 dark:text-amber-400 ${isLight ? 'bg-white border-slate-200' : 'bg-slate-900 border-slate-800'}`}>
+                  <div className="px-2 py-0.5 rounded-md bg-slate-900 border border-slate-800 text-[11px] font-mono font-bold text-amber-400">
                     Avg {runDetails.avgPaceFormatted}
                   </div>
                   {runDetails.avgCadence && (
-                    <div className={`px-2 py-0.5 rounded-md border text-[11px] font-mono ${isLight ? 'bg-white border-slate-200 text-slate-700' : 'bg-slate-900 border-slate-800 text-slate-300'}`}>
+                    <div className="px-2 py-0.5 rounded-md bg-slate-900 border border-slate-800 text-[11px] font-mono text-slate-300">
                       {runDetails.avgCadence} spm
                     </div>
                   )}
                   {runDetails.gradeAdjustedPaceFormatted && (
-                    <div className={`px-2 py-0.5 rounded-md border text-[10px] font-mono text-emerald-600 dark:text-emerald-400 ${isLight ? 'bg-white border-slate-200' : 'bg-slate-900 border-slate-800'}`} title="Grade Adjusted Pace">
+                    <div className="px-2 py-0.5 rounded-md bg-slate-900 border border-slate-800 text-[10px] font-mono text-emerald-400" title="Grade Adjusted Pace">
                       GAP {runDetails.gradeAdjustedPaceFormatted}
                     </div>
                   )}
@@ -1120,30 +1110,30 @@ export const StravaActivityModal: React.FC<StravaActivityModalProps> = ({
                 {runDetails.splits.map((split) => (
                   <div
                     key={split.splitIndex}
-                    className={`p-2.5 rounded-xl border flex flex-col text-xs transition-colors ${isLight ? 'bg-white border-slate-200 hover:border-amber-400' : 'bg-slate-900 border-slate-800/80 hover:border-amber-500/30'}`}
+                    className="p-2.5 rounded-xl bg-slate-900 border border-slate-800/80 flex flex-col text-xs transition-colors hover:border-amber-500/30"
                   >
-                    <div className={`flex items-center justify-between text-[10px] ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>
-                      <span className={`font-semibold ${isLight ? 'text-slate-700' : 'text-slate-300'}`}>Km {split.splitIndex}</span>
+                    <div className="flex items-center justify-between text-slate-400 text-[10px]">
+                      <span className="font-semibold text-slate-300">Km {split.splitIndex}</span>
                       <span>{split.distanceKm} km</span>
                     </div>
-                    <div className={`flex items-center justify-between font-mono font-bold mt-1 ${isLight ? 'text-slate-900' : 'text-white'}`}>
-                      <span className={split.isFasterThanAvg ? 'text-amber-600 dark:text-amber-400' : isLight ? 'text-slate-800' : 'text-slate-200'}>
+                    <div className="flex items-center justify-between font-mono font-bold text-white mt-1">
+                      <span className={split.isFasterThanAvg ? 'text-amber-400' : 'text-slate-200'}>
                         {split.paceFormatted}
                       </span>
                       {split.avgHr ? (
-                        <span className="text-rose-500 text-[11px] flex items-center gap-0.5">
+                        <span className="text-rose-400 text-[11px] flex items-center gap-0.5">
                           <Heart className="w-2.5 h-2.5 inline" /> {split.avgHr}
                         </span>
                       ) : (
-                        <span className="text-slate-400 text-[10px]">
+                        <span className="text-slate-500 text-[10px]">
                           {formatDuration(split.movingTimeSec)}
                         </span>
                       )}
                     </div>
                     {split.elevationDiffM !== undefined && (
-                      <div className={`text-[10px] mt-1 flex items-center justify-between pt-1 border-t ${isLight ? 'border-slate-100 text-slate-500' : 'border-slate-800/60 text-slate-400'}`}>
+                      <div className="text-[10px] text-slate-400 mt-1 flex items-center justify-between pt-1 border-t border-slate-800/60">
                         <span>Elevation:</span>
-                        <span className={split.elevationDiffM > 0 ? 'text-amber-600 dark:text-amber-300' : 'text-slate-400'}>
+                        <span className={split.elevationDiffM > 0 ? 'text-amber-300' : 'text-slate-400'}>
                           {split.elevationDiffM > 0 ? `+${split.elevationDiffM}m` : `${split.elevationDiffM}m`}
                         </span>
                       </div>
@@ -1154,19 +1144,19 @@ export const StravaActivityModal: React.FC<StravaActivityModalProps> = ({
 
               {/* Running Heart Rate Zone Distribution */}
               {runDetails.hrZones.some((z) => z.pct > 0) && (
-                <div className={`pt-2 border-t space-y-1.5 ${isLight ? 'border-slate-200' : 'border-slate-800/80'}`}>
+                <div className="pt-2 border-t border-slate-800/80 space-y-1.5">
                   <div className="flex items-center justify-between text-[11px]">
-                    <span className={`font-bold flex items-center gap-1 ${isLight ? 'text-slate-700' : 'text-slate-300'}`}>
-                      <Heart className="w-3 h-3 text-rose-500" />
+                    <span className="font-bold text-slate-300 flex items-center gap-1">
+                      <Heart className="w-3 h-3 text-rose-400" />
                       Running HR Zones
                     </span>
-                    <span className="text-[10px] text-slate-500 font-mono">
+                    <span className="text-[10px] text-slate-400 font-mono">
                       Max HR {runDetails?.maxHr || athleteProfile.maxHeartRate || 185} bpm
                     </span>
                   </div>
 
                   {/* Horizontal stacked zone bar */}
-                  <div className={`w-full rounded-full h-2.5 flex overflow-hidden ${isLight ? 'bg-slate-200' : 'bg-slate-900'}`}>
+                  <div className="w-full bg-slate-900 rounded-full h-2.5 flex overflow-hidden">
                     {runDetails.hrZones.map((z) => (
                       z.pct > 0 ? (
                         <div
@@ -1184,7 +1174,7 @@ export const StravaActivityModal: React.FC<StravaActivityModalProps> = ({
                     {runDetails.hrZones.map((z) => (
                       <div key={z.zone} className="flex flex-col items-center">
                         <span className="font-bold" style={{ color: z.color }}>Z{z.zone}</span>
-                        <span className={isLight ? 'text-slate-600' : 'text-slate-400'}>{z.pct}%</span>
+                        <span className="text-slate-400">{z.pct}%</span>
                       </div>
                     ))}
                   </div>
@@ -1195,17 +1185,17 @@ export const StravaActivityModal: React.FC<StravaActivityModalProps> = ({
 
           {/* Cycling Laps & Power Dynamics Breakdown */}
           {classification.category === 'Bike' && bikeDetails && (
-            <div className={`p-3.5 rounded-2xl border space-y-3 ${isLight ? 'bg-slate-50 border-slate-200' : 'bg-slate-950/70 border-slate-800'}`}>
+            <div className="p-3.5 rounded-2xl bg-slate-950/70 border border-slate-800 space-y-3">
               <div className="flex items-center justify-between flex-wrap gap-2">
                 <div className="flex items-center gap-2">
-                  <div className="w-7 h-7 rounded-lg bg-orange-500/15 border border-orange-500/30 flex items-center justify-center text-orange-500">
+                  <div className="w-7 h-7 rounded-lg bg-orange-500/15 border border-orange-500/30 flex items-center justify-center text-orange-400">
                     <Bike className="w-4 h-4" />
                   </div>
                   <div>
-                    <h4 className="text-xs font-bold text-orange-600 dark:text-orange-300 uppercase tracking-wider">
+                    <h4 className="text-xs font-bold text-orange-300 uppercase tracking-wider">
                       Laps &amp; Power Intervals ({bikeDetails.laps.length} Laps)
                     </h4>
-                    <span className={`text-[10px] ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>
+                    <span className="text-[10px] text-slate-400">
                       {bikeDetails.intensityFactor ? `Intensity Factor: ${bikeDetails.intensityFactor}` : ''}
                       {bikeDetails.variabilityIndex ? ` • VI: ${bikeDetails.variabilityIndex}` : ''}
                     </span>
@@ -1213,16 +1203,16 @@ export const StravaActivityModal: React.FC<StravaActivityModalProps> = ({
                 </div>
 
                 <div className="flex items-center gap-2 text-right">
-                  <div className={`px-2 py-0.5 rounded-md border text-[11px] font-mono font-bold text-orange-600 dark:text-orange-400 ${isLight ? 'bg-white border-slate-200' : 'bg-slate-900 border-slate-800'}`}>
+                  <div className="px-2 py-0.5 rounded-md bg-slate-900 border border-slate-800 text-[11px] font-mono font-bold text-orange-400">
                     Avg {bikeDetails.avgSpeedKph} kph
                   </div>
                   {bikeDetails.avgWatts && (
-                    <div className={`px-2 py-0.5 rounded-md border text-[11px] font-mono font-bold text-amber-600 dark:text-amber-300 ${isLight ? 'bg-white border-slate-200' : 'bg-slate-900 border-slate-800'}`}>
+                    <div className="px-2 py-0.5 rounded-md bg-slate-900 border border-slate-800 text-[11px] font-mono font-bold text-amber-300">
                       {bikeDetails.avgWatts}W
                     </div>
                   )}
                   {bikeDetails.avgCadence && (
-                    <div className={`px-2 py-0.5 rounded-md border text-[10px] font-mono ${isLight ? 'bg-white border-slate-200 text-slate-700' : 'bg-slate-900 border-slate-800 text-slate-300'}`}>
+                    <div className="px-2 py-0.5 rounded-md bg-slate-900 border border-slate-800 text-[10px] font-mono text-slate-300">
                       {bikeDetails.avgCadence} rpm
                     </div>
                   )}
@@ -1234,23 +1224,23 @@ export const StravaActivityModal: React.FC<StravaActivityModalProps> = ({
                 {bikeDetails.laps.map((lap) => (
                   <div
                     key={lap.lapIndex}
-                    className={`p-2.5 rounded-xl border flex flex-col text-xs transition-colors ${isLight ? 'bg-white border-slate-200 hover:border-orange-400' : 'bg-slate-900 border-slate-800/80 hover:border-orange-500/30'}`}
+                    className="p-2.5 rounded-xl bg-slate-900 border border-slate-800/80 flex flex-col text-xs transition-colors hover:border-orange-500/30"
                   >
-                    <div className={`flex items-center justify-between text-[10px] ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>
-                      <span className={`font-semibold ${isLight ? 'text-slate-700' : 'text-slate-300'}`}>{lap.name}</span>
+                    <div className="flex items-center justify-between text-slate-400 text-[10px]">
+                      <span className="font-semibold text-slate-300">{lap.name}</span>
                       <span>{lap.distanceKm} km</span>
                     </div>
-                    <div className={`flex items-center justify-between font-mono font-bold mt-1 ${isLight ? 'text-slate-900' : 'text-white'}`}>
-                      <span className="text-orange-600 dark:text-orange-400">{lap.avgSpeedKph} kph</span>
+                    <div className="flex items-center justify-between font-mono font-bold text-white mt-1">
+                      <span className="text-orange-400">{lap.avgSpeedKph} kph</span>
                       {lap.avgWatts ? (
-                        <span className="text-amber-600 dark:text-amber-300 text-[11px]">{lap.avgWatts}W</span>
+                        <span className="text-amber-300 text-[11px]">{lap.avgWatts}W</span>
                       ) : lap.avgHr ? (
-                        <span className="text-rose-500 text-[11px] flex items-center gap-0.5">
+                        <span className="text-rose-400 text-[11px] flex items-center gap-0.5">
                           <Heart className="w-2.5 h-2.5 inline" /> {lap.avgHr}
                         </span>
                       ) : null}
                     </div>
-                    <div className={`text-[10px] mt-1 flex items-center justify-between pt-1 border-t ${isLight ? 'border-slate-100 text-slate-500' : 'border-slate-800/60 text-slate-400'}`}>
+                    <div className="text-[10px] text-slate-400 mt-1 flex items-center justify-between pt-1 border-t border-slate-800/60">
                       <span>{formatDuration(lap.movingTimeSec)}</span>
                       {lap.avgCadence ? <span>{lap.avgCadence} rpm</span> : lap.elevationGainM ? <span>+{lap.elevationGainM}m</span> : null}
                     </div>
@@ -1260,19 +1250,19 @@ export const StravaActivityModal: React.FC<StravaActivityModalProps> = ({
 
               {/* Cycling Power Zones Distribution (Coggan 7 Zones) */}
               {bikeDetails.powerZones.some((z) => z.pct > 0) && (
-                <div className={`pt-2 border-t space-y-1.5 ${isLight ? 'border-slate-200' : 'border-slate-800/80'}`}>
+                <div className="pt-2 border-t border-slate-800/80 space-y-1.5">
                   <div className="flex items-center justify-between text-[11px]">
-                    <span className={`font-bold flex items-center gap-1 ${isLight ? 'text-slate-700' : 'text-slate-300'}`}>
-                      <Zap className="w-3 h-3 text-amber-500" />
+                    <span className="font-bold text-slate-300 flex items-center gap-1">
+                      <Zap className="w-3 h-3 text-amber-400" />
                       Cycling Power Zones (Coggan 7-Zone)
                     </span>
-                    <span className="text-[10px] text-slate-500 font-mono">
+                    <span className="text-[10px] text-slate-400 font-mono">
                       FTP {athleteProfile.bikeFtp || 250}W
                     </span>
                   </div>
 
                   {/* Horizontal stacked zone bar */}
-                  <div className={`w-full rounded-full h-2.5 flex overflow-hidden ${isLight ? 'bg-slate-200' : 'bg-slate-900'}`}>
+                  <div className="w-full bg-slate-900 rounded-full h-2.5 flex overflow-hidden">
                     {bikeDetails.powerZones.map((z) => (
                       z.pct > 0 ? (
                         <div
@@ -1290,7 +1280,7 @@ export const StravaActivityModal: React.FC<StravaActivityModalProps> = ({
                     {bikeDetails.powerZones.map((z) => (
                       <div key={z.zone} className="flex flex-col items-center">
                         <span className="font-bold" style={{ color: z.color }}>Z{z.zone}</span>
-                        <span className={isLight ? 'text-slate-600' : 'text-slate-400'}>{z.pct}%</span>
+                        <span className="text-slate-400">{z.pct}%</span>
                       </div>
                     ))}
                   </div>
@@ -1299,18 +1289,18 @@ export const StravaActivityModal: React.FC<StravaActivityModalProps> = ({
 
               {/* Cycling Heart Rate Zones */}
               {bikeDetails.hrZones.some((z) => z.pct > 0) && (
-                <div className={`pt-2 border-t space-y-1.5 ${isLight ? 'border-slate-200' : 'border-slate-800/80'}`}>
+                <div className="pt-2 border-t border-slate-800/80 space-y-1.5">
                   <div className="flex items-center justify-between text-[11px]">
-                    <span className={`font-bold flex items-center gap-1 ${isLight ? 'text-slate-700' : 'text-slate-300'}`}>
-                      <Heart className="w-3 h-3 text-rose-500" />
+                    <span className="font-bold text-slate-300 flex items-center gap-1">
+                      <Heart className="w-3 h-3 text-rose-400" />
                       Cycling HR Zones
                     </span>
-                    <span className="text-[10px] text-slate-500 font-mono">
+                    <span className="text-[10px] text-slate-400 font-mono">
                       Max HR {bikeDetails?.maxHr || athleteProfile.maxHeartRate || 185} bpm
                     </span>
                   </div>
 
-                  <div className={`w-full rounded-full h-2.5 flex overflow-hidden ${isLight ? 'bg-slate-200' : 'bg-slate-900'}`}>
+                  <div className="w-full bg-slate-900 rounded-full h-2.5 flex overflow-hidden">
                     {bikeDetails.hrZones.map((z) => (
                       z.pct > 0 ? (
                         <div
@@ -1327,7 +1317,7 @@ export const StravaActivityModal: React.FC<StravaActivityModalProps> = ({
                     {bikeDetails.hrZones.map((z) => (
                       <div key={z.zone} className="flex flex-col items-center">
                         <span className="font-bold" style={{ color: z.color }}>Z{z.zone}</span>
-                        <span className={isLight ? 'text-slate-600' : 'text-slate-400'}>{z.pct}%</span>
+                        <span className="text-slate-400">{z.pct}%</span>
                       </div>
                     ))}
                   </div>
@@ -1339,22 +1329,22 @@ export const StravaActivityModal: React.FC<StravaActivityModalProps> = ({
           {/* ======================================================= */}
           {/* CACHED STREAMS INTERACTIVE PLOT & TELEMETRY             */}
           {/* ======================================================= */}
-          <div className={`p-3.5 sm:p-4 rounded-2xl border space-y-3 ${isLight ? 'bg-slate-50 border-slate-200' : 'bg-slate-950/70 border-slate-800'}`}>
+          <div className="p-3.5 sm:p-4 rounded-2xl bg-slate-950/70 border border-slate-800 space-y-3">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
-                <Zap className="w-4 h-4 text-amber-500" />
-                <h4 className={`text-xs font-bold uppercase tracking-wider ${isLight ? 'text-slate-800' : 'text-slate-200'}`}>
-                  Interactive Streams &amp; Plot
+                <Zap className="w-4 h-4 text-amber-400" />
+                <h4 className="text-xs font-bold text-slate-200 uppercase tracking-wider">
+                  Interactive Streams & Plot
                 </h4>
               </div>
 
               {loadingDetails ? (
-                <span className="text-[11px] text-amber-500 flex items-center gap-1 font-mono">
+                <span className="text-[11px] text-amber-400 flex items-center gap-1 font-mono">
                   <Loader2 className="w-3 h-3 animate-spin" />
                   Fetching streams...
                 </span>
               ) : availableStreamsList.length > 0 ? (
-                <span className="text-[10px] font-mono text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-full border border-emerald-500/20">
+                <span className="text-[10px] font-mono text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-full border border-emerald-500/20">
                   {availableStreamsList.length} streams cached
                 </span>
               ) : null}
@@ -1368,16 +1358,16 @@ export const StravaActivityModal: React.FC<StravaActivityModalProps> = ({
                 athleteProfile={athleteProfile}
               />
             ) : loadingDetails ? (
-              <div className={`p-8 rounded-2xl border text-center flex flex-col items-center justify-center gap-2 ${isLight ? 'bg-white border-slate-200' : 'bg-slate-950/60 border-slate-800'}`}>
-                <Loader2 className="w-6 h-6 animate-spin text-amber-500" />
-                <p className={`text-xs ${isLight ? 'text-slate-600' : 'text-slate-400'}`}>Loading heart rate, pace, elevation, and sensor streams...</p>
+              <div className="p-8 rounded-2xl bg-slate-950/60 border border-slate-800 text-center flex flex-col items-center justify-center gap-2">
+                <Loader2 className="w-6 h-6 animate-spin text-amber-400" />
+                <p className="text-xs text-slate-400">Loading heart rate, pace, elevation, and sensor streams...</p>
               </div>
             ) : detailsError ? (
-              <div className="p-4 rounded-2xl bg-rose-500/10 border border-rose-500/20 text-rose-600 dark:text-rose-300 text-xs">
+              <div className="p-4 rounded-2xl bg-rose-500/10 border border-rose-500/20 text-rose-300 text-xs">
                 {detailsError}
               </div>
             ) : (
-              <div className={`p-4 rounded-2xl border text-center text-xs ${isLight ? 'bg-white border-slate-200 text-slate-500' : 'bg-slate-900/60 border-slate-800 text-slate-400'}`}>
+              <div className="p-4 rounded-2xl bg-slate-900/60 border border-slate-800 text-center text-xs text-slate-400">
                 No streams recorded for this workout.
               </div>
             )}
@@ -1389,21 +1379,20 @@ export const StravaActivityModal: React.FC<StravaActivityModalProps> = ({
               activity={activity}
               streams={streams}
               athleteProfile={athleteProfile}
-              theme={theme}
               title="Time in Training Zones"
             />
           )}
           {exportError && (
-            <div className="p-3 rounded-2xl bg-rose-500/10 border border-rose-500/25 text-rose-600 dark:text-rose-300 text-xs flex items-center gap-2">
-              <AlertCircle className="w-4 h-4 text-rose-500 shrink-0" />
+            <div className="p-3 rounded-2xl bg-rose-500/10 border border-rose-500/25 text-rose-300 text-xs flex items-center gap-2">
+              <AlertCircle className="w-4 h-4 text-rose-400 shrink-0" />
               <span>{exportError}</span>
             </div>
           )}
 
           {exportSuccess && (
-            <div className="p-3 rounded-2xl bg-emerald-500/10 border border-emerald-500/25 text-emerald-700 dark:text-emerald-300 text-xs flex items-center justify-between gap-3">
+            <div className="p-3 rounded-2xl bg-emerald-500/10 border border-emerald-500/25 text-emerald-300 text-xs flex items-center justify-between gap-3">
               <div className="flex items-center gap-2 min-w-0">
-                <Check className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0 stroke-[3]" />
+                <Check className="w-4 h-4 text-emerald-400 shrink-0 stroke-[3]" />
                 <span className="truncate">
                   {exportSuccess.alreadyExists
                     ? 'Activity already in Google Sheets (no duplicate written).'
@@ -1414,7 +1403,7 @@ export const StravaActivityModal: React.FC<StravaActivityModalProps> = ({
                 href={exportSuccess.url}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="underline font-bold text-slate-900 dark:text-white hover:text-emerald-600 shrink-0 flex items-center gap-1"
+                className="underline font-bold text-white hover:text-emerald-200 shrink-0 flex items-center gap-1"
               >
                 <span>Open Sheet</span>
                 <ExternalLink className="w-3 h-3" />
@@ -1424,12 +1413,12 @@ export const StravaActivityModal: React.FC<StravaActivityModalProps> = ({
         </div>
 
         {/* Modal Footer / Action CTA */}
-        <div className={`p-4 sm:p-5 border-t flex items-center justify-between gap-3 shrink-0 ${isLight ? 'bg-slate-50 border-slate-200' : 'bg-slate-950/80 border-slate-800'}`}>
+        <div className="p-4 sm:p-5 border-t border-slate-800 bg-slate-950/80 flex items-center justify-between gap-3 shrink-0">
           <div className="flex items-center gap-2">
             <button
               type="button"
               onClick={onClose}
-              className={`px-4 py-2.5 rounded-xl text-xs font-bold transition-colors cursor-pointer ${isLight ? 'bg-slate-200 hover:bg-slate-300 text-slate-800' : 'bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white'}`}
+              className="px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white text-xs font-bold transition-colors cursor-pointer"
             >
               Close
             </button>
@@ -1437,7 +1426,7 @@ export const StravaActivityModal: React.FC<StravaActivityModalProps> = ({
             <button
               type="button"
               onClick={() => setIsCalibrationOpen(true)}
-              className={`px-3.5 py-2.5 rounded-xl text-xs font-bold transition-colors cursor-pointer border flex items-center gap-1.5 ${isLight ? 'bg-white hover:bg-slate-100 text-amber-700 border-slate-300' : 'bg-slate-800/80 hover:bg-slate-700 text-amber-400 border-slate-700'}`}
+              className="px-3.5 py-2.5 rounded-xl bg-slate-800/80 hover:bg-slate-700 text-amber-400 hover:text-amber-300 text-xs font-bold transition-colors cursor-pointer border border-slate-700 flex items-center gap-1.5"
             >
               <Wrench className="w-3.5 h-3.5" />
               <span>{hasCalibration ? 'Edit Calibration' : 'Fix Inaccurate Data'}</span>
@@ -1490,18 +1479,18 @@ export const StravaActivityModal: React.FC<StravaActivityModalProps> = ({
       {/* Delete Activity Confirmation Modal */}
       {showDeleteConfirm && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-xs animate-in fade-in duration-200">
-          <div className={`max-w-md w-full rounded-2xl border p-5 sm:p-6 shadow-2xl space-y-4 ${isLight ? 'bg-white border-rose-300' : 'bg-slate-900 border-rose-500/40'}`}>
-            <div className="flex items-center gap-3 text-rose-500">
+          <div className="max-w-md w-full rounded-2xl bg-slate-900 border border-rose-500/40 p-5 sm:p-6 shadow-2xl space-y-4">
+            <div className="flex items-center gap-3 text-rose-400">
               <div className="p-2.5 rounded-xl bg-rose-500/15 border border-rose-500/30">
-                <Trash2 className="w-5 h-5 text-rose-500" />
+                <Trash2 className="w-5 h-5 text-rose-400" />
               </div>
               <div>
-                <h3 className={`text-base font-bold ${isLight ? 'text-slate-900' : 'text-white'}`}>Delete Activity</h3>
-                <p className={`text-xs ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>Are you sure you want to delete this activity?</p>
+                <h3 className="text-base font-bold text-white">Delete Activity</h3>
+                <p className="text-xs text-slate-400">Are you sure you want to delete this activity?</p>
               </div>
             </div>
 
-            <p className={`text-xs p-3 rounded-xl border leading-relaxed ${isLight ? 'bg-slate-50 border-slate-200 text-slate-700' : 'bg-slate-950/60 border-slate-800 text-slate-300'}`}>
+            <p className="text-xs text-slate-300 bg-slate-950/60 p-3 rounded-xl border border-slate-800 leading-relaxed">
               &ldquo;{activity.name}&rdquo; will be marked as deleted and excluded from your training stress balance, weekly mileage, and fitness calculations.
             </p>
 
@@ -1509,7 +1498,7 @@ export const StravaActivityModal: React.FC<StravaActivityModalProps> = ({
               <button
                 type="button"
                 onClick={() => setShowDeleteConfirm(false)}
-                className={`px-4 py-2 rounded-xl text-xs font-bold cursor-pointer transition-colors ${isLight ? 'bg-slate-200 hover:bg-slate-300 text-slate-800' : 'bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white'}`}
+                className="px-4 py-2 rounded-xl text-xs font-bold text-slate-300 hover:text-white bg-slate-800 hover:bg-slate-700 cursor-pointer transition-colors"
               >
                 Cancel
               </button>

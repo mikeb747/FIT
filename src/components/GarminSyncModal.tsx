@@ -15,7 +15,12 @@ import {
   Sparkles,
 } from 'lucide-react';
 import type { DailyRecoveryLog } from '../types/recovery';
-import { syncGarminMultiWeek, mergeRecoveryLogs, parseGarminOrTpCsv } from '../utils/recoveryStorage';
+import {
+  syncGarminMultiWeek,
+  mergeRecoveryLogs,
+  parseGarminOrTpCsv,
+  type GarminMetricCheck,
+} from '../utils/recoveryStorage';
 
 interface GarminSyncModalProps {
   isOpen: boolean;
@@ -40,20 +45,17 @@ export const GarminSyncModal: React.FC<GarminSyncModalProps> = ({
   const [weeks, setWeeks] = useState<number>(4);
   const [email, setEmail] = useState(() => {
     try {
-      return localStorage.getItem('fit_track_garmin_email') || 'mike.brown747@gmail.com';
+      return localStorage.getItem('fit_track_garmin_email') || '';
     } catch {
-      return 'mike.brown747@gmail.com';
+      return '';
     }
   });
-  const [password, setPassword] = useState('gt550MABgarmin');
+  const [password, setPassword] = useState('');
   const [sessionToken, setSessionToken] = useState(() => {
     try {
-      return (
-        localStorage.getItem('fit_track_garmin_token') ||
-        'GCDC_49295cfc-ebad-4efe-932c-f508d2ed0e9d.65543f6e-9140-4e9c-a882-e7d0b62992e4.DiZsWy8QLAKsUhGEjkWPcuwB1HJXw56BHkDKelRldWc.3526889472'
-      );
+      return localStorage.getItem('fit_track_garmin_token') || '';
     } catch {
-      return 'GCDC_49295cfc-ebad-4efe-932c-f508d2ed0e9d.65543f6e-9140-4e9c-a882-e7d0b62992e4.DiZsWy8QLAKsUhGEjkWPcuwB1HJXw56BHkDKelRldWc.3526889472';
+      return '';
     }
   });
   const [saveCredentials, setSaveCredentials] = useState(true);
@@ -62,6 +64,8 @@ export const GarminSyncModal: React.FC<GarminSyncModalProps> = ({
   const [progressMsg, setProgressMsg] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
+  const [metricChecks, setMetricChecks] = useState<GarminMetricCheck[] | null>(null);
+  const [checkedDate, setCheckedDate] = useState<string | null>(null);
   const [showStravaExplanation, setShowStravaExplanation] = useState(false);
 
   if (!isOpen) return null;
@@ -75,6 +79,8 @@ export const GarminSyncModal: React.FC<GarminSyncModalProps> = ({
   const handleSync = async () => {
     setError(null);
     setSuccess(null);
+    setMetricChecks(null);
+    setCheckedDate(null);
 
     if (activeTab === 'auto' && !isAutoValid) {
       setError('Both Garmin email and password are required to sync.');
@@ -89,9 +95,11 @@ export const GarminSyncModal: React.FC<GarminSyncModalProps> = ({
     setIsLoading(true);
 
     try {
-      if (saveCredentials && email) {
+      if (saveCredentials) {
         try {
-          localStorage.setItem('fit_track_garmin_email', email.trim());
+          if (email.trim()) {
+            localStorage.setItem('fit_track_garmin_email', email.trim());
+          }
           if (sessionToken.trim()) {
             localStorage.setItem('fit_track_garmin_token', sessionToken.trim());
           }
@@ -101,14 +109,27 @@ export const GarminSyncModal: React.FC<GarminSyncModalProps> = ({
       setProgressMsg('Connecting to Garmin Connect service...');
       await new Promise((r) => setTimeout(r, 300));
 
-      setProgressMsg(`Requesting ${weeks} weeks of recovery data from Garmin Connect...`);
+      const debugDate = new Date(Date.now() - 2 * 24 * 60 * 60 * 1000)
+        .toISOString()
+        .slice(0, 10);
+      if (activeTab === 'token') {
+        setCheckedDate(debugDate);
+      }
+      setProgressMsg(
+        activeTab === 'token'
+          ? `Checking daily summary for ${debugDate} (UTC), then sleep...`
+          : `Requesting ${weeks} weeks of recovery data from Garmin Connect...`
+      );
       const result = await syncGarminMultiWeek({
         email: activeTab === 'auto' ? email.trim() : undefined,
         password: activeTab === 'auto' ? password.trim() : undefined,
         sessionToken: activeTab === 'token' ? sessionToken.trim() : undefined,
         weeks,
+        debugDate: activeTab === 'token' ? debugDate : undefined,
         baselineRhr,
       });
+
+      setMetricChecks(result.checks || null);
 
       if (!result.success) {
         if (result.mfaRequired) {
@@ -124,7 +145,11 @@ export const GarminSyncModal: React.FC<GarminSyncModalProps> = ({
       }
 
       if (result.logs.length === 0) {
-        setSuccess('Connected to Garmin Connect. No new recovery records were returned for this range.');
+        setSuccess(
+          result.checks
+            ? `Daily data check completed for ${debugDate} (UTC). No recovery log was imported.`
+            : 'Connected to Garmin Connect. No new recovery records were returned for this range.'
+        );
         setIsLoading(false);
         return;
       }
@@ -135,7 +160,9 @@ export const GarminSyncModal: React.FC<GarminSyncModalProps> = ({
       const merged = mergeRecoveryLogs(existingLogs, result.logs);
       onSyncComplete(merged);
       setSuccess(
-        `Successfully imported ${result.syncedDays} days (${weeks} weeks) of Garmin Connect recovery data!`
+        result.checks
+          ? `Successfully imported ${result.syncedDays} day of Garmin Connect recovery data for ${debugDate} (UTC).`
+          : `Successfully imported ${result.syncedDays} days (${weeks} weeks) of Garmin Connect recovery data!`
       );
     } catch (err: any) {
       setError(err.message || 'An unexpected error occurred during Garmin synchronization.');
@@ -200,7 +227,7 @@ export const GarminSyncModal: React.FC<GarminSyncModalProps> = ({
                 </span>
               </div>
               <p className={`text-xs ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>
-                Automated Sleep, Resting HR &amp; overnight HRV sync
+                Garmin health and recovery data sync
               </p>
             </div>
           </div>
@@ -288,49 +315,88 @@ export const GarminSyncModal: React.FC<GarminSyncModalProps> = ({
             </div>
           )}
 
-          {/* Duration Selector: 2, 4, 8, 12 weeks */}
-          <div>
-            <label
-              className={`block text-xs font-bold uppercase tracking-wider mb-2 ${
-                isLight ? 'text-slate-600' : 'text-slate-400'
+          {metricChecks && (
+            <div
+              className={`p-3.5 rounded-xl border text-xs space-y-2 ${
+                isLight
+                  ? 'bg-slate-50 border-slate-200 text-slate-700'
+                  : 'bg-slate-950/60 border-slate-800 text-slate-300'
               }`}
+              aria-live="polite"
             >
-              Sync Duration (Historical Range)
-            </label>
-            <div className="grid grid-cols-4 gap-2">
-              {[
-                { w: 2, label: '2 Weeks', days: '14 Days' },
-                { w: 4, label: '4 Weeks', days: '28 Days', rec: true },
-                { w: 8, label: '8 Weeks', days: '56 Days' },
-                { w: 12, label: '12 Weeks', days: '84 Days' },
-              ].map((opt) => (
-                <button
-                  key={opt.w}
-                  type="button"
-                  onClick={() => setWeeks(opt.w)}
-                  className={`p-2.5 rounded-xl border text-center transition-all cursor-pointer ${
-                    weeks === opt.w
-                      ? isLight
-                        ? 'bg-sky-50 border-sky-500 text-sky-900 ring-2 ring-sky-500/20 shadow-xs'
-                        : 'bg-sky-500/15 border-sky-500 text-white shadow-sm ring-1 ring-sky-500/30'
-                      : isLight
-                      ? 'bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100'
-                      : 'bg-slate-900 border-slate-800 text-slate-400 hover:bg-slate-800/80'
-                  }`}
-                >
-                  <div className="font-extrabold text-xs flex items-center justify-center gap-1">
-                    <span>{opt.label}</span>
-                    {opt.rec && (
-                      <span className="text-[9px] px-1 py-0.2 rounded bg-sky-500 text-white font-black">
-                        ★
-                      </span>
-                    )}
-                  </div>
-                  <div className="text-[10px] text-slate-400 mt-0.5">{opt.days}</div>
-                </button>
+              <span className="font-bold block">
+                Garmin response checks{checkedDate ? ` for ${checkedDate} (UTC)` : ''}
+              </span>
+              {metricChecks.map((check) => (
+                <div key={check.metric} className="flex items-start justify-between gap-3">
+                  <span>{check.metric}</span>
+                  <span className="text-right">
+                    {check.received ? String(check.value) : check.message}
+                    {check.status !== undefined ? ` (HTTP ${check.status})` : ''}
+                  </span>
+                </div>
               ))}
             </div>
-          </div>
+          )}
+
+          {/* Duration Selector: 2, 4, 8, 12 weeks */}
+          {activeTab !== 'token' && (
+            <div>
+              <label
+                className={`block text-xs font-bold uppercase tracking-wider mb-2 ${
+                  isLight ? 'text-slate-600' : 'text-slate-400'
+                }`}
+              >
+                Sync Duration (Historical Range)
+              </label>
+              <div className="grid grid-cols-4 gap-2">
+                {[
+                  { w: 2, label: '2 Weeks', days: '14 Days' },
+                  { w: 4, label: '4 Weeks', days: '28 Days', rec: true },
+                  { w: 8, label: '8 Weeks', days: '56 Days' },
+                  { w: 12, label: '12 Weeks', days: '84 Days' },
+                ].map((opt) => (
+                  <button
+                    key={opt.w}
+                    type="button"
+                    onClick={() => setWeeks(opt.w)}
+                    className={`p-2.5 rounded-xl border text-center transition-all cursor-pointer ${
+                      weeks === opt.w
+                        ? isLight
+                          ? 'bg-sky-50 border-sky-500 text-sky-900 ring-2 ring-sky-500/20 shadow-xs'
+                          : 'bg-sky-500/15 border-sky-500 text-white shadow-sm ring-1 ring-sky-500/30'
+                        : isLight
+                        ? 'bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100'
+                        : 'bg-slate-900 border-slate-800 text-slate-400 hover:bg-slate-800/80'
+                    }`}
+                  >
+                    <div className="font-extrabold text-xs flex items-center justify-center gap-1">
+                      <span>{opt.label}</span>
+                      {opt.rec && (
+                        <span className="text-[9px] px-1 py-0.2 rounded bg-sky-500 text-white font-black">
+                          ★
+                        </span>
+                      )}
+                    </div>
+                    <div className="text-[10px] text-slate-400 mt-0.5">{opt.days}</div>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {activeTab === 'token' && (
+            <div
+              className={`p-3 rounded-xl border text-xs ${
+                isLight
+                  ? 'bg-sky-50 border-sky-200 text-sky-800'
+                  : 'bg-sky-500/10 border-sky-500/25 text-sky-200'
+              }`}
+            >
+              Token sync checks one UTC day: two days ago. Steps, calories, and heart rate are read
+              from the daily summary; sleep is requested after that response.
+            </div>
+          )}
 
           {/* Sync Method Tabs */}
           <div
@@ -343,6 +409,8 @@ export const GarminSyncModal: React.FC<GarminSyncModalProps> = ({
               onClick={() => {
                 setActiveTab('token');
                 setError(null);
+                setMetricChecks(null);
+                setCheckedDate(null);
               }}
               className={`flex-1 py-2 px-2.5 rounded-lg text-xs font-bold transition-all text-center cursor-pointer ${
                 activeTab === 'token'
@@ -361,6 +429,8 @@ export const GarminSyncModal: React.FC<GarminSyncModalProps> = ({
               onClick={() => {
                 setActiveTab('csv');
                 setError(null);
+                setMetricChecks(null);
+                setCheckedDate(null);
               }}
               className={`flex-1 py-2 px-2 rounded-lg text-xs font-bold transition-all text-center cursor-pointer ${
                 activeTab === 'csv'
@@ -379,6 +449,8 @@ export const GarminSyncModal: React.FC<GarminSyncModalProps> = ({
               onClick={() => {
                 setActiveTab('auto');
                 setError(null);
+                setMetricChecks(null);
+                setCheckedDate(null);
               }}
               className={`flex-1 py-2 px-2.5 rounded-lg text-xs font-bold transition-all text-center cursor-pointer ${
                 activeTab === 'auto'
@@ -579,7 +651,7 @@ export const GarminSyncModal: React.FC<GarminSyncModalProps> = ({
                 <span>
                   {isLoading
                     ? progressMsg || 'Syncing...'
-                    : `Sync with Token (${weeks} Weeks)`}
+                    : 'Sync with Token (1 Day)'}
                 </span>
               </button>
             </div>
