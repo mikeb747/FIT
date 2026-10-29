@@ -67,6 +67,16 @@ export const GarminSyncModal: React.FC<GarminSyncModalProps> = ({
   });
   const [saveCredentials, setSaveCredentials] = useState(true);
 
+  const isGitHubPages = typeof window !== 'undefined' && window.location.hostname.includes('github.io');
+  const [proxyUrl, setProxyUrl] = useState(() => {
+    try {
+      return localStorage.getItem('fit_track_garmin_proxy_url') || '';
+    } catch {
+      return '';
+    }
+  });
+  const [showProxyConfig, setShowProxyConfig] = useState(false);
+
   const [isLoading, setIsLoading] = useState(false);
   const [progressMsg, setProgressMsg] = useState('');
   const [error, setError] = useState<string | null>(null);
@@ -105,14 +115,19 @@ export const GarminSyncModal: React.FC<GarminSyncModalProps> = ({
 
     const queryDate = activeTab === 'token' ? selectedDate : undefined;
 
+    const configuredProxy = proxyUrl.trim();
+    const targetEndpoint = configuredProxy
+      ? `${configuredProxy.replace(/\/+$/, '')}/api/garmin/sync-multiweek`
+      : '/api/garmin/sync-multiweek';
+
     // Immediately create an in-flight trace so the user sees live request progress
     const inFlightTrace: GarminApiDebugTrace = {
       id: `trace_client_${Date.now()}`,
       timestamp: new Date().toISOString(),
-      label: `Local Client Request Dispatched -> /api/garmin/sync-multiweek (${queryDate || `${weeks}w`} UTC)`,
+      label: `Local Client Request Dispatched -> ${targetEndpoint} (${queryDate || `${weeks}w`} UTC)`,
       request: {
         method: 'POST',
-        url: '/api/garmin/sync-multiweek',
+        url: targetEndpoint,
         headers: {
           'Content-Type': 'application/json',
           'Authorization': sessionToken.trim()
@@ -934,6 +949,110 @@ export const GarminSyncModal: React.FC<GarminSyncModalProps> = ({
                   enable direct live access without two-factor authentication roadblocks.
                 </p>
               </div>
+
+              {/* GitHub Pages Host Warning & Recommendations */}
+              {isGitHubPages && !proxyUrl && (
+                <div
+                  className={`p-3 rounded-xl border text-xs space-y-2.5 ${
+                    isLight
+                      ? 'bg-amber-50 border-amber-200 text-amber-900'
+                      : 'bg-amber-500/10 border-amber-500/30 text-amber-200'
+                  }`}
+                >
+                  <div className="flex items-start gap-2.5">
+                    <AlertTriangle className="w-4 h-4 text-amber-500 shrink-0 mt-0.5" />
+                    <div className="space-y-1">
+                      <span className="font-bold block">Running on GitHub Pages (Static Hosting)</span>
+                      <p className="text-[11px] leading-relaxed">
+                        GitHub Pages is a static file host without a Node.js backend. POST requests to <code>/api/garmin</code> return <strong>HTTP 405 Method Not Allowed</strong>.
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-2 flex-wrap pt-0.5">
+                    <button
+                      type="button"
+                      onClick={() => setActiveTab('csv')}
+                      className="px-3 py-1.5 rounded-lg bg-sky-500 hover:bg-sky-400 text-slate-950 font-bold text-[11px] cursor-pointer shadow-xs"
+                    >
+                      Use CSV Export (Instant Browser Import)
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setShowProxyConfig((prev) => !prev)}
+                      className={`px-3 py-1.5 rounded-lg border font-semibold text-[11px] cursor-pointer ${
+                        isLight
+                          ? 'bg-white border-slate-200 hover:bg-slate-50 text-slate-700'
+                          : 'bg-slate-800 border-slate-700 hover:bg-slate-700 text-slate-200'
+                      }`}
+                    >
+                      {showProxyConfig ? 'Hide Proxy Settings' : 'Configure Proxy URL'}
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* Optional Proxy URL Setting */}
+              {(showProxyConfig || proxyUrl) && (
+                <div
+                  className={`p-3 rounded-xl border space-y-2 ${
+                    isLight ? 'bg-slate-100/70 border-slate-200' : 'bg-slate-900/60 border-slate-800'
+                  }`}
+                >
+                  <div className="flex items-center justify-between">
+                    <label
+                      className={`text-[11px] font-bold ${
+                        isLight ? 'text-slate-700' : 'text-slate-300'
+                      }`}
+                    >
+                      Garmin API Proxy URL (Optional for GitHub Pages)
+                    </label>
+                    {proxyUrl && (
+                      <span className="text-[10px] text-emerald-400 font-mono">Custom Proxy Active</span>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="url"
+                      placeholder="e.g. https://my-garmin-proxy.workers.dev"
+                      value={proxyUrl}
+                      onChange={(e) => {
+                        const val = e.target.value.trim();
+                        setProxyUrl(val);
+                        try {
+                          if (val) {
+                            localStorage.setItem('fit_track_garmin_proxy_url', val);
+                          } else {
+                            localStorage.removeItem('fit_track_garmin_proxy_url');
+                          }
+                        } catch {}
+                      }}
+                      className={`flex-1 rounded-xl px-3 py-1.5 text-xs font-mono outline-none border ${
+                        isLight
+                          ? 'bg-white border-slate-300 text-slate-900'
+                          : 'bg-slate-950 border-slate-700 text-white'
+                      }`}
+                    />
+                    {proxyUrl && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setProxyUrl('');
+                          try {
+                            localStorage.removeItem('fit_track_garmin_proxy_url');
+                          } catch {}
+                        }}
+                        className="text-[11px] text-rose-400 hover:underline cursor-pointer px-1"
+                      >
+                        Clear
+                      </button>
+                    )}
+                  </div>
+                  <p className="text-[10px] text-slate-400 leading-relaxed">
+                    Set a CORS proxy or Cloud Run / Worker URL if you want live API calls from a static host. Leave empty when using the local Node server.
+                  </p>
+                </div>
+              )}
 
               <div>
                 <label

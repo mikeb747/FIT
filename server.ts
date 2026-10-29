@@ -36,6 +36,17 @@ const PORT = parsedPort;
 const HOST = parsedHost;
 const isProduction = process.env.NODE_ENV === 'production';
 
+// Enable CORS for external static hosts (e.g. GitHub Pages https://mikeb747.github.io)
+app.use((req, res, next) => {
+  res.header('Access-Control-Allow-Origin', '*');
+  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+  res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization');
+  if (req.method === 'OPTIONS') {
+    return res.sendStatus(200);
+  }
+  next();
+});
+
 app.use(express.json({ limit: '15mb' }));
 
 // Helper to determine the callback URL

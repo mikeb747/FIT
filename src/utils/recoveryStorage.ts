@@ -350,19 +350,32 @@ export async function syncGarminMultiWeek(options: {
   const queryDate = options.debugDate || '2026-10-28';
   const startTime = Date.now();
 
+  let configuredProxyUrl = '';
+  try {
+    configuredProxyUrl = localStorage.getItem('fit_track_garmin_proxy_url') || '';
+  } catch {}
+
+  const targetApiUrl = configuredProxyUrl
+    ? `${configuredProxyUrl.replace(/\/+$/, '')}/api/garmin/sync-multiweek`
+    : '/api/garmin/sync-multiweek';
+
+  const isGitHubPages = typeof window !== 'undefined' && window.location.hostname.includes('github.io');
+
   const clientTrace: GarminApiDebugTrace = {
     id: `trace_client_${Date.now()}`,
     timestamp: new Date().toISOString(),
-    label: `Local Client -> /api/garmin/sync-multiweek (${queryDate} UTC)`,
+    label: `Local Client -> ${targetApiUrl} (${queryDate} UTC)`,
     request: {
       method: 'POST',
-      url: '/api/garmin/sync-multiweek',
+      url: targetApiUrl,
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         hasSessionToken: Boolean(sessionToken),
         hasApiKey: Boolean(sessionToken && sessionToken.startsWith('GCDC_')),
         weeks: options.weeks,
         debugDate: queryDate,
+        isGitHubPages,
+        proxyConfigured: Boolean(configuredProxyUrl),
       }, null, 2),
     },
     response: {
@@ -375,7 +388,7 @@ export async function syncGarminMultiWeek(options: {
   };
 
   try {
-    const res = await fetch('/api/garmin/sync-multiweek', {
+    const res = await fetch(targetApiUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -452,7 +465,16 @@ export async function syncGarminMultiWeek(options: {
       };
     }
 
-    const errorDetails = data.error || data.message || (!res.ok ? `Server returned HTTP ${res.status} ${res.statusText}` : `Garmin Connect did not return recovery metrics for ${queryDate} (UTC).`);
+    let errorDetails = data.error || data.message;
+    if (!errorDetails) {
+      if (res.status === 405 || (isGitHubPages && !configuredProxyUrl)) {
+        errorDetails = 'GitHub Pages is a static file host and does not run a Node.js backend (HTTP 405 Method Not Allowed). To sync Garmin data on GitHub Pages, use the "CSV Export (Instant)" tab, or enter a Garmin Proxy URL below.';
+      } else if (!res.ok) {
+        errorDetails = `Server returned HTTP ${res.status} ${res.statusText || ''}`.trim();
+      } else {
+        errorDetails = `Garmin Connect did not return recovery metrics for ${queryDate} (UTC).`;
+      }
+    }
 
     return {
       success: false,
