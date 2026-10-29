@@ -126,8 +126,9 @@ export const GarminSyncModal: React.FC<GarminSyncModalProps> = ({
     const queryDate = activeTab === 'token' ? selectedDate : undefined;
 
     const configuredProxy = proxyUrl.trim();
+    const isApiKey = sessionToken.trim().startsWith('GCDC_');
     const targetEndpoint = configuredProxy
-      ? `${configuredProxy.replace(/\/+$/, '')}/api/garmin/sync-multiweek`
+      ? `${configuredProxy.replace(/\/+$/, '')}${isApiKey ? '/personalapitoken-service/personal-api/personal-api-key/token' : '/sleep-service/sleep/dailySleep'}`
       : '/api/garmin/sync-multiweek';
 
     // Immediately create an in-flight trace so the user sees live request progress
