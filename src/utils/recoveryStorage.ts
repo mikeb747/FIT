@@ -1,7 +1,7 @@
-import type { DailyRecoveryLog, SubjectiveFeel } from '../types/recovery';
+import type { DailyRecoveryLog, SubjectiveFeel, GarminApiDebugTrace } from '../types/recovery';
 
 export interface GarminMetricCheck {
-  metric: 'Steps' | 'Calories' | 'Heart rate' | 'Sleep';
+  metric: string;
   received: boolean;
   status?: number;
   value?: string | number;
@@ -326,6 +326,7 @@ export async function syncGarminMultiWeek(options: {
   weeks: number;
   logs: DailyRecoveryLog[];
   checks?: GarminMetricCheck[];
+  traces?: GarminApiDebugTrace[];
   message: string;
   error?: string;
   mfaRequired?: boolean;
@@ -346,6 +347,8 @@ export async function syncGarminMultiWeek(options: {
     };
   }
 
+  const queryDate = options.debugDate || '2026-10-28';
+
   try {
     const res = await fetch('/api/garmin/sync-multiweek', {
       method: 'POST',
@@ -355,36 +358,14 @@ export async function syncGarminMultiWeek(options: {
         password,
         sessionToken,
         weeks: options.weeks,
-        debugDate: options.debugDate,
+        debugDate: queryDate,
         baselineRhr: baseline,
       }),
     });
 
     const data = await res.json().catch(() => ({}));
-
-    if (options.debugDate && Array.isArray(data.checks)) {
-      if (res.ok && data.success) {
-        try {
-          localStorage.setItem('fit_track_garmin_connected', 'true');
-          localStorage.removeItem('fit_track_garmin_disconnected');
-          if (sessionToken) {
-            localStorage.setItem('fit_track_garmin_token', sessionToken);
-          }
-        } catch {}
-        return data;
-      }
-
-      return {
-        success: false,
-        syncedDays: 0,
-        weeks: options.weeks,
-        logs: [],
-        checks: data.checks,
-        message: data.error || 'Garmin daily data check failed.',
-        error: data.error || 'Garmin daily data check failed.',
-        mfaRequired: data.mfaRequired,
-      };
-    }
+    const traces: GarminApiDebugTrace[] | undefined = Array.isArray(data.traces) ? data.traces : undefined;
+    const checks: GarminMetricCheck[] | undefined = Array.isArray(data.checks) ? data.checks : undefined;
 
     if (res.ok && data.success && Array.isArray(data.logs) && data.logs.length > 0) {
       try {
@@ -397,29 +378,80 @@ export async function syncGarminMultiWeek(options: {
           localStorage.setItem('fit_track_garmin_email', email);
         }
       } catch {}
-      return data;
+
+      return {
+        success: true,
+        syncedDays: data.syncedDays || data.logs.length,
+        weeks: options.weeks,
+        logs: data.logs,
+        checks,
+        traces,
+        message: data.message || `Synchronized ${data.logs.length} day(s) of recovery data.`,
+      };
     }
 
-    // Honest reporting: do NOT generate fake mock data
+    if (checks && checks.length > 0) {
+      return {
+        success: Boolean(data.success),
+        syncedDays: Array.isArray(data.logs) ? data.logs.length : 0,
+        weeks: options.weeks,
+        logs: Array.isArray(data.logs) ? data.logs : [],
+        checks,
+        traces,
+        message: data.message || 'Garmin daily check completed.',
+        error: data.error || (data.success ? undefined : 'Garmin Connect did not return full recovery metrics.'),
+        mfaRequired: data.mfaRequired,
+      };
+    }
+
     return {
       success: false,
       syncedDays: 0,
       weeks: options.weeks,
       logs: [],
+      checks,
+      traces,
       message:
+        data.message ||
         data.error ||
-        'Garmin Connect did not return recovery metrics. Please use the CSV Export tab or verify your Garmin session token.',
+        'Garmin Connect did not return recovery metrics. Inspect the requests and responses below for details.',
       error:
         data.error ||
-        'Garmin Connect did not return recovery metrics. Please use the CSV Export tab or verify your Garmin session token.',
+        data.message ||
+        'Garmin Connect did not return recovery metrics. Inspect the requests and responses below for details.',
       mfaRequired: data.mfaRequired,
     };
   } catch (err: any) {
+    const clientTrace: GarminApiDebugTrace = {
+      id: `trace_client_err_${Date.now()}`,
+      timestamp: new Date().toISOString(),
+      label: 'Local Client Request to /api/garmin/sync-multiweek',
+      request: {
+        method: 'POST',
+        url: '/api/garmin/sync-multiweek',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          weeks: options.weeks,
+          debugDate: queryDate,
+          hasSessionToken: Boolean(sessionToken),
+        }),
+      },
+      response: {
+        status: 0,
+        statusText: 'Network / Client Error',
+        contentType: 'text/plain',
+        body: err.message || 'Network fetch failure',
+        durationMs: 0,
+      },
+      error: err.message,
+    };
+
     return {
       success: false,
       syncedDays: 0,
       weeks: options.weeks,
       logs: [],
+      traces: [clientTrace],
       message:
         err.message ||
         'Network error contacting Garmin sync server. Please check your connection or use CSV import.',

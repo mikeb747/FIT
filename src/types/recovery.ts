@@ -81,5 +81,26 @@ export interface GarminSyncResponse {
   message: string;
   error?: string;
   mfaRequired?: boolean;
+  traces?: GarminApiDebugTrace[];
+}
+
+export interface GarminApiDebugTrace {
+  id: string;
+  timestamp: string;
+  label: string;
+  request: {
+    method: string;
+    url: string;
+    headers: Record<string, string>;
+    body?: string | null;
+  };
+  response?: {
+    status: number;
+    statusText: string;
+    contentType?: string;
+    body: string;
+    durationMs?: number;
+  };
+  error?: string;
 }
 
