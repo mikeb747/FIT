@@ -10,7 +10,7 @@ curl -X POST 'https://personal.connectapi.garmin.com/personalapitoken-service/pe
 
 For example Garmin API Key;
 
-GCDC_49295cfc-ebad-4efe-932c-f508d2ed0e9d.65543f6e-9140-4e9c-a882-e7d0b62992e4.DiZsWy8QLAKsUhGEjkWPcuwB1HJXw56BHkDKelRldWc.3526889472
+YOUR_GARMIN_API_KEY
 
 ```
 // Define a basic interface for the expected response
@@ -51,7 +51,7 @@ async function getGarminAccessToken(apiKey: string): Promise<GarminTokenResponse
 // === Usage Example ===
 
 // Best Practice: Store this in a .env file and access it via process.env.GARMIN_API_KEY
-const myApiKey = 'GCDC_49295cfc-ebad-4efe-932c-f508d2ed0e9d.65543f6e-9140-4e9c-a882-e7d0b62992e4.DiZsWy8QLAKsUhGEjkWPcuwB1HJXw56BHkDKelRldWc.3526889472';
+const myApiKey = 'YOUR_GARMIN_API_KEY';
 
 // Call the function
 getGarminAccessToken(myApiKey)
@@ -128,6 +128,8 @@ export class GarminPersonalAPI {
 }
   ```
 ---
+
+For FIT Track's one-day token debug sync, the daily summary is requested first and its response is inspected for steps, calories, and heart rate. Only after that response completes is the sleep endpoint requested. The calendar date is sent in `YYYY-MM-DD` form using UTC; the debug sync checks two days before the current UTC date.
 
 ## 0.7 What is available to sync
 
@@ -229,12 +231,12 @@ The **Garmin Connect Personal API** (`https://personal.connectapi.garmin.com`) f
 | **Raw `.FIT` Workout Binary** | **Restricted / Not Available** via standard Strava API (only streams like time, watts, lat/lng). | `/download-service/files/activity/{activityId}`<br>*(Direct raw `.FIT` file download)* | **Massive Advantage**: Can download exact original `.FIT` files with developer data fields, running dynamics, and power metrics directly. |
 | **Workout Data Streams** | `/api/v3/activities/{id}/streams`<br>*(time, watts, cadence, heartrate, latlng, altitude, temp)* | Built into `.FIT` payload or `/activity-service/activity/{activityId}/details` | **Equal**: Native `.FIT` decoding provides sub-second record resolution without Strava sampling downsampling. |
 | **Heart Rate Zones** | `/api/v3/athlete/zones` (basic static 5-zone HR) | `/biometric-service/heartRateZones/v2` | **Superior**: Reads dynamic sport-specific zones configured directly on the Garmin device (e.g., separate Cycling vs. Running zones). |
-| **Overnight HRV (rMSSD)** | ❌ **Not Available in Strava** | `/hrv-service/hrv/daily`<br>`/hrv-service/hrv/{calendarDate}` | **Game Changer**: Direct 7-day rolling HRV baseline, nightly average rMSSD, 5-minute epoch readings, and autonomic balance status. |
-| **Sleep Architecture & Scores** | ❌ **Not Available in Strava** | `/sleep-service/sleep/daily`<br>`/sleep-service/sleep/{calendarDate}` | **Game Changer**: Total sleep time, Deep sleep %, REM sleep %, Light sleep %, Awake duration, and overall 0-100 Sleep Score. |
-| **Waking Resting Heart Rate (RHR)** | ❌ **Not Available in Strava** | `/usersummary-service/usersummary/daily` | **Direct Integration**: Actual lowest resting heart rate recorded during sleep or early waking, eliminating manual entry. |
-| **All-Day Stress & Body Battery** | ❌ **Not Available in Strava** | `/usersummary-service/usersummary/daily/stress` | **Added Value**: 24/7 autonomic stress score and Body Battery recharge/depletion curves. |
-| **Fitness Age & VO2 Max** | ❌ **Not Available in Strava** | `/fitnessage-service/fitnessage/v2/{calendarDate}` | **Added Value**: Garmin estimated biological fitness age and cardiorespiratory fitness scores. |
-| **Hydration & Weight** | ❌ **Not Available in Strava** | `/usersummary-service/usersummary/hydration`<br>`/weight-service/weight/range` | **Added Value**: Daily fluid intake tracking and smart scale body composition logs. |
+| **Overnight HRV (rMSSD)** | âŒ **Not Available in Strava** | `/hrv-service/hrv/daily`<br>`/hrv-service/hrv/{calendarDate}` | **Game Changer**: Direct 7-day rolling HRV baseline, nightly average rMSSD, 5-minute epoch readings, and autonomic balance status. |
+| **Sleep Architecture & Scores** | âŒ **Not Available in Strava** | `/sleep-service/sleep/daily`<br>`/sleep-service/sleep/{calendarDate}` | **Game Changer**: Total sleep time, Deep sleep %, REM sleep %, Light sleep %, Awake duration, and overall 0-100 Sleep Score. |
+| **Waking Resting Heart Rate (RHR)** | âŒ **Not Available in Strava** | `/usersummary-service/usersummary/daily` | **Direct Integration**: Actual lowest resting heart rate recorded during sleep or early waking, eliminating manual entry. |
+| **All-Day Stress & Body Battery** | âŒ **Not Available in Strava** | `/usersummary-service/usersummary/daily/stress` | **Added Value**: 24/7 autonomic stress score and Body Battery recharge/depletion curves. |
+| **Fitness Age & VO2 Max** | âŒ **Not Available in Strava** | `/fitnessage-service/fitnessage/v2/{calendarDate}` | **Added Value**: Garmin estimated biological fitness age and cardiorespiratory fitness scores. |
+| **Hydration & Weight** | âŒ **Not Available in Strava** | `/usersummary-service/usersummary/hydration`<br>`/weight-service/weight/range` | **Added Value**: Daily fluid intake tracking and smart scale body composition logs. |
 
 ---
 
@@ -316,7 +318,7 @@ The Garmin Connect Personal API utilizes a modern token-based authentication app
    - The athlete navigates to **Garmin Connect Web** (`https://connect.garmin.com/modern/settings/accountInformation` or developer portal).
    - Generates a **Personal API Key / Bearer Token**.
 2. **FIT Track Client / Proxy Configuration**:
-   - The athlete enters their Personal API Key in FIT Track (**Settings → App tab → Garmin Connect**).
+   - The athlete enters their Personal API Key in FIT Track (**Settings â†’ App tab â†’ Garmin Connect**).
    - The key is securely passed to the FIT Track proxy server via `Authorization: Bearer <API_KEY>` or stored locally on device.
 3. **Automated Data Pull**:
    - `/api/garmin/sync-multiweek` queries the Personal API endpoints on `https://personal.connectapi.garmin.com` with zero web-scraping fragility and zero SMS 2FA hurdles.

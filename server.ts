@@ -483,7 +483,7 @@ async function exchangeGarminApiKeyForToken(
       return { success: false, error: errMsg };
     }
 
-    const token = data.access_token || data.accessToken || data.token || data.data?.access_token || data.data?.token;
+    const token = data.access_token || data.accessToken || data.token;
     if (!token) {
       return { success: false, error: 'Garmin token endpoint did not return access_token in response.' };
     }
@@ -503,8 +503,7 @@ app.post('/api/garmin/token', async (req, res) => {
     }
     const result = await exchangeGarminApiKeyForToken(apiKey.trim());
     if (!result.success) {
-      // Return key itself as fallback access token so client can attempt direct Bearer requests
-      return res.json({ success: true, accessToken: apiKey.trim(), fallbackUsed: true, note: result.error });
+      return res.status(400).json(result);
     }
     return res.json(result);
   } catch (err: any) {
@@ -517,7 +516,7 @@ app.post('/api/garmin/token', async (req, res) => {
 // =========================================================
 app.post('/api/garmin/sync-multiweek', async (req, res) => {
   try {
-    const { email, password, sessionToken, weeks = 4, baselineRhr = 41 } = req.body;
+    const { email, password, sessionToken, weeks = 4, debugDate, baselineRhr = 41 } = req.body;
     const requestedWeeks = Math.max(1, Math.min(16, Number(weeks) || 4));
     const requestedDays = requestedWeeks * 7;
     const athleteBaselineRhr = Number(baselineRhr) > 0 ? Number(baselineRhr) : 41;
@@ -534,10 +533,30 @@ app.post('/api/garmin/sync-multiweek', async (req, res) => {
       });
     }
 
+    if (
+      debugDate !== undefined &&
+      (typeof debugDate !== 'string' ||
+        !/^\d{4}-\d{2}-\d{2}$/.test(debugDate) ||
+        Number.isNaN(Date.parse(`${debugDate}T00:00:00Z`)) ||
+        new Date(`${debugDate}T00:00:00Z`).toISOString().slice(0, 10) !== debugDate)
+    ) {
+      return res.status(400).json({
+        success: false,
+        error: 'debugDate must be a valid UTC calendar date in YYYY-MM-DD format.',
+      });
+    }
+
     // 1. Session Token or Personal API Key Flow
     if (trimmedToken) {
+      const nowMs = Date.now();
+      const nowSec = Math.floor(nowMs / 1000);
+      const startSec = nowSec - requestedDays * 86400;
+      const todayStr = new Date(nowMs).toISOString().split('T')[0];
+      const fromDateStr = new Date(nowMs - requestedDays * 86400 * 1000).toISOString().split('T')[0];
+
       const isPersonalApiKey = trimmedToken.startsWith('GCDC_') || (!trimmedToken.includes('=') && trimmedToken.length > 20);
       let bearerToken = trimmedToken;
+      let tokenExchangeError: string | null = null;
 
       // GARMIN.md Section 0.5: Exchange API Key for Bearer Access Token
       if (isPersonalApiKey) {
@@ -545,194 +564,316 @@ app.post('/api/garmin/sync-multiweek', async (req, res) => {
         if (tokenRes.success && tokenRes.accessToken) {
           bearerToken = tokenRes.accessToken;
         } else {
-          console.warn('[Garmin Sync] Token exchange warning, falling back to direct token usage:', tokenRes.error);
+          tokenExchangeError = tokenRes.error || 'Failed to exchange Garmin API key for access token.';
         }
       }
 
-      // GARMIN.md Section 0.6: Fetch headers
-      const candidateHeaders: Record<string, string>[] = [];
+      if (tokenExchangeError) {
+        return res.status(400).json({
+          success: false,
+          syncedDays: 0,
+          weeks: requestedWeeks,
+          logs: [],
+          error: `Garmin API Key Exchange Failed: ${tokenExchangeError}`,
+        });
+      }
+
+      // GARMIN.md Section 0.6: Fetch HRV and sleep data with Bearer Access Token
+      const headers: Record<string, string> = {
+        'User-Agent':
+          'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+        'Accept': 'application/json',
+      };
 
       if (isPersonalApiKey) {
-        candidateHeaders.push({
-          'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
-          'Accept': 'application/json',
-          'Authorization': `Bearer ${bearerToken}`,
-        });
-        if (bearerToken !== trimmedToken) {
-          candidateHeaders.push({
-            'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
-            'Accept': 'application/json',
-            'Authorization': `Bearer ${trimmedToken}`,
-          });
-        }
-        candidateHeaders.push({
-          'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
-          'Accept': 'application/json',
-          'Authorization': `ApiKey ${trimmedToken}`,
-        });
+        headers['Authorization'] = `Bearer ${bearerToken}`;
       } else {
-        const cookieVal = trimmedToken.includes('GARMIN-SSO-GUID') ? trimmedToken : `GARMIN-SSO-GUID=${trimmedToken}`;
-        candidateHeaders.push({
-          'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
-          'Accept': 'application/json',
-          'Cookie': cookieVal,
-          'origin': 'https://connect.garmin.com',
-          'referer': 'https://connect.garmin.com/modern/daily-summary',
+        headers['Cookie'] = trimmedToken.includes('GARMIN-SSO-GUID')
+          ? trimmedToken
+          : `GARMIN-SSO-GUID=${trimmedToken}`;
+        headers['origin'] = 'https://connect.garmin.com';
+        headers['referer'] = 'https://connect.garmin.com/modern/daily-summary';
+      }
+
+      if (debugDate) {
+        const apiBase = isPersonalApiKey
+          ? 'https://personal.connectapi.garmin.com'
+          : 'https://connect.garmin.com/modern/proxy';
+        const summaryUrl = `${apiBase}/usersummary-service/usersummary/daily?calendarDate=${encodeURIComponent(debugDate)}`;
+        const sleepUrl = `${apiBase}/sleep-service/sleep/dailySleep?date=${encodeURIComponent(debugDate)}`;
+
+        const requestJson = async (url: string) => {
+          try {
+            const response = await fetch(url, { headers });
+            const responseText = await response.text();
+            let payload: any = null;
+            if (responseText) {
+              try {
+                payload = JSON.parse(responseText);
+              } catch {
+                return {
+                  ok: false,
+                  status: response.status,
+                  payload: null,
+                  message: response.ok
+                    ? 'Garmin returned a non-JSON response.'
+                    : `Garmin returned HTTP ${response.status} ${response.statusText}.`,
+                };
+              }
+            }
+            return {
+              ok: response.ok,
+              status: response.status,
+              payload,
+              message: response.ok
+                ? undefined
+                : `Garmin returned HTTP ${response.status} ${response.statusText}.`,
+            };
+          } catch (error: any) {
+            return {
+              ok: false,
+              payload: null,
+              message: error.message || 'Network error contacting Garmin.',
+            };
+          }
+        };
+
+        const summaryResponse = await requestJson(summaryUrl);
+        const summaryRoot =
+          summaryResponse.payload && typeof summaryResponse.payload === 'object'
+            ? summaryResponse.payload
+            : {};
+        const summary =
+          summaryRoot.userDailySummary ||
+          summaryRoot.dailySummary ||
+          summaryRoot.data ||
+          summaryRoot;
+        const readNumber = (...keys: string[]): number | undefined => {
+          for (const key of keys) {
+            const value = summary[key];
+            const numberValue = typeof value === 'number' ? value : Number(value);
+            if (value !== undefined && value !== null && value !== '' && Number.isFinite(numberValue)) {
+              return numberValue;
+            }
+          }
+          return undefined;
+        };
+        const steps = readNumber('totalSteps', 'steps', 'stepCount');
+        const activeCalories = readNumber('activeCalories');
+        const totalCalories = readNumber('totalCalories');
+        const calories = readNumber('calories') ?? activeCalories ?? totalCalories;
+        const restingHeartRate = readNumber(
+          'restingHeartRate',
+          'restingHeartRateInBeatsPerMinute',
+          'restingHr'
+        );
+        const heartRate = readNumber('heartRate', 'averageHeartRate') ?? restingHeartRate;
+        const hrvRmssd = readNumber('lastNightAvg', 'averageHRV', 'hrvRmssd', 'overnightHrv');
+        const summaryCheck = (received: boolean, value: string | number | undefined) => ({
+          received: summaryResponse.ok && received,
+          status: summaryResponse.status,
+          value: summaryResponse.ok ? value : undefined,
+          message: summaryResponse.message || 'HTTP response received, but this metric was not present.',
+        });
+        const checks: {
+          metric: string;
+          received: boolean;
+          status?: number;
+          value?: string | number;
+          message: string;
+        }[] = [
+          {
+            metric: 'Steps',
+            ...summaryCheck(steps !== undefined, steps),
+          },
+          {
+            metric: 'Calories',
+            ...summaryCheck(
+              calories !== undefined,
+              activeCalories !== undefined && totalCalories !== undefined
+                ? `Active: ${activeCalories} kcal; total: ${totalCalories} kcal`
+                : `${calories} kcal`
+            ),
+          },
+          {
+            metric: 'Heart rate',
+            ...summaryCheck(heartRate !== undefined, heartRate === undefined ? undefined : `${heartRate} bpm`),
+          },
+        ];
+
+        const sleepResponse = await requestJson(sleepUrl);
+        const sleepRoot =
+          sleepResponse.payload && typeof sleepResponse.payload === 'object'
+            ? sleepResponse.payload
+            : {};
+        const sleepData = sleepRoot.dailySleepDTO || sleepRoot;
+        const sleepSeconds = Number(
+          sleepData.sleepTimeSeconds ?? sleepData.durationInSeconds
+        );
+        const sleepScore = Number(
+          sleepData.sleepScores?.overall?.value ?? sleepData.sleepScore
+        );
+        const hasSleepDuration =
+          Number.isFinite(sleepSeconds) && sleepSeconds > 0;
+        checks.push({
+          metric: 'Sleep',
+          received: sleepResponse.ok && hasSleepDuration,
+          status: sleepResponse.status,
+          value: hasSleepDuration
+            ? `${Math.round(sleepSeconds / 60)} min${Number.isFinite(sleepScore) && sleepScore > 0 ? `; score ${sleepScore}` : ''}`
+            : undefined,
+          message:
+            sleepResponse.message ||
+            'HTTP response received, but sleep duration was not present.',
+        });
+
+        const sleepMinutes = hasSleepDuration ? Math.round(sleepSeconds / 60) : undefined;
+        const logs =
+          restingHeartRate !== undefined &&
+          restingHeartRate > 0 &&
+          hrvRmssd !== undefined &&
+          hrvRmssd > 0 &&
+          sleepMinutes !== undefined
+            ? [
+                {
+                  id: `rec_garmin_${debugDate}`,
+                  date: debugDate,
+                  restingHr: restingHeartRate,
+                  hrvRmssd,
+                  sleepDurationMinutes: sleepMinutes,
+                  sleepScore: Number.isFinite(sleepScore) && sleepScore > 0 ? sleepScore : 0,
+                  deepSleepMinutes: Math.round(Number(sleepData.deepSleepSeconds || 0) / 60),
+                  remSleepMinutes: Math.round(Number(sleepData.remSleepSeconds || 0) / 60),
+                  lightSleepMinutes: Math.round(Number(sleepData.lightSleepSeconds || 0) / 60),
+                  awakeMinutes: Math.round(Number(sleepData.awakeSleepSeconds || 0) / 60),
+                  source: 'garmin',
+                  notes: `Garmin daily sync for ${debugDate} UTC`,
+                },
+              ]
+            : [];
+        const anyMetricReceived = checks.some((check) => check.received);
+
+        return res.status(anyMetricReceived ? 200 : 502).json({
+          success: anyMetricReceived,
+          syncedDays: logs.length,
+          weeks: 1,
+          logs,
+          checks,
+          message: `Garmin daily check completed for ${debugDate} UTC.`,
+          error: anyMetricReceived
+            ? undefined
+            : 'No requested Garmin metrics were returned. See the response checks for details.',
         });
       }
 
-      // Day-by-day chunking (1 day at a time, inclusive)
-      // Debugging target: 28th October 2026 in UTC ('2026-10-28')
-      const targetUtcDate = '2026-10-28';
-      const numDaysToFetch = Math.max(1, requestedDays);
-      const targetDates: string[] = [];
+      const candidateEndpoints = isPersonalApiKey
+        ? [
+            `https://personal.connectapi.garmin.com/hrv-service/hrv/daily/${fromDateStr}/${todayStr}`,
+            `https://personal.connectapi.garmin.com/wellness-service/rest/dailies?uploadStartTimeInSeconds=${startSec}&uploadEndTimeInSeconds=${nowSec}`,
+            `https://personal.connectapi.garmin.com/wellness-service/rest/hrv?uploadStartTimeInSeconds=${startSec}&uploadEndTimeInSeconds=${nowSec}`,
+            `https://personal.connectapi.garmin.com/sleep-service/sleep/dailySleep?date=${todayStr}`,
+          ]
+        : [
+            `https://connect.garmin.com/modern/proxy/wellness-service/wellness/dailyHeartRate/${todayStr}`,
+            `https://connect.garmin.com/modern/proxy/userprofile-service/userprofile/personal-information`,
+          ];
 
-      const baseMs = Date.parse(`${targetUtcDate}T00:00:00Z`);
-      for (let i = 0; i < numDaysToFetch; i++) {
-        const d = new Date(baseMs - i * 86400 * 1000);
-        targetDates.push(d.toISOString().split('T')[0]);
+      let rawResults: any[] = [];
+
+      for (const endpoint of candidateEndpoints) {
+        try {
+          const testRes = await fetch(endpoint, { headers });
+          if (testRes.ok) {
+            const parsed = await testRes.json().catch(() => null);
+            if (parsed) {
+              rawResults.push(parsed);
+            }
+          }
+        } catch {}
       }
 
       const liveLogsMap = new Map<string, any>();
 
-      // Loop through each day chunk
-      for (const dStr of targetDates) {
-        const dayStartSec = Math.floor(Date.parse(`${dStr}T00:00:00Z`) / 1000);
-        const dayEndSec = dayStartSec + 86399;
+      for (const resItem of rawResults) {
+        const items = Array.isArray(resItem)
+          ? resItem
+          : resItem.dailies || resItem.hrvSummaries || resItem.allMetrics || [resItem];
 
-        // Group endpoints in strict sequence:
-        // 1. Sleep first
-        // 2. Heart rate / HRV second
-        // 3. Steps & Calories third
-        // (Excluding epoch, pulseOx, and stress for debugging)
-        const endpointGroups = [
-          // 1. Sleep
-          [
-            `https://personal.connectapi.garmin.com/sleep-service/sleep/dailySleep?date=${dStr}`,
-            `https://personal.connectapi.garmin.com/sleep-service/sleep/${dStr}`,
-            `https://connect.garmin.com/modern/proxy/sleep-service/sleep/dailySleep?date=${dStr}`,
-          ],
-          // 2. Heart rate / HRV
-          [
-            `https://personal.connectapi.garmin.com/hrv-service/hrv/${dStr}`,
-            `https://personal.connectapi.garmin.com/hrv-service/hrv/daily/${dStr}/${dStr}`,
-            `https://personal.connectapi.garmin.com/wellness-service/rest/dailyHeartRate/${dStr}`,
-            `https://connect.garmin.com/modern/proxy/hrv-service/hrv/daily/${dStr}/${dStr}`,
-          ],
-          // 3. Steps & Calories
-          [
-            `https://personal.connectapi.garmin.com/usersummary-service/usersummary/daily?calendarDate=${dStr}`,
-            `https://personal.connectapi.garmin.com/wellness-service/rest/dailies?uploadStartTimeInSeconds=${dayStartSec}&uploadEndTimeInSeconds=${dayEndSec}`,
-            `https://connect.garmin.com/modern/proxy/usersummary-service/usersummary/daily?calendarDate=${dStr}`,
-          ],
-        ];
+        for (const item of items) {
+          if (!item || typeof item !== 'object') continue;
+          const dateStr =
+            item.calendarDate ||
+            item.date ||
+            (item.startTimeInSeconds
+              ? new Date(item.startTimeInSeconds * 1000).toISOString().split('T')[0]
+              : null);
 
-        const dayResults: any[] = [];
+          if (!dateStr) continue;
 
-        for (const group of endpointGroups) {
-          for (const endpoint of group) {
-            let fetchedSuccess = false;
-            for (const hdr of candidateHeaders) {
-              try {
-                const testRes = await fetch(endpoint, { headers: hdr });
-                if (testRes.ok) {
-                  const parsed = await testRes.json().catch(() => null);
-                  if (parsed) {
-                    dayResults.push(parsed);
-                    fetchedSuccess = true;
-                    break; // Move to next group once one endpoint succeeds
-                  }
-                }
-              } catch {}
-            }
-            if (fetchedSuccess) break;
-          }
+          const existing = liveLogsMap.get(dateStr) || {
+            id: `rec_garmin_${dateStr}`,
+            date: dateStr,
+            source: 'garmin',
+            notes: 'Garmin Connect Telemetry',
+          };
+
+          const rhr =
+            item.restingHeartRateInBeatsPerMinute ||
+            item.restingHeartRate ||
+            item.rhr ||
+            existing.restingHr ||
+            athleteBaselineRhr;
+
+          const hrv =
+            item.lastNightAvg ||
+            item.hrvWeeklyAvg ||
+            item.averageHRV ||
+            item.weeklyAvg ||
+            item.lastNight5MinHigh ||
+            existing.hrvRmssd;
+
+          const sleepSec =
+            item.durationInSeconds ||
+            item.sleepTimeSeconds ||
+            (item.dailySleepDTO ? item.dailySleepDTO.sleepTimeSeconds : undefined);
+
+          const sleepMin = sleepSec
+            ? Math.round(sleepSec / 60)
+            : existing.sleepDurationMinutes;
+
+          const score =
+            item.sleepScore ||
+            (item.dailySleepDTO?.sleepScores?.overall?.value) ||
+            existing.sleepScore;
+
+          const deep =
+            item.deepSleepDurationInSeconds ||
+            (item.dailySleepDTO ? item.dailySleepDTO.deepSleepSeconds : undefined);
+
+          const rem =
+            item.remSleepDurationInSeconds ||
+            (item.dailySleepDTO ? item.dailySleepDTO.remSleepSeconds : undefined);
+
+          const light =
+            item.lightSleepDurationInSeconds ||
+            (item.dailySleepDTO ? item.dailySleepDTO.lightSleepSeconds : undefined);
+
+          const awake =
+            item.awakeDurationInSeconds ||
+            (item.dailySleepDTO ? item.dailySleepDTO.awakeSleepSeconds : undefined);
+
+          liveLogsMap.set(dateStr, {
+            ...existing,
+            restingHr: rhr || athleteBaselineRhr,
+            hrvRmssd: hrv,
+            sleepDurationMinutes: sleepMin,
+            sleepScore: score,
+            deepSleepMinutes: deep ? Math.round(deep / 60) : existing.deepSleepMinutes,
+            remSleepMinutes: rem ? Math.round(rem / 60) : existing.remSleepMinutes,
+            lightSleepMinutes: light ? Math.round(light / 60) : existing.lightSleepMinutes,
+            awakeMinutes: awake ? Math.round(awake / 60) : existing.awakeMinutes,
+          });
         }
-
-        // Aggregate findings for this day
-        const existing = liveLogsMap.get(dStr) || {
-          id: `rec_garmin_${dStr}`,
-          date: dStr,
-          source: 'garmin',
-          notes: `Garmin Connect Telemetry (${dStr})`,
-        };
-
-        let rhr = existing.restingHr || athleteBaselineRhr;
-        let hrv = existing.hrvRmssd;
-        let sleepMin = existing.sleepDurationMinutes;
-        let sleepScore = existing.sleepScore;
-        let deepMin = existing.deepSleepMinutes;
-        let remMin = existing.remSleepMinutes;
-        let lightMin = existing.lightSleepMinutes;
-        let awakeMin = existing.awakeMinutes;
-        let steps = existing.steps;
-        let calories = existing.calories;
-
-        for (const resItem of dayResults) {
-          if (!resItem || typeof resItem !== 'object') continue;
-          const items = Array.isArray(resItem)
-            ? resItem
-            : resItem.dailies || resItem.hrvSummaries || resItem.allMetrics || [resItem];
-
-          for (const item of items) {
-            if (!item || typeof item !== 'object') continue;
-
-            if (item.restingHeartRateInBeatsPerMinute || item.restingHeartRate || item.rhr) {
-              rhr = item.restingHeartRateInBeatsPerMinute || item.restingHeartRate || item.rhr;
-            }
-
-            if (item.lastNightAvg || item.hrvWeeklyAvg || item.averageHRV || item.weeklyAvg || item.lastNight5MinHigh) {
-              hrv = item.lastNightAvg || item.hrvWeeklyAvg || item.averageHRV || item.weeklyAvg || item.lastNight5MinHigh;
-            }
-
-            const sleepSec = item.durationInSeconds || item.sleepTimeSeconds || (item.dailySleepDTO ? item.dailySleepDTO.sleepTimeSeconds : undefined);
-            if (sleepSec) {
-              sleepMin = Math.round(sleepSec / 60);
-            }
-
-            const scoreVal = item.sleepScore || item.dailySleepDTO?.sleepScores?.overall?.value;
-            if (scoreVal) {
-              sleepScore = scoreVal;
-            }
-
-            const deepSec = item.deepSleepDurationInSeconds || item.dailySleepDTO?.deepSleepSeconds;
-            if (deepSec) deepMin = Math.round(deepSec / 60);
-
-            const remSec = item.remSleepDurationInSeconds || item.dailySleepDTO?.remSleepSeconds;
-            if (remSec) remMin = Math.round(remSec / 60);
-
-            const lightSec = item.lightSleepDurationInSeconds || item.dailySleepDTO?.lightSleepSeconds;
-            if (lightSec) lightMin = Math.round(lightSec / 60);
-
-            const awakeSec = item.awakeDurationInSeconds || item.dailySleepDTO?.awakeSleepSeconds;
-            if (awakeSec) awakeMin = Math.round(awakeSec / 60);
-
-            if (item.totalSteps || item.steps) {
-              steps = item.totalSteps || item.steps;
-            }
-
-            if (item.totalCalories || item.activeCalories || item.calories) {
-              calories = item.totalCalories || item.activeCalories || item.calories;
-            }
-          }
-        }
-
-        const notesParts = [`Garmin Connect Telemetry (${dStr})`];
-        if (steps) notesParts.push(`${steps.toLocaleString()} steps`);
-        if (calories) notesParts.push(`${calories.toLocaleString()} kcal`);
-
-        liveLogsMap.set(dStr, {
-          ...existing,
-          restingHr: rhr || athleteBaselineRhr,
-          hrvRmssd: hrv,
-          sleepDurationMinutes: sleepMin,
-          sleepScore: sleepScore,
-          deepSleepMinutes: deepMin,
-          remSleepMinutes: remMin,
-          lightSleepMinutes: lightMin,
-          awakeMinutes: awakeMin,
-          notes: notesParts.join(' • '),
-        });
       }
 
       const liveLogs = Array.from(liveLogsMap.values());
@@ -744,7 +885,7 @@ app.post('/api/garmin/sync-multiweek', async (req, res) => {
           weeks: requestedWeeks,
           logs: [],
           error:
-            'Garmin API Key exchange succeeded, but Garmin Connect Personal API returned no telemetry for 2026-10-28 UTC. Garmin Personal API credentials push data via Webhooks, or require manual CSV imports (Garmin Connect Web > Reports > Sleep).',
+            'Garmin API Key exchange succeeded, but Garmin Connect Personal API returned no telemetry for this date range. Garmin Personal API credentials push data via Webhooks, or require manual CSV imports (Garmin Connect Web > Reports > Sleep).',
         });
       }
 
@@ -753,7 +894,7 @@ app.post('/api/garmin/sync-multiweek', async (req, res) => {
         syncedDays: liveLogs.length,
         weeks: requestedWeeks,
         logs: liveLogs,
-        message: `Garmin Connect verified. Synchronized telemetry for 2026-10-28 UTC (${liveLogs.length} day chunk(s)).`,
+        message: `Garmin Connect verified. Synchronized ${liveLogs.length} days (${requestedWeeks} weeks) of recovery telemetry.`,
       });
     }
 
@@ -818,4 +959,3 @@ async function startServer() {
 startServer().catch((err) => {
   console.error('[FIT Track Server] Failed to initialize server:', err);
 });
-
