@@ -59,6 +59,7 @@ interface StravaActivitiesTabProps {
   onActivityPublished: (activityId: string) => void;
   onOpenAthleteProfile?: () => void;
   onDeleteActivity?: (activityId: string | number) => void;
+  theme?: 'dark' | 'light';
 }
 
 function formatDuration(seconds: number): string {
@@ -134,6 +135,7 @@ export const StravaActivitiesTab: React.FC<StravaActivitiesTabProps> = ({
   onActivityPublished,
   onOpenAthleteProfile,
   onDeleteActivity,
+  theme = 'dark',
 }) => {
   const [selectedCategory, setSelectedCategory] = useState<ActivityFilterCategory>('All');
   const [activeModalActivity, setActiveModalActivity] = useState<StravaActivity | null>(null);
@@ -573,6 +575,7 @@ export const StravaActivitiesTab: React.FC<StravaActivitiesTabProps> = ({
           onDeleteActivity?.(actId);
           setActiveModalActivity(null);
         }}
+        theme={theme}
       />
     </div>
   );
