@@ -19,6 +19,7 @@ import {
   ChevronUp,
   Terminal,
   Calendar,
+  Globe,
 } from 'lucide-react';
 import type { DailyRecoveryLog, GarminApiDebugTrace } from '../types/recovery';
 import {
@@ -75,7 +76,16 @@ export const GarminSyncModal: React.FC<GarminSyncModalProps> = ({
       return '';
     }
   });
-  const [showProxyConfig, setShowProxyConfig] = useState(false);
+  const [showProxyConfig, setShowProxyConfig] = useState(() => {
+    try {
+      if (typeof window !== 'undefined' && window.location.hostname.includes('github.io')) {
+        return true;
+      }
+      return Boolean(localStorage.getItem('fit_track_garmin_proxy_url'));
+    } catch {
+      return false;
+    }
+  });
 
   const [isLoading, setIsLoading] = useState(false);
   const [progressMsg, setProgressMsg] = useState('');
@@ -936,18 +946,36 @@ export const GarminSyncModal: React.FC<GarminSyncModalProps> = ({
                 isLight ? 'bg-slate-50/70 border-slate-200' : 'bg-slate-950/40 border-slate-800'
               }`}
             >
-              <div className="space-y-1">
-                <span
-                  className={`text-xs font-semibold ${
-                    isLight ? 'text-slate-700' : 'text-slate-300'
+              <div className="flex items-start justify-between gap-3">
+                <div className="space-y-1">
+                  <span
+                    className={`text-xs font-semibold ${
+                      isLight ? 'text-slate-700' : 'text-slate-300'
+                    }`}
+                  >
+                    Garmin Personal API Key or Session Token
+                  </span>
+                  <p className="text-[11px] text-slate-400 leading-relaxed">
+                    Garmin Connect Personal API keys or session cookies (`GARMIN-SSO-GUID` / Bearer token)
+                    enable direct live access without two-factor authentication roadblocks.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setShowProxyConfig((prev) => !prev)}
+                  className={`px-2.5 py-1.5 rounded-lg border text-[11px] font-bold flex items-center gap-1.5 shrink-0 transition-colors cursor-pointer ${
+                    proxyUrl
+                      ? 'bg-emerald-500/15 border-emerald-500/30 text-emerald-400'
+                      : isLight
+                      ? 'bg-white border-slate-200 hover:bg-slate-50 text-slate-700 shadow-xs'
+                      : 'bg-slate-800 border-slate-700 hover:bg-slate-700 text-slate-300'
                   }`}
+                  title="Configure Cloudflare Worker or external proxy URL for GitHub Pages"
                 >
-                  Garmin Personal API Key or Session Token
-                </span>
-                <p className="text-[11px] text-slate-400 leading-relaxed">
-                  Garmin Connect Personal API keys or session cookies (`GARMIN-SSO-GUID` / Bearer token)
-                  enable direct live access without two-factor authentication roadblocks.
-                </p>
+                  <Globe className="w-3.5 h-3.5 text-sky-400" />
+                  <span>{showProxyConfig ? 'Hide Proxy URL' : 'Configure Proxy URL'}</span>
+                  {proxyUrl && <span className="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>}
+                </button>
               </div>
 
               {/* GitHub Pages Host Warning & Recommendations */}
@@ -979,21 +1007,21 @@ export const GarminSyncModal: React.FC<GarminSyncModalProps> = ({
                     </button>
                     <button
                       type="button"
-                      onClick={() => setShowProxyConfig((prev) => !prev)}
+                      onClick={() => setShowProxyConfig(true)}
                       className={`px-3 py-1.5 rounded-lg border font-semibold text-[11px] cursor-pointer ${
                         isLight
                           ? 'bg-white border-slate-200 hover:bg-slate-50 text-slate-700'
                           : 'bg-slate-800 border-slate-700 hover:bg-slate-700 text-slate-200'
                       }`}
                     >
-                      {showProxyConfig ? 'Hide Proxy Settings' : 'Configure Proxy URL'}
+                      Configure Proxy URL (Cloudflare Worker)
                     </button>
                   </div>
                 </div>
               )}
 
-              {/* Optional Proxy URL Setting */}
-              {(showProxyConfig || proxyUrl) && (
+              {/* Proxy URL Setting */}
+              {(showProxyConfig || proxyUrl || isGitHubPages) && (
                 <div
                   className={`p-3 rounded-xl border space-y-2 ${
                     isLight ? 'bg-slate-100/70 border-slate-200' : 'bg-slate-900/60 border-slate-800'
@@ -1001,20 +1029,21 @@ export const GarminSyncModal: React.FC<GarminSyncModalProps> = ({
                 >
                   <div className="flex items-center justify-between">
                     <label
-                      className={`text-[11px] font-bold ${
+                      className={`text-[11px] font-bold flex items-center gap-1.5 ${
                         isLight ? 'text-slate-700' : 'text-slate-300'
                       }`}
                     >
-                      Garmin API Proxy URL (Optional for GitHub Pages)
+                      <Globe className="w-3.5 h-3.5 text-sky-400" />
+                      <span>Garmin API Proxy URL (Cloudflare Worker / GitHub Pages)</span>
                     </label>
                     {proxyUrl && (
-                      <span className="text-[10px] text-emerald-400 font-mono">Custom Proxy Active</span>
+                      <span className="text-[10px] text-emerald-400 font-mono font-bold">✓ Custom Proxy Active</span>
                     )}
                   </div>
                   <div className="flex items-center gap-2">
                     <input
                       type="url"
-                      placeholder="e.g. https://my-garmin-proxy.workers.dev"
+                      placeholder="https://my-garmin-proxy.yourname.workers.dev"
                       value={proxyUrl}
                       onChange={(e) => {
                         const val = e.target.value.trim();
@@ -1029,8 +1058,8 @@ export const GarminSyncModal: React.FC<GarminSyncModalProps> = ({
                       }}
                       className={`flex-1 rounded-xl px-3 py-1.5 text-xs font-mono outline-none border ${
                         isLight
-                          ? 'bg-white border-slate-300 text-slate-900'
-                          : 'bg-slate-950 border-slate-700 text-white'
+                          ? 'bg-white border-slate-300 text-slate-900 focus:border-sky-500'
+                          : 'bg-slate-950 border-slate-700 text-white focus:border-sky-500'
                       }`}
                     />
                     {proxyUrl && (
@@ -1042,14 +1071,14 @@ export const GarminSyncModal: React.FC<GarminSyncModalProps> = ({
                             localStorage.removeItem('fit_track_garmin_proxy_url');
                           } catch {}
                         }}
-                        className="text-[11px] text-rose-400 hover:underline cursor-pointer px-1"
+                        className="text-[11px] text-rose-400 hover:underline cursor-pointer px-1 font-semibold"
                       >
                         Clear
                       </button>
                     )}
                   </div>
                   <p className="text-[10px] text-slate-400 leading-relaxed">
-                    Set a CORS proxy or Cloud Run / Worker URL if you want live API calls from a static host. Leave empty when using the local Node server.
+                    Paste your Cloudflare Worker URL (e.g. <code>https://my-garmin-proxy.yourname.workers.dev</code>) here. Once entered, FIT Track on GitHub Pages will route all live Garmin Personal API requests through your Worker instead of getting HTTP 405.
                   </p>
                 </div>
               )}
