@@ -209,7 +209,7 @@ export const StravaActivitiesTab: React.FC<StravaActivitiesTabProps> = ({
               key={cat}
               type="button"
               onClick={() => setSelectedCategory(cat)}
-              className={`px-3 py-1.5 text-xs font-bold whitespace-nowrap flex items-center gap-1.5 transition-all cursor-pointer ${
+              className={`px-2 sm:px-3 py-1.5 text-[11px] sm:text-xs font-bold whitespace-nowrap flex items-center gap-1 sm:gap-1.5 transition-all cursor-pointer ${
                 isActive
                   ? isLight
                     ? 'bg-amber-500 text-white font-black shadow-xs'
@@ -233,7 +233,7 @@ export const StravaActivitiesTab: React.FC<StravaActivitiesTabProps> = ({
               )}
               <span>{cat}</span>
               <span
-                className={`text-[10px] px-1.5 py-0.2 rounded-full font-mono ${
+                className={`text-[10px] px-1 py-0.2 rounded-full font-mono ${
                   isActive
                     ? isLight
                       ? 'bg-white/20 text-white font-black'
@@ -438,14 +438,6 @@ export const StravaActivitiesTab: React.FC<StravaActivitiesTabProps> = ({
                           <span>Calibrated</span>
                         </span>
                       ) : null}
-
-                      <ChevronRight
-                        className={`w-4 h-4 transition-colors ml-1 ${
-                          isLight
-                            ? 'text-slate-400 group-hover:text-amber-600'
-                            : 'text-slate-500 group-hover:text-amber-400'
-                        }`}
-                      />
                     </div>
                   </div>
 

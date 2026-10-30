@@ -382,13 +382,16 @@ export function formatSportMetrics(
           } else {
             secondaryParts.push(`${avgKph} kph avg`);
           }
+          if (effectiveWatts && effectiveWatts > 0) {
+            secondaryParts.push(`${Math.round(effectiveWatts)}W avg`);
+          }
         } else {
-          // Turbo Trainer
-          secondaryParts.push(`${avgKph} kph`);
-        }
-
-        if (effectiveWatts && effectiveWatts > 0) {
-          secondaryParts.push(`${Math.round(effectiveWatts)}W avg`);
+          // Turbo Trainer: don't show speed if we have average power
+          if (effectiveWatts && effectiveWatts > 0) {
+            secondaryParts.push(`${Math.round(effectiveWatts)}W avg`);
+          } else {
+            secondaryParts.push(`${avgKph} kph`);
+          }
         }
 
         return {

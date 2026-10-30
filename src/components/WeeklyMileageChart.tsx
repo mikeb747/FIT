@@ -245,96 +245,98 @@ export const WeeklyMileageChart: React.FC<WeeklyMileageChartProps> = ({
           </span>
         </div>
 
-        <div className="relative pt-6 pb-2">
-          {/* Average Reference Line */}
-          {stats.averageWeeklyMiles > 0 && (
-            <div
-              className="absolute left-0 right-0 border-b border-dashed border-sky-400/40 z-0 pointer-events-none"
-              style={{
-                bottom: `${Math.min(
-                  90,
-                  ((unit === 'miles' ? stats.averageWeeklyMiles : stats.averageWeeklyKm) /
-                    maxWeeklyDist) *
-                    100
-                )}%`,
-              }}
-            >
-              <span className="absolute right-1 -top-4 text-[9px] font-mono text-sky-400/80 bg-slate-950/80 px-1 rounded">
-                Avg: {unit === 'miles' ? stats.averageWeeklyMiles : stats.averageWeeklyKm} {unit}
-              </span>
-            </div>
-          )}
+        <div className="overflow-x-auto scrollbar-thin pb-2">
+          <div className="relative pt-6 pb-2 min-w-[520px]">
+            {/* Average Reference Line */}
+            {stats.averageWeeklyMiles > 0 && (
+              <div
+                className="absolute left-0 right-0 border-b border-dashed border-sky-400/40 z-0 pointer-events-none"
+                style={{
+                  bottom: `${Math.min(
+                    90,
+                    ((unit === 'miles' ? stats.averageWeeklyMiles : stats.averageWeeklyKm) /
+                      maxWeeklyDist) *
+                      100
+                  )}%`,
+                }}
+              >
+                <span className="absolute right-1 -top-4 text-[9px] font-mono text-sky-400/80 bg-slate-950/80 px-1 rounded">
+                  Avg: {unit === 'miles' ? stats.averageWeeklyMiles : stats.averageWeeklyKm} {unit}
+                </span>
+              </div>
+            )}
 
-          {/* Bar Chart Grid */}
-          <div className="h-44 sm:h-52 w-full flex items-end gap-1.5 sm:gap-2.5 px-1 relative z-10">
-            {weeks.map((w) => {
-              const val = unit === 'miles' ? w.distanceMiles : w.distanceKm;
-              const heightPct = Math.min(100, Math.max(val > 0 ? 6 : 2, (val / maxWeeklyDist) * 100));
-              const isSelected = activeWeek?.weekKey === w.weekKey;
+            {/* Bar Chart Grid */}
+            <div className="h-44 sm:h-52 w-full flex items-end gap-1.5 sm:gap-2.5 px-1 relative z-10">
+              {weeks.map((w) => {
+                const val = unit === 'miles' ? w.distanceMiles : w.distanceKm;
+                const heightPct = Math.min(100, Math.max(val > 0 ? 6 : 2, (val / maxWeeklyDist) * 100));
+                const isSelected = activeWeek?.weekKey === w.weekKey;
 
-              return (
-                <div
-                  key={w.weekKey}
-                  onClick={() => setSelectedWeek(w)}
-                  className="flex-1 flex flex-col items-center h-full justify-end cursor-pointer group"
-                >
-                  {/* Tooltip value on hover / select */}
+                return (
                   <div
-                    className={`text-[10px] font-mono font-bold mb-1 transition-all whitespace-nowrap ${
-                      val > 0
-                        ? isSelected
-                          ? 'text-amber-400 scale-110'
-                          : isLight
-                          ? 'text-slate-700 group-hover:text-amber-600'
-                          : 'text-slate-400 group-hover:text-amber-400'
-                        : 'opacity-0'
-                    }`}
+                    key={w.weekKey}
+                    onClick={() => setSelectedWeek(w)}
+                    className="flex-1 flex flex-col items-center h-full justify-end cursor-pointer group min-w-[28px]"
                   >
-                    {val > 0 ? val : ''}
-                  </div>
-
-                  {/* Bar */}
-                  <div
-                    className="w-full relative rounded-t-md transition-all duration-300"
-                    style={{
-                      height: `${heightPct}%`,
-                      backgroundColor:
-                        val === 0
-                          ? isLight
-                            ? '#e2e8f0'
-                            : '#1e293b'
-                          : isSelected
-                          ? '#f59e0b'
-                          : w.isCurrentWeek
-                          ? '#fbbf24'
-                          : isLight
-                          ? '#38bdf8'
-                          : '#0284c7',
-                      opacity: val === 0 ? 0.35 : isSelected ? 1 : 0.85,
-                      boxShadow: isSelected ? '0 0 12px rgba(245, 158, 11, 0.45)' : undefined,
-                    }}
-                  />
-
-                  {/* Date label at bottom */}
-                  <div className="mt-2 text-center w-full">
-                    <span
-                      className={`text-[9px] font-mono block truncate ${
-                        isSelected
-                          ? 'text-amber-500 font-bold'
-                          : w.isCurrentWeek
-                          ? 'text-amber-400 font-semibold'
-                          : isLight
-                          ? 'text-slate-500'
-                          : 'text-slate-400'
+                    {/* Tooltip value on hover / select */}
+                    <div
+                      className={`text-[10px] font-mono font-bold mb-1 transition-all whitespace-nowrap ${
+                        val > 0
+                          ? isSelected
+                            ? 'text-amber-400 scale-110'
+                            : isLight
+                            ? 'text-slate-700 group-hover:text-amber-600'
+                            : 'text-slate-400 group-hover:text-amber-400'
+                          : 'opacity-0'
                       }`}
-                      title={w.weekLabel}
                     >
-                      {w.shortLabel.replace(/^[A-Za-z]+ /, '')}
-                    </span>
+                      {val > 0 ? val : ''}
+                    </div>
+
+                    {/* Bar */}
+                    <div
+                      className="w-full relative rounded-t-md transition-all duration-300"
+                      style={{
+                        height: `${heightPct}%`,
+                        backgroundColor:
+                          val === 0
+                            ? isLight
+                              ? '#e2e8f0'
+                              : '#1e293b'
+                            : isSelected
+                            ? '#f59e0b'
+                            : w.isCurrentWeek
+                            ? '#fbbf24'
+                            : isLight
+                            ? '#38bdf8'
+                            : '#0284c7',
+                        opacity: val === 0 ? 0.35 : isSelected ? 1 : 0.85,
+                        boxShadow: isSelected ? '0 0 12px rgba(245, 158, 11, 0.45)' : undefined,
+                      }}
+                    />
+
+                    {/* Date label at bottom */}
+                    <div className="mt-2 text-center w-full">
+                      <span
+                        className={`text-[9px] font-mono block truncate ${
+                          isSelected
+                            ? 'text-amber-500 font-bold'
+                            : w.isCurrentWeek
+                            ? 'text-amber-400 font-semibold'
+                            : isLight
+                            ? 'text-slate-500'
+                            : 'text-slate-400'
+                        }`}
+                        title={w.weekLabel}
+                      >
+                        {w.shortLabel.replace(/^[A-Za-z]+ /, '')}
+                      </span>
+                    </div>
                   </div>
-                </div>
-              );
-            })}
+                );
+              })}
+            </div>
           </div>
         </div>
       </div>
