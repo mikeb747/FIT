@@ -41,6 +41,8 @@ import {
 } from './utils/googleAuth';
 import {
   getCachedSpreadsheetId,
+  fetchHealthDataFromGoogleSheet,
+  appendHealthDataToGoogleSheet,
 } from './utils/googleSheets';
 import { Settings, Activity, Moon, Heart, Zap, RotateCw } from 'lucide-react';
 import { RecoveryView } from './components/RecoveryView';
@@ -168,6 +170,14 @@ export default function App() {
     }
   });
 
+  // Google Sheets state
+  const [isGoogleConnected, setIsGoogleConnected] = useState(false);
+  const [googleUserEmail, setGoogleUserEmail] = useState<string | null>(null);
+  const [googleSheetUrl, setGoogleSheetUrl] = useState<string | null>(() => {
+    const id = getCachedSpreadsheetId();
+    return id ? `https://docs.google.com/spreadsheets/d/${id}/edit` : null;
+  });
+
   const [recoveryLogs, setRecoveryLogs] = useState<DailyRecoveryLog[]>(() => {
     try {
       const explicitDisconnect = localStorage.getItem('fit_track_garmin_disconnected') === 'true';
@@ -178,9 +188,39 @@ export default function App() {
     }
   });
 
+  // When opening the readiness tab, check Google Sheets for saved data on the Health tab
+  useEffect(() => {
+    if (activeMainTab === 'recovery' && isGoogleConnected) {
+      fetchHealthDataFromGoogleSheet().then((sheetLogs) => {
+        if (sheetLogs && sheetLogs.length > 0) {
+          let current = [...recoveryLogs];
+          let added = false;
+          sheetLogs.forEach((item) => {
+            const idx = current.findIndex((l) => l.date === item.date);
+            if (idx >= 0) {
+              current[idx] = item;
+              added = true;
+            } else {
+              current.push(item);
+              added = true;
+            }
+          });
+          if (added) {
+            current.sort((a, b) => a.date.localeCompare(b.date));
+            saveRecoveryLogs(current);
+            setRecoveryLogs(current);
+          }
+        }
+      });
+    }
+  }, [activeMainTab, isGoogleConnected]);
+
   const handleUpsertRecoveryLog = (log: DailyRecoveryLog) => {
     const updated = upsertRecoveryLog(log);
     setRecoveryLogs(updated);
+    if (isGoogleConnected) {
+      void appendHealthDataToGoogleSheet(log);
+    }
   };
 
   const handleDeleteRecoveryLog = (id: string) => {
@@ -201,6 +241,9 @@ export default function App() {
     current.sort((a, b) => a.date.localeCompare(b.date));
     saveRecoveryLogs(current);
     setRecoveryLogs(current);
+    if (isGoogleConnected) {
+      imported.forEach((log) => void appendHealthDataToGoogleSheet(log));
+    }
   };
 
   const handleResetRecoveryDefaults = () => {
@@ -257,13 +300,7 @@ export default function App() {
 
   const [isStravaSettingsOpen, setIsStravaSettingsOpen] = useState(false);
 
-  // Google Sheets state
-  const [isGoogleConnected, setIsGoogleConnected] = useState(false);
-  const [googleUserEmail, setGoogleUserEmail] = useState<string | null>(null);
-  const [googleSheetUrl, setGoogleSheetUrl] = useState<string | null>(() => {
-    const id = getCachedSpreadsheetId();
-    return id ? `https://docs.google.com/spreadsheets/d/${id}/edit` : null;
-  });
+
 
   // Brand Header Customization
   const [brandTitle, setBrandTitle] = useState(() => {

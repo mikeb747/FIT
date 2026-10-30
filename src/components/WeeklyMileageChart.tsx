@@ -32,11 +32,19 @@ export const WeeklyMileageChart: React.FC<WeeklyMileageChartProps> = ({
   const [numWeeks, setNumWeeks] = useState<number>(12); // 4, 8, 12, 24
   const [unit, setUnit] = useState<'miles' | 'km'>('miles');
   const [selectedWeek, setSelectedWeek] = useState<WeeklyMileageBucket | null>(null);
+  const scrollContainerRef = React.useRef<HTMLDivElement>(null);
 
   // Compute Monday-to-Sunday weekly mileage data
   const { weeks, stats } = useMemo(() => {
     return computeWeeklyRunningMileage(activities, numWeeks);
   }, [activities, numWeeks]);
+
+  // Scroll to the right (current week) by default when weeks load or lookback changes
+  React.useEffect(() => {
+    if (scrollContainerRef.current) {
+      scrollContainerRef.current.scrollLeft = scrollContainerRef.current.scrollWidth;
+    }
+  }, [weeks, numWeeks]);
 
   // Max value for scaling SVG bars
   const maxWeeklyDist = useMemo(() => {
@@ -245,7 +253,7 @@ export const WeeklyMileageChart: React.FC<WeeklyMileageChartProps> = ({
           </span>
         </div>
 
-        <div className="overflow-x-auto scrollbar-thin pb-2">
+        <div className="overflow-x-auto scrollbar-thin pb-2" ref={scrollContainerRef}>
           <div className="relative pt-6 pb-2 min-w-[520px]">
             {/* Average Reference Line */}
             {stats.averageWeeklyMiles > 0 && (
