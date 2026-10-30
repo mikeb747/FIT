@@ -1,4 +1,9 @@
 import type { DailyRecoveryLog, SubjectiveFeel, GarminApiDebugTrace } from '../types/recovery';
+import {
+  getStoredGarminToken,
+  getStoredGarminProxyUrl,
+  getStoredGarminRequestTypes,
+} from './garminConfig';
 
 export interface GarminMetricCheck {
   metric: string;
@@ -366,7 +371,7 @@ export async function syncGarminMultiWeek(options: {
   const baseline = options.baselineRhr || 41;
   const email = options.email?.trim();
   const password = options.password?.trim();
-  const sessionToken = options.sessionToken?.trim();
+  const sessionToken = options.sessionToken?.trim() || getStoredGarminToken();
 
   if (!sessionToken && (!email || !password)) {
     return {
@@ -386,6 +391,9 @@ export async function syncGarminMultiWeek(options: {
   try {
     configuredProxyUrl = localStorage.getItem('fit_track_garmin_proxy_url') || '';
   } catch {}
+  if (!configuredProxyUrl) {
+    configuredProxyUrl = getStoredGarminProxyUrl();
+  }
 
   // If a custom proxy (e.g. Cloudflare Worker) is configured and sessionToken is provided,
   // query Garmin Personal API endpoints directly through the CORS proxy!
@@ -742,6 +750,7 @@ async function syncGarminViaProxy(
     'Accept': 'application/json, text/plain, */*',
   };
 
+  const reqTypes = getStoredGarminRequestTypes();
   const dates = Array.isArray(queryDates) ? queryDates : [queryDates];
   const collectedLogs: DailyRecoveryLog[] = [];
   let latestChecks: GarminMetricCheck[] | undefined;
@@ -750,60 +759,79 @@ async function syncGarminViaProxy(
     const queryDate = dates[idx];
     const prefix = dates.length > 1 ? `[${queryDate}] ` : '';
 
-    // Step 2: Sleep endpoint
-    let sleepRes = await fetchWithTrace(
-      `${prefix}2. Sleep Data (GET /sleep-service/sleep/dailySleep?date=${queryDate})`,
-      `/sleep-service/sleep/dailySleep?date=${encodeURIComponent(queryDate)}`,
-      authHeaders
-    );
-    if (!sleepRes.ok && sleepRes.status === 404) {
-      const altSleep = await fetchWithTrace(
-        `${prefix}2b. Sleep Data Alternative (GET /sleep-service/sleep/${queryDate})`,
-        `/sleep-service/sleep/${encodeURIComponent(queryDate)}`,
+    // Step 2: Sleep endpoint (only if requested)
+    let sleepRes: any = { ok: false, status: 0, statusText: 'Skipped', payload: null, text: '' };
+    if (reqTypes.sleep) {
+      sleepRes = await fetchWithTrace(
+        `${prefix}2. Sleep Data (GET /sleep-service/sleep/dailySleep?date=${queryDate})`,
+        `/sleep-service/sleep/dailySleep?date=${encodeURIComponent(queryDate)}`,
         authHeaders
       );
-      if (altSleep.ok || altSleep.payload) {
-        sleepRes = altSleep;
+      if (!sleepRes.ok && sleepRes.status === 404) {
+        const altSleep = await fetchWithTrace(
+          `${prefix}2b. Sleep Data Alternative (GET /sleep-service/sleep/${queryDate})`,
+          `/sleep-service/sleep/${encodeURIComponent(queryDate)}`,
+          authHeaders
+        );
+        if (altSleep.ok || altSleep.payload) {
+          sleepRes = altSleep;
+        }
       }
     }
 
-    // Step 3: Daily Summary (heart rate, steps, calories)
-    let summaryRes = await fetchWithTrace(
-      `${prefix}3. Daily Summary (GET /usersummary-service/usersummary/daily?calendarDate=${queryDate})`,
-      `/usersummary-service/usersummary/daily?calendarDate=${encodeURIComponent(queryDate)}`,
-      authHeaders
-    );
-    if (!summaryRes.ok && summaryRes.status === 404) {
-      const altSummary = await fetchWithTrace(
-        `${prefix}3b. Daily Summary Alternative (GET /usersummary-service/usersummary/daily/${queryDate})`,
-        `/usersummary-service/usersummary/daily/${encodeURIComponent(queryDate)}`,
+    // Step 3: Daily Summary (heart rate, steps, calories, stress, body battery, etc.)
+    let summaryRes: any = { ok: false, status: 0, statusText: 'Skipped', payload: null, text: '' };
+    if (
+      reqTypes.heartRate ||
+      reqTypes.steps ||
+      reqTypes.calories ||
+      reqTypes.bodyBattery ||
+      reqTypes.stress ||
+      reqTypes.respiration ||
+      reqTypes.pulseOx ||
+      reqTypes.vo2MaxRun ||
+      reqTypes.vo2MaxBike
+    ) {
+      summaryRes = await fetchWithTrace(
+        `${prefix}3. Daily Summary (GET /usersummary-service/usersummary/daily?calendarDate=${queryDate})`,
+        `/usersummary-service/usersummary/daily?calendarDate=${encodeURIComponent(queryDate)}`,
         authHeaders
       );
-      if (altSummary.ok || altSummary.payload) {
-        summaryRes = altSummary;
+      if (!summaryRes.ok && summaryRes.status === 404) {
+        const altSummary = await fetchWithTrace(
+          `${prefix}3b. Daily Summary Alternative (GET /usersummary-service/usersummary/daily/${queryDate})`,
+          `/usersummary-service/usersummary/daily/${encodeURIComponent(queryDate)}`,
+          authHeaders
+        );
+        if (altSummary.ok || altSummary.payload) {
+          summaryRes = altSummary;
+        }
       }
     }
 
-    // Step 4: HRV Daily
-    const hrvRes = await fetchWithTrace(
-      `${prefix}4. HRV Daily (GET /hrv-service/hrv/${queryDate})`,
-      `/hrv-service/hrv/${encodeURIComponent(queryDate)}`,
-      authHeaders
-    );
+    // Step 4 & 5: HRV Daily & Range (only if requested)
+    let hrvRes: any = { ok: false, status: 0, statusText: 'Skipped', payload: null, text: '' };
+    let hrvRangeRes: any = { ok: false, status: 0, statusText: 'Skipped', payload: null, text: '' };
+    if (reqTypes.hrv) {
+      hrvRes = await fetchWithTrace(
+        `${prefix}4. HRV Daily (GET /hrv-service/hrv/${queryDate})`,
+        `/hrv-service/hrv/${encodeURIComponent(queryDate)}`,
+        authHeaders
+      );
 
-    // Step 5: HRV Range
-    const hrvRangeRes = await fetchWithTrace(
-      `${prefix}5. HRV Range (GET /hrv-service/hrv/daily/${queryDate}/${queryDate})`,
-      `/hrv-service/hrv/daily/${encodeURIComponent(queryDate)}/${encodeURIComponent(queryDate)}`,
-      authHeaders
-    );
+      hrvRangeRes = await fetchWithTrace(
+        `${prefix}5. HRV Range (GET /hrv-service/hrv/daily/${queryDate}/${queryDate})`,
+        `/hrv-service/hrv/daily/${encodeURIComponent(queryDate)}/${encodeURIComponent(queryDate)}`,
+        authHeaders
+      );
+    }
 
     // Parse sleep
     const sleepRoot = sleepRes.payload && typeof sleepRes.payload === 'object' ? sleepRes.payload : {};
     const sleepData = sleepRoot.dailySleepDTO || sleepRoot;
     const sleepSeconds = Number(sleepData.sleepTimeSeconds ?? sleepData.durationInSeconds);
     const sleepScore = Number(sleepData.sleepScores?.overall?.value ?? sleepData.sleepScore);
-    const hasSleepDuration = Number.isFinite(sleepSeconds) && sleepSeconds > 0;
+    const hasSleepDuration = reqTypes.sleep && Number.isFinite(sleepSeconds) && sleepSeconds > 0;
 
     // Parse summary
     const summaryRoot = summaryRes.payload && typeof summaryRes.payload === 'object' ? summaryRes.payload : {};
@@ -819,37 +847,73 @@ async function syncGarminViaProxy(
       return undefined;
     };
 
-    const steps = readNumber('totalSteps', 'steps', 'stepCount');
-    const activeCalories = readNumber('activeCalories');
-    const totalCalories = readNumber('totalCalories');
-    const calories = readNumber('calories') ?? activeCalories ?? totalCalories;
-    const restingHeartRate = readNumber('restingHeartRate', 'restingHeartRateInBeatsPerMinute', 'restingHr');
-    const heartRate = readNumber('heartRate', 'averageHeartRate') ?? restingHeartRate;
+    const steps = reqTypes.steps ? readNumber('totalSteps', 'steps', 'stepCount') : undefined;
+    const activeCalories = reqTypes.calories ? readNumber('activeCalories') : undefined;
+    const totalCalories = reqTypes.calories ? readNumber('totalCalories') : undefined;
+    const calories = reqTypes.calories ? (readNumber('calories') ?? activeCalories ?? totalCalories) : undefined;
+    const restingHeartRate = reqTypes.heartRate
+      ? readNumber('restingHeartRate', 'restingHeartRateInBeatsPerMinute', 'restingHr')
+      : undefined;
+    const heartRate = reqTypes.heartRate ? (readNumber('heartRate', 'averageHeartRate') ?? restingHeartRate) : undefined;
+
+    // Additional biometric metrics requested
+    const bodyBattery = reqTypes.bodyBattery
+      ? (readNumber('bodyBatteryMostRecentValue', 'bodyBatteryHighestValue', 'bodyBatteryLowestValue') ??
+         readNumber('bodyBatteryChargedValue') ??
+         (sleepData.bodyBatteryChange !== undefined ? Number(sleepData.bodyBatteryChange) : undefined))
+      : undefined;
+
+    const stress = reqTypes.stress
+      ? (readNumber('averageStressLevel', 'avgSleepStress', 'maxStressLevel') ??
+         (sleepData.avgSleepStress !== undefined ? Number(sleepData.avgSleepStress) : undefined))
+      : undefined;
+
+    const respiration = reqTypes.respiration
+      ? (readNumber('avgWakingRespirationValue', 'averageRespirationValue', 'lowestRespirationValue') ??
+         (sleepData.averageRespirationValue !== undefined ? Number(sleepData.averageRespirationValue) : undefined))
+      : undefined;
+
+    const pulseOx = reqTypes.pulseOx
+      ? (readNumber('averageSpO2Value', 'lowestSpO2Value', 'highestSpO2Value', 'averageSpo2') ??
+         (sleepData.averageSpO2Value !== undefined ? Number(sleepData.averageSpO2Value) : undefined))
+      : undefined;
+
+    const vo2MaxRun = reqTypes.vo2MaxRun
+      ? readNumber('vo2MaxRunning', 'vo2MaxPreciseValue', 'userVo2Max', 'vo2Max')
+      : undefined;
+
+    const vo2MaxBike = reqTypes.vo2MaxBike
+      ? readNumber('vo2MaxCycling', 'vo2MaxBike', 'cyclingVo2Max')
+      : undefined;
 
     // Parse HRV
-    const hrvRoot = hrvRes.payload && typeof hrvRes.payload === 'object' ? hrvRes.payload : {};
-    const hrvSummary = hrvRoot.hrvSummary || hrvRoot;
-    let hrvRmssd = Number(
-      hrvSummary.lastNightAvg ??
-      hrvSummary.averageHRV ??
-      hrvSummary.hrvWeeklyAvg ??
-      readNumber('lastNightAvg', 'averageHRV', 'hrvRmssd', 'overnightHrv')
-    );
-    if (!Number.isFinite(hrvRmssd) || hrvRmssd <= 0) {
-      const rangeArr = Array.isArray(hrvRangeRes.payload)
-        ? hrvRangeRes.payload
-        : hrvRangeRes.payload?.hrvSummaries;
-      if (Array.isArray(rangeArr) && rangeArr.length > 0) {
-        const item = rangeArr[0];
-        const val = Number(item?.lastNightAvg ?? item?.weeklyAvg ?? item?.averageHRV);
-        if (Number.isFinite(val) && val > 0) {
-          hrvRmssd = val;
+    let hrvRmssd = 0;
+    if (reqTypes.hrv) {
+      const hrvRoot = hrvRes.payload && typeof hrvRes.payload === 'object' ? hrvRes.payload : {};
+      const hrvSummary = hrvRoot.hrvSummary || hrvRoot;
+      hrvRmssd = Number(
+        hrvSummary.lastNightAvg ??
+        hrvSummary.averageHRV ??
+        hrvSummary.hrvWeeklyAvg ??
+        readNumber('lastNightAvg', 'averageHRV', 'hrvRmssd', 'overnightHrv')
+      );
+      if (!Number.isFinite(hrvRmssd) || hrvRmssd <= 0) {
+        const rangeArr = Array.isArray(hrvRangeRes.payload)
+          ? hrvRangeRes.payload
+          : hrvRangeRes.payload?.hrvSummaries;
+        if (Array.isArray(rangeArr) && rangeArr.length > 0) {
+          const item = rangeArr[0];
+          const val = Number(item?.lastNightAvg ?? item?.weeklyAvg ?? item?.averageHRV);
+          if (Number.isFinite(val) && val > 0) {
+            hrvRmssd = val;
+          }
         }
       }
     }
 
-    const checks: GarminMetricCheck[] = [
-      {
+    const checks: GarminMetricCheck[] = [];
+    if (reqTypes.sleep) {
+      checks.push({
         metric: 'Sleep Duration & Score',
         received: sleepRes.ok && hasSleepDuration,
         status: sleepRes.status,
@@ -859,8 +923,11 @@ async function syncGarminViaProxy(
         message: sleepRes.ok
           ? (hasSleepDuration ? 'Sleep duration received' : 'Response OK, but sleep duration was not found in response.')
           : `Garmin HTTP ${sleepRes.status} ${sleepRes.statusText}`,
-      },
-      {
+      });
+    }
+
+    if (reqTypes.heartRate) {
+      checks.push({
         metric: 'Heart Rate / RHR',
         received: summaryRes.ok && heartRate !== undefined,
         status: summaryRes.status,
@@ -868,8 +935,11 @@ async function syncGarminViaProxy(
         message: summaryRes.ok
           ? (heartRate !== undefined ? 'Heart rate received' : 'Response OK, but heart rate was not found in summary.')
           : `Garmin HTTP ${summaryRes.status} ${summaryRes.statusText}`,
-      },
-      {
+      });
+    }
+
+    if (reqTypes.hrv) {
+      checks.push({
         metric: 'HRV (rMSSD)',
         received: (hrvRes.ok || hrvRangeRes.ok) && Number.isFinite(hrvRmssd) && hrvRmssd > 0,
         status: hrvRes.status || hrvRangeRes.status,
@@ -877,22 +947,88 @@ async function syncGarminViaProxy(
         message: (hrvRes.ok || hrvRangeRes.ok)
           ? (Number.isFinite(hrvRmssd) && hrvRmssd > 0 ? 'HRV received' : 'Response OK, but overnight HRV was not found.')
           : `Garmin HTTP ${hrvRes.status} ${hrvRes.statusText}`,
-      },
-      {
+      });
+    }
+
+    if (reqTypes.steps) {
+      checks.push({
         metric: 'Steps',
         received: summaryRes.ok && steps !== undefined,
         status: summaryRes.status,
         value: steps !== undefined ? `${steps} steps` : undefined,
         message: summaryRes.ok ? (steps !== undefined ? 'Steps received' : 'Steps not found.') : `Garmin HTTP ${summaryRes.status}`,
-      },
-      {
+      });
+    }
+
+    if (reqTypes.calories) {
+      checks.push({
         metric: 'Calories',
         received: summaryRes.ok && calories !== undefined,
         status: summaryRes.status,
         value: calories !== undefined ? `${calories} kcal` : undefined,
         message: summaryRes.ok ? (calories !== undefined ? 'Calories received' : 'Calories not found.') : `Garmin HTTP ${summaryRes.status}`,
-      },
-    ];
+      });
+    }
+
+    if (reqTypes.bodyBattery) {
+      checks.push({
+        metric: 'Body Battery',
+        received: (summaryRes.ok || sleepRes.ok) && bodyBattery !== undefined,
+        status: summaryRes.status || sleepRes.status,
+        value: bodyBattery !== undefined ? `${bodyBattery}` : undefined,
+        message: bodyBattery !== undefined ? 'Body Battery received' : 'Body Battery level not found.',
+      });
+    }
+
+    if (reqTypes.stress) {
+      checks.push({
+        metric: 'Stress',
+        received: (summaryRes.ok || sleepRes.ok) && stress !== undefined,
+        status: summaryRes.status || sleepRes.status,
+        value: stress !== undefined ? `${stress}` : undefined,
+        message: stress !== undefined ? 'Stress score received' : 'Stress level not found.',
+      });
+    }
+
+    if (reqTypes.respiration) {
+      checks.push({
+        metric: 'Respiration',
+        received: (summaryRes.ok || sleepRes.ok) && respiration !== undefined,
+        status: summaryRes.status || sleepRes.status,
+        value: respiration !== undefined ? `${respiration} brpm` : undefined,
+        message: respiration !== undefined ? 'Respiration received' : 'Respiration rate not found.',
+      });
+    }
+
+    if (reqTypes.pulseOx) {
+      checks.push({
+        metric: 'Pulse Ox (SpO2)',
+        received: (summaryRes.ok || sleepRes.ok) && pulseOx !== undefined,
+        status: summaryRes.status || sleepRes.status,
+        value: pulseOx !== undefined ? `${pulseOx}%` : undefined,
+        message: pulseOx !== undefined ? 'Pulse Ox (SpO2) received' : 'SpO2 not found.',
+      });
+    }
+
+    if (reqTypes.vo2MaxRun) {
+      checks.push({
+        metric: 'VO2 Max (Run)',
+        received: summaryRes.ok && vo2MaxRun !== undefined,
+        status: summaryRes.status,
+        value: vo2MaxRun !== undefined ? `${vo2MaxRun} ml/kg/min` : undefined,
+        message: vo2MaxRun !== undefined ? 'Running VO2 Max received' : 'VO2 Max (Run) not found.',
+      });
+    }
+
+    if (reqTypes.vo2MaxBike) {
+      checks.push({
+        metric: 'VO2 Max (Bike)',
+        received: summaryRes.ok && vo2MaxBike !== undefined,
+        status: summaryRes.status,
+        value: vo2MaxBike !== undefined ? `${vo2MaxBike} ml/kg/min` : undefined,
+        message: vo2MaxBike !== undefined ? 'Cycling VO2 Max received' : 'VO2 Max (Bike) not found.',
+      });
+    }
 
     if (!latestChecks) {
       latestChecks = checks;
@@ -901,7 +1037,13 @@ async function syncGarminViaProxy(
     const sleepMinutes = hasSleepDuration ? Math.round(sleepSeconds / 60) : 0;
     const finalRhr = (restingHeartRate && restingHeartRate > 0) ? restingHeartRate : (heartRate && heartRate > 0 ? heartRate : baselineRhr);
 
-    if (sleepMinutes > 0 || (restingHeartRate && restingHeartRate > 0)) {
+    const hasAnyValidMetric =
+      sleepMinutes > 0 ||
+      (restingHeartRate && restingHeartRate > 0) ||
+      (hrvRmssd && hrvRmssd > 0) ||
+      (steps !== undefined && steps > 0);
+
+    if (hasAnyValidMetric) {
       collectedLogs.push({
         id: `rec_garmin_${queryDate}`,
         date: queryDate,

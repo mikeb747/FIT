@@ -798,8 +798,8 @@ export default function App() {
             onDeleteLog={handleDeleteRecoveryLog}
             onImportLogs={handleImportRecoveryLogs}
             onResetDefaults={handleResetRecoveryDefaults}
-            onOpenAthleteSettings={() => {
-              setProfileModalTab('physiology');
+            onOpenAthleteSettings={(tab) => {
+              setProfileModalTab(tab || 'physiology');
               setIsAthleteProfileOpen(true);
             }}
           />
@@ -884,6 +884,12 @@ export default function App() {
           } catch {}
           setGarminConnected(true);
           handleImportRecoveryLogs(merged);
+        }}
+        onClearLogs={handleResetRecoveryDefaults}
+        onOpenGarminSettings={() => {
+          setIsGarminSyncOpen(false);
+          setProfileModalTab('garmin_health');
+          setIsAthleteProfileOpen(true);
         }}
         baselineRhr={athleteProfile.restingHeartRate || 41}
         theme={theme}

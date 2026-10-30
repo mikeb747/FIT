@@ -30,6 +30,8 @@ import {
   Dumbbell,
   ShieldCheck,
   Zap,
+  Key,
+  Globe,
 } from 'lucide-react';
 import type {
   AthleteProfile,
@@ -58,18 +60,32 @@ import { classifyActivity } from '../utils/stravaActivities';
 import { StravaIcon } from './StravaIcon';
 import { getCachedBikeNames, setCachedBikeName, resolveMissingBikeNames } from '../utils/stravaGear';
 import { ActivityRenameRulesSection } from './ActivityRenameRulesSection';
-
-const GarminTriangleIcon: React.FC<{ className?: string }> = ({ className = 'w-4 h-4' }) => (
-  <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" className={className}>
-    <polygon points="12,2 22,21 2,21" fill="#007cc3" />
-    <polygon points="12,9 18,20 6,20" fill="white" />
-  </svg>
-);
+import {
+  DEFAULT_GARMIN_PERSONAL_KEY,
+  DEFAULT_GARMIN_PROXY_URL,
+  DEFAULT_GARMIN_REQUEST_TYPES,
+  getStoredGarminToken,
+  saveStoredGarminToken,
+  getStoredGarminProxyUrl,
+  saveStoredGarminProxyUrl,
+  getStoredGarminRequestTypes,
+  saveStoredGarminRequestTypes,
+  type GarminApiRequestTypes,
+  GarminTriangleIcon,
+} from '../utils/garminConfig';
 
 export type AppTheme = 'dark' | 'light';
 export type DisplayDensity = number | 'standard' | 'compact' | 'comfortable';
 
-export type ProfileTab = 'settings' | 'physiology' | 'swimming' | 'cycling' | 'running' | 'zones' | 'goals';
+export type ProfileTab =
+  | 'settings'
+  | 'physiology'
+  | 'swimming'
+  | 'cycling'
+  | 'running'
+  | 'zones'
+  | 'goals'
+  | 'garmin_health';
 
 interface AthleteProfileModalProps {
   isOpen: boolean;
@@ -265,6 +281,13 @@ export const AthleteProfileModal: React.FC<AthleteProfileModalProps> = ({
   const [canScrollLeft, setCanScrollLeft] = useState(false);
   const [canScrollRight, setCanScrollRight] = useState(false);
 
+  // Garmin Health settings state
+  const [garminKey, setGarminKey] = useState<string>(() => getStoredGarminToken());
+  const [garminProxy, setGarminProxy] = useState<string>(() => getStoredGarminProxyUrl());
+  const [garminReqTypes, setGarminReqTypes] = useState<GarminApiRequestTypes>(() => getStoredGarminRequestTypes());
+  const [garminSavedToast, setGarminSavedToast] = useState(false);
+  const [copiedGarminKey, setCopiedGarminKey] = useState(false);
+
   const tabButtonRefs = useRef<Record<ProfileTab, HTMLButtonElement | null>>({
     settings: null,
     physiology: null,
@@ -273,7 +296,40 @@ export const AthleteProfileModal: React.FC<AthleteProfileModalProps> = ({
     running: null,
     zones: null,
     goals: null,
+    garmin_health: null,
   });
+
+  const handleSaveGarminConfig = (
+    newKey = garminKey,
+    newProxy = garminProxy,
+    newTypes = garminReqTypes
+  ) => {
+    saveStoredGarminToken(newKey);
+    saveStoredGarminProxyUrl(newProxy);
+    saveStoredGarminRequestTypes(newTypes);
+    setGarminSavedToast(true);
+    setTimeout(() => setGarminSavedToast(false), 2000);
+  };
+
+  const handleResetGarminDefaults = () => {
+    setGarminKey(DEFAULT_GARMIN_PERSONAL_KEY);
+    setGarminProxy(DEFAULT_GARMIN_PROXY_URL);
+    setGarminReqTypes({ ...DEFAULT_GARMIN_REQUEST_TYPES });
+    saveStoredGarminToken(DEFAULT_GARMIN_PERSONAL_KEY);
+    saveStoredGarminProxyUrl(DEFAULT_GARMIN_PROXY_URL);
+    saveStoredGarminRequestTypes(DEFAULT_GARMIN_REQUEST_TYPES);
+    setGarminSavedToast(true);
+    setTimeout(() => setGarminSavedToast(false), 2000);
+  };
+
+  const handleToggleRequestType = (key: keyof GarminApiRequestTypes) => {
+    const updated = {
+      ...garminReqTypes,
+      [key]: !garminReqTypes[key],
+    };
+    setGarminReqTypes(updated);
+    handleSaveGarminConfig(garminKey, garminProxy, updated);
+  };
 
   const checkTabScroll = useCallback(() => {
     const el = tabsContainerRef.current;
@@ -985,6 +1041,25 @@ export const AthleteProfileModal: React.FC<AthleteProfileModalProps> = ({
             >
               <Trophy className="w-3.5 h-3.5 text-amber-400" />
               <span>Goals</span>
+            </button>
+
+            {/* Tab 7: Garmin Health */}
+            <button
+              ref={(el) => {
+                tabButtonRefs.current.garmin_health = el;
+              }}
+              type="button"
+              onClick={() => handleSelectTab('garmin_health')}
+              className={`px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer whitespace-nowrap shrink-0 ${
+                activeTab === 'garmin_health'
+                  ? 'bg-amber-500 text-slate-950 font-black shadow-sm'
+                  : theme === 'light'
+                  ? 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+                  : 'text-slate-400 hover:text-white hover:bg-slate-800'
+              }`}
+            >
+              <GarminTriangleIcon className="w-3.5 h-3.5" />
+              <span>Garmin Health</span>
             </button>
           </div>
 
@@ -3135,6 +3210,492 @@ export const AthleteProfileModal: React.FC<AthleteProfileModalProps> = ({
               theme={theme}
             />
           )}
+
+          {/* ========================================================= */}
+          {/* TAB 7: GARMIN HEALTH */}
+          {/* ========================================================= */}
+          {activeTab === 'garmin_health' && (
+            <div className="space-y-4">
+              {/* Header card */}
+              <div
+                className={`p-4 rounded-2xl border ${
+                  theme === 'light'
+                    ? 'bg-slate-50 border-slate-200'
+                    : 'bg-slate-950 border-slate-800'
+                }`}
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <div className="flex items-center gap-2.5">
+                    <div className="w-8 h-8 rounded-xl bg-sky-500/15 border border-sky-500/30 flex items-center justify-center shrink-0">
+                      <GarminTriangleIcon className="w-4 h-4" />
+                    </div>
+                    <div>
+                      <h3
+                        className={`text-sm font-extrabold ${
+                          theme === 'light' ? 'text-slate-900' : 'text-white'
+                        }`}
+                      >
+                        Garmin Health &amp; Recovery Settings
+                      </h3>
+                      <p className="text-[11px] text-slate-400 mt-0.5">
+                        Configure Personal API credentials, Cloudflare Worker proxy, and biometric request types.
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-2 shrink-0">
+                    {garminSavedToast && (
+                      <span className="text-[11px] font-bold text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-2 py-1 rounded-lg flex items-center gap-1 animate-in fade-in">
+                        <Check className="w-3 h-3 stroke-[3]" /> Saved
+                      </span>
+                    )}
+                    <button
+                      type="button"
+                      onClick={handleResetGarminDefaults}
+                      className={`px-2.5 py-1 rounded-lg text-[11px] font-semibold border transition-colors cursor-pointer flex items-center gap-1.5 ${
+                        theme === 'light'
+                          ? 'bg-white hover:bg-slate-100 text-slate-600 border-slate-200'
+                          : 'bg-slate-900 hover:bg-slate-800 text-slate-300 border-slate-700'
+                      }`}
+                      title="Reset key, proxy URL, and request types to defaults"
+                    >
+                      <RotateCcw className="w-3 h-3" />
+                      <span>Defaults</span>
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              {/* 1. Garmin Personal API Key or Session Token Box */}
+              <div
+                className={`p-4 rounded-2xl border space-y-3 ${
+                  theme === 'light'
+                    ? 'bg-white border-slate-200 shadow-xs'
+                    : 'bg-slate-900/60 border-slate-800'
+                }`}
+              >
+                <div className="flex items-center justify-between">
+                  <label
+                    className={`text-xs font-bold flex items-center gap-1.5 ${
+                      theme === 'light' ? 'text-slate-800' : 'text-slate-200'
+                    }`}
+                  >
+                    <Key className="w-3.5 h-3.5 text-sky-400" />
+                    <span>Garmin Personal API Key or Session Token</span>
+                    <span className="text-rose-500">*</span>
+                  </label>
+                  <div className="flex items-center gap-1.5">
+                    {garminKey && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          try {
+                            navigator.clipboard.writeText(garminKey);
+                            setCopiedGarminKey(true);
+                            setTimeout(() => setCopiedGarminKey(false), 1500);
+                          } catch {}
+                        }}
+                        className="text-[10px] font-semibold text-sky-400 hover:underline cursor-pointer"
+                      >
+                        {copiedGarminKey ? 'Copied Key!' : 'Copy Key'}
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                <textarea
+                  rows={2}
+                  value={garminKey}
+                  placeholder="Paste Garmin Personal API Key (GCDC_...) or Bearer token..."
+                  onChange={(e) => {
+                    const val = e.target.value.trim();
+                    setGarminKey(val);
+                    handleSaveGarminConfig(val, garminProxy, garminReqTypes);
+                  }}
+                  className={`w-full rounded-xl px-3 py-2 text-xs font-mono outline-none border transition-colors resize-none ${
+                    theme === 'light'
+                      ? 'bg-slate-50 border-slate-200 text-slate-900 focus:border-sky-500 focus:bg-white'
+                      : 'bg-slate-950 border-slate-800 text-slate-100 focus:border-sky-500'
+                  }`}
+                />
+
+                <p className="text-[11px] text-slate-400 leading-relaxed">
+                  Garmin Connect Personal API keys or Bearer tokens enable direct live access without two-factor authentication roadblocks. Default key is pre-configured.
+                </p>
+              </div>
+
+              {/* 2. Garmin API Proxy URL Box */}
+              <div
+                className={`p-4 rounded-2xl border space-y-3 ${
+                  theme === 'light'
+                    ? 'bg-white border-slate-200 shadow-xs'
+                    : 'bg-slate-900/60 border-slate-800'
+                }`}
+              >
+                <div className="flex items-center justify-between">
+                  <label
+                    className={`text-xs font-bold flex items-center gap-1.5 ${
+                      theme === 'light' ? 'text-slate-800' : 'text-slate-200'
+                    }`}
+                  >
+                    <Globe className="w-3.5 h-3.5 text-sky-400" />
+                    <span>Garmin API Proxy URL (Cloudflare Worker / GitHub Pages)</span>
+                  </label>
+                  {garminProxy && (
+                    <span className="text-[10px] text-emerald-400 font-mono font-bold">
+                      ✓ Active
+                    </span>
+                  )}
+                </div>
+
+                <input
+                  type="url"
+                  placeholder="https://green-base-05b3.mike-brown747.workers.dev/"
+                  value={garminProxy}
+                  onChange={(e) => {
+                    const val = e.target.value.trim();
+                    setGarminProxy(val);
+                    handleSaveGarminConfig(garminKey, val, garminReqTypes);
+                  }}
+                  className={`w-full rounded-xl px-3 py-2 text-xs font-mono outline-none border transition-colors ${
+                    theme === 'light'
+                      ? 'bg-slate-50 border-slate-200 text-slate-900 focus:border-sky-500 focus:bg-white'
+                      : 'bg-slate-950 border-slate-800 text-slate-100 focus:border-sky-500'
+                  }`}
+                />
+
+                <p className="text-[11px] text-slate-400 leading-relaxed">
+                  Routes live Garmin Personal API requests through your Cloudflare Worker proxy so GitHub Pages static hosting works seamlessly without browser CORS blocks.
+                </p>
+              </div>
+
+              {/* 3. API Request Types Checkboxes */}
+              <div
+                className={`p-4 rounded-2xl border space-y-3 ${
+                  theme === 'light'
+                    ? 'bg-white border-slate-200 shadow-xs'
+                    : 'bg-slate-900/60 border-slate-800'
+                }`}
+              >
+                <div>
+                  <h4
+                    className={`text-xs font-bold uppercase tracking-wider ${
+                      theme === 'light' ? 'text-slate-700' : 'text-slate-300'
+                    }`}
+                  >
+                    API Request Types
+                  </h4>
+                  <p className="text-[11px] text-slate-400 mt-0.5">
+                    Select which physiological metrics and telemetry endpoints to query during Garmin sync:
+                  </p>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 pt-1">
+                  {/* Tick Box: Sleep Duration & Score */}
+                  <label
+                    onClick={() => handleToggleRequestType('sleep')}
+                    className={`p-3 rounded-xl border flex items-start gap-3 cursor-pointer transition-all select-none ${
+                      garminReqTypes.sleep
+                        ? 'bg-sky-500/10 border-sky-500/40 text-slate-200'
+                        : theme === 'light'
+                        ? 'bg-slate-50 border-slate-200 text-slate-500 opacity-60'
+                        : 'bg-slate-950/40 border-slate-800 text-slate-500 opacity-60'
+                    }`}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={garminReqTypes.sleep}
+                      onChange={() => {}}
+                      className="mt-0.5 rounded border-slate-700 text-sky-500 focus:ring-0 cursor-pointer"
+                    />
+                    <div className="min-w-0">
+                      <span className="text-xs font-bold block text-sky-400">
+                        Sleep Duration &amp; Score
+                      </span>
+                      <span className="text-[10px] text-slate-400 block mt-0.5 leading-snug">
+                        Total sleep duration, overall score, deep, REM, and light sleep breakdown.
+                      </span>
+                    </div>
+                  </label>
+
+                  {/* Tick Box: Heart Rate / RHR */}
+                  <label
+                    onClick={() => handleToggleRequestType('heartRate')}
+                    className={`p-3 rounded-xl border flex items-start gap-3 cursor-pointer transition-all select-none ${
+                      garminReqTypes.heartRate
+                        ? 'bg-sky-500/10 border-sky-500/40 text-slate-200'
+                        : theme === 'light'
+                        ? 'bg-slate-50 border-slate-200 text-slate-500 opacity-60'
+                        : 'bg-slate-950/40 border-slate-800 text-slate-500 opacity-60'
+                    }`}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={garminReqTypes.heartRate}
+                      onChange={() => {}}
+                      className="mt-0.5 rounded border-slate-700 text-sky-500 focus:ring-0 cursor-pointer"
+                    />
+                    <div className="min-w-0">
+                      <span className="text-xs font-bold block text-sky-400">
+                        Heart Rate / RHR
+                      </span>
+                      <span className="text-[10px] text-slate-400 block mt-0.5 leading-snug">
+                        Overnight resting heart rate (RHR) and daily average heart rate.
+                      </span>
+                    </div>
+                  </label>
+
+                  {/* Tick Box: HRV (rMSSD) */}
+                  <label
+                    onClick={() => handleToggleRequestType('hrv')}
+                    className={`p-3 rounded-xl border flex items-start gap-3 cursor-pointer transition-all select-none ${
+                      garminReqTypes.hrv
+                        ? 'bg-sky-500/10 border-sky-500/40 text-slate-200'
+                        : theme === 'light'
+                        ? 'bg-slate-50 border-slate-200 text-slate-500 opacity-60'
+                        : 'bg-slate-950/40 border-slate-800 text-slate-500 opacity-60'
+                    }`}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={garminReqTypes.hrv}
+                      onChange={() => {}}
+                      className="mt-0.5 rounded border-slate-700 text-sky-500 focus:ring-0 cursor-pointer"
+                    />
+                    <div className="min-w-0">
+                      <span className="text-xs font-bold block text-sky-400">
+                        HRV (rMSSD)
+                      </span>
+                      <span className="text-[10px] text-slate-400 block mt-0.5 leading-snug">
+                        Nightly heart rate variability rMSSD averages and weekly baseline ranges.
+                      </span>
+                    </div>
+                  </label>
+
+                  {/* Tick Box: Steps */}
+                  <label
+                    onClick={() => handleToggleRequestType('steps')}
+                    className={`p-3 rounded-xl border flex items-start gap-3 cursor-pointer transition-all select-none ${
+                      garminReqTypes.steps
+                        ? 'bg-sky-500/10 border-sky-500/40 text-slate-200'
+                        : theme === 'light'
+                        ? 'bg-slate-50 border-slate-200 text-slate-500 opacity-60'
+                        : 'bg-slate-950/40 border-slate-800 text-slate-500 opacity-60'
+                    }`}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={garminReqTypes.steps}
+                      onChange={() => {}}
+                      className="mt-0.5 rounded border-slate-700 text-sky-500 focus:ring-0 cursor-pointer"
+                    />
+                    <div className="min-w-0">
+                      <span className="text-xs font-bold block text-sky-400">
+                        Steps
+                      </span>
+                      <span className="text-[10px] text-slate-400 block mt-0.5 leading-snug">
+                        Daily aggregate step count from Garmin activity tracking.
+                      </span>
+                    </div>
+                  </label>
+
+                  {/* Tick Box: Calories (Unticked by default) */}
+                  <label
+                    onClick={() => handleToggleRequestType('calories')}
+                    className={`p-3 rounded-xl border flex items-start gap-3 cursor-pointer transition-all select-none ${
+                      garminReqTypes.calories
+                        ? 'bg-sky-500/10 border-sky-500/40 text-slate-200'
+                        : theme === 'light'
+                        ? 'bg-slate-50 border-slate-200 text-slate-500 opacity-60'
+                        : 'bg-slate-950/40 border-slate-800 text-slate-500 opacity-60'
+                    }`}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={garminReqTypes.calories}
+                      onChange={() => {}}
+                      className="mt-0.5 rounded border-slate-700 text-sky-500 focus:ring-0 cursor-pointer"
+                    />
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-xs font-bold block text-sky-400">
+                          Calories
+                        </span>
+                        <span className="text-[9px] uppercase font-mono px-1.5 py-0.2 rounded bg-slate-800 text-slate-400">
+                          Optional
+                        </span>
+                      </div>
+                      <span className="text-[10px] text-slate-400 block mt-0.5 leading-snug">
+                        Active and total daily kilocalories expenditure (unticked by default).
+                      </span>
+                    </div>
+                  </label>
+
+                  {/* Tick Box: Body Battery */}
+                  <label
+                    onClick={() => handleToggleRequestType('bodyBattery')}
+                    className={`p-3 rounded-xl border flex items-start gap-3 cursor-pointer transition-all select-none ${
+                      garminReqTypes.bodyBattery
+                        ? 'bg-sky-500/10 border-sky-500/40 text-slate-200'
+                        : theme === 'light'
+                        ? 'bg-slate-50 border-slate-200 text-slate-500 opacity-60'
+                        : 'bg-slate-950/40 border-slate-800 text-slate-500 opacity-60'
+                    }`}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={garminReqTypes.bodyBattery}
+                      onChange={() => {}}
+                      className="mt-0.5 rounded border-slate-700 text-sky-500 focus:ring-0 cursor-pointer"
+                    />
+                    <div className="min-w-0">
+                      <span className="text-xs font-bold block text-sky-400">
+                        Body Battery
+                      </span>
+                      <span className="text-[10px] text-slate-400 block mt-0.5 leading-snug">
+                        Energy reserve monitoring, daily charge, drain, and real-time levels (0–100).
+                      </span>
+                    </div>
+                  </label>
+
+                  {/* Tick Box: Stress */}
+                  <label
+                    onClick={() => handleToggleRequestType('stress')}
+                    className={`p-3 rounded-xl border flex items-start gap-3 cursor-pointer transition-all select-none ${
+                      garminReqTypes.stress
+                        ? 'bg-sky-500/10 border-sky-500/40 text-slate-200'
+                        : theme === 'light'
+                        ? 'bg-slate-50 border-slate-200 text-slate-500 opacity-60'
+                        : 'bg-slate-950/40 border-slate-800 text-slate-500 opacity-60'
+                    }`}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={garminReqTypes.stress}
+                      onChange={() => {}}
+                      className="mt-0.5 rounded border-slate-700 text-sky-500 focus:ring-0 cursor-pointer"
+                    />
+                    <div className="min-w-0">
+                      <span className="text-xs font-bold block text-sky-400">
+                        Stress
+                      </span>
+                      <span className="text-[10px] text-slate-400 block mt-0.5 leading-snug">
+                        All-day sympathetic nervous system stress tracking and resting durations.
+                      </span>
+                    </div>
+                  </label>
+
+                  {/* Tick Box: Respiration */}
+                  <label
+                    onClick={() => handleToggleRequestType('respiration')}
+                    className={`p-3 rounded-xl border flex items-start gap-3 cursor-pointer transition-all select-none ${
+                      garminReqTypes.respiration
+                        ? 'bg-sky-500/10 border-sky-500/40 text-slate-200'
+                        : theme === 'light'
+                        ? 'bg-slate-50 border-slate-200 text-slate-500 opacity-60'
+                        : 'bg-slate-950/40 border-slate-800 text-slate-500 opacity-60'
+                    }`}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={garminReqTypes.respiration}
+                      onChange={() => {}}
+                      className="mt-0.5 rounded border-slate-700 text-sky-500 focus:ring-0 cursor-pointer"
+                    />
+                    <div className="min-w-0">
+                      <span className="text-xs font-bold block text-sky-400">
+                        Respiration
+                      </span>
+                      <span className="text-[10px] text-slate-400 block mt-0.5 leading-snug">
+                        Breaths per minute (brpm) during sleep, resting, and waking periods.
+                      </span>
+                    </div>
+                  </label>
+
+                  {/* Tick Box: Pulse Ox (SpO2) */}
+                  <label
+                    onClick={() => handleToggleRequestType('pulseOx')}
+                    className={`p-3 rounded-xl border flex items-start gap-3 cursor-pointer transition-all select-none ${
+                      garminReqTypes.pulseOx
+                        ? 'bg-sky-500/10 border-sky-500/40 text-slate-200'
+                        : theme === 'light'
+                        ? 'bg-slate-50 border-slate-200 text-slate-500 opacity-60'
+                        : 'bg-slate-950/40 border-slate-800 text-slate-500 opacity-60'
+                    }`}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={garminReqTypes.pulseOx}
+                      onChange={() => {}}
+                      className="mt-0.5 rounded border-slate-700 text-sky-500 focus:ring-0 cursor-pointer"
+                    />
+                    <div className="min-w-0">
+                      <span className="text-xs font-bold block text-sky-400">
+                        Pulse Ox (SpO2)
+                      </span>
+                      <span className="text-[10px] text-slate-400 block mt-0.5 leading-snug">
+                        Overnight and daily blood oxygen saturation percentages and lowest values.
+                      </span>
+                    </div>
+                  </label>
+
+                  {/* Tick Box: VO2 Max (Run) */}
+                  <label
+                    onClick={() => handleToggleRequestType('vo2MaxRun')}
+                    className={`p-3 rounded-xl border flex items-start gap-3 cursor-pointer transition-all select-none ${
+                      garminReqTypes.vo2MaxRun
+                        ? 'bg-sky-500/10 border-sky-500/40 text-slate-200'
+                        : theme === 'light'
+                        ? 'bg-slate-50 border-slate-200 text-slate-500 opacity-60'
+                        : 'bg-slate-950/40 border-slate-800 text-slate-500 opacity-60'
+                    }`}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={garminReqTypes.vo2MaxRun}
+                      onChange={() => {}}
+                      className="mt-0.5 rounded border-slate-700 text-sky-500 focus:ring-0 cursor-pointer"
+                    />
+                    <div className="min-w-0">
+                      <span className="text-xs font-bold block text-sky-400">
+                        VO2 Max (Run)
+                      </span>
+                      <span className="text-[10px] text-slate-400 block mt-0.5 leading-snug">
+                        Garmin Firstbeat cardiovascular running aerobic fitness capacity (ml/kg/min).
+                      </span>
+                    </div>
+                  </label>
+
+                  {/* Tick Box: VO2 Max (Bike) */}
+                  <label
+                    onClick={() => handleToggleRequestType('vo2MaxBike')}
+                    className={`p-3 rounded-xl border flex items-start gap-3 cursor-pointer transition-all select-none ${
+                      garminReqTypes.vo2MaxBike
+                        ? 'bg-sky-500/10 border-sky-500/40 text-slate-200'
+                        : theme === 'light'
+                        ? 'bg-slate-50 border-slate-200 text-slate-500 opacity-60'
+                        : 'bg-slate-950/40 border-slate-800 text-slate-500 opacity-60'
+                    }`}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={garminReqTypes.vo2MaxBike}
+                      onChange={() => {}}
+                      className="mt-0.5 rounded border-slate-700 text-sky-500 focus:ring-0 cursor-pointer"
+                    />
+                    <div className="min-w-0">
+                      <span className="text-xs font-bold block text-sky-400">
+                        VO2 Max (Bike)
+                      </span>
+                      <span className="text-[10px] text-slate-400 block mt-0.5 leading-snug">
+                        Cycling-specific VO2 Max measured from power meter and heart rate sensors.
+                      </span>
+                    </div>
+                  </label>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Footer CTAs */}
@@ -3143,14 +3704,14 @@ export const AthleteProfileModal: React.FC<AthleteProfileModalProps> = ({
         }`}>
           <button
             type="button"
-            onClick={activeTab === 'settings' ? onClose : handleReset}
+            onClick={activeTab === 'settings' || activeTab === 'garmin_health' ? onClose : handleReset}
             className={`px-3.5 py-2 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer ${
               theme === 'light'
                 ? 'bg-slate-100 hover:bg-slate-200 text-slate-600 hover:text-slate-900'
                 : 'bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white'
             }`}
           >
-            {activeTab === 'settings' ? (
+            {activeTab === 'settings' || activeTab === 'garmin_health' ? (
               <span>Close</span>
             ) : (
               <>
@@ -3170,7 +3731,7 @@ export const AthleteProfileModal: React.FC<AthleteProfileModalProps> = ({
                   : 'bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white'
               }`}
             >
-              {activeTab === 'settings' ? 'Done' : 'Cancel'}
+              {activeTab === 'settings' || activeTab === 'garmin_health' ? 'Done' : 'Cancel'}
             </button>
 
             {/* Save Physiology Button: Grey if nothing changed; colors when edited; returns to grey after saving */}

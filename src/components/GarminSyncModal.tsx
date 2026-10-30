@@ -17,6 +17,8 @@ import {
   Calendar,
   Globe,
   Download,
+  Trash2,
+  SlidersHorizontal,
 } from 'lucide-react';
 import type { DailyRecoveryLog, GarminApiDebugTrace } from '../types/recovery';
 import {
@@ -25,12 +27,18 @@ import {
   parseGarminOrTpCsv,
   type GarminMetricCheck,
 } from '../utils/recoveryStorage';
+import {
+  getStoredGarminToken,
+  getStoredGarminProxyUrl,
+} from '../utils/garminConfig';
 
 interface GarminSyncModalProps {
   isOpen: boolean;
   onClose: () => void;
   existingLogs: DailyRecoveryLog[];
   onSyncComplete: (mergedLogs: DailyRecoveryLog[]) => void;
+  onClearLogs?: () => void;
+  onOpenGarminSettings?: () => void;
   baselineRhr?: number;
   theme?: 'light' | 'dark';
 }
@@ -42,6 +50,8 @@ export const GarminSyncModal: React.FC<GarminSyncModalProps> = ({
   onClose,
   existingLogs,
   onSyncComplete,
+  onClearLogs,
+  onOpenGarminSettings,
   baselineRhr = 41,
   theme = 'dark',
 }) => {
@@ -54,33 +64,9 @@ export const GarminSyncModal: React.FC<GarminSyncModalProps> = ({
   const [startDate, setStartDate] = useState<string>(todayStr);
   const [endDate, setEndDate] = useState<string>(todayStr);
 
-  const [sessionToken, setSessionToken] = useState(() => {
-    try {
-      return localStorage.getItem('fit_track_garmin_token') || '';
-    } catch {
-      return '';
-    }
-  });
-  const [saveCredentials, setSaveCredentials] = useState(true);
-
-  const isGitHubPages = typeof window !== 'undefined' && window.location.hostname.includes('github.io');
-  const [proxyUrl, setProxyUrl] = useState(() => {
-    try {
-      return localStorage.getItem('fit_track_garmin_proxy_url') || '';
-    } catch {
-      return '';
-    }
-  });
-  const [showProxyConfig, setShowProxyConfig] = useState(() => {
-    try {
-      if (typeof window !== 'undefined' && window.location.hostname.includes('github.io')) {
-        return true;
-      }
-      return Boolean(localStorage.getItem('fit_track_garmin_proxy_url'));
-    } catch {
-      return false;
-    }
-  });
+  const [sessionToken, setSessionToken] = useState(() => getStoredGarminToken());
+  const [proxyUrl, setProxyUrl] = useState(() => getStoredGarminProxyUrl());
+  const [showClearConfirm, setShowClearConfirm] = useState(false);
 
   const [isLoading, setIsLoading] = useState(false);
   const [progressMsg, setProgressMsg] = useState('');
@@ -95,12 +81,15 @@ export const GarminSyncModal: React.FC<GarminSyncModalProps> = ({
   const [copiedTraceId, setCopiedTraceId] = useState<string | null>(null);
   const [allCopied, setAllCopied] = useState(false);
 
-  // Reset to collapsed state whenever the modal is opened
+  // Reset to collapsed state and sync active credentials whenever the modal is opened
   useEffect(() => {
     if (isOpen) {
       setExpandedTraceIds(new Set());
       setError(null);
       setSuccess(null);
+      setShowClearConfirm(false);
+      setSessionToken(getStoredGarminToken());
+      setProxyUrl(getStoredGarminProxyUrl());
     }
   }, [isOpen]);
 
@@ -199,7 +188,7 @@ export const GarminSyncModal: React.FC<GarminSyncModalProps> = ({
     setIsLoading(true);
 
     try {
-      if (saveCredentials && sessionToken.trim()) {
+      if (sessionToken.trim()) {
         try {
           localStorage.setItem('fit_track_garmin_token', sessionToken.trim());
         } catch {}
@@ -526,138 +515,39 @@ export const GarminSyncModal: React.FC<GarminSyncModalProps> = ({
                 <span>{isLoading ? (progressMsg || 'Syncing...') : 'Sync'}</span>
               </button>
 
-              {/* Personal API Key & Proxy Configuration Card */}
+              {/* Active API Key & Proxy URL Status Banner */}
               <div
-                className={`p-4 rounded-xl border space-y-3.5 ${
-                  isLight ? 'bg-slate-50/70 border-slate-200' : 'bg-slate-950/40 border-slate-800'
+                className={`p-3 rounded-xl border flex items-center justify-between gap-3 text-xs ${
+                  isLight ? 'bg-slate-50 border-slate-200' : 'bg-slate-950/60 border-slate-800'
                 }`}
               >
-                <div className="flex items-start justify-between gap-3">
-                  <div className="space-y-1">
-                    <span
-                      className={`text-xs font-semibold ${
-                        isLight ? 'text-slate-700' : 'text-slate-300'
-                      }`}
-                    >
-                      Garmin Personal API Key or Session Token
+                <div className="flex items-center gap-2 min-w-0">
+                  <div className="w-2 h-2 rounded-full bg-emerald-400 shrink-0" />
+                  <div className="min-w-0 text-[11px] truncate">
+                    <span className="font-semibold text-slate-300">API Key:</span>{' '}
+                    <span className="font-mono text-slate-400">
+                      {sessionToken ? `${sessionToken.slice(0, 8)}...${sessionToken.slice(-4)}` : 'None'}
                     </span>
-                    <p className="text-[11px] text-slate-400 leading-relaxed">
-                      Garmin Connect Personal API keys or Bearer tokens enable direct live access without two-factor authentication roadblocks.
-                    </p>
+                    <span className="text-slate-500 mx-1.5">•</span>
+                    <span className="font-semibold text-slate-300">Proxy:</span>{' '}
+                    <span className="font-mono text-emerald-400 truncate">
+                      {proxyUrl ? proxyUrl.replace(/^https?:\/\//, '').replace(/\/.*$/, '') : 'Direct'}
+                    </span>
                   </div>
+                </div>
+                {onOpenGarminSettings && (
                   <button
                     type="button"
-                    onClick={() => setShowProxyConfig((prev) => !prev)}
-                    className={`px-2.5 py-1.5 rounded-lg border text-[11px] font-bold flex items-center gap-1.5 shrink-0 transition-colors cursor-pointer ${
-                      proxyUrl
-                        ? 'bg-emerald-500/15 border-emerald-500/30 text-emerald-400'
-                        : isLight
-                        ? 'bg-white border-slate-200 hover:bg-slate-50 text-slate-700 shadow-xs'
-                        : 'bg-slate-800 border-slate-700 hover:bg-slate-700 text-slate-300'
-                    }`}
-                    title="Configure Cloudflare Worker or external proxy URL for GitHub Pages"
+                    onClick={() => {
+                      onClose();
+                      onOpenGarminSettings();
+                    }}
+                    className="text-[11px] font-bold text-sky-400 hover:text-sky-300 flex items-center gap-1 cursor-pointer shrink-0"
+                    title="Edit Personal API Key, Proxy URL & API Request Types in Settings"
                   >
-                    <Globe className="w-3.5 h-3.5 text-sky-400" />
-                    <span>{showProxyConfig ? 'Hide Proxy URL' : 'Configure Proxy URL'}</span>
-                    {proxyUrl && <span className="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>}
+                    <SlidersHorizontal className="w-3 h-3" />
+                    <span>Settings</span>
                   </button>
-                </div>
-
-                {/* Proxy URL Setting */}
-                {(showProxyConfig || proxyUrl || isGitHubPages) && (
-                  <div
-                    className={`p-3 rounded-xl border space-y-2 ${
-                      isLight ? 'bg-slate-100/70 border-slate-200' : 'bg-slate-900/60 border-slate-800'
-                    }`}
-                  >
-                    <div className="flex items-center justify-between">
-                      <label
-                        className={`text-[11px] font-bold flex items-center gap-1.5 ${
-                          isLight ? 'text-slate-700' : 'text-slate-300'
-                        }`}
-                      >
-                        <Globe className="w-3.5 h-3.5 text-sky-400" />
-                        <span>Garmin API Proxy URL (Cloudflare Worker / GitHub Pages)</span>
-                      </label>
-                      {proxyUrl && (
-                        <span className="text-[10px] text-emerald-400 font-mono font-bold">✓ Custom Proxy Active</span>
-                      )}
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <input
-                        type="url"
-                        placeholder="https://my-garmin-proxy.yourname.workers.dev"
-                        value={proxyUrl}
-                        onChange={(e) => {
-                          const val = e.target.value.trim();
-                          setProxyUrl(val);
-                          try {
-                            if (val) {
-                              localStorage.setItem('fit_track_garmin_proxy_url', val);
-                            } else {
-                              localStorage.removeItem('fit_track_garmin_proxy_url');
-                            }
-                          } catch {}
-                        }}
-                        className={`flex-1 rounded-xl px-3 py-1.5 text-xs font-mono outline-none border ${
-                          isLight
-                            ? 'bg-white border-slate-300 text-slate-900 focus:border-sky-500'
-                            : 'bg-slate-950 border-slate-700 text-white focus:border-sky-500'
-                        }`}
-                      />
-                      {proxyUrl && (
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setProxyUrl('');
-                            try {
-                              localStorage.removeItem('fit_track_garmin_proxy_url');
-                            } catch {}
-                          }}
-                          className="text-[11px] text-rose-400 hover:underline cursor-pointer px-1 font-semibold"
-                        >
-                          Clear
-                        </button>
-                      )}
-                    </div>
-                    <p className="text-[10px] text-slate-400 leading-relaxed">
-                      Routes live Garmin Personal API requests through your Cloudflare Worker proxy so GitHub Pages static hosting works seamlessly.
-                    </p>
-                  </div>
-                )}
-
-                <div>
-                  <label
-                    className={`block text-[11px] font-medium mb-1 ${
-                      isLight ? 'text-slate-600' : 'text-slate-400'
-                    }`}
-                  >
-                    Personal API Key / Session Token <span className="text-rose-500">*</span>
-                  </label>
-                  <input
-                    type="text"
-                    placeholder="Paste Garmin Personal API Key (GCDC_...) or Bearer token..."
-                    value={sessionToken}
-                    onChange={(e) => setSessionToken(e.target.value)}
-                    className={`w-full rounded-xl px-3 py-2 text-xs outline-none transition-colors font-mono border ${
-                      isLight
-                        ? 'bg-white border-slate-200 text-slate-900 focus:border-sky-500'
-                        : 'bg-slate-950 border-slate-800 text-slate-100 focus:border-sky-500'
-                    }`}
-                  />
-                </div>
-
-                {!isTokenValid && (
-                  <div
-                    className={`p-2.5 rounded-lg border text-[11px] flex items-center gap-2 ${
-                      isLight
-                        ? 'bg-amber-50 border-amber-200 text-amber-800'
-                        : 'bg-amber-500/10 border-amber-500/30 text-amber-300'
-                    }`}
-                  >
-                    <AlertTriangle className="w-3.5 h-3.5 shrink-0 text-amber-500" />
-                    <span>Paste your token or Personal API key to enable synchronization.</span>
-                  </div>
                 )}
               </div>
             </div>
@@ -1053,13 +943,30 @@ export const GarminSyncModal: React.FC<GarminSyncModalProps> = ({
 
         {/* Footer */}
         <div
-          className={`px-5 py-3 border-t flex items-center justify-between ${
+          className={`px-5 py-3 border-t flex items-center justify-between gap-3 ${
             isLight ? 'bg-slate-50 border-slate-200' : 'bg-slate-900/60 border-slate-800'
           }`}
         >
-          <span className="text-[11px] text-slate-400">
-            Current logs: <strong>{existingLogs.length} days</strong> tracked
-          </span>
+          <div className="flex items-center gap-3">
+            <span className="text-[11px] text-slate-400">
+              Current logs: <strong>{existingLogs.length} days</strong> tracked
+            </span>
+            {existingLogs.length > 0 && onClearLogs && (
+              <button
+                type="button"
+                onClick={() => setShowClearConfirm(true)}
+                className={`px-2.5 py-1 rounded-lg text-[11px] font-bold flex items-center gap-1.5 transition-colors cursor-pointer border ${
+                  isLight
+                    ? 'bg-rose-50 hover:bg-rose-100 text-rose-700 border-rose-200'
+                    : 'bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border-rose-500/30'
+                }`}
+                title="Clear all stored recovery logs"
+              >
+                <Trash2 className="w-3 h-3" />
+                <span>Clear Logs</span>
+              </button>
+            )}
+          </div>
           <button
             type="button"
             onClick={onClose}
@@ -1072,6 +979,54 @@ export const GarminSyncModal: React.FC<GarminSyncModalProps> = ({
             Close
           </button>
         </div>
+
+        {/* "Are you sure?" Clear Logs Confirmation Dialog */}
+        {showClearConfirm && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs">
+            <div
+              className={`w-full max-w-sm rounded-2xl p-5 border shadow-2xl space-y-4 animate-in fade-in zoom-in-95 duration-150 ${
+                isLight ? 'bg-white border-slate-200 text-slate-900' : 'bg-slate-900 border-slate-800 text-white'
+              }`}
+            >
+              <div className="flex items-start gap-3">
+                <div className="p-2.5 rounded-xl bg-rose-500/15 text-rose-500 shrink-0">
+                  <AlertTriangle className="w-5 h-5" />
+                </div>
+                <div>
+                  <h4 className="text-sm font-bold">Are you sure?</h4>
+                  <p className="text-xs text-slate-400 mt-1 leading-relaxed">
+                    This will permanently clear all <strong>{existingLogs.length} days</strong> of stored recovery logs from your browser. This action cannot be undone.
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-center justify-end gap-2 pt-1">
+                <button
+                  type="button"
+                  onClick={() => setShowClearConfirm(false)}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-semibold cursor-pointer ${
+                    isLight
+                      ? 'bg-slate-100 hover:bg-slate-200 text-slate-700'
+                      : 'bg-slate-800 hover:bg-slate-700 text-slate-300'
+                  }`}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    onClearLogs?.();
+                    setShowClearConfirm(false);
+                    setSuccess('All recovery logs have been cleared.');
+                  }}
+                  className="px-3.5 py-1.5 rounded-xl text-xs font-bold bg-rose-600 hover:bg-rose-500 text-white shadow-md shadow-rose-600/30 cursor-pointer"
+                >
+                  Yes, Clear Logs
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

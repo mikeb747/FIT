@@ -30,6 +30,7 @@ import { computeDailyReadiness, computeCrossCorrelations } from '../utils/readin
 import { RecoveryLogModal } from './RecoveryLogModal';
 import { RecoveryCsvModal } from './RecoveryCsvModal';
 import { GarminSyncModal } from './GarminSyncModal';
+import { GarminTriangleIcon } from '../utils/garminConfig';
 
 interface RecoveryViewProps {
   logs: DailyRecoveryLog[];
@@ -39,7 +40,7 @@ interface RecoveryViewProps {
   onDeleteLog: (id: string) => void;
   onImportLogs: (logs: DailyRecoveryLog[]) => void;
   onResetDefaults: () => void;
-  onOpenAthleteSettings?: () => void;
+  onOpenAthleteSettings?: (tab?: 'settings' | 'physiology' | 'swimming' | 'cycling' | 'running' | 'zones' | 'goals' | 'garmin_health') => void;
   theme?: 'light' | 'dark';
   isGarminConnected?: boolean;
   garminEmail?: string | null;
@@ -230,25 +231,10 @@ export const RecoveryView: React.FC<RecoveryViewProps> = ({
             }`}
             title="Garmin Health Data"
           >
-            <Activity className="w-3.5 h-3.5" />
+            <GarminTriangleIcon className="w-3.5 h-3.5" />
             <span>Garmin Health Data</span>
           </button>
 
-          {logs.length > 0 && (
-            <button
-              type="button"
-              onClick={onResetDefaults}
-              className={`px-3 py-2 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer border ${
-                isLight
-                  ? 'bg-rose-50 hover:bg-rose-100 text-rose-700 border-rose-200'
-                  : 'bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border-rose-500/30'
-              }`}
-              title="Clear all stored recovery logs"
-            >
-              <Trash2 className="w-3.5 h-3.5" />
-              <span>Clear Logs</span>
-            </button>
-          )}
 
           <button
             type="button"
@@ -1610,6 +1596,11 @@ export const RecoveryView: React.FC<RecoveryViewProps> = ({
         existingLogs={sortedLogs}
         onSyncComplete={(merged) => {
           onImportLogs(merged);
+        }}
+        onClearLogs={onResetDefaults}
+        onOpenGarminSettings={() => {
+          setIsGarminModalOpen(false);
+          onOpenAthleteSettings?.('garmin_health');
         }}
         baselineRhr={baselineRhr}
         theme={theme}
