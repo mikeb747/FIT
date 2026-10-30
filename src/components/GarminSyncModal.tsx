@@ -1,18 +1,14 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   X,
   RotateCw,
   CheckCircle2,
   AlertCircle,
-  Shield,
   Zap,
-  Info,
   Key,
-  Lock,
   Upload,
-  FileText,
+  FileSpreadsheet,
   AlertTriangle,
-  Sparkles,
   Copy,
   Check,
   ChevronDown,
@@ -20,6 +16,7 @@ import {
   Terminal,
   Calendar,
   Globe,
+  Download,
 } from 'lucide-react';
 import type { DailyRecoveryLog, GarminApiDebugTrace } from '../types/recovery';
 import {
@@ -38,7 +35,7 @@ interface GarminSyncModalProps {
   theme?: 'light' | 'dark';
 }
 
-type SyncTab = 'token' | 'auto' | 'csv';
+type SyncTab = 'token' | 'csv';
 
 export const GarminSyncModal: React.FC<GarminSyncModalProps> = ({
   isOpen,
@@ -49,16 +46,14 @@ export const GarminSyncModal: React.FC<GarminSyncModalProps> = ({
   theme = 'dark',
 }) => {
   const [activeTab, setActiveTab] = useState<SyncTab>('token');
-  const [weeks, setWeeks] = useState<number>(4);
-  const [selectedDate, setSelectedDate] = useState<string>('2026-10-28');
-  const [email, setEmail] = useState(() => {
-    try {
-      return localStorage.getItem('fit_track_garmin_email') || '';
-    } catch {
-      return '';
-    }
-  });
-  const [password, setPassword] = useState('');
+
+  // Today UTC date helper
+  const todayStr = useMemo(() => new Date().toISOString().slice(0, 10), []);
+
+  // Date range state (default to today)
+  const [startDate, setStartDate] = useState<string>(todayStr);
+  const [endDate, setEndDate] = useState<string>(todayStr);
+
   const [sessionToken, setSessionToken] = useState(() => {
     try {
       return localStorage.getItem('fit_track_garmin_token') || '';
@@ -92,38 +87,71 @@ export const GarminSyncModal: React.FC<GarminSyncModalProps> = ({
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [metricChecks, setMetricChecks] = useState<GarminMetricCheck[] | null>(null);
-  const [checkedDate, setCheckedDate] = useState<string | null>(null);
+  const [checkedRange, setCheckedRange] = useState<string | null>(null);
   const [debugTraces, setDebugTraces] = useState<GarminApiDebugTrace[] | null>(null);
+
+  // Default state: collapsed whenever this modal is opened
   const [expandedTraceIds, setExpandedTraceIds] = useState<Set<string>>(new Set());
   const [copiedTraceId, setCopiedTraceId] = useState<string | null>(null);
   const [allCopied, setAllCopied] = useState(false);
-  const [showStravaExplanation, setShowStravaExplanation] = useState(false);
+
+  // Reset to collapsed state whenever the modal is opened
+  useEffect(() => {
+    if (isOpen) {
+      setExpandedTraceIds(new Set());
+      setError(null);
+      setSuccess(null);
+    }
+  }, [isOpen]);
 
   if (!isOpen) return null;
 
   const isLight = theme === 'light';
-
-  // Validation rules
-  const isAutoValid = email.trim().length > 0 && password.trim().length > 0;
   const isTokenValid = sessionToken.trim().length > 0;
+
+  // Preset date helpers
+  const handleSetPreset = (preset: 'today' | '7days' | '30days') => {
+    const today = new Date().toISOString().slice(0, 10);
+    setEndDate(today);
+    if (preset === 'today') {
+      setStartDate(today);
+    } else if (preset === '7days') {
+      const d = new Date(Date.now() - 6 * 86400000).toISOString().slice(0, 10);
+      setStartDate(d);
+    } else if (preset === '30days') {
+      const d = new Date(Date.now() - 29 * 86400000).toISOString().slice(0, 10);
+      setStartDate(d);
+    }
+  };
+
+  const isPresetActive = (preset: 'today' | '7days' | '30days'): boolean => {
+    const today = new Date().toISOString().slice(0, 10);
+    if (preset === 'today') {
+      return startDate === today && endDate === today;
+    }
+    if (preset === '7days') {
+      const d = new Date(Date.now() - 6 * 86400000).toISOString().slice(0, 10);
+      return startDate === d && endDate === today;
+    }
+    if (preset === '30days') {
+      const d = new Date(Date.now() - 29 * 86400000).toISOString().slice(0, 10);
+      return startDate === d && endDate === today;
+    }
+    return false;
+  };
 
   const handleSync = async () => {
     setError(null);
     setSuccess(null);
     setMetricChecks(null);
-    setCheckedDate(selectedDate);
 
-    if (activeTab === 'auto' && !isAutoValid) {
-      setError('Both Garmin email and password are required to sync.');
-      return;
-    }
-
-    if (activeTab === 'token' && !isTokenValid) {
+    if (!isTokenValid) {
       setError('Please provide a Garmin session token or Personal API key.');
       return;
     }
 
-    const queryDate = activeTab === 'token' ? selectedDate : undefined;
+    const rangeLabel = startDate === endDate ? `${startDate} (UTC)` : `${startDate} to ${endDate} (UTC)`;
+    setCheckedRange(rangeLabel);
 
     const configuredProxy = proxyUrl.trim();
     const isApiKey = sessionToken.trim().startsWith('GCDC_');
@@ -131,11 +159,11 @@ export const GarminSyncModal: React.FC<GarminSyncModalProps> = ({
       ? `${configuredProxy.replace(/\/+$/, '')}${isApiKey ? '/personalapitoken-service/personal-api/personal-api-key/token' : '/sleep-service/sleep/dailySleep'}`
       : '/api/garmin/sync-multiweek';
 
-    // Immediately create an in-flight trace so the user sees live request progress
+    // In-flight trace indicating request start
     const inFlightTrace: GarminApiDebugTrace = {
       id: `trace_client_${Date.now()}`,
       timestamp: new Date().toISOString(),
-      label: `Local Client Request Dispatched -> ${targetEndpoint} (${queryDate || `${weeks}w`} UTC)`,
+      label: `Local Client Request Dispatched -> ${targetEndpoint} (${rangeLabel})`,
       request: {
         method: 'POST',
         url: targetEndpoint,
@@ -148,8 +176,8 @@ export const GarminSyncModal: React.FC<GarminSyncModalProps> = ({
         body: JSON.stringify(
           {
             activeTab,
-            targetDate: queryDate,
-            weeks,
+            startDate,
+            endDate,
             hasSessionToken: Boolean(sessionToken.trim()),
           },
           null,
@@ -160,59 +188,43 @@ export const GarminSyncModal: React.FC<GarminSyncModalProps> = ({
         status: 0,
         statusText: 'Connecting to Garmin proxy...',
         contentType: 'application/json',
-        body: 'Connecting to Garmin Connect endpoints: API Key Exchange, Sleep, Daily Summary, and HRV...',
+        body: `Connecting to Garmin Connect endpoints for ${rangeLabel}...`,
         durationMs: 0,
       },
     };
 
     setDebugTraces([inFlightTrace]);
-    setExpandedTraceIds(new Set([inFlightTrace.id]));
+    // Keep traces collapsed by default
+    setExpandedTraceIds(new Set());
     setIsLoading(true);
 
     try {
-      if (saveCredentials) {
+      if (saveCredentials && sessionToken.trim()) {
         try {
-          if (email.trim()) {
-            localStorage.setItem('fit_track_garmin_email', email.trim());
-          }
-          if (sessionToken.trim()) {
-            localStorage.setItem('fit_track_garmin_token', sessionToken.trim());
-          }
+          localStorage.setItem('fit_track_garmin_token', sessionToken.trim());
         } catch {}
       }
 
       setProgressMsg('Connecting to Garmin Connect service...');
       await new Promise((r) => setTimeout(r, 200));
 
-      setProgressMsg(
-        activeTab === 'token'
-          ? `Querying Garmin Connect live API endpoints for ${selectedDate} (UTC)...`
-          : `Requesting ${weeks} weeks of recovery data from Garmin Connect...`
-      );
+      setProgressMsg(`Querying Garmin Connect endpoints for ${rangeLabel}...`);
 
       const result = await syncGarminMultiWeek({
-        email: activeTab === 'auto' ? email.trim() : undefined,
-        password: activeTab === 'auto' ? password.trim() : undefined,
-        sessionToken: activeTab === 'token' ? sessionToken.trim() : undefined,
-        weeks,
-        debugDate: queryDate,
+        sessionToken: sessionToken.trim(),
+        startDate,
+        endDate,
         baselineRhr,
       });
 
       const finalTraces = result.traces && result.traces.length > 0 ? result.traces : [inFlightTrace];
       setMetricChecks(result.checks || null);
       setDebugTraces(finalTraces);
-      setExpandedTraceIds(new Set(finalTraces.map((t) => t.id)));
+      // Keep collapsed by default
+      setExpandedTraceIds(new Set());
 
       if (!result.success) {
-        if (result.mfaRequired) {
-          setError(
-            result.error ||
-              'Garmin Connect requires Two-Factor Authentication (2FA) verification. Please switch to the "Personal API Key / Token" tab to connect securely.'
-          );
-        } else {
-          setError(result.error || 'Garmin authentication or sync failed.');
-        }
+        setError(result.error || 'Garmin authentication or sync failed.');
         setIsLoading(false);
         return;
       }
@@ -220,8 +232,8 @@ export const GarminSyncModal: React.FC<GarminSyncModalProps> = ({
       if (result.logs.length === 0) {
         setSuccess(
           result.checks
-            ? `Telemetry check completed for ${selectedDate} (UTC). No full recovery record was parsed.`
-            : 'Connected to Garmin Connect. No new recovery records were returned for this range.'
+            ? `Telemetry check completed for ${rangeLabel}. No full recovery record was parsed.`
+            : `Connected to Garmin Connect. No new recovery records were found for ${rangeLabel}.`
         );
         setIsLoading(false);
         return;
@@ -233,9 +245,7 @@ export const GarminSyncModal: React.FC<GarminSyncModalProps> = ({
       const merged = mergeRecoveryLogs(existingLogs, result.logs);
       onSyncComplete(merged);
       setSuccess(
-        result.checks
-          ? `Successfully imported ${result.syncedDays} day of Garmin Connect recovery data for ${selectedDate} (UTC).`
-          : `Successfully imported ${result.syncedDays} days (${weeks} weeks) of Garmin Connect recovery data!`
+        `Successfully imported ${result.syncedDays} day(s) of Garmin recovery data for ${rangeLabel}!`
       );
     } catch (err: any) {
       setError(err.message || 'An unexpected error occurred during Garmin synchronization.');
@@ -247,7 +257,7 @@ export const GarminSyncModal: React.FC<GarminSyncModalProps> = ({
           method: 'POST',
           url: '/api/garmin/sync-multiweek',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ queryDate, activeTab }, null, 2),
+          body: JSON.stringify({ startDate, endDate, activeTab }, null, 2),
         },
         response: {
           status: 0,
@@ -259,7 +269,7 @@ export const GarminSyncModal: React.FC<GarminSyncModalProps> = ({
         error: err.message,
       };
       setDebugTraces([errTrace]);
-      setExpandedTraceIds(new Set([errTrace.id]));
+      setExpandedTraceIds(new Set());
     } finally {
       setIsLoading(false);
       setProgressMsg('');
@@ -278,18 +288,34 @@ export const GarminSyncModal: React.FC<GarminSyncModalProps> = ({
       if (content) {
         const { imported, error: parseErr } = parseGarminOrTpCsv(content);
         if (parseErr || imported.length === 0) {
-          setError(parseErr || 'No valid entries found in uploaded Garmin file.');
+          setError(parseErr || 'No valid entries found in uploaded file.');
           return;
         }
         const merged = mergeRecoveryLogs(existingLogs, imported);
         onSyncComplete(merged);
-        setSuccess(`Successfully imported ${imported.length} days of Garmin logs from CSV!`);
+        setSuccess(`Successfully imported ${imported.length} days of recovery logs from CSV!`);
       }
     };
     reader.onerror = () => {
       setError('Could not read uploaded file from disk.');
     };
     reader.readAsText(file);
+  };
+
+  const handleDownloadTemplate = () => {
+    const sample = [
+      'Date,Resting_HR,HRV,Sleep_Hours,Sleep_Score,Deep_Sleep_Min,REM_Sleep_Min',
+      `${todayStr},41,78,8.2,88,85,100`,
+      `${new Date(Date.now() - 86400000).toISOString().slice(0, 10)},42,74,7.8,82,78,95`,
+      `${new Date(Date.now() - 2 * 86400000).toISOString().slice(0, 10)},44,66,7.0,71,60,80`,
+    ].join('\n');
+    const blob = new Blob([sample], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'fit_track_recovery_template.csv';
+    a.click();
+    URL.revokeObjectURL(url);
   };
 
   return (
@@ -314,7 +340,7 @@ export const GarminSyncModal: React.FC<GarminSyncModalProps> = ({
             <div>
               <div className="flex items-center gap-2">
                 <h2 className={`text-base font-bold ${isLight ? 'text-slate-900' : 'text-white'}`}>
-                  Garmin Connect Wellness Sync
+                  Garmin Health Data
                 </h2>
                 <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-sky-500/15 text-sky-400 border border-sky-500/30 font-mono">
                   Live Connect
@@ -340,44 +366,370 @@ export const GarminSyncModal: React.FC<GarminSyncModalProps> = ({
 
         {/* Modal Body */}
         <div className="flex-1 overflow-y-auto p-5 space-y-4">
-          {/* Strava Explanation Callout Banner */}
+          {/* Sync Method Tabs at the Top */}
           <div
-            className={`p-3.5 rounded-xl border transition-all text-xs ${
-              isLight
-                ? 'bg-amber-50/80 border-amber-200 text-amber-900'
-                : 'bg-amber-500/10 border-amber-500/25 text-amber-200'
+            className={`p-1 rounded-xl border flex items-center gap-1 ${
+              isLight ? 'bg-slate-100 border-slate-200' : 'bg-slate-950 border-slate-800'
             }`}
           >
-            <div className="flex items-start gap-2.5">
-              <Info className="w-4 h-4 text-amber-500 shrink-0 mt-0.5" />
-              <div className="flex-1">
+            <button
+              type="button"
+              onClick={() => {
+                setActiveTab('token');
+                setError(null);
+                setMetricChecks(null);
+                setCheckedRange(null);
+              }}
+              className={`flex-1 py-2 px-3 rounded-lg text-xs font-bold transition-all text-center cursor-pointer ${
+                activeTab === 'token'
+                  ? isLight
+                    ? 'bg-white text-slate-900 shadow-xs'
+                    : 'bg-slate-800 text-white shadow-sm'
+                  : isLight
+                  ? 'text-slate-500 hover:text-slate-900'
+                  : 'text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              Personal API Key
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setActiveTab('csv');
+                setError(null);
+                setMetricChecks(null);
+                setCheckedRange(null);
+              }}
+              className={`flex-1 py-2 px-3 rounded-lg text-xs font-bold transition-all text-center cursor-pointer ${
+                activeTab === 'csv'
+                  ? isLight
+                    ? 'bg-white text-slate-900 shadow-xs'
+                    : 'bg-slate-800 text-white shadow-sm'
+                  : isLight
+                  ? 'text-slate-500 hover:text-slate-900'
+                  : 'text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              CSV Import
+            </button>
+          </div>
+
+          {/* TAB 1: PERSONAL API KEY */}
+          {activeTab === 'token' && (
+            <div className="space-y-3.5">
+              {/* Target Telemetry Date (UTC) Range Selector */}
+              <div
+                className={`p-3.5 rounded-xl border space-y-2.5 ${
+                  isLight ? 'bg-slate-50/90 border-slate-200' : 'bg-slate-950/60 border-slate-800'
+                }`}
+              >
                 <div className="flex items-center justify-between">
-                  <span className="font-bold">Why Garmin Connect instead of Strava?</span>
+                  <label
+                    className={`text-xs font-bold flex items-center gap-1.5 ${
+                      isLight ? 'text-slate-700' : 'text-slate-300'
+                    }`}
+                  >
+                    <Calendar className="w-3.5 h-3.5 text-sky-400" />
+                    <span>Target Telemetry Date (UTC)</span>
+                  </label>
+                  <span className="text-[10px] text-slate-400 font-mono">
+                    {startDate === endDate ? '1 Day Query' : `${startDate} → ${endDate}`}
+                  </span>
+                </div>
+
+                {/* Calendar Range Inputs & Presets */}
+                <div className="flex items-center gap-2 flex-wrap">
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-[11px] text-slate-400 font-medium">From:</span>
+                    <input
+                      type="date"
+                      value={startDate}
+                      onChange={(e) => setStartDate(e.target.value)}
+                      className={`px-2.5 py-1.5 rounded-xl text-xs font-mono outline-none border focus:ring-1 focus:ring-sky-500 ${
+                        isLight
+                          ? 'bg-white border-slate-300 text-slate-900'
+                          : 'bg-slate-900 border-slate-700 text-white'
+                      }`}
+                    />
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-[11px] text-slate-400 font-medium">To:</span>
+                    <input
+                      type="date"
+                      value={endDate}
+                      onChange={(e) => setEndDate(e.target.value)}
+                      className={`px-2.5 py-1.5 rounded-xl text-xs font-mono outline-none border focus:ring-1 focus:ring-sky-500 ${
+                        isLight
+                          ? 'bg-white border-slate-300 text-slate-900'
+                          : 'bg-slate-900 border-slate-700 text-white'
+                      }`}
+                    />
+                  </div>
+
+                  {/* Presets: Today, 7 days, 30 days */}
+                  <div className="flex items-center gap-1.5 ml-auto">
+                    <button
+                      type="button"
+                      onClick={() => handleSetPreset('today')}
+                      className={`px-2.5 py-1.5 rounded-xl text-[11px] font-bold border transition-colors cursor-pointer ${
+                        isPresetActive('today')
+                          ? 'bg-sky-500/20 text-sky-400 border-sky-500/40'
+                          : isLight
+                          ? 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
+                          : 'bg-slate-800 text-slate-300 border-slate-700 hover:bg-slate-700'
+                      }`}
+                    >
+                      Today
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleSetPreset('7days')}
+                      className={`px-2.5 py-1.5 rounded-xl text-[11px] font-bold border transition-colors cursor-pointer ${
+                        isPresetActive('7days')
+                          ? 'bg-sky-500/20 text-sky-400 border-sky-500/40'
+                          : isLight
+                          ? 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
+                          : 'bg-slate-800 text-slate-300 border-slate-700 hover:bg-slate-700'
+                      }`}
+                    >
+                      7 days
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleSetPreset('30days')}
+                      className={`px-2.5 py-1.5 rounded-xl text-[11px] font-bold border transition-colors cursor-pointer ${
+                        isPresetActive('30days')
+                          ? 'bg-sky-500/20 text-sky-400 border-sky-500/40'
+                          : isLight
+                          ? 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
+                          : 'bg-slate-800 text-slate-300 border-slate-700 hover:bg-slate-700'
+                      }`}
+                    >
+                      30 days
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              {/* Just Below the Date Picker: Sync Button */}
+              <button
+                type="button"
+                onClick={handleSync}
+                disabled={isLoading || !isTokenValid}
+                className={`w-full py-2.5 px-4 rounded-xl text-xs font-bold flex items-center justify-center gap-2 transition-all ${
+                  isTokenValid && !isLoading
+                    ? 'bg-sky-500 hover:bg-sky-400 text-slate-950 cursor-pointer shadow-lg shadow-sky-500/20'
+                    : 'bg-slate-800/60 text-slate-500 cursor-not-allowed border border-slate-700/40'
+                }`}
+              >
+                <RotateCw className={`w-4 h-4 ${isLoading ? 'animate-spin' : ''}`} />
+                <span>{isLoading ? (progressMsg || 'Syncing...') : 'Sync'}</span>
+              </button>
+
+              {/* Personal API Key & Proxy Configuration Card */}
+              <div
+                className={`p-4 rounded-xl border space-y-3.5 ${
+                  isLight ? 'bg-slate-50/70 border-slate-200' : 'bg-slate-950/40 border-slate-800'
+                }`}
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <div className="space-y-1">
+                    <span
+                      className={`text-xs font-semibold ${
+                        isLight ? 'text-slate-700' : 'text-slate-300'
+                      }`}
+                    >
+                      Garmin Personal API Key or Session Token
+                    </span>
+                    <p className="text-[11px] text-slate-400 leading-relaxed">
+                      Garmin Connect Personal API keys or Bearer tokens enable direct live access without two-factor authentication roadblocks.
+                    </p>
+                  </div>
                   <button
                     type="button"
-                    onClick={() => setShowStravaExplanation((prev) => !prev)}
-                    className="text-[11px] font-semibold underline cursor-pointer ml-2 hover:opacity-80"
+                    onClick={() => setShowProxyConfig((prev) => !prev)}
+                    className={`px-2.5 py-1.5 rounded-lg border text-[11px] font-bold flex items-center gap-1.5 shrink-0 transition-colors cursor-pointer ${
+                      proxyUrl
+                        ? 'bg-emerald-500/15 border-emerald-500/30 text-emerald-400'
+                        : isLight
+                        ? 'bg-white border-slate-200 hover:bg-slate-50 text-slate-700 shadow-xs'
+                        : 'bg-slate-800 border-slate-700 hover:bg-slate-700 text-slate-300'
+                    }`}
+                    title="Configure Cloudflare Worker or external proxy URL for GitHub Pages"
                   >
-                    {showStravaExplanation ? 'Hide info' : 'Learn why'}
+                    <Globe className="w-3.5 h-3.5 text-sky-400" />
+                    <span>{showProxyConfig ? 'Hide Proxy URL' : 'Configure Proxy URL'}</span>
+                    {proxyUrl && <span className="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>}
                   </button>
                 </div>
-                {showStravaExplanation ? (
-                  <p className="mt-1.5 leading-relaxed text-[11px] opacity-90">
-                    <strong>Strava API Scope:</strong> Strava&apos;s developer API is strictly
-                    restricted to physical activity workouts (GPS traces, pace, power, and activity
-                    HR). Strava does <em>not</em> store or expose 24/7 background biometric telemetry
-                    such as sleep stages (Deep/REM), overnight HRV rMSSD, or waking resting heart
-                    rate. Garmin Connect is the authentic source of your overnight recovery telemetry.
-                  </p>
-                ) : (
-                  <p className="mt-0.5 leading-snug text-[11px] opacity-80">
-                    Strava&apos;s API only contains workout activities, not sleep or overnight HRV.
-                    Garmin Connect records continuous recovery data directly from your watch.
-                  </p>
+
+                {/* Proxy URL Setting */}
+                {(showProxyConfig || proxyUrl || isGitHubPages) && (
+                  <div
+                    className={`p-3 rounded-xl border space-y-2 ${
+                      isLight ? 'bg-slate-100/70 border-slate-200' : 'bg-slate-900/60 border-slate-800'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between">
+                      <label
+                        className={`text-[11px] font-bold flex items-center gap-1.5 ${
+                          isLight ? 'text-slate-700' : 'text-slate-300'
+                        }`}
+                      >
+                        <Globe className="w-3.5 h-3.5 text-sky-400" />
+                        <span>Garmin API Proxy URL (Cloudflare Worker / GitHub Pages)</span>
+                      </label>
+                      {proxyUrl && (
+                        <span className="text-[10px] text-emerald-400 font-mono font-bold">✓ Custom Proxy Active</span>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="url"
+                        placeholder="https://my-garmin-proxy.yourname.workers.dev"
+                        value={proxyUrl}
+                        onChange={(e) => {
+                          const val = e.target.value.trim();
+                          setProxyUrl(val);
+                          try {
+                            if (val) {
+                              localStorage.setItem('fit_track_garmin_proxy_url', val);
+                            } else {
+                              localStorage.removeItem('fit_track_garmin_proxy_url');
+                            }
+                          } catch {}
+                        }}
+                        className={`flex-1 rounded-xl px-3 py-1.5 text-xs font-mono outline-none border ${
+                          isLight
+                            ? 'bg-white border-slate-300 text-slate-900 focus:border-sky-500'
+                            : 'bg-slate-950 border-slate-700 text-white focus:border-sky-500'
+                        }`}
+                      />
+                      {proxyUrl && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setProxyUrl('');
+                            try {
+                              localStorage.removeItem('fit_track_garmin_proxy_url');
+                            } catch {}
+                          }}
+                          className="text-[11px] text-rose-400 hover:underline cursor-pointer px-1 font-semibold"
+                        >
+                          Clear
+                        </button>
+                      )}
+                    </div>
+                    <p className="text-[10px] text-slate-400 leading-relaxed">
+                      Routes live Garmin Personal API requests through your Cloudflare Worker proxy so GitHub Pages static hosting works seamlessly.
+                    </p>
+                  </div>
+                )}
+
+                <div>
+                  <label
+                    className={`block text-[11px] font-medium mb-1 ${
+                      isLight ? 'text-slate-600' : 'text-slate-400'
+                    }`}
+                  >
+                    Personal API Key / Session Token <span className="text-rose-500">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="Paste Garmin Personal API Key (GCDC_...) or Bearer token..."
+                    value={sessionToken}
+                    onChange={(e) => setSessionToken(e.target.value)}
+                    className={`w-full rounded-xl px-3 py-2 text-xs outline-none transition-colors font-mono border ${
+                      isLight
+                        ? 'bg-white border-slate-200 text-slate-900 focus:border-sky-500'
+                        : 'bg-slate-950 border-slate-800 text-slate-100 focus:border-sky-500'
+                    }`}
+                  />
+                </div>
+
+                {!isTokenValid && (
+                  <div
+                    className={`p-2.5 rounded-lg border text-[11px] flex items-center gap-2 ${
+                      isLight
+                        ? 'bg-amber-50 border-amber-200 text-amber-800'
+                        : 'bg-amber-500/10 border-amber-500/30 text-amber-300'
+                    }`}
+                  >
+                    <AlertTriangle className="w-3.5 h-3.5 shrink-0 text-amber-500" />
+                    <span>Paste your token or Personal API key to enable synchronization.</span>
+                  </div>
                 )}
               </div>
             </div>
-          </div>
+          )}
+
+          {/* TAB 2: CSV IMPORT */}
+          {activeTab === 'csv' && (
+            <div
+              className={`p-4 rounded-xl border space-y-4 ${
+                isLight ? 'bg-slate-50/70 border-slate-200' : 'bg-slate-950/40 border-slate-800'
+              }`}
+            >
+              <div className="space-y-1">
+                <span
+                  className={`text-xs font-semibold ${
+                    isLight ? 'text-slate-700' : 'text-slate-300'
+                  }`}
+                >
+                  Direct Garmin / TrainingPeaks CSV Import
+                </span>
+                <p className="text-[11px] text-slate-400 leading-relaxed">
+                  Export your wellness or sleep CSV file directly from Garmin Connect Web or
+                  TrainingPeaks and upload it here to import genuine physiological metrics without
+                  entering login credentials.
+                </p>
+              </div>
+
+              <label
+                className={`border-2 border-dashed rounded-xl p-6 flex flex-col items-center justify-center gap-2 cursor-pointer transition-colors group ${
+                  isLight
+                    ? 'border-slate-200 bg-white hover:border-sky-500'
+                    : 'border-slate-800 bg-slate-950/60 hover:border-sky-500/60'
+                }`}
+              >
+                <Upload className="w-7 h-7 text-slate-400 group-hover:text-sky-400" />
+                <span
+                  className={`text-xs font-bold ${
+                    isLight ? 'text-slate-700 group-hover:text-slate-900' : 'text-slate-300'
+                  }`}
+                >
+                  Click to select Garmin Sleep / HRV CSV export
+                </span>
+                <span className="text-[11px] text-slate-400">
+                  Accepts Garmin Connect Sleep reports &amp; TrainingPeaks Wellness exports (.csv)
+                </span>
+                <input
+                  type="file"
+                  accept=".csv,text/csv"
+                  onChange={handleFileUpload}
+                  className="hidden"
+                />
+              </label>
+
+              <div className="flex items-center justify-between pt-1">
+                <span className="text-[11px] text-slate-400">
+                  Need a template format?
+                </span>
+                <button
+                  type="button"
+                  onClick={handleDownloadTemplate}
+                  className={`px-3 py-1.5 rounded-lg border text-[11px] font-semibold flex items-center gap-1.5 transition-colors cursor-pointer ${
+                    isLight
+                      ? 'bg-white border-slate-200 hover:bg-slate-50 text-slate-700'
+                      : 'bg-slate-800 border-slate-700 hover:bg-slate-700 text-slate-200'
+                  }`}
+                >
+                  <Download className="w-3.5 h-3.5 text-sky-400" />
+                  <span>Download Sample CSV Template</span>
+                </button>
+              </div>
+            </div>
+          )}
 
           {/* Alerts */}
           {error && (
@@ -419,7 +771,7 @@ export const GarminSyncModal: React.FC<GarminSyncModalProps> = ({
               aria-live="polite"
             >
               <span className="font-bold block">
-                Garmin response checks{checkedDate ? ` for ${checkedDate} (UTC)` : ''}
+                Garmin response checks{checkedRange ? ` for ${checkedRange}` : ''}
               </span>
               {metricChecks.map((check) => (
                 <div key={check.metric} className="flex items-start justify-between gap-3">
@@ -446,7 +798,7 @@ export const GarminSyncModal: React.FC<GarminSyncModalProps> = ({
                 <Terminal className="w-4 h-4 text-sky-400 shrink-0" />
                 <span>
                   <strong className={isLight ? 'text-slate-800' : 'text-slate-200'}>Garmin API Request & Response Inspector: </strong>
-                  Ready. Tap &quot;Sync with Token&quot; below to send live requests and inspect each response in real time.
+                  Ready. Tap &quot;Sync&quot; above to send live requests and inspect each response in real time.
                 </span>
               </div>
               <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-sky-500/10 text-sky-400 border border-sky-500/20 shrink-0">
@@ -482,10 +834,11 @@ export const GarminSyncModal: React.FC<GarminSyncModalProps> = ({
                 </div>
 
                 <div className="flex items-center gap-2">
+                  {/* Expand / Collapse button */}
                   <button
                     type="button"
                     onClick={() => {
-                      if (expandedTraceIds.size === debugTraces.length) {
+                      if (expandedTraceIds.size > 0) {
                         setExpandedTraceIds(new Set());
                       } else {
                         setExpandedTraceIds(new Set(debugTraces.map((t) => t.id)));
@@ -497,9 +850,10 @@ export const GarminSyncModal: React.FC<GarminSyncModalProps> = ({
                         : 'bg-slate-800 border-slate-700 hover:bg-slate-700 text-slate-200'
                     }`}
                   >
-                    {expandedTraceIds.size === debugTraces.length ? 'Collapse All' : 'Expand All'}
+                    {expandedTraceIds.size > 0 ? 'Collapse' : 'Expand'}
                   </button>
 
+                  {/* Copy Log button */}
                   <button
                     type="button"
                     onClick={() => {
@@ -519,12 +873,12 @@ export const GarminSyncModal: React.FC<GarminSyncModalProps> = ({
                     title="Copy all requests and responses as JSON"
                   >
                     {allCopied ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
-                    <span>{allCopied ? 'Copied JSON' : 'Copy All Logs'}</span>
+                    <span>{allCopied ? 'Copied JSON' : 'Copy Log'}</span>
                   </button>
                 </div>
               </div>
 
-              {/* Traces List */}
+              {/* Traces List - Collapsed by default */}
               <div className="p-2 space-y-2">
                 {debugTraces.map((trace) => {
                   const isExpanded = expandedTraceIds.has(trace.id);
@@ -653,611 +1007,46 @@ export const GarminSyncModal: React.FC<GarminSyncModalProps> = ({
                           </div>
 
                           {/* INBOUND RESPONSE */}
-                          <div className="space-y-1 pt-1 border-t border-slate-800/80">
-                            <div className="flex items-center justify-between text-[10px] text-slate-400 uppercase font-sans font-bold">
-                              <span>Inbound Response Received Back</span>
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  try {
-                                    navigator.clipboard.writeText(trace.response?.body || '');
-                                    setCopiedTraceId(`res_${trace.id}`);
-                                    setTimeout(() => setCopiedTraceId(null), 1500);
-                                  } catch {}
-                                }}
-                                className="text-emerald-400 hover:underline flex items-center gap-1 cursor-pointer"
-                              >
-                                {copiedTraceId === `res_${trace.id}` ? 'Copied Body!' : 'Copy Response Body'}
-                              </button>
+                          {trace.response && (
+                            <div className="space-y-1 pt-2 border-t border-slate-800/80">
+                              <div className="flex items-center justify-between text-[10px] text-slate-400 uppercase font-sans font-bold">
+                                <span>Inbound Response Received Back</span>
+                                {trace.response.body && (
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      try {
+                                        navigator.clipboard.writeText(trace.response?.body || '');
+                                        setCopiedTraceId(`resp_${trace.id}`);
+                                        setTimeout(() => setCopiedTraceId(null), 1500);
+                                      } catch {}
+                                    }}
+                                    className="text-emerald-400 hover:underline flex items-center gap-1 cursor-pointer"
+                                  >
+                                    {copiedTraceId === `resp_${trace.id}` ? 'Copied Body!' : 'Copy Response Body'}
+                                  </button>
+                                )}
+                              </div>
+                              <div className="text-[10px] text-slate-400">
+                                Content-Type: <span className="text-slate-200">{trace.response.contentType || 'unknown'}</span>
+                              </div>
+                              <pre className="p-2.5 rounded-lg bg-black/60 border border-slate-800 text-slate-200 text-[10px] overflow-x-auto max-h-60 leading-relaxed">
+                                {trace.response.body || '(empty body)'}
+                              </pre>
                             </div>
+                          )}
 
-                            <div className="flex items-center gap-2 text-[10px]">
-                              <span className="text-slate-400">Content-Type:</span>
-                              <span className="text-slate-300">{trace.response?.contentType || 'unknown'}</span>
+                          {trace.error && (
+                            <div className="p-2 rounded-lg bg-rose-500/10 border border-rose-500/30 text-rose-400 text-[10px]">
+                              Error: {trace.error}
                             </div>
-
-                            <pre className="p-2.5 rounded-lg bg-black/60 border border-slate-800 text-slate-200 text-[11px] overflow-x-auto max-h-56 leading-relaxed select-all">
-                              {(() => {
-                                const body = trace.response?.body;
-                                if (!body || !body.trim()) return '(empty response body)';
-                                try {
-                                  return JSON.stringify(JSON.parse(body), null, 2);
-                                } catch {
-                                  return body;
-                                }
-                              })()}
-                            </pre>
-                          </div>
+                          )}
                         </div>
                       )}
                     </div>
                   );
                 })}
               </div>
-            </div>
-          )}
-
-          {/* Duration Selector: 2, 4, 8, 12 weeks */}
-          {activeTab !== 'token' && (
-            <div>
-              <label
-                className={`block text-xs font-bold uppercase tracking-wider mb-2 ${
-                  isLight ? 'text-slate-600' : 'text-slate-400'
-                }`}
-              >
-                Sync Duration (Historical Range)
-              </label>
-              <div className="grid grid-cols-4 gap-2">
-                {[
-                  { w: 2, label: '2 Weeks', days: '14 Days' },
-                  { w: 4, label: '4 Weeks', days: '28 Days', rec: true },
-                  { w: 8, label: '8 Weeks', days: '56 Days' },
-                  { w: 12, label: '12 Weeks', days: '84 Days' },
-                ].map((opt) => (
-                  <button
-                    key={opt.w}
-                    type="button"
-                    onClick={() => setWeeks(opt.w)}
-                    className={`p-2.5 rounded-xl border text-center transition-all cursor-pointer ${
-                      weeks === opt.w
-                        ? isLight
-                          ? 'bg-sky-50 border-sky-500 text-sky-900 ring-2 ring-sky-500/20 shadow-xs'
-                          : 'bg-sky-500/15 border-sky-500 text-white shadow-sm ring-1 ring-sky-500/30'
-                        : isLight
-                        ? 'bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100'
-                        : 'bg-slate-900 border-slate-800 text-slate-400 hover:bg-slate-800/80'
-                    }`}
-                  >
-                    <div className="font-extrabold text-xs flex items-center justify-center gap-1">
-                      <span>{opt.label}</span>
-                      {opt.rec && (
-                        <span className="text-[9px] px-1 py-0.2 rounded bg-sky-500 text-white font-black">
-                          ★
-                        </span>
-                      )}
-                    </div>
-                    <div className="text-[10px] text-slate-400 mt-0.5">{opt.days}</div>
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {activeTab === 'token' && (
-            <div
-              className={`p-3 rounded-xl border text-xs ${
-                isLight
-                  ? 'bg-sky-50 border-sky-200 text-sky-800'
-                  : 'bg-sky-500/10 border-sky-500/25 text-sky-200'
-              }`}
-            >
-              Token sync checks one UTC day: two days ago. Steps, calories, and heart rate are read
-              from the daily summary; sleep is requested after that response.
-            </div>
-          )}
-
-          {/* Sync Method Tabs */}
-          <div
-            className={`p-1 rounded-xl border flex items-center gap-1 ${
-              isLight ? 'bg-slate-100 border-slate-200' : 'bg-slate-950 border-slate-800'
-            }`}
-          >
-            <button
-              type="button"
-              onClick={() => {
-                setActiveTab('token');
-                setError(null);
-                setMetricChecks(null);
-                setCheckedDate(null);
-              }}
-              className={`flex-1 py-2 px-2.5 rounded-lg text-xs font-bold transition-all text-center cursor-pointer ${
-                activeTab === 'token'
-                  ? isLight
-                    ? 'bg-white text-slate-900 shadow-xs'
-                    : 'bg-slate-800 text-white shadow-sm'
-                  : isLight
-                  ? 'text-slate-500 hover:text-slate-900'
-                  : 'text-slate-400 hover:text-slate-200'
-              }`}
-            >
-              Personal API Key / Token
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                setActiveTab('csv');
-                setError(null);
-                setMetricChecks(null);
-                setCheckedDate(null);
-              }}
-              className={`flex-1 py-2 px-2 rounded-lg text-xs font-bold transition-all text-center cursor-pointer ${
-                activeTab === 'csv'
-                  ? isLight
-                    ? 'bg-white text-slate-900 shadow-xs'
-                    : 'bg-slate-800 text-white shadow-sm'
-                  : isLight
-                  ? 'text-slate-500 hover:text-slate-900'
-                  : 'text-slate-400 hover:text-slate-200'
-              }`}
-            >
-              CSV Export (Instant)
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                setActiveTab('auto');
-                setError(null);
-                setMetricChecks(null);
-                setCheckedDate(null);
-              }}
-              className={`flex-1 py-2 px-2.5 rounded-lg text-xs font-bold transition-all text-center cursor-pointer ${
-                activeTab === 'auto'
-                  ? isLight
-                    ? 'bg-white text-slate-900 shadow-xs'
-                    : 'bg-slate-800 text-white shadow-sm'
-                  : isLight
-                  ? 'text-slate-500 hover:text-slate-900'
-                  : 'text-slate-400 hover:text-slate-200'
-              }`}
-            >
-              Direct Login (Email/Pass)
-            </button>
-          </div>
-
-          {/* TAB 1: DIRECT LOGIN SYNC */}
-          {activeTab === 'auto' && (
-            <div
-              className={`p-4 rounded-xl border space-y-3.5 ${
-                isLight ? 'bg-slate-50/70 border-slate-200' : 'bg-slate-950/40 border-slate-800'
-              }`}
-            >
-              <div className="flex items-center justify-between">
-                <span
-                  className={`text-xs font-semibold ${
-                    isLight ? 'text-slate-700' : 'text-slate-300'
-                  }`}
-                >
-                  Garmin Connect Credentials
-                </span>
-                <span className="text-[11px] text-slate-400 flex items-center gap-1">
-                  <Shield className="w-3.5 h-3.5 text-emerald-400" />
-                  Credentials required
-                </span>
-              </div>
-
-              <div className="space-y-2.5">
-                <div>
-                  <label
-                    className={`block text-[11px] font-medium mb-1 ${
-                      isLight ? 'text-slate-600' : 'text-slate-400'
-                    }`}
-                  >
-                    Garmin Email Address <span className="text-rose-500">*</span>
-                  </label>
-                  <input
-                    type="email"
-                    placeholder="athlete@example.com"
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    className={`w-full rounded-xl px-3 py-2 text-xs outline-none transition-colors border ${
-                      isLight
-                        ? 'bg-white border-slate-200 text-slate-900 focus:border-sky-500'
-                        : 'bg-slate-950 border-slate-800 text-slate-100 focus:border-sky-500'
-                    }`}
-                  />
-                </div>
-
-                <div>
-                  <label
-                    className={`block text-[11px] font-medium mb-1 ${
-                      isLight ? 'text-slate-600' : 'text-slate-400'
-                    }`}
-                  >
-                    Garmin Password <span className="text-rose-500">*</span>
-                  </label>
-                  <input
-                    type="password"
-                    placeholder="••••••••••••"
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    className={`w-full rounded-xl px-3 py-2 text-xs outline-none transition-colors border ${
-                      isLight
-                        ? 'bg-white border-slate-200 text-slate-900 focus:border-sky-500'
-                        : 'bg-slate-950 border-slate-800 text-slate-100 focus:border-sky-500'
-                    }`}
-                  />
-                </div>
-
-                <div className="flex items-center gap-2 pt-1">
-                  <input
-                    type="checkbox"
-                    id="save_garmin_creds"
-                    checked={saveCredentials}
-                    onChange={(e) => setSaveCredentials(e.target.checked)}
-                    className="accent-sky-500 rounded"
-                  />
-                  <label
-                    htmlFor="save_garmin_creds"
-                    className={`text-xs select-none ${
-                      isLight ? 'text-slate-600' : 'text-slate-400'
-                    }`}
-                  >
-                    Remember email on this device
-                  </label>
-                </div>
-              </div>
-
-              {!isAutoValid && (
-                <div
-                  className={`p-2.5 rounded-lg border text-[11px] flex items-center gap-2 ${
-                    isLight
-                      ? 'bg-amber-50 border-amber-200 text-amber-800'
-                      : 'bg-amber-500/10 border-amber-500/30 text-amber-300'
-                  }`}
-                >
-                  <AlertTriangle className="w-3.5 h-3.5 shrink-0 text-amber-500" />
-                  <span>Enter both your Garmin email and password to enable synchronization.</span>
-                </div>
-              )}
-
-              <button
-                type="button"
-                onClick={handleSync}
-                disabled={isLoading || !isAutoValid}
-                className={`w-full mt-2 py-2.5 px-4 rounded-xl text-xs font-bold flex items-center justify-center gap-2 transition-all ${
-                  isAutoValid && !isLoading
-                    ? 'bg-sky-500 hover:bg-sky-400 text-slate-950 cursor-pointer shadow-lg shadow-sky-500/20'
-                    : 'bg-slate-800/60 text-slate-500 cursor-not-allowed border border-slate-700/40'
-                }`}
-              >
-                <RotateCw className={`w-4 h-4 ${isLoading ? 'animate-spin' : ''}`} />
-                <span>
-                  {isLoading
-                    ? progressMsg || 'Connecting...'
-                    : `Sync ${weeks} Weeks from Garmin Connect`}
-                </span>
-              </button>
-            </div>
-          )}
-
-          {/* TAB 2: PERSONAL API KEY / SESSION TOKEN */}
-          {activeTab === 'token' && (
-            <div
-              className={`p-4 rounded-xl border space-y-3.5 ${
-                isLight ? 'bg-slate-50/70 border-slate-200' : 'bg-slate-950/40 border-slate-800'
-              }`}
-            >
-              <div className="flex items-start justify-between gap-3">
-                <div className="space-y-1">
-                  <span
-                    className={`text-xs font-semibold ${
-                      isLight ? 'text-slate-700' : 'text-slate-300'
-                    }`}
-                  >
-                    Garmin Personal API Key or Session Token
-                  </span>
-                  <p className="text-[11px] text-slate-400 leading-relaxed">
-                    Garmin Connect Personal API keys or session cookies (`GARMIN-SSO-GUID` / Bearer token)
-                    enable direct live access without two-factor authentication roadblocks.
-                  </p>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setShowProxyConfig((prev) => !prev)}
-                  className={`px-2.5 py-1.5 rounded-lg border text-[11px] font-bold flex items-center gap-1.5 shrink-0 transition-colors cursor-pointer ${
-                    proxyUrl
-                      ? 'bg-emerald-500/15 border-emerald-500/30 text-emerald-400'
-                      : isLight
-                      ? 'bg-white border-slate-200 hover:bg-slate-50 text-slate-700 shadow-xs'
-                      : 'bg-slate-800 border-slate-700 hover:bg-slate-700 text-slate-300'
-                  }`}
-                  title="Configure Cloudflare Worker or external proxy URL for GitHub Pages"
-                >
-                  <Globe className="w-3.5 h-3.5 text-sky-400" />
-                  <span>{showProxyConfig ? 'Hide Proxy URL' : 'Configure Proxy URL'}</span>
-                  {proxyUrl && <span className="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>}
-                </button>
-              </div>
-
-              {/* GitHub Pages Host Warning & Recommendations */}
-              {isGitHubPages && !proxyUrl && (
-                <div
-                  className={`p-3 rounded-xl border text-xs space-y-2.5 ${
-                    isLight
-                      ? 'bg-amber-50 border-amber-200 text-amber-900'
-                      : 'bg-amber-500/10 border-amber-500/30 text-amber-200'
-                  }`}
-                >
-                  <div className="flex items-start gap-2.5">
-                    <AlertTriangle className="w-4 h-4 text-amber-500 shrink-0 mt-0.5" />
-                    <div className="space-y-1">
-                      <span className="font-bold block">Running on GitHub Pages (Static Hosting)</span>
-                      <p className="text-[11px] leading-relaxed">
-                        GitHub Pages is a static file host without a Node.js backend. POST requests to <code>/api/garmin</code> return <strong>HTTP 405 Method Not Allowed</strong>.
-                      </p>
-                    </div>
-                  </div>
-
-                  <div className="flex items-center gap-2 flex-wrap pt-0.5">
-                    <button
-                      type="button"
-                      onClick={() => setActiveTab('csv')}
-                      className="px-3 py-1.5 rounded-lg bg-sky-500 hover:bg-sky-400 text-slate-950 font-bold text-[11px] cursor-pointer shadow-xs"
-                    >
-                      Use CSV Export (Instant Browser Import)
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setShowProxyConfig(true)}
-                      className={`px-3 py-1.5 rounded-lg border font-semibold text-[11px] cursor-pointer ${
-                        isLight
-                          ? 'bg-white border-slate-200 hover:bg-slate-50 text-slate-700'
-                          : 'bg-slate-800 border-slate-700 hover:bg-slate-700 text-slate-200'
-                      }`}
-                    >
-                      Configure Proxy URL (Cloudflare Worker)
-                    </button>
-                  </div>
-                </div>
-              )}
-
-              {/* Proxy URL Setting */}
-              {(showProxyConfig || proxyUrl || isGitHubPages) && (
-                <div
-                  className={`p-3 rounded-xl border space-y-2 ${
-                    isLight ? 'bg-slate-100/70 border-slate-200' : 'bg-slate-900/60 border-slate-800'
-                  }`}
-                >
-                  <div className="flex items-center justify-between">
-                    <label
-                      className={`text-[11px] font-bold flex items-center gap-1.5 ${
-                        isLight ? 'text-slate-700' : 'text-slate-300'
-                      }`}
-                    >
-                      <Globe className="w-3.5 h-3.5 text-sky-400" />
-                      <span>Garmin API Proxy URL (Cloudflare Worker / GitHub Pages)</span>
-                    </label>
-                    {proxyUrl && (
-                      <span className="text-[10px] text-emerald-400 font-mono font-bold">✓ Custom Proxy Active</span>
-                    )}
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <input
-                      type="url"
-                      placeholder="https://my-garmin-proxy.yourname.workers.dev"
-                      value={proxyUrl}
-                      onChange={(e) => {
-                        const val = e.target.value.trim();
-                        setProxyUrl(val);
-                        try {
-                          if (val) {
-                            localStorage.setItem('fit_track_garmin_proxy_url', val);
-                          } else {
-                            localStorage.removeItem('fit_track_garmin_proxy_url');
-                          }
-                        } catch {}
-                      }}
-                      className={`flex-1 rounded-xl px-3 py-1.5 text-xs font-mono outline-none border ${
-                        isLight
-                          ? 'bg-white border-slate-300 text-slate-900 focus:border-sky-500'
-                          : 'bg-slate-950 border-slate-700 text-white focus:border-sky-500'
-                      }`}
-                    />
-                    {proxyUrl && (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setProxyUrl('');
-                          try {
-                            localStorage.removeItem('fit_track_garmin_proxy_url');
-                          } catch {}
-                        }}
-                        className="text-[11px] text-rose-400 hover:underline cursor-pointer px-1 font-semibold"
-                      >
-                        Clear
-                      </button>
-                    )}
-                  </div>
-                  <p className="text-[10px] text-slate-400 leading-relaxed">
-                    Paste your Cloudflare Worker URL (e.g. <code>https://my-garmin-proxy.yourname.workers.dev</code>) here. Once entered, FIT Track on GitHub Pages will route all live Garmin Personal API requests through your Worker instead of getting HTTP 405.
-                  </p>
-                </div>
-              )}
-
-              <div>
-                <label
-                  className={`block text-[11px] font-medium mb-1 ${
-                    isLight ? 'text-slate-600' : 'text-slate-400'
-                  }`}
-                >
-                  Personal API Key / Session Token <span className="text-rose-500">*</span>
-                </label>
-                <input
-                  type="text"
-                  placeholder="Paste Garmin Personal API Key or GARMIN-SSO-GUID token..."
-                  value={sessionToken}
-                  onChange={(e) => setSessionToken(e.target.value)}
-                  className={`w-full rounded-xl px-3 py-2 text-xs outline-none transition-colors font-mono border ${
-                    isLight
-                      ? 'bg-white border-slate-200 text-slate-900 focus:border-sky-500'
-                      : 'bg-slate-950 border-slate-800 text-slate-100 focus:border-sky-500'
-                  }`}
-                />
-              </div>
-
-              {/* Target Telemetry Date (UTC) Selector */}
-              <div
-                className={`p-3 rounded-xl border space-y-2 ${
-                  isLight ? 'bg-slate-100/70 border-slate-200' : 'bg-slate-900/60 border-slate-800'
-                }`}
-              >
-                <div className="flex items-center justify-between">
-                  <label
-                    className={`text-[11px] font-bold flex items-center gap-1.5 ${
-                      isLight ? 'text-slate-700' : 'text-slate-300'
-                    }`}
-                  >
-                    <Calendar className="w-3.5 h-3.5 text-sky-400" />
-                    <span>Target Telemetry Date (UTC)</span>
-                  </label>
-                  <span className="text-[10px] text-slate-400 font-mono">1 Day Endpoint Query</span>
-                </div>
-
-                <div className="flex items-center gap-2 flex-wrap">
-                  <input
-                    type="date"
-                    value={selectedDate}
-                    onChange={(e) => setSelectedDate(e.target.value)}
-                    className={`px-3 py-1.5 rounded-xl text-xs font-mono outline-none border focus:ring-1 focus:ring-sky-500 ${
-                      isLight
-                        ? 'bg-white border-slate-300 text-slate-900'
-                        : 'bg-slate-950 border-slate-700 text-white'
-                    }`}
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setSelectedDate('2026-10-28')}
-                    className={`px-2.5 py-1.5 rounded-xl text-[11px] font-bold border transition-colors cursor-pointer ${
-                      selectedDate === '2026-10-28'
-                        ? 'bg-sky-500/20 text-sky-400 border-sky-500/40'
-                        : isLight
-                        ? 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
-                        : 'bg-slate-800 text-slate-300 border-slate-700 hover:bg-slate-700'
-                    }`}
-                  >
-                    28 Oct 2026 (Target)
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const d = new Date(Date.now() - 86400000).toISOString().slice(0, 10);
-                      setSelectedDate(d);
-                    }}
-                    className={`px-2.5 py-1.5 rounded-xl text-[11px] font-bold border transition-colors cursor-pointer ${
-                      isLight
-                        ? 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
-                        : 'bg-slate-800 text-slate-300 border-slate-700 hover:bg-slate-700'
-                    }`}
-                  >
-                    Yesterday
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const d = new Date().toISOString().slice(0, 10);
-                      setSelectedDate(d);
-                    }}
-                    className={`px-2.5 py-1.5 rounded-xl text-[11px] font-bold border transition-colors cursor-pointer ${
-                      isLight
-                        ? 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
-                        : 'bg-slate-800 text-slate-300 border-slate-700 hover:bg-slate-700'
-                    }`}
-                  >
-                    Today
-                  </button>
-                </div>
-              </div>
-
-              {!isTokenValid && (
-                <div
-                  className={`p-2.5 rounded-lg border text-[11px] flex items-center gap-2 ${
-                    isLight
-                      ? 'bg-amber-50 border-amber-200 text-amber-800'
-                      : 'bg-amber-500/10 border-amber-500/30 text-amber-300'
-                  }`}
-                >
-                  <AlertTriangle className="w-3.5 h-3.5 shrink-0 text-amber-500" />
-                  <span>Paste your token or Personal API key to enable synchronization.</span>
-                </div>
-              )}
-
-              <button
-                type="button"
-                onClick={handleSync}
-                disabled={isLoading || !isTokenValid}
-                className={`w-full py-2.5 px-4 rounded-xl text-xs font-bold flex items-center justify-center gap-2 transition-all ${
-                  isTokenValid && !isLoading
-                    ? 'bg-sky-500 hover:bg-sky-400 text-slate-950 cursor-pointer shadow-lg shadow-sky-500/20'
-                    : 'bg-slate-800/60 text-slate-500 cursor-not-allowed border border-slate-700/40'
-                }`}
-              >
-                <RotateCw className={`w-4 h-4 ${isLoading ? 'animate-spin' : ''}`} />
-                <span>
-                  {isLoading
-                    ? progressMsg || 'Syncing...'
-                    : 'Sync with Token (1 Day)'}
-                </span>
-              </button>
-            </div>
-          )}
-
-          {/* TAB 3: CSV FILE EXPORT */}
-          {activeTab === 'csv' && (
-            <div
-              className={`p-4 rounded-xl border space-y-3.5 ${
-                isLight ? 'bg-slate-50/70 border-slate-200' : 'bg-slate-950/40 border-slate-800'
-              }`}
-            >
-              <div className="space-y-1">
-                <span
-                  className={`text-xs font-semibold ${
-                    isLight ? 'text-slate-700' : 'text-slate-300'
-                  }`}
-                >
-                  Direct Garmin / TrainingPeaks CSV Import
-                </span>
-                <p className="text-[11px] text-slate-400 leading-relaxed">
-                  Export your wellness or sleep CSV file directly from Garmin Connect Web or
-                  TrainingPeaks and upload it here to import genuine physiological metrics without
-                  entering login credentials.
-                </p>
-              </div>
-
-              <label
-                className={`border-2 border-dashed rounded-xl p-6 flex flex-col items-center justify-center gap-2 cursor-pointer transition-colors group ${
-                  isLight
-                    ? 'border-slate-200 bg-white hover:border-sky-500'
-                    : 'border-slate-800 bg-slate-950/60 hover:border-sky-500/60'
-                }`}
-              >
-                <Upload className="w-7 h-7 text-slate-400 group-hover:text-sky-400" />
-                <span
-                  className={`text-xs font-bold ${
-                    isLight ? 'text-slate-700 group-hover:text-slate-900' : 'text-slate-300'
-                  }`}
-                >
-                  Click to select Garmin Sleep / HRV CSV export
-                </span>
-                <span className="text-[11px] text-slate-400">
-                  Accepts Garmin Connect Sleep reports &amp; TrainingPeaks Wellness exports (.csv)
-                </span>
-                <input
-                  type="file"
-                  accept=".csv,text/csv"
-                  onChange={handleFileUpload}
-                  className="hidden"
-                />
-              </label>
             </div>
           )}
         </div>
