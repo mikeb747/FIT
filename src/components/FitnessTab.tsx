@@ -303,18 +303,88 @@ export const FitnessTab: React.FC<FitnessTabProps> = ({
     else setSelectedChartDiscipline('combined');
   }, [selectedSport]);
 
-  // Max CTL in timeline for responsive chart scaling
-  const maxChartCtl = useMemo(() => {
-    if (fitnessTimeline.length === 0) return 100;
-    const maxVal = Math.max(
-      ...fitnessTimeline.map((r) => {
-        if (selectedChartDiscipline === 'swim') return Math.max(r.swimCtl, r.swimAtl);
-        if (selectedChartDiscipline === 'bike') return Math.max(r.bikeCtl, r.bikeAtl);
-        if (selectedChartDiscipline === 'run') return Math.max(r.runCtl, r.runAtl);
-        return Math.max(r.triCtl, r.triAtl);
-      })
-    );
-    return Math.max(80, Math.ceil(maxVal * 1.15));
+  // Interactive timeline hover state
+  const [hoveredTimelineIdx, setHoveredTimelineIdx] = useState<number | null>(null);
+
+  // Dynamic Y-axis scaling for Fitness, Fatigue & Form Timeline
+  // Adjusts dynamically to whatever data is actually displayed (CTL, ATL, TSB)
+  const chartScaling = useMemo(() => {
+    if (fitnessTimeline.length === 0) {
+      return { yMin: 0, yMax: 50, range: 50, ticks: [0, 10, 20, 30, 40, 50] };
+    }
+
+    const ctlVals: number[] = [];
+    const atlVals: number[] = [];
+    const tsbVals: number[] = [];
+
+    fitnessTimeline.forEach((r) => {
+      const ctl =
+        selectedChartDiscipline === 'swim'
+          ? r.swimCtl
+          : selectedChartDiscipline === 'bike'
+          ? r.bikeCtl
+          : selectedChartDiscipline === 'run'
+          ? r.runCtl
+          : r.triCtl;
+      const atl =
+        selectedChartDiscipline === 'swim'
+          ? r.swimAtl
+          : selectedChartDiscipline === 'bike'
+          ? r.bikeAtl
+          : selectedChartDiscipline === 'run'
+          ? r.runAtl
+          : r.triAtl;
+      const tsb =
+        selectedChartDiscipline === 'swim'
+          ? r.swimTsb
+          : selectedChartDiscipline === 'bike'
+          ? r.bikeTsb
+          : selectedChartDiscipline === 'run'
+          ? r.runTsb
+          : r.triTsb;
+      ctlVals.push(ctl);
+      atlVals.push(atl);
+      tsbVals.push(tsb);
+    });
+
+    const maxVal = Math.max(...ctlVals, ...atlVals, ...tsbVals, 5);
+    const minVal = Math.min(...tsbVals, 0);
+
+    // Dynamic upper bound adjusted directly to the displayed maximum
+    let yMax: number;
+    if (maxVal <= 20) {
+      yMax = Math.ceil((maxVal + 2) / 5) * 5;
+    } else if (maxVal <= 50) {
+      yMax = Math.ceil((maxVal + 4) / 5) * 5;
+    } else if (maxVal <= 100) {
+      yMax = Math.ceil((maxVal + 6) / 10) * 10;
+    } else {
+      yMax = Math.ceil((maxVal * 1.08) / 10) * 10;
+    }
+
+    // Dynamic lower bound adjusts to negative TSB (Form) when athlete is fatigued
+    let yMin: number;
+    if (minVal < 0) {
+      yMin = Math.floor((minVal - 2) / 5) * 5;
+    } else {
+      yMin = 0;
+    }
+
+    const range = Math.max(10, yMax - yMin);
+
+    // Pick a clean tick step
+    const step = range <= 25 ? 5 : range <= 50 ? 10 : range <= 100 ? 15 : 20;
+    const ticks: number[] = [];
+    let cur = Math.ceil(yMin / step) * step;
+    if (cur > yMin) ticks.push(yMin);
+    while (cur <= yMax) {
+      if (!ticks.includes(cur)) ticks.push(cur);
+      cur += step;
+    }
+    if (!ticks.includes(yMax)) ticks.push(yMax);
+    ticks.sort((a, b) => a - b);
+
+    return { yMin, yMax, range, ticks };
   }, [fitnessTimeline, selectedChartDiscipline]);
 
   // Form label helper
@@ -942,11 +1012,11 @@ export const FitnessTab: React.FC<FitnessTabProps> = ({
           </div>
 
           <div className="text-[11px] font-mono text-slate-500">
-            Scale: 0 – {maxChartCtl} TSS/day
+            Scale: {chartScaling.yMin} – {chartScaling.yMax} TSS/day
           </div>
         </div>
 
-        {/* SVG Timeline Chart with X-Axis Date Markers */}
+        {/* SVG Timeline Chart with Adaptive Y-Axis & X-Axis Date Markers */}
         <div className="relative pt-4 pb-1">
           <div className="h-44 sm:h-56 w-full relative">
             {fitnessTimeline.length === 0 ? (
@@ -959,22 +1029,69 @@ export const FitnessTab: React.FC<FitnessTabProps> = ({
                 viewBox="0 0 100 100"
                 preserveAspectRatio="none"
               >
-                {/* Horizontal reference grid lines */}
-                {[0, 25, 50, 75, 100].map((pct) => (
-                  <line
-                    key={pct}
-                    x1="0"
-                    y1={pct}
-                    x2="100"
-                    y2={pct}
-                    stroke="currentColor"
-                    strokeDasharray="2,2"
-                    className="text-slate-800/60"
-                    strokeWidth="0.5"
-                  />
-                ))}
+                {/* Horizontal reference grid lines with numerical labels */}
+                {chartScaling.ticks.map((tickVal) => {
+                  const y = ((chartScaling.yMax - tickVal) / chartScaling.range) * 90 + 5;
+                  const isZero = tickVal === 0;
+                  return (
+                    <g key={tickVal}>
+                      <line
+                        x1="0"
+                        y1={y}
+                        x2="100"
+                        y2={y}
+                        stroke="currentColor"
+                        strokeDasharray={isZero ? 'none' : '2,2'}
+                        className={isZero ? 'text-slate-500' : isLight ? 'text-slate-200' : 'text-slate-800/80'}
+                        strokeWidth={isZero ? '0.75' : '0.4'}
+                      />
+                      <text
+                        x="1"
+                        y={Math.max(3.5, y - 1)}
+                        fill={isZero ? '#38bdf8' : isLight ? '#94a3b8' : '#64748b'}
+                        fontSize="2.6"
+                        fontFamily="monospace"
+                        fontWeight={isZero ? 'bold' : 'normal'}
+                      >
+                        {tickVal}
+                      </text>
+                    </g>
+                  );
+                })}
 
-                {/* CTL Path (Blue Line) */}
+                {/* Form (TSB) Visual Pillars / Area */}
+                {fitnessTimeline.map((r, i) => {
+                  const tsb =
+                    selectedChartDiscipline === 'swim'
+                      ? r.swimTsb
+                      : selectedChartDiscipline === 'bike'
+                      ? r.bikeTsb
+                      : selectedChartDiscipline === 'run'
+                      ? r.runTsb
+                      : r.triTsb;
+                  const x = (i / (fitnessTimeline.length - 1 || 1)) * 100;
+                  const barW = Math.max(0.6, 85 / fitnessTimeline.length);
+                  const yTsb = ((chartScaling.yMax - tsb) / chartScaling.range) * 90 + 5;
+                  const yZero = ((chartScaling.yMax - 0) / chartScaling.range) * 90 + 5;
+                  const top = Math.min(yTsb, yZero);
+                  const height = Math.abs(yTsb - yZero);
+                  const isPositive = tsb >= 0;
+
+                  return (
+                    <rect
+                      key={`tsb-bar-${i}`}
+                      x={x - barW / 2}
+                      y={top}
+                      width={barW}
+                      height={Math.max(0.3, height)}
+                      fill={isPositive ? '#10b981' : '#f43f5e'}
+                      opacity={0.35}
+                      rx="0.2"
+                    />
+                  );
+                })}
+
+                {/* CTL Path (Fitness - Sky Blue Line) */}
                 <polyline
                   fill="none"
                   stroke="#38bdf8"
@@ -992,17 +1109,17 @@ export const FitnessTab: React.FC<FitnessTabProps> = ({
                           : selectedChartDiscipline === 'run'
                           ? r.runCtl
                           : r.triCtl;
-                      const y = Math.max(5, 95 - (ctl / maxChartCtl) * 90);
+                      const y = ((chartScaling.yMax - ctl) / chartScaling.range) * 90 + 5;
                       return `${x},${y}`;
                     })
                     .join(' ')}
                 />
 
-                {/* ATL Path (Purple Line) */}
+                {/* ATL Path (Fatigue - Purple Line) */}
                 <polyline
                   fill="none"
                   stroke="#c084fc"
-                  strokeWidth="1.5"
+                  strokeWidth="1.8"
                   strokeLinecap="round"
                   strokeLinejoin="round"
                   points={fitnessTimeline
@@ -1016,13 +1133,122 @@ export const FitnessTab: React.FC<FitnessTabProps> = ({
                           : selectedChartDiscipline === 'run'
                           ? r.runAtl
                           : r.triAtl;
-                      const y = Math.max(5, 95 - (atl / maxChartCtl) * 90);
+                      const y = ((chartScaling.yMax - atl) / chartScaling.range) * 90 + 5;
                       return `${x},${y}`;
                     })
                     .join(' ')}
                 />
+
+                {/* Transparent Interactive Hover Column Targets */}
+                {fitnessTimeline.map((_, i) => {
+                  const x = (i / (fitnessTimeline.length - 1 || 1)) * 100;
+                  const colW = 100 / Math.max(1, fitnessTimeline.length);
+                  return (
+                    <rect
+                      key={`hover-col-${i}`}
+                      x={x - colW / 2}
+                      y="0"
+                      width={colW}
+                      height="100"
+                      fill="transparent"
+                      className="cursor-pointer"
+                      onMouseEnter={() => setHoveredTimelineIdx(i)}
+                      onMouseLeave={() => setHoveredTimelineIdx(null)}
+                    />
+                  );
+                })}
+
+                {/* Hover indicator line & dot */}
+                {hoveredTimelineIdx !== null && fitnessTimeline[hoveredTimelineIdx] && (() => {
+                  const i = hoveredTimelineIdx;
+                  const r = fitnessTimeline[i];
+                  const x = (i / (fitnessTimeline.length - 1 || 1)) * 100;
+                  const ctl =
+                    selectedChartDiscipline === 'swim'
+                      ? r.swimCtl
+                      : selectedChartDiscipline === 'bike'
+                      ? r.bikeCtl
+                      : selectedChartDiscipline === 'run'
+                      ? r.runCtl
+                      : r.triCtl;
+                  const atl =
+                    selectedChartDiscipline === 'swim'
+                      ? r.swimAtl
+                      : selectedChartDiscipline === 'bike'
+                      ? r.bikeAtl
+                      : selectedChartDiscipline === 'run'
+                      ? r.runAtl
+                      : r.triAtl;
+                  const yCtl = ((chartScaling.yMax - ctl) / chartScaling.range) * 90 + 5;
+                  const yAtl = ((chartScaling.yMax - atl) / chartScaling.range) * 90 + 5;
+
+                  return (
+                    <g>
+                      <line
+                        x1={x}
+                        y1="0"
+                        x2={x}
+                        y2="100"
+                        stroke="#38bdf8"
+                        strokeDasharray="1,1"
+                        strokeWidth="0.6"
+                        opacity="0.8"
+                      />
+                      <circle cx={x} cy={yCtl} r="1.5" fill="#38bdf8" stroke="#ffffff" strokeWidth="0.4" />
+                      <circle cx={x} cy={yAtl} r="1.5" fill="#c084fc" stroke="#ffffff" strokeWidth="0.4" />
+                    </g>
+                  );
+                })()}
               </svg>
             )}
+
+            {/* Hover details badge inside chart */}
+            {hoveredTimelineIdx !== null && fitnessTimeline[hoveredTimelineIdx] && (() => {
+              const r = fitnessTimeline[hoveredTimelineIdx];
+              const ctl =
+                selectedChartDiscipline === 'swim'
+                  ? r.swimCtl
+                  : selectedChartDiscipline === 'bike'
+                  ? r.bikeCtl
+                  : selectedChartDiscipline === 'run'
+                  ? r.runCtl
+                  : r.triCtl;
+              const atl =
+                selectedChartDiscipline === 'swim'
+                  ? r.swimAtl
+                  : selectedChartDiscipline === 'bike'
+                  ? r.bikeAtl
+                  : selectedChartDiscipline === 'run'
+                  ? r.runAtl
+                  : r.triAtl;
+              const tsb =
+                selectedChartDiscipline === 'swim'
+                  ? r.swimTsb
+                  : selectedChartDiscipline === 'bike'
+                  ? r.bikeTsb
+                  : selectedChartDiscipline === 'run'
+                  ? r.runTsb
+                  : r.triTsb;
+              const status = getFormLabel(tsb);
+
+              return (
+                <div
+                  className={`absolute top-2 right-2 px-3 py-1.5 rounded-xl border text-xs shadow-lg backdrop-blur-md z-10 flex items-center gap-3 ${
+                    isLight ? 'bg-white/95 border-slate-200 text-slate-800' : 'bg-slate-950/95 border-slate-700 text-white'
+                  }`}
+                >
+                  <span className="font-mono font-bold text-slate-400">{r.date}</span>
+                  <span className="text-sky-400 font-bold">CTL: {ctl.toFixed(1)}</span>
+                  <span className="text-purple-400 font-bold">ATL: {atl.toFixed(1)}</span>
+                  <span className={`font-bold ${tsb >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                    Form: {tsb > 0 ? `+${tsb.toFixed(1)}` : tsb.toFixed(1)}
+                  </span>
+                  <span className={`text-[10px] px-1.5 py-0.5 rounded border font-semibold ${status.color} ${status.bg}`}>
+                    {status.label}
+                  </span>
+                </div>
+              );
+            })()}
           </div>
 
           {/* Multiple Date Markers along X-Axis */}

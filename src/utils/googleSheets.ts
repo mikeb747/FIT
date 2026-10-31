@@ -5,6 +5,9 @@ import {
   formatSportMetrics,
   calculateActivityTSS,
   calculateNormalizedPower,
+  markStravaActivityPublishedToGoogleSheets,
+  saveStravaActivityDetails,
+  getCachedStravaActivityRecord,
 } from './stravaActivities';
 import type { AthleteProfile } from '../types/athlete';
 import { calculateWorkKj } from '../types/athlete';
@@ -258,34 +261,14 @@ export async function getExistingActivityIdsInSheet(spreadsheetId: string): Prom
 }
 
 /**
- * Append a Strava activity with enhanced analysis and stream telemetry to Google Sheets
+ * Formats a Strava activity with all its analysis, streams, and calibration metrics into a 22-column Google Sheet row
  */
-export async function appendActivityToTrainingLog(
+export function buildActivitySheetRow(
   activity: StravaActivity,
   details?: StravaActivityDetailsRecord,
   athleteProfile?: AthleteProfile
-): Promise<SheetExportResult> {
-  const token = getGoogleAccessToken();
-  if (!token) {
-    throw new Error('Google authorization token is required. Please connect your Google account.');
-  }
-
-  const spreadsheetId = await getOrCreateTrainingLogSheet();
-  const spreadsheetUrl = `https://docs.google.com/spreadsheets/d/${spreadsheetId}/edit`;
-
-  // Anti-duplication check: check if this activity ID is already in the sheet
-  const existingIds = await getExistingActivityIdsInSheet(spreadsheetId);
+): string[] {
   const actIdStr = String(activity.id);
-
-  if (existingIds.has(actIdStr)) {
-    return {
-      success: true,
-      alreadyExists: true,
-      spreadsheetId,
-      spreadsheetUrl,
-    };
-  }
-
   const classification = classifyActivity(activity);
   const metrics = formatSportMetrics(activity, details);
 
@@ -301,7 +284,7 @@ export async function appendActivityToTrainingLog(
 
   // Calculate stream aggregates if available
   const streams = details?.streams as Record<string, { data?: any[] }> | undefined;
-  
+
   // Power metrics strictly for Turbo Trainer or Bike only!
   const isBikeOrTurbo = classification.subType === 'Turbo Trainer' || classification.subType === 'Bike';
   let avgWatts = '';
@@ -389,7 +372,7 @@ export async function appendActivityToTrainingLog(
     breakdownNotes = breakdownNotes ? `${feedbackNote} | ${breakdownNotes}` : feedbackNote;
   }
 
-  const rowValues = [
+  return [
     activity.start_date_local || activity.start_date,
     actIdStr,
     activity.name,
@@ -413,6 +396,38 @@ export async function appendActivityToTrainingLog(
     stravaUrl,
     nowIso,
   ];
+}
+
+/**
+ * Append a single Strava activity with enhanced analysis and stream telemetry to Google Sheets
+ */
+export async function appendActivityToTrainingLog(
+  activity: StravaActivity,
+  details?: StravaActivityDetailsRecord,
+  athleteProfile?: AthleteProfile
+): Promise<SheetExportResult> {
+  const token = getGoogleAccessToken();
+  if (!token) {
+    throw new Error('Google authorization token is required. Please connect your Google account.');
+  }
+
+  const spreadsheetId = await getOrCreateTrainingLogSheet();
+  const spreadsheetUrl = `https://docs.google.com/spreadsheets/d/${spreadsheetId}/edit`;
+
+  // Anti-duplication check: check if this activity ID is already in the sheet
+  const existingIds = await getExistingActivityIdsInSheet(spreadsheetId);
+  const actIdStr = String(activity.id);
+
+  if (existingIds.has(actIdStr)) {
+    return {
+      success: true,
+      alreadyExists: true,
+      spreadsheetId,
+      spreadsheetUrl,
+    };
+  }
+
+  const rowValues = buildActivitySheetRow(activity, details, athleteProfile);
 
   // Append row to sheet
   const appendRes = await fetch(
@@ -451,12 +466,232 @@ export async function appendActivityToTrainingLog(
     }
   }
 
+  await markStravaActivityPublishedToGoogleSheets(activity.id);
+
   return {
     success: true,
     alreadyExists: false,
     spreadsheetId,
     spreadsheetUrl,
   };
+}
+
+/**
+ * Batch backup multiple Strava activities to Google Sheets at once
+ * - Runs automatically as soon as activities or stream details arrive
+ * - Avoids duplication by checking existing activity IDs in Column B
+ */
+export async function batchBackupActivitiesToGoogleSheet(
+  activities: StravaActivity[],
+  detailsMap: Record<string, StravaActivityDetailsRecord> = {},
+  athleteProfile?: AthleteProfile,
+  spreadsheetIdParam?: string
+): Promise<{ success: boolean; backedUpCount: number; alreadyCount: number; error?: string }> {
+  const token = getGoogleAccessToken();
+  if (!token) {
+    return { success: false, backedUpCount: 0, alreadyCount: 0, error: 'Google authorization token required' };
+  }
+
+  const validActivities = activities.filter((a) => !a.isDeleted);
+  if (validActivities.length === 0) {
+    return { success: true, backedUpCount: 0, alreadyCount: 0 };
+  }
+
+  try {
+    const spreadsheetId = spreadsheetIdParam || (await getOrCreateTrainingLogSheet());
+    const existingIds = await getExistingActivityIdsInSheet(spreadsheetId);
+
+    // Identify which activities are missing from the sheet
+    const toAppend = validActivities.filter((act) => !existingIds.has(String(act.id)));
+
+    if (toAppend.length === 0) {
+      return { success: true, backedUpCount: 0, alreadyCount: existingIds.size };
+    }
+
+    // Format all missing activities into rows
+    const rows = toAppend.map((act) => {
+      const details = detailsMap[String(act.id)];
+      return buildActivitySheetRow(act, details, athleteProfile);
+    });
+
+    // Chunk in batches of 100 to stay well within Google Sheets limits
+    const CHUNK_SIZE = 100;
+    for (let c = 0; c < rows.length; c += CHUNK_SIZE) {
+      const chunk = rows.slice(c, c + CHUNK_SIZE);
+      let res = await fetch(
+        `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/Workouts!A1:append?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS`,
+        {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${token}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ values: chunk }),
+        }
+      );
+
+      if (!res.ok) {
+        res = await fetch(
+          `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/A1:append?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS`,
+          {
+            method: 'POST',
+            headers: {
+              Authorization: `Bearer ${token}`,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ values: chunk }),
+          }
+        );
+      }
+    }
+
+    // Mark all appended activities as published in local cache
+    await Promise.all(toAppend.map((act) => markStravaActivityPublishedToGoogleSheets(act.id)));
+
+    return {
+      success: true,
+      backedUpCount: toAppend.length,
+      alreadyCount: existingIds.size,
+    };
+  } catch (err: any) {
+    console.error('[Google Sheets] batchBackupActivitiesToGoogleSheet failed:', err);
+    return {
+      success: false,
+      backedUpCount: 0,
+      alreadyCount: 0,
+      error: err.message || 'Failed to backup activities to Google Sheets',
+    };
+  }
+}
+
+export interface SheetWorkoutSummary {
+  activityId: string;
+  tss?: number;
+  avgHr?: number;
+  maxHr?: number;
+  avgWatts?: number;
+  rpe?: number;
+  date?: string;
+  name?: string;
+}
+
+/**
+ * Reads existing workout rows from Google Sheets to retrieve historical metrics
+ */
+export async function fetchWorkoutsFromGoogleSheet(
+  spreadsheetIdParam?: string
+): Promise<Map<string, SheetWorkoutSummary>> {
+  const token = getGoogleAccessToken();
+  const result = new Map<string, SheetWorkoutSummary>();
+  if (!token) return result;
+
+  try {
+    const spreadsheetId = spreadsheetIdParam || (await getOrCreateTrainingLogSheet());
+    let res = await fetch(
+      `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/Workouts!A2:V5000`,
+      { headers: { Authorization: `Bearer ${token}` } }
+    );
+    if (!res.ok) {
+      res = await fetch(
+        `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/A2:V5000`,
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+    }
+    if (!res.ok) return result;
+
+    const data = await res.json();
+    const rows: any[][] = data.values || [];
+    for (const row of rows) {
+      const actId = String(row[1] || '').trim();
+      if (!actId) continue;
+
+      let tss: number | undefined;
+      if (row[14]) {
+        const match = String(row[14]).match(/^(\d+(?:\.\d+)?)/);
+        if (match) tss = parseFloat(match[1]);
+      }
+      const avgHr = row[10] ? parseFloat(row[10]) : undefined;
+      const maxHr = row[11] ? parseFloat(row[11]) : undefined;
+      let avgWatts: number | undefined;
+      if (row[12]) {
+        const match = String(row[12]).match(/^(\d+(?:\.\d+)?)/);
+        if (match) avgWatts = parseFloat(match[1]);
+      }
+      const rpe = row[16] ? parseFloat(row[16]) : undefined;
+
+      result.set(actId, {
+        activityId: actId,
+        date: row[0],
+        name: row[2],
+        tss,
+        avgHr,
+        maxHr,
+        avgWatts,
+        rpe,
+      });
+    }
+    return result;
+  } catch (err) {
+    console.warn('[Google Sheets] fetchWorkoutsFromGoogleSheet error:', err);
+    return result;
+  }
+}
+
+/**
+ * Hydrates local activity details from existing Google Sheets data
+ * Saves Strava read API calls by pulling already-calculated metrics from Google Sheets
+ */
+export async function hydrateActivitiesFromGoogleSheet(
+  activities: StravaActivity[]
+): Promise<number> {
+  const token = getGoogleAccessToken();
+  if (!token) return 0;
+
+  try {
+    const sheetData = await fetchWorkoutsFromGoogleSheet();
+    if (sheetData.size === 0) return 0;
+
+    let hydratedCount = 0;
+    for (const act of activities) {
+      const actId = String(act.id);
+      const metrics = sheetData.get(actId);
+      if (!metrics) continue;
+
+      const existing = await getCachedStravaActivityRecord(actId);
+      const hasStreams = Boolean(existing?.streams && Object.keys(existing.streams).length > 0);
+      const hasTss = existing?.calibration?.manualTss !== undefined;
+
+      // If local cache lacks streams or details, hydrate what we have from Google Sheets
+      if (!hasStreams && !hasTss && (metrics.tss !== undefined || metrics.avgHr !== undefined)) {
+        await saveStravaActivityDetails(actId, {
+          activity: {
+            id: act.id,
+            name: act.name,
+            type: act.type,
+            sport_type: act.sport_type,
+          },
+          calibration: {
+            manualTss: metrics.tss,
+            calibratedAvgHeartRate: metrics.avgHr,
+            calibratedMaxHeartRate: metrics.maxHr,
+            calibratedAvgWatts: metrics.avgWatts,
+          },
+          effortFeedback: {
+            rpe: metrics.rpe,
+          },
+          googleDrivePublishedAt: new Date().toISOString(),
+          fetchedAt: new Date().toISOString(),
+        } as any);
+        hydratedCount++;
+      } else if (!existing?.googleDrivePublishedAt) {
+        await markStravaActivityPublishedToGoogleSheets(actId);
+      }
+    }
+    return hydratedCount;
+  } catch (e) {
+    console.warn('[Google Sheets] hydrateActivitiesFromGoogleSheet failed:', e);
+    return 0;
+  }
 }
 
 import type { DailyRecoveryLog } from '../types/recovery';
@@ -570,23 +805,130 @@ export async function getOrCreateHealthSheet(spreadsheetId: string): Promise<voi
         );
       }
     } else {
-      // Update header row to ensure all 21 columns exist
-      await fetch(
-        `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/Health!A1:U1?valueInputOption=USER_ENTERED`,
-        {
-          method: 'PUT',
-          headers: {
-            Authorization: `Bearer ${token}`,
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            values: [HEALTH_SHEET_HEADERS],
-          }),
+      // Check existing row 1 headers to preserve any user-customized labels or formatting
+      const headerRes = await fetch(
+        `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/Health!1:1`,
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      if (headerRes.ok) {
+        const headerData = await headerRes.json();
+        const existingHeaders: string[] = headerData.values?.[0] || [];
+        // If row 1 is completely empty, populate default headers
+        if (existingHeaders.length === 0) {
+          await fetch(
+            `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/Health!A1:U1?valueInputOption=USER_ENTERED`,
+            {
+              method: 'PUT',
+              headers: {
+                Authorization: `Bearer ${token}`,
+                'Content-Type': 'application/json',
+              },
+              body: JSON.stringify({
+                values: [HEALTH_SHEET_HEADERS],
+              }),
+            }
+          ).catch(() => {});
+        } else if (existingHeaders.length < HEALTH_SHEET_HEADERS.length) {
+          // If the sheet had fewer columns, append only the missing columns to the right without modifying existing headers
+          const missingHeaders = HEALTH_SHEET_HEADERS.slice(existingHeaders.length);
+          const startColLetter = String.fromCharCode(65 + existingHeaders.length);
+          const endColLetter = String.fromCharCode(65 + HEALTH_SHEET_HEADERS.length - 1);
+          await fetch(
+            `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/Health!${startColLetter}1:${endColLetter}1?valueInputOption=USER_ENTERED`,
+            {
+              method: 'PUT',
+              headers: {
+                Authorization: `Bearer ${token}`,
+                'Content-Type': 'application/json',
+              },
+              body: JSON.stringify({
+                values: [missingHeaders],
+              }),
+            }
+          ).catch(() => {});
         }
-      ).catch(() => {});
+      }
     }
   } catch (err) {
     console.warn('[Google Sheets] Failed to create or verify Health sheet:', err);
+  }
+}
+
+/**
+ * Normalizes various Google Sheets date representations (ISO, DD/MM/YYYY, MM/DD/YYYY, Excel serial numbers)
+ * into standard YYYY-MM-DD
+ */
+export function normalizeDateToYyyyMmDd(val: any): string {
+  if (val === null || val === undefined) return '';
+  const str = String(val).trim();
+  if (!str) return '';
+
+  // 1. Direct YYYY-MM-DD
+  if (/^\d{4}-\d{2}-\d{2}$/.test(str)) return str;
+
+  // 2. ISO timestamp: 2026-10-31T...
+  if (/^\d{4}-\d{2}-\d{2}T/.test(str)) return str.slice(0, 10);
+
+  // 3. YYYY/MM/DD
+  const ymdMatch = str.match(/^(\d{4})[\/\.](\d{1,2})[\/\.](\d{1,2})$/);
+  if (ymdMatch) {
+    return `${ymdMatch[1]}-${ymdMatch[2].padStart(2, '0')}-${ymdMatch[3].padStart(2, '0')}`;
+  }
+
+  // 4. DD/MM/YYYY or MM/DD/YYYY
+  const dmyMatch = str.match(/^(\d{1,2})[\/\-\.](\d{1,2})[\/\-\.](\d{4})$/);
+  if (dmyMatch) {
+    const p1 = parseInt(dmyMatch[1], 10);
+    const p2 = parseInt(dmyMatch[2], 10);
+    const y = dmyMatch[3];
+    if (p1 > 12) {
+      // First part > 12 must be DD
+      return `${y}-${String(p2).padStart(2, '0')}-${String(p1).padStart(2, '0')}`;
+    }
+    if (p2 > 12) {
+      // Second part > 12 must be DD
+      return `${y}-${String(p1).padStart(2, '0')}-${String(p2).padStart(2, '0')}`;
+    }
+    // Default to European/UK standard DD/MM/YYYY
+    return `${y}-${String(p2).padStart(2, '0')}-${String(p1).padStart(2, '0')}`;
+  }
+
+  // 5. Excel / Google Sheets serial date number
+  const num = Number(str);
+  if (Number.isFinite(num) && num > 30000 && num < 70000) {
+    const dateFromSerial = new Date(Math.round((num - 25569) * 86400 * 1000));
+    if (!isNaN(dateFromSerial.getTime())) {
+      return dateFromSerial.toISOString().slice(0, 10);
+    }
+  }
+
+  // 6. Native JS Date parse fallback
+  const dt = new Date(str);
+  if (!isNaN(dt.getTime())) {
+    const y = dt.getFullYear();
+    const m = String(dt.getMonth() + 1).padStart(2, '0');
+    const d = String(dt.getDate()).padStart(2, '0');
+    return `${y}-${m}-${d}`;
+  }
+
+  return str;
+}
+
+/**
+ * Retrieve the numerical sheetId of the "Health" tab
+ */
+export async function getHealthSheetId(spreadsheetId: string, token: string): Promise<number | null> {
+  try {
+    const res = await fetch(
+      `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}?fields=sheets(properties(sheetId,title))`,
+      { headers: { Authorization: `Bearer ${token}` } }
+    );
+    if (!res.ok) return null;
+    const data = await res.json();
+    const healthSheet = (data.sheets || []).find((s: any) => s.properties?.title === 'Health');
+    return healthSheet?.properties?.sheetId ?? null;
+  } catch {
+    return null;
   }
 }
 
@@ -603,7 +945,7 @@ export async function fetchHealthDataFromGoogleSheet(spreadsheetId?: string): Pr
   try {
     await getOrCreateHealthSheet(targetId);
     const res = await fetch(
-      `https://sheets.googleapis.com/v4/spreadsheets/${targetId}/values/Health!A2:U3000`,
+      `https://sheets.googleapis.com/v4/spreadsheets/${targetId}/values/${encodeURIComponent('Health!A2:U3000')}?valueRenderOption=FORMATTED_VALUE`,
       {
         headers: { Authorization: `Bearer ${token}` },
       }
@@ -615,7 +957,7 @@ export async function fetchHealthDataFromGoogleSheet(spreadsheetId?: string): Pr
     const logs: DailyRecoveryLog[] = [];
 
     for (const row of rows) {
-      const date = String(row[0] || '').trim();
+      const date = normalizeDateToYyyyMmDd(row[0]);
       if (!date || !/^\d{4}-\d{2}-\d{2}$/.test(date)) continue;
 
       const sleepScore = Number(row[2]) || 0;
@@ -694,14 +1036,18 @@ export interface BatchHealthUploadResult {
   totalLogs: number;
   appendedCount: number;
   updatedCount: number;
+  prunedDuplicatesCount?: number;
   spreadsheetId?: string;
   spreadsheetUrl?: string;
   error?: string;
 }
 
 /**
- * Batch upload multiple recovery logs to the "Health" tab in Google Sheets safely
- * (Deduplicates by date, prevents 429 rate limits, writes all 21 metric columns)
+ * Batch upload recovery logs to the "Health" tab in Google Sheets
+ * - Reads existing dates from Column A (with date format normalization)
+ * - If a row for that date already exists, updates it in-place in Column A–U
+ * - Automatically detects and cleans up any duplicate rows for the same date
+ * - Appends truly new dates without duplication
  */
 export async function batchUploadHealthDataToGoogleSheet(
   logs: DailyRecoveryLog[],
@@ -731,62 +1077,70 @@ export async function batchUploadHealthDataToGoogleSheet(
     const targetId = spreadsheetId || (await getOrCreateTrainingLogSheet());
     await getOrCreateHealthSheet(targetId);
 
-    // Read existing dates from column A (Health!A2:A5000)
+    // Read existing dates from Column A (Health!A2:A5000)
     const checkRes = await fetch(
-      `https://sheets.googleapis.com/v4/spreadsheets/${targetId}/values/Health!A2:A5000`,
+      `https://sheets.googleapis.com/v4/spreadsheets/${targetId}/values/${encodeURIComponent('Health!A2:A5000')}?valueRenderOption=FORMATTED_VALUE`,
       { headers: { Authorization: `Bearer ${token}` } }
     );
 
-    const dateToRowIndex = new Map<string, number>();
-    if (checkRes.ok) {
-      const checkData = await checkRes.json();
-      const rows = checkData.values || [];
-      for (let i = 0; i < rows.length; i++) {
-        const d = String(rows[i][0] || '').trim();
-        if (d) dateToRowIndex.set(d, i + 2); // 1-indexed, row 1 is header
+    if (!checkRes.ok) {
+      const errText = await checkRes.text().catch(() => '');
+      throw new Error(`Failed to check existing Health rows in Google Sheets (${checkRes.status}): ${errText}`);
+    }
+
+    const checkData = await checkRes.json();
+    const existingRows = checkData.values || [];
+
+    // Map each normalized date to all row indices where it appears
+    const dateToRowIndices = new Map<string, number[]>();
+    for (let i = 0; i < existingRows.length; i++) {
+      const rawDate = existingRows[i]?.[0];
+      const normDate = normalizeDateToYyyyMmDd(rawDate);
+      if (normDate) {
+        const rowIdx = i + 2; // 1-indexed, row 1 is header
+        const list = dateToRowIndices.get(normDate);
+        if (list) {
+          list.push(rowIdx);
+        } else {
+          dateToRowIndices.set(normDate, [rowIdx]);
+        }
       }
     }
 
-    const rowsToAppend: (string | number)[][] = [];
     const updates: { range: string; values: (string | number)[][] }[] = [];
+    const rowsToAppend: (string | number)[][] = [];
+    const duplicateRowIndicesToDelete: number[] = [];
 
     // Sort logs chronologically
     const sorted = [...logs].sort((a, b) => a.date.localeCompare(b.date));
 
     for (const log of sorted) {
       const row = formatHealthLogRow(log);
-      const existingRowIndex = dateToRowIndex.get(log.date);
+      const normLogDate = normalizeDateToYyyyMmDd(log.date);
+      const existingIndices = dateToRowIndices.get(normLogDate);
 
-      if (existingRowIndex) {
+      if (existingIndices && existingIndices.length > 0) {
+        // Row already exists in Column A: ALWAYS update in-place!
+        const primaryRowIndex = existingIndices[0];
         updates.push({
-          range: `Health!A${existingRowIndex}:U${existingRowIndex}`,
+          range: `Health!A${primaryRowIndex}:U${primaryRowIndex}`,
           values: [row],
         });
-      } else {
-        rowsToAppend.push(row);
-      }
-    }
 
-    // Append new rows in one single request
-    if (rowsToAppend.length > 0) {
-      const appendRes = await fetch(
-        `https://sheets.googleapis.com/v4/spreadsheets/${targetId}/values/Health!A1:append?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS`,
-        {
-          method: 'POST',
-          headers: {
-            Authorization: `Bearer ${token}`,
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({ values: rowsToAppend }),
+        // Any secondary rows for the same date are historical duplicates — queue for pruning
+        if (existingIndices.length > 1) {
+          duplicateRowIndicesToDelete.push(...existingIndices.slice(1));
         }
-      );
-      if (!appendRes.ok) {
-        const errJson = await appendRes.json().catch(() => ({}));
-        throw new Error(errJson.error?.message || `Append failed (${appendRes.status})`);
+      } else {
+        // Genuinely new date: append
+        rowsToAppend.push(row);
+        // Reserve an index so subsequent occurrences within the batch don't duplicate
+        const virtualRowIndex = existingRows.length + 2 + rowsToAppend.length - 1;
+        dateToRowIndices.set(normLogDate, [virtualRowIndex]);
       }
     }
 
-    // Batch update existing rows
+    // 1. Batch update existing rows (in-place modification of Column A-U)
     if (updates.length > 0) {
       const updateRes = await fetch(
         `https://sheets.googleapis.com/v4/spreadsheets/${targetId}/values:batchUpdate`,
@@ -808,6 +1162,57 @@ export async function batchUploadHealthDataToGoogleSheet(
       }
     }
 
+    // 2. Automatically delete pre-existing duplicate rows in Google Sheets
+    if (duplicateRowIndicesToDelete.length > 0) {
+      try {
+        const healthSheetId = await getHealthSheetId(targetId, token);
+        if (healthSheetId !== null) {
+          // Sort row indices descending so deleting earlier rows doesn't shift later indices
+          const uniqueSortedDesc = Array.from(new Set(duplicateRowIndicesToDelete)).sort((a, b) => b - a);
+          const deleteRequests = uniqueSortedDesc.map((rowIdx) => ({
+            deleteDimension: {
+              range: {
+                sheetId: healthSheetId,
+                dimension: 'ROWS',
+                startIndex: rowIdx - 1, // 0-indexed inclusive
+                endIndex: rowIdx,       // 0-indexed exclusive
+              },
+            },
+          }));
+
+          await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${targetId}:batchUpdate`, {
+            method: 'POST',
+            headers: {
+              Authorization: `Bearer ${token}`,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ requests: deleteRequests }),
+          });
+        }
+      } catch (pruneErr) {
+        console.warn('[Google Sheets] Could not prune duplicate rows:', pruneErr);
+      }
+    }
+
+    // 3. Append genuinely new dates
+    if (rowsToAppend.length > 0) {
+      const appendRes = await fetch(
+        `https://sheets.googleapis.com/v4/spreadsheets/${targetId}/values/${encodeURIComponent('Health!A1:U')}:append?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS`,
+        {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${token}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ values: rowsToAppend }),
+        }
+      );
+      if (!appendRes.ok) {
+        const errJson = await appendRes.json().catch(() => ({}));
+        throw new Error(errJson.error?.message || `Append failed (${appendRes.status})`);
+      }
+    }
+
     setLastGoogleSheetsSyncTime();
     const spreadsheetUrl = `https://docs.google.com/spreadsheets/d/${targetId}/edit`;
     return {
@@ -815,6 +1220,7 @@ export async function batchUploadHealthDataToGoogleSheet(
       totalLogs: logs.length,
       appendedCount: rowsToAppend.length,
       updatedCount: updates.length,
+      prunedDuplicatesCount: duplicateRowIndicesToDelete.length,
       spreadsheetId: targetId,
       spreadsheetUrl,
     };

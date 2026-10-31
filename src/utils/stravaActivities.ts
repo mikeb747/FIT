@@ -1663,12 +1663,16 @@ export function mergeStravaActivities(existing: StravaActivity[], incoming: Stra
 
 /**
  * Smart Delta Sync:
- * - Load up to 200 activities at a time from Strava
+ * - When syncing data from Strava, for the first time (if we have less than 200 activities),
+ *   request 200 activities. For the next time we sync, just get 30.
  * - Prepend and merge into existing cache; never lose previously fetched historical items!
  */
-export async function syncStravaActivitiesDelta(accessToken: string): Promise<StravaActivity[]> {
+export async function syncStravaActivitiesDelta(accessToken: string, customPerPage?: number): Promise<StravaActivity[]> {
   const existingActivities = getCachedStravaActivities();
-  const perPage = 200;
+  // Requirement: First time (if less than 200 activities), request 200 activities; next time we sync, just get 30
+  const perPage = customPerPage !== undefined
+    ? customPerPage
+    : (existingActivities.length < 200 ? 200 : 30);
 
   const isGitHubPages = typeof window !== 'undefined' && window.location.hostname.includes('github.io');
 
@@ -1747,19 +1751,24 @@ export async function syncStravaActivitiesDelta(accessToken: string): Promise<St
     }
   }
 
-  // Check if recent activities (within the last 2 weeks) still exist on Strava.
-  // If a previously cached activity from the last 2 weeks is not in the fetched 200 activities,
-  // mark it as isDeleted = true to display a red "Deleted" badge without deleting the activity.
+  // Check if recent activities (within the fetched time window and last 2 weeks) still exist on Strava.
+  // If a previously cached activity from this timeframe is missing from the incoming batch, mark as isDeleted = true.
   if (incoming.length > 0) {
     const incomingIdSet = new Set(incoming.map((a) => String(a.id)));
     const twoWeeksAgoMs = Date.now() - 14 * 24 * 60 * 60 * 1000;
+    const incomingTimestamps = incoming
+      .map((a) => (a.start_date ? new Date(a.start_date).getTime() : NaN))
+      .filter((t) => !isNaN(t));
+    const oldestIncomingMs = incomingTimestamps.length > 0 ? Math.min(...incomingTimestamps) : twoWeeksAgoMs;
+    const checkThresholdMs = Math.max(twoWeeksAgoMs, oldestIncomingMs);
+
     const deletedIds = getDeletedActivityIds();
     let foundMissing = false;
 
     for (const prevAct of existingActivities) {
       if (!prevAct.start_date) continue;
       const t = new Date(prevAct.start_date).getTime();
-      if (!isNaN(t) && t >= twoWeeksAgoMs) {
+      if (!isNaN(t) && t >= checkThresholdMs) {
         if (!incomingIdSet.has(String(prevAct.id))) {
           prevAct.isDeleted = true;
           deletedIds.add(String(prevAct.id));

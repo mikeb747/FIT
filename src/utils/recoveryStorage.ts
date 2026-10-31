@@ -361,6 +361,19 @@ export function getDatesInRange(startStr?: string, endStr?: string, fallbackDate
 }
 
 /**
+ * Determines if a recovery log record already has all complete recovery metrics
+ * (Resting HR, Sleep, and HRV)
+ */
+export function hasCompleteRecoveryData(log?: DailyRecoveryLog): boolean {
+  if (!log) return false;
+  const hasRhr = typeof log.restingHr === 'number' && log.restingHr > 0;
+  const hasSleep = (typeof log.sleepDurationMinutes === 'number' && log.sleepDurationMinutes > 0) ||
+                   (typeof log.sleepScore === 'number' && log.sleepScore > 0);
+  const hasHrv = typeof log.hrvRmssd === 'number' && log.hrvRmssd > 0;
+  return hasRhr && hasSleep && hasHrv;
+}
+
+/**
  * Triggers multi-week Garmin sync via backend server endpoint /api/garmin/sync-multiweek.
  * Strictly communicates with live endpoints without synthetic demo fallbacks.
  */
@@ -372,6 +385,7 @@ export async function syncGarminMultiWeek(options: {
   debugDate?: string;
   startDate?: string;
   endDate?: string;
+  dates?: string[];
   baselineRhr?: number;
 }): Promise<{
   success: boolean;
@@ -400,7 +414,9 @@ export async function syncGarminMultiWeek(options: {
     };
   }
 
-  const targetDates = getDatesInRange(options.startDate, options.endDate, options.debugDate);
+  const targetDates = Array.isArray(options.dates) && options.dates.length > 0
+    ? options.dates
+    : getDatesInRange(options.startDate, options.endDate, options.debugDate);
   const queryDate = targetDates[0] || '2026-10-28';
 
   let configuredProxyUrl = '';
@@ -430,7 +446,7 @@ export async function syncGarminMultiWeek(options: {
   const clientTrace: GarminApiDebugTrace = {
     id: `trace_client_${Date.now()}`,
     timestamp: new Date().toISOString(),
-    label: `Local Client -> ${targetApiUrl} (${queryDate} UTC)`,
+    label: `Local Client -> ${targetApiUrl} (${queryDate} UTC, ${targetDates.length} day(s))`,
     request: {
       method: 'POST',
       url: targetApiUrl,
@@ -440,6 +456,7 @@ export async function syncGarminMultiWeek(options: {
         hasApiKey: Boolean(sessionToken && sessionToken.startsWith('GCDC_')),
         weeks: options.weeks,
         debugDate: queryDate,
+        dates: targetDates,
         isGitHubPages,
         proxyConfigured: Boolean(configuredProxyUrl),
       }, null, 2),
@@ -463,6 +480,7 @@ export async function syncGarminMultiWeek(options: {
         sessionToken,
         weeks: options.weeks,
         debugDate: queryDate,
+        dates: targetDates,
         baselineRhr: baseline,
       }),
     });

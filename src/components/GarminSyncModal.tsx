@@ -25,6 +25,8 @@ import {
   syncGarminMultiWeek,
   mergeRecoveryLogs,
   parseGarminOrTpCsv,
+  hasCompleteRecoveryData,
+  getDatesInRange,
   type GarminMetricCheck,
 } from '../utils/recoveryStorage';
 import {
@@ -85,6 +87,7 @@ export const GarminSyncModal: React.FC<GarminSyncModalProps> = ({
 
   const [isBackingUpSheet, setIsBackingUpSheet] = useState(false);
   const [sheetBackupFeedback, setSheetBackupFeedback] = useState<string | null>(null);
+  const [forceRefreshExisting, setForceRefreshExisting] = useState(false);
 
   // Reset to collapsed state and sync active credentials whenever the modal is opened
   useEffect(() => {
@@ -99,13 +102,13 @@ export const GarminSyncModal: React.FC<GarminSyncModalProps> = ({
     }
   }, [isOpen]);
 
-  const handleBackupToSheet = async () => {
-    if (!existingLogs || existingLogs.length === 0) {
+  const handleBackupToSheet = async (logsToBackup?: DailyRecoveryLog[]) => {
+    const logs = logsToBackup && logsToBackup.length > 0 ? logsToBackup : existingLogs;
+    if (!logs || logs.length === 0) {
       setError('No recovery records available to backup.');
       return;
     }
     setError(null);
-    setSuccess(null);
     let token = getGoogleAccessToken();
     if (!token) {
       try {
@@ -120,7 +123,7 @@ export const GarminSyncModal: React.FC<GarminSyncModalProps> = ({
     }
     setIsBackingUpSheet(true);
     try {
-      const res = await batchUploadHealthDataToGoogleSheet(existingLogs);
+      const res = await batchUploadHealthDataToGoogleSheet(logs);
       if (res.success) {
         setSheetBackupFeedback(`Backed up ${res.appendedCount + res.updatedCount} days!`);
         setSuccess(`Successfully backed up ${res.appendedCount + res.updatedCount} days to GymFIT Training Log on Google Sheets!`);
@@ -184,6 +187,31 @@ export const GarminSyncModal: React.FC<GarminSyncModalProps> = ({
     const rangeLabel = startDate === endDate ? `${startDate} (UTC)` : `${startDate} to ${endDate} (UTC)`;
     setCheckedRange(rangeLabel);
 
+    const allRangeDates = getDatesInRange(startDate, endDate);
+    const existingLogsMap = new Map<string, DailyRecoveryLog>();
+    existingLogs.forEach((l) => existingLogsMap.set(l.date, l));
+
+    // Filter out dates that already exist with complete recovery data unless force-refreshed
+    const datesToFetch: string[] = [];
+    const skippedCompleteDates: string[] = [];
+
+    for (const d of allRangeDates) {
+      const existing = existingLogsMap.get(d);
+      if (!forceRefreshExisting && hasCompleteRecoveryData(existing)) {
+        skippedCompleteDates.push(d);
+      } else {
+        datesToFetch.push(d);
+      }
+    }
+
+    if (datesToFetch.length === 0) {
+      setSuccess(
+        `All ${allRangeDates.length} day(s) for ${rangeLabel} already exist with complete recovery data in your log. (Skipped Garmin requests to prevent duplicates and conserve limits).`
+      );
+      setIsLoading(false);
+      return;
+    }
+
     const configuredProxy = proxyUrl.trim();
     const isApiKey = sessionToken.trim().startsWith('GCDC_');
     const targetEndpoint = configuredProxy
@@ -194,7 +222,7 @@ export const GarminSyncModal: React.FC<GarminSyncModalProps> = ({
     const inFlightTrace: GarminApiDebugTrace = {
       id: `trace_client_${Date.now()}`,
       timestamp: new Date().toISOString(),
-      label: `Local Client Request Dispatched -> ${targetEndpoint} (${rangeLabel})`,
+      label: `Local Client Request Dispatched -> ${targetEndpoint} (${rangeLabel}, querying ${datesToFetch.length} day(s))`,
       request: {
         method: 'POST',
         url: targetEndpoint,
@@ -209,6 +237,8 @@ export const GarminSyncModal: React.FC<GarminSyncModalProps> = ({
             activeTab,
             startDate,
             endDate,
+            dates: datesToFetch,
+            skippedCompleteCount: skippedCompleteDates.length,
             hasSessionToken: Boolean(sessionToken.trim()),
           },
           null,
@@ -219,7 +249,7 @@ export const GarminSyncModal: React.FC<GarminSyncModalProps> = ({
         status: 0,
         statusText: 'Connecting to Garmin proxy...',
         contentType: 'application/json',
-        body: `Connecting to Garmin Connect endpoints for ${rangeLabel}...`,
+        body: `Connecting to Garmin Connect endpoints for ${datesToFetch.length} day(s)...`,
         durationMs: 0,
       },
     };
@@ -239,12 +269,13 @@ export const GarminSyncModal: React.FC<GarminSyncModalProps> = ({
       setProgressMsg('Connecting to Garmin Connect service...');
       await new Promise((r) => setTimeout(r, 200));
 
-      setProgressMsg(`Querying Garmin Connect endpoints for ${rangeLabel}...`);
+      setProgressMsg(`Querying Garmin Connect endpoints for ${datesToFetch.length} day(s)...`);
 
       const result = await syncGarminMultiWeek({
         sessionToken: sessionToken.trim(),
         startDate,
         endDate,
+        dates: datesToFetch,
         baselineRhr,
       });
 
@@ -263,7 +294,7 @@ export const GarminSyncModal: React.FC<GarminSyncModalProps> = ({
       if (result.logs.length === 0) {
         setSuccess(
           result.checks
-            ? `Telemetry check completed for ${rangeLabel}. No full recovery record was parsed.`
+            ? `Telemetry check completed for ${rangeLabel}. No new recovery record was parsed.`
             : `Connected to Garmin Connect. No new recovery records were found for ${rangeLabel}.`
         );
         setIsLoading(false);
@@ -276,24 +307,15 @@ export const GarminSyncModal: React.FC<GarminSyncModalProps> = ({
       const merged = mergeRecoveryLogs(existingLogs, result.logs);
       onSyncComplete(merged);
 
-      let sheetNote = '';
-      if (getGoogleAccessToken()) {
-        setProgressMsg('Uploading recovery telemetry to GymFIT Training Log on Google Sheets...');
-        try {
-          const sheetRes = await batchUploadHealthDataToGoogleSheet(result.logs);
-          if (sheetRes.success) {
-            sheetNote = ' • Saved to GymFIT Training Log on Google Sheets!';
-          } else if (sheetRes.error) {
-            sheetNote = ` • (Google Sheets: ${sheetRes.error})`;
-          }
-        } catch (e: any) {
-          console.warn('[Google Sheets] auto-upload error:', e);
-        }
-      }
-
+      const skipNote = skippedCompleteDates.length > 0
+        ? ` (${skippedCompleteDates.length} existing complete days were skipped)`
+        : '';
       setSuccess(
-        `Successfully imported ${result.syncedDays} day(s) of Garmin recovery data for ${rangeLabel}${sheetNote}`
+        `Successfully imported ${result.syncedDays} day(s) of Garmin recovery data for ${rangeLabel}${skipNote}`
       );
+
+      // Requirement: After getting data from Garmin Health API, automatically select/trigger "Backup to Sheet"
+      await handleBackupToSheet(merged);
     } catch (err: any) {
       setError(err.message || 'An unexpected error occurred during Garmin synchronization.');
       const errTrace: GarminApiDebugTrace = {
@@ -556,6 +578,26 @@ export const GarminSyncModal: React.FC<GarminSyncModalProps> = ({
                     </button>
                   </div>
                 </div>
+
+                {/* Skip complete dates indicator & toggle */}
+                <div className={`mt-2 pt-2 border-t flex items-center justify-between text-[11px] ${
+                  isLight ? 'border-slate-200 text-slate-500' : 'border-slate-800 text-slate-400'
+                }`}>
+                  <span className="truncate">
+                    Skip dates that already have complete data
+                  </span>
+                  <label className="flex items-center gap-1.5 cursor-pointer shrink-0 select-none" title="When checked, re-queries Garmin even for dates that already have complete recovery data">
+                    <input
+                      type="checkbox"
+                      checked={forceRefreshExisting}
+                      onChange={(e) => setForceRefreshExisting(e.target.checked)}
+                      className="rounded border-slate-700 text-sky-500 focus:ring-0 cursor-pointer"
+                    />
+                    <span className={isLight ? 'text-slate-700 font-medium' : 'text-slate-300 font-medium'}>
+                      Force re-fetch
+                    </span>
+                  </label>
+                </div>
               </div>
 
               {/* Just Below the Date Picker: Sync Button */}
@@ -576,7 +618,7 @@ export const GarminSyncModal: React.FC<GarminSyncModalProps> = ({
               {/* Directly below Sync: Backup to Sheet Button */}
               <button
                 type="button"
-                onClick={handleBackupToSheet}
+                onClick={() => handleBackupToSheet()}
                 disabled={isBackingUpSheet || existingLogs.length === 0}
                 className={`w-full py-2.5 px-4 rounded-xl text-xs font-bold flex items-center justify-center gap-2 transition-all cursor-pointer border shadow-sm ${
                   sheetBackupFeedback

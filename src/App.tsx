@@ -46,6 +46,7 @@ import {
   fetchHealthDataFromGoogleSheet,
   appendHealthDataToGoogleSheet,
   batchUploadHealthDataToGoogleSheet,
+  batchBackupActivitiesToGoogleSheet,
   getLastGoogleSheetsSyncTime,
   formatTimeAgo,
 } from './utils/googleSheets';
@@ -509,6 +510,17 @@ export default function App() {
         if (rec) detailMap[rec.id] = rec;
       });
       setStravaActivityDetails((prev) => ({ ...prev, ...detailMap }));
+
+      // Requirement: Auto-backup to Google Sheets as soon as activity data arrives
+      if (getGoogleAccessToken()) {
+        batchBackupActivitiesToGoogleSheet(data, detailMap, athleteProfile).then((res) => {
+          if (res.success && res.backedUpCount > 0) {
+            console.log(`[Google Sheets] Auto-backed up ${res.backedUpCount} activities!`);
+          }
+        }).catch((e) => {
+          console.warn('[Google Sheets] Auto-backup error:', e);
+        });
+      }
     } catch (err: any) {
       setStravaActivitiesError(err.message || 'Failed to sync activities from Strava');
     } finally {
@@ -560,6 +572,17 @@ export default function App() {
         if (rec) detailMap[rec.id] = rec;
       });
       setStravaActivityDetails((prev) => ({ ...prev, ...detailMap }));
+
+      // Auto-backup newly loaded older activities as soon as data arrives
+      if (getGoogleAccessToken()) {
+        batchBackupActivitiesToGoogleSheet(result.activities, detailMap, athleteProfile).then((res) => {
+          if (res.success && res.backedUpCount > 0) {
+            console.log(`[Google Sheets] Auto-backed up ${res.backedUpCount} older activities!`);
+          }
+        }).catch((e) => {
+          console.warn('[Google Sheets] Auto-backup error:', e);
+        });
+      }
     } catch (err: any) {
       setStravaActivitiesError(err.message || 'Failed to load older activities');
     } finally {

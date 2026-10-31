@@ -7,6 +7,8 @@ import {
   getSecondsUntilNext15MinWindow,
   subscribeToStravaRateLimits,
 } from './stravaActivities';
+import { getGoogleAccessToken } from './googleAuth';
+import { hydrateActivitiesFromGoogleSheet, appendActivityToTrainingLog } from './googleSheets';
 
 export interface StreamDownloaderProgress {
   isDownloading: boolean;
@@ -200,7 +202,21 @@ export async function startBackgroundStreamDownload({
     return timeB - timeA;
   });
 
-  // Identify activities missing cached streams
+  // Pre-check Google Sheets for existing activity data to conserve Strava API rate limits
+  if (getGoogleAccessToken()) {
+    try {
+      currentProgress.currentActivityName = 'Checking Google Sheets for existing activity telemetry...';
+      notifyListeners();
+      const hydrated = await hydrateActivitiesFromGoogleSheet(sorted);
+      if (hydrated > 0) {
+        console.log(`[Stream Downloader] Hydrated ${hydrated} activities directly from Google Sheets!`);
+      }
+    } catch (e) {
+      console.warn('[Stream Downloader] Could not pre-check Google Sheets:', e);
+    }
+  }
+
+  // Identify activities missing cached streams or sheet hydration
   const queue: StravaActivity[] = [];
   for (const act of sorted) {
     const actId = String(act.id);
@@ -213,15 +229,16 @@ export async function startBackgroundStreamDownload({
       Object.keys(existing.streams).length > 0;
 
     if (!hasStreams) {
-      // Double check IndexedDB in case it's in DB but not yet in memory state
+      // Double check IndexedDB in case it's in DB or was hydrated from Google Sheets
       const dbRecord = await getCachedStravaActivityRecord(actId);
       const dbHasStreams =
         dbRecord?.streams &&
         typeof dbRecord.streams === 'object' &&
         !dbRecord.streamsError &&
         Object.keys(dbRecord.streams).length > 0;
+      const isHydratedFromSheet = dbRecord?.calibration?.manualTss !== undefined;
 
-      if (!dbHasStreams) {
+      if (!dbHasStreams && !isHydratedFromSheet) {
         queue.push(act);
       } else if (dbRecord && onActivityDownloaded) {
         onActivityDownloaded(dbRecord);
@@ -311,6 +328,13 @@ export async function startBackgroundStreamDownload({
       const savedRecord = await saveStravaActivityDetails(activity.id, details);
       if (onActivityDownloaded) {
         onActivityDownloaded(savedRecord);
+      }
+
+      // Requirement: Auto-backup to Google Sheets as soon as we got the data
+      if (getGoogleAccessToken()) {
+        appendActivityToTrainingLog(activity, savedRecord).catch((e) => {
+          console.warn(`[Auto-Backup] Failed to auto-backup activity ${activity.id}:`, e);
+        });
       }
 
       currentProgress.completed = i + 1;

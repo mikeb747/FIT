@@ -16,6 +16,7 @@ import {
   ChevronRight,
   Loader2,
   Zap,
+  FileSpreadsheet,
 } from 'lucide-react';
 import { StravaIcon } from './StravaIcon';
 import type {
@@ -34,6 +35,7 @@ import { applyRenameRulesToName } from '../utils/activityRenameRules';
 import type { AthleteProfile } from '../types/athlete';
 import { StravaActivityModal } from './StravaActivityModal';
 import { PWAInstallButton } from './PWAInstallButton';
+import { batchBackupActivitiesToGoogleSheet } from '../utils/googleSheets';
 
 interface StravaActivitiesTabProps {
   stravaToken: string | null;
@@ -126,6 +128,32 @@ export const StravaActivitiesTab: React.FC<StravaActivitiesTabProps> = ({
   const isLight = theme === 'light';
   const [selectedCategory, setSelectedCategory] = useState<ActivityFilterCategory>('All');
   const [activeModalActivity, setActiveModalActivity] = useState<StravaActivity | null>(null);
+  const [isBackingUpSheets, setIsBackingUpSheets] = useState(false);
+  const [backupFeedback, setBackupFeedback] = useState<string | null>(null);
+
+  const handleBackupAllToSheets = async () => {
+    if (!isGoogleConnected) {
+      onConnectGoogle();
+      return;
+    }
+    setIsBackingUpSheets(true);
+    setBackupFeedback(null);
+    try {
+      const res = await batchBackupActivitiesToGoogleSheet(activities, activityDetails, athleteProfile);
+      if (res.success) {
+        setBackupFeedback(res.backedUpCount > 0 ? `Backed up ${res.backedUpCount} activities!` : 'All activities up to date!');
+        setTimeout(() => setBackupFeedback(null), 3500);
+      } else {
+        setBackupFeedback(res.error || 'Backup failed');
+        setTimeout(() => setBackupFeedback(null), 3500);
+      }
+    } catch (e: any) {
+      setBackupFeedback(e.message || 'Error backing up to Sheets');
+      setTimeout(() => setBackupFeedback(null), 3500);
+    } finally {
+      setIsBackingUpSheets(false);
+    }
+  };
 
   // Filter activities by selected category: All, Swim, Bike, Run, Gym
   const filteredActivities = useMemo(() => {
@@ -195,60 +223,95 @@ export const StravaActivitiesTab: React.FC<StravaActivitiesTabProps> = ({
       {/* ========================================================= */}
       {/* CATEGORY FILTER TABS: All, Swim, Bike, Run, Gym (EXACT ORDER) */}
       {/* ========================================================= */}
-      <div
-        className={`inline-flex items-center rounded-xl border overflow-x-auto scrollbar-none divide-x-2 shadow-xs max-w-full ${
-          isLight
-            ? 'bg-slate-100 border-slate-200 divide-slate-200'
-            : 'bg-slate-950 border-slate-800 divide-slate-700/80'
-        }`}
-      >
-        {(['All', 'Swim', 'Bike', 'Run', 'Gym'] as const).map((cat) => {
-          const count = categoryCounts[cat] || 0;
-          const isActive = selectedCategory === cat;
-          return (
-            <button
-              key={cat}
-              type="button"
-              onClick={() => setSelectedCategory(cat)}
-              className={`px-2 sm:px-3 py-1.5 text-[11px] sm:text-xs font-bold whitespace-nowrap flex items-center gap-1 sm:gap-1.5 transition-all cursor-pointer ${
-                isActive
-                  ? isLight
-                    ? 'bg-amber-500 text-white font-black shadow-xs'
-                    : 'bg-amber-500 text-slate-950 font-black shadow-xs'
-                  : isLight
-                  ? 'bg-white hover:bg-slate-50 text-slate-700 hover:text-slate-900'
-                  : 'bg-slate-950 hover:bg-slate-900 text-slate-400 hover:text-white'
-              }`}
-            >
-              {cat === 'Swim' && (
-                <Waves className={`w-3.5 h-3.5 ${isLight && !isActive ? 'text-sky-600' : 'text-sky-400'}`} />
-              )}
-              {cat === 'Bike' && (
-                <Bike className={`w-3.5 h-3.5 ${isLight && !isActive ? 'text-amber-600' : 'text-orange-400'}`} />
-              )}
-              {cat === 'Run' && (
-                <Footprints className={`w-3.5 h-3.5 ${isLight && !isActive ? 'text-amber-700' : 'text-amber-400'}`} />
-              )}
-              {cat === 'Gym' && (
-                <Dumbbell className={`w-3.5 h-3.5 ${isLight && !isActive ? 'text-emerald-600' : 'text-emerald-400'}`} />
-              )}
-              <span>{cat}</span>
-              <span
-                className={`text-[10px] px-1 py-0.2 rounded-full font-mono ${
+      {/* Filter Tabs & Backup to Sheets Button */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
+        <div
+          className={`inline-flex items-center rounded-xl border overflow-x-auto scrollbar-none divide-x-2 shadow-xs max-w-full ${
+            isLight
+              ? 'bg-slate-100 border-slate-200 divide-slate-200'
+              : 'bg-slate-950 border-slate-800 divide-slate-700/80'
+          }`}
+        >
+          {(['All', 'Swim', 'Bike', 'Run', 'Gym'] as const).map((cat) => {
+            const count = categoryCounts[cat] || 0;
+            const isActive = selectedCategory === cat;
+            return (
+              <button
+                key={cat}
+                type="button"
+                onClick={() => setSelectedCategory(cat)}
+                className={`px-2 sm:px-3 py-1.5 text-[11px] sm:text-xs font-bold whitespace-nowrap flex items-center gap-1 sm:gap-1.5 transition-all cursor-pointer ${
                   isActive
                     ? isLight
-                      ? 'bg-white/20 text-white font-black'
-                      : 'bg-slate-950/20 text-slate-950 font-black'
+                      ? 'bg-amber-500 text-white font-black shadow-xs'
+                      : 'bg-amber-500 text-slate-950 font-black shadow-xs'
                     : isLight
-                    ? 'bg-slate-100 text-slate-700 border border-slate-200'
-                    : 'bg-slate-800 text-slate-400'
+                    ? 'bg-white hover:bg-slate-50 text-slate-700 hover:text-slate-900'
+                    : 'bg-slate-950 hover:bg-slate-900 text-slate-400 hover:text-white'
                 }`}
               >
-                {count}
-              </span>
-            </button>
-          );
-        })}
+                {cat === 'Swim' && (
+                  <Waves className={`w-3.5 h-3.5 ${isLight && !isActive ? 'text-sky-600' : 'text-sky-400'}`} />
+                )}
+                {cat === 'Bike' && (
+                  <Bike className={`w-3.5 h-3.5 ${isLight && !isActive ? 'text-amber-600' : 'text-orange-400'}`} />
+                )}
+                {cat === 'Run' && (
+                  <Footprints className={`w-3.5 h-3.5 ${isLight && !isActive ? 'text-amber-700' : 'text-amber-400'}`} />
+                )}
+                {cat === 'Gym' && (
+                  <Dumbbell className={`w-3.5 h-3.5 ${isLight && !isActive ? 'text-emerald-600' : 'text-emerald-400'}`} />
+                )}
+                <span>{cat}</span>
+                <span
+                  className={`text-[10px] px-1 py-0.2 rounded-full font-mono ${
+                    isActive
+                      ? isLight
+                        ? 'bg-white/20 text-white font-black'
+                        : 'bg-slate-950/20 text-slate-950 font-black'
+                      : isLight
+                      ? 'bg-slate-100 text-slate-700 border border-slate-200'
+                      : 'bg-slate-800 text-slate-400'
+                  }`}
+                >
+                  {count}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+
+        {/* Backup to Sheets Button */}
+        <button
+          type="button"
+          onClick={handleBackupAllToSheets}
+          disabled={isBackingUpSheets || activities.length === 0}
+          className={`px-3 py-1.5 rounded-xl border text-xs font-bold flex items-center justify-center gap-1.5 transition-all shadow-xs cursor-pointer self-start sm:self-auto shrink-0 ${
+            backupFeedback
+              ? 'bg-emerald-500/20 border-emerald-500/40 text-emerald-400'
+              : isLight
+              ? 'bg-emerald-50 hover:bg-emerald-100 border-emerald-200 text-emerald-800'
+              : 'bg-emerald-500/10 hover:bg-emerald-500/20 border-emerald-500/30 text-emerald-300'
+          } disabled:opacity-50 disabled:cursor-not-allowed`}
+          title="Backup all workouts to GymFIT Training Log on Google Sheets"
+        >
+          {isBackingUpSheets ? (
+            <>
+              <Loader2 className="w-3.5 h-3.5 animate-spin text-emerald-400" />
+              <span>Backing up to Sheet...</span>
+            </>
+          ) : backupFeedback ? (
+            <>
+              <Check className="w-3.5 h-3.5 text-emerald-400 stroke-[3]" />
+              <span>{backupFeedback}</span>
+            </>
+          ) : (
+            <>
+              <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-400" />
+              <span>Backup to Sheets</span>
+            </>
+          )}
+        </button>
       </div>
 
       {/* Loading Skeletons */}
