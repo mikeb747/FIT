@@ -32,7 +32,7 @@ import {
   getStoredGarminProxyUrl,
 } from '../utils/garminConfig';
 import { batchUploadHealthDataToGoogleSheet } from '../utils/googleSheets';
-import { getGoogleAccessToken } from '../utils/googleAuth';
+import { getGoogleAccessToken, signInWithGoogle } from '../utils/googleAuth';
 
 interface GarminSyncModalProps {
   isOpen: boolean;
@@ -83,6 +83,9 @@ export const GarminSyncModal: React.FC<GarminSyncModalProps> = ({
   const [copiedTraceId, setCopiedTraceId] = useState<string | null>(null);
   const [allCopied, setAllCopied] = useState(false);
 
+  const [isBackingUpSheet, setIsBackingUpSheet] = useState(false);
+  const [sheetBackupFeedback, setSheetBackupFeedback] = useState<string | null>(null);
+
   // Reset to collapsed state and sync active credentials whenever the modal is opened
   useEffect(() => {
     if (isOpen) {
@@ -92,8 +95,45 @@ export const GarminSyncModal: React.FC<GarminSyncModalProps> = ({
       setShowClearConfirm(false);
       setSessionToken(getStoredGarminToken());
       setProxyUrl(getStoredGarminProxyUrl());
+      setSheetBackupFeedback(null);
     }
   }, [isOpen]);
+
+  const handleBackupToSheet = async () => {
+    if (!existingLogs || existingLogs.length === 0) {
+      setError('No recovery records available to backup.');
+      return;
+    }
+    setError(null);
+    setSuccess(null);
+    let token = getGoogleAccessToken();
+    if (!token) {
+      try {
+        setIsBackingUpSheet(true);
+        const { accessToken } = await signInWithGoogle();
+        token = accessToken;
+      } catch (err: any) {
+        setError(err.message || 'Could not connect to Google Sheets');
+        setIsBackingUpSheet(false);
+        return;
+      }
+    }
+    setIsBackingUpSheet(true);
+    try {
+      const res = await batchUploadHealthDataToGoogleSheet(existingLogs);
+      if (res.success) {
+        setSheetBackupFeedback(`Backed up ${res.appendedCount + res.updatedCount} days!`);
+        setSuccess(`Successfully backed up ${res.appendedCount + res.updatedCount} days to GymFIT Training Log on Google Sheets!`);
+        setTimeout(() => setSheetBackupFeedback(null), 3500);
+      } else {
+        setError(res.error || 'Failed to backup to Google Sheets');
+      }
+    } catch (err: any) {
+      setError(err.message || 'Error uploading to Google Sheets');
+    } finally {
+      setIsBackingUpSheet(false);
+    }
+  };
 
   if (!isOpen) return null;
 
@@ -531,6 +571,38 @@ export const GarminSyncModal: React.FC<GarminSyncModalProps> = ({
               >
                 <RotateCw className={`w-4 h-4 ${isLoading ? 'animate-spin' : ''}`} />
                 <span>{isLoading ? (progressMsg || 'Syncing...') : 'Sync'}</span>
+              </button>
+
+              {/* Directly below Sync: Backup to Sheet Button */}
+              <button
+                type="button"
+                onClick={handleBackupToSheet}
+                disabled={isBackingUpSheet || existingLogs.length === 0}
+                className={`w-full py-2.5 px-4 rounded-xl text-xs font-bold flex items-center justify-center gap-2 transition-all cursor-pointer border shadow-sm ${
+                  sheetBackupFeedback
+                    ? 'bg-emerald-500/20 border-emerald-500/40 text-emerald-400'
+                    : isLight
+                    ? 'bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border-emerald-200'
+                    : 'bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-300 border-emerald-500/30'
+                } disabled:opacity-50 disabled:cursor-not-allowed`}
+                title="Backup all recovery and Garmin health records to GymFIT Training Log on Google Sheets"
+              >
+                {isBackingUpSheet ? (
+                  <>
+                    <RotateCw className="w-4 h-4 animate-spin text-emerald-400" />
+                    <span>Backing up to Sheet...</span>
+                  </>
+                ) : sheetBackupFeedback ? (
+                  <>
+                    <Check className="w-4 h-4 text-emerald-400 stroke-[3]" />
+                    <span>{sheetBackupFeedback}</span>
+                  </>
+                ) : (
+                  <>
+                    <FileSpreadsheet className="w-4 h-4 text-emerald-400" />
+                    <span>Backup to Sheet</span>
+                  </>
+                )}
               </button>
 
               {/* Active API Key & Proxy URL Status Banner */}

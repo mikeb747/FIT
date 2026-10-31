@@ -201,6 +201,26 @@ const handleOAuthCallback = async (req: express.Request, res: express.Response) 
 app.get('/auth/callback', handleOAuthCallback);
 app.get('/auth/callback/', handleOAuthCallback);
 
+// Forward Strava's rate limit headers to client
+function forwardStravaRateLimitHeaders(stravaHeaders: Headers, response: express.Response) {
+  const headersToForward = [
+    'x-readratelimit-limit',
+    'x-readratelimit-usage',
+    'x-ratelimit-limit',
+    'x-ratelimit-usage',
+  ];
+  for (const h of headersToForward) {
+    const val = stravaHeaders.get(h);
+    if (val) {
+      response.setHeader(h, val);
+    }
+  }
+  response.setHeader(
+    'Access-Control-Expose-Headers',
+    'x-readratelimit-limit, x-readratelimit-usage, x-ratelimit-limit, x-ratelimit-usage'
+  );
+}
+
 // Direct Upload to Strava Activity Upload API
 app.post('/api/strava/upload', async (req, res) => {
   try {
@@ -233,6 +253,7 @@ app.post('/api/strava/upload', async (req, res) => {
       body: formData,
     });
 
+    forwardStravaRateLimitHeaders(stravaRes.headers, res);
     const data = await stravaRes.json();
     if (!stravaRes.ok) {
       return res.status(stravaRes.status).json({
@@ -269,6 +290,7 @@ app.get('/api/strava/uploads/:uploadId', async (req, res) => {
       },
     });
 
+    forwardStravaRateLimitHeaders(stravaRes.headers, res);
     const data = await stravaRes.json();
     return res.status(stravaRes.status).json(data);
   } catch (err: any) {
@@ -306,6 +328,7 @@ app.get('/api/strava/activities', async (req, res) => {
       }
     );
 
+    forwardStravaRateLimitHeaders(stravaRes.headers, res);
     const data = await stravaRes.json();
     if (!stravaRes.ok) {
       return res.status(stravaRes.status).json(data);
@@ -333,6 +356,7 @@ app.get('/api/strava/activities/:activityId', async (req, res) => {
       method: 'GET',
       headers: { Authorization: authHeader, Accept: 'application/json' },
     });
+    forwardStravaRateLimitHeaders(stravaRes.headers, res);
     const data = await stravaRes.json();
     return res.status(stravaRes.status).json(data);
   } catch (err: any) {
@@ -363,6 +387,7 @@ app.put('/api/strava/activities/:activityId', async (req, res) => {
       body: JSON.stringify(req.body),
     });
 
+    forwardStravaRateLimitHeaders(stravaRes.headers, res);
     const data = await stravaRes.json();
     return res.status(stravaRes.status).json(data);
   } catch (err: any) {
@@ -390,6 +415,7 @@ app.get('/api/strava/activities/:activityId/streams', async (req, res) => {
         headers: { Authorization: authHeader, Accept: 'application/json' },
       }
     );
+    forwardStravaRateLimitHeaders(stravaRes.headers, res);
     const data = await stravaRes.json();
     return res.status(stravaRes.status).json(data);
   } catch (err: any) {
@@ -409,6 +435,7 @@ app.get('/api/strava/athlete', async (req, res) => {
       method: 'GET',
       headers: { Authorization: authHeader, Accept: 'application/json' },
     });
+    forwardStravaRateLimitHeaders(stravaRes.headers, res);
     const data = await stravaRes.json();
     return res.status(stravaRes.status).json(data);
   } catch (err: any) {
@@ -433,6 +460,7 @@ app.get('/api/strava/gear/:gearId', async (req, res) => {
       method: 'GET',
       headers: { Authorization: authHeader, Accept: 'application/json' },
     });
+    forwardStravaRateLimitHeaders(stravaRes.headers, res);
     const data = await stravaRes.json();
     return res.status(stravaRes.status).json(data);
   } catch (err: any) {

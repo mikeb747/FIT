@@ -1,8 +1,11 @@
-import type { StravaActivity, StravaActivityDetailsRecord } from './stravaActivities';
+import type { StravaActivity, StravaActivityDetailsRecord, StravaRateLimits } from './stravaActivities';
 import {
   fetchStravaActivityDetails,
   saveStravaActivityDetails,
   getCachedStravaActivityRecord,
+  getCachedStravaRateLimits,
+  getSecondsUntilNext15MinWindow,
+  subscribeToStravaRateLimits,
 } from './stravaActivities';
 
 export interface StreamDownloaderProgress {
@@ -13,6 +16,9 @@ export interface StreamDownloaderProgress {
   isPaused: boolean;
   isRateLimited: boolean;
   rateLimitedUntil?: number;
+  rateLimitSecondsLeft?: number;
+  rateLimitReason?: string;
+  rateLimits?: StravaRateLimits | null;
   lastError?: string;
 }
 
@@ -25,12 +31,16 @@ let currentProgress: StreamDownloaderProgress = {
   completed: 0,
   isPaused: false,
   isRateLimited: false,
+  rateLimits: getCachedStravaRateLimits(),
 };
 
 const listeners = new Set<(p: StreamDownloaderProgress) => void>();
 
 function notifyListeners() {
-  const snapshot = { ...currentProgress };
+  const snapshot = {
+    ...currentProgress,
+    rateLimits: getCachedStravaRateLimits(),
+  };
   listeners.forEach((fn) => fn(snapshot));
   if (typeof window !== 'undefined') {
     window.dispatchEvent(
@@ -39,18 +49,32 @@ function notifyListeners() {
   }
 }
 
+// Subscribe to rate limit updates from stravaActivities
+if (typeof window !== 'undefined') {
+  subscribeToStravaRateLimits((limits) => {
+    currentProgress.rateLimits = limits;
+    notifyListeners();
+  });
+}
+
 export function subscribeToStreamDownloader(
   listener: (p: StreamDownloaderProgress) => void
 ): () => void {
   listeners.add(listener);
-  listener({ ...currentProgress });
+  listener({
+    ...currentProgress,
+    rateLimits: getCachedStravaRateLimits(),
+  });
   return () => {
     listeners.delete(listener);
   };
 }
 
 export function getStreamDownloaderStatus(): StreamDownloaderProgress {
-  return { ...currentProgress };
+  return {
+    ...currentProgress,
+    rateLimits: getCachedStravaRateLimits(),
+  };
 }
 
 export function pauseStreamDownloader(): void {
@@ -78,20 +102,80 @@ export function stopStreamDownloader(): void {
     completed: 0,
     isPaused: false,
     isRateLimited: false,
+    rateLimits: getCachedStravaRateLimits(),
   };
   notifyListeners();
 }
 
 /**
+ * Calculates adaptive throttle delay based on current 15-minute Strava read rate usage:
+ * - Read limit: 200 requests per 15 minutes.
+ * - Each activity requires 2 read requests (details + streams).
+ * - Under 80 reads: 4.0s delay
+ * - 80 to 130 reads: 5.5s delay
+ * - 130 to 170 reads: 8.0s delay
+ */
+function getAdaptiveThrottleDelay(baseDelayMs: number): number {
+  const limits = getCachedStravaRateLimits();
+  if (!limits) return Math.max(baseDelayMs, 4500);
+
+  const usage = limits.read15MinUsage;
+  if (usage >= 140) return 8500;
+  if (usage >= 100) return 6500;
+  if (usage >= 60) return 5000;
+  return Math.max(baseDelayMs, 4000);
+}
+
+/**
+ * Checks if we are close to hitting Strava API limits.
+ * We reserve a buffer of at least 24 read requests (12% of 200) for user actions
+ * like clicking into an activity, manual sync, or viewing gear.
+ */
+function isApproachingRateLimit(): { nearLimit: boolean; reason?: string } {
+  const limits = getCachedStravaRateLimits();
+  if (!limits) return { nearLimit: false };
+
+  // 15-minute read limit (200 requests): stop if used >= 176 (reserve 24 requests)
+  if (limits.read15MinLimit > 0 && limits.read15MinUsage >= limits.read15MinLimit - 24) {
+    return {
+      nearLimit: true,
+      reason: `Approaching 15-minute read limit (${limits.read15MinUsage}/${limits.read15MinLimit} reads used). 24 requests reserved for browsing.`,
+    };
+  }
+
+  // Daily read limit (2,000 requests): stop if used >= 1,930 (reserve 70 requests)
+  if (limits.readDailyLimit > 0 && limits.readDailyUsage >= limits.readDailyLimit - 70) {
+    return {
+      nearLimit: true,
+      reason: `Approaching daily read limit (${limits.readDailyUsage}/${limits.readDailyLimit} reads used today). Pausing until midnight UTC.`,
+    };
+  }
+
+  // Overall 15-minute limit (400 requests)
+  if (limits.overall15MinLimit > 0 && limits.overall15MinUsage >= limits.overall15MinLimit - 30) {
+    return {
+      nearLimit: true,
+      reason: `Approaching overall 15-minute limit (${limits.overall15MinUsage}/${limits.overall15MinLimit} requests used).`,
+    };
+  }
+
+  return { nearLimit: false };
+}
+
+/**
  * Starts background queue to fetch detailed streams for all activities that lack cached streams.
  * Downloads from newest to oldest so recent training blocks (4W/12W/24W) populate first.
+ * Strictly respects Strava rate limits:
+ * - Read limits: 200 req / 15 min & 2,000 req / day
+ * - Overall limits: 400 req / 15 min & 4,000 req / day
+ * - Proactively pauses before hitting limits with a live countdown timer until window resets.
  */
 export async function startBackgroundStreamDownload({
   activities,
   stravaToken,
   cachedDetails = {},
   onActivityDownloaded,
-  throttleDelayMs = 1200,
+  throttleDelayMs = 4500,
 }: {
   activities: StravaActivity[];
   stravaToken: string;
@@ -152,6 +236,7 @@ export async function startBackgroundStreamDownload({
       completed: 0,
       isPaused: false,
       isRateLimited: false,
+      rateLimits: getCachedStravaRateLimits(),
     };
     notifyListeners();
     return;
@@ -169,23 +254,57 @@ export async function startBackgroundStreamDownload({
     currentActivityName: queue[0]?.name,
     isPaused: false,
     isRateLimited: false,
+    rateLimits: getCachedStravaRateLimits(),
   };
   notifyListeners();
 
   for (let i = 0; i < queue.length; i++) {
     if (signal.aborted) break;
 
-    // Handle user pause
+    // 1. Handle user manual pause
     while (isPaused && !signal.aborted) {
       await new Promise((r) => setTimeout(r, 500));
     }
     if (signal.aborted) break;
 
+    // 2. Proactive Rate Limit Protection:
+    // Check if we are near the 15-minute or daily quota BEFORE making requests
+    const limitCheck = isApproachingRateLimit();
+    if (limitCheck.nearLimit) {
+      const waitSeconds = getSecondsUntilNext15MinWindow() + 5; // Add 5s buffer to allow Strava backend roll
+      const resumeAt = Date.now() + waitSeconds * 1000;
+
+      currentProgress.isRateLimited = true;
+      currentProgress.rateLimitedUntil = resumeAt;
+      currentProgress.rateLimitReason = limitCheck.reason;
+      currentProgress.rateLimitSecondsLeft = waitSeconds;
+      notifyListeners();
+
+      while (Date.now() < resumeAt && !signal.aborted) {
+        const remainingSec = Math.max(0, Math.ceil((resumeAt - Date.now()) / 1000));
+        currentProgress.rateLimitSecondsLeft = remainingSec;
+        notifyListeners();
+        await new Promise((r) => setTimeout(r, 1000));
+      }
+
+      currentProgress.isRateLimited = false;
+      currentProgress.rateLimitedUntil = undefined;
+      currentProgress.rateLimitSecondsLeft = undefined;
+      currentProgress.rateLimitReason = undefined;
+      notifyListeners();
+    }
+
+    if (signal.aborted) break;
+
     const activity = queue[i];
     currentProgress.currentActivityName = activity.name;
+    currentProgress.rateLimits = getCachedStravaRateLimits();
     notifyListeners();
 
     try {
+      // fetchStravaActivityDetails performs 2 read calls:
+      // 1. /api/strava/activities/:id
+      // 2. /api/strava/activities/:id/streams
       const details = await fetchStravaActivityDetails(stravaToken, activity.id);
       if (signal.aborted) break;
 
@@ -195,35 +314,44 @@ export async function startBackgroundStreamDownload({
       }
 
       currentProgress.completed = i + 1;
+      currentProgress.rateLimits = getCachedStravaRateLimits();
       notifyListeners();
 
-      // Respectful throttle delay between calls to preserve Strava rate limits
+      // Respectful adaptive pacing between activities
       if (i < queue.length - 1) {
-        await new Promise((r) => setTimeout(r, throttleDelayMs));
+        const adaptiveDelay = getAdaptiveThrottleDelay(throttleDelayMs);
+        await new Promise((r) => setTimeout(r, adaptiveDelay));
       }
     } catch (err: any) {
       console.warn(`[Stream Downloader] Failed for activity ${activity.id}:`, err);
       const msg = String(err?.message || err);
 
-      // Handle Strava rate limit (429)
+      // Reactive 429 rate limit backoff (if Strava returns 429 despite proactive guard)
       if (msg.includes('429') || /rate limit/i.test(msg)) {
-        const cooldownMs = 15 * 60 * 1000; // 15 minutes
+        const waitSeconds = getSecondsUntilNext15MinWindow() + 10;
+        const targetResume = Date.now() + waitSeconds * 1000;
+
         currentProgress.isRateLimited = true;
-        currentProgress.rateLimitedUntil = Date.now() + cooldownMs;
-        currentProgress.lastError = 'Strava rate limit reached (pausing for 15 mins)';
+        currentProgress.rateLimitedUntil = targetResume;
+        currentProgress.rateLimitSecondsLeft = waitSeconds;
+        currentProgress.rateLimitReason = 'Strava rate limit 429 received. Pausing until next 15-minute window.';
         notifyListeners();
 
-        // Wait out the cooldown or break on abort
-        const targetResume = Date.now() + cooldownMs;
         while (Date.now() < targetResume && !signal.aborted) {
-          await new Promise((r) => setTimeout(r, 2000));
+          const remainingSec = Math.max(0, Math.ceil((targetResume - Date.now()) / 1000));
+          currentProgress.rateLimitSecondsLeft = remainingSec;
+          notifyListeners();
+          await new Promise((r) => setTimeout(r, 1000));
         }
+
         currentProgress.isRateLimited = false;
         currentProgress.rateLimitedUntil = undefined;
+        currentProgress.rateLimitSecondsLeft = undefined;
+        currentProgress.rateLimitReason = undefined;
         notifyListeners();
       } else {
-        // Individual error; wait a short bit then continue with next
-        await new Promise((r) => setTimeout(r, 1000));
+        // Non-rate-limit individual activity failure; wait 2.5s and proceed with queue
+        await new Promise((r) => setTimeout(r, 2500));
       }
     }
   }

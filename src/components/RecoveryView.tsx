@@ -335,7 +335,7 @@ export const RecoveryView: React.FC<RecoveryViewProps> = ({
     try {
       const result = await batchUploadHealthDataToGoogleSheet(sortedLogs);
       if (result.success) {
-        setSheetSyncFeedback(`Synced ${result.appendedCount + result.updatedCount} days!`);
+        setSheetSyncFeedback(`Backed up ${result.appendedCount + result.updatedCount} days!`);
         setTimeout(() => setSheetSyncFeedback(null), 3500);
       } else {
         alert(result.error || 'Failed to sync to Google Sheets');
@@ -1986,12 +1986,12 @@ export const RecoveryView: React.FC<RecoveryViewProps> = ({
                   onClick={handleManualSyncGoogleSheets}
                   disabled={isSyncingSheets}
                   className="px-3 py-1.5 rounded-lg text-xs font-bold bg-emerald-500 hover:bg-emerald-400 text-slate-950 flex items-center gap-1.5 transition-all cursor-pointer shadow-sm active:scale-95 disabled:opacity-50"
-                  title="Upload all recovery logs to GymFIT Training Log on Google Sheets"
+                  title="Backup all recovery logs to GymFIT Training Log on Google Sheets"
                 >
                   {isSyncingSheets ? (
                     <>
                       <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                      <span>Syncing...</span>
+                      <span>Backing up...</span>
                     </>
                   ) : sheetSyncFeedback ? (
                     <>
@@ -2001,7 +2001,7 @@ export const RecoveryView: React.FC<RecoveryViewProps> = ({
                   ) : (
                     <>
                       <RotateCw className="w-3.5 h-3.5 text-slate-950" />
-                      <span>Sync to Sheet</span>
+                      <span>Backup to Sheets</span>
                     </>
                   )}
                 </button>

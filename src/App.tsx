@@ -823,7 +823,7 @@ export default function App() {
         </div>
       </header>
 
-      {/* Stream Downloader Progress Banner */}
+      {/* Stream Downloader Progress Banner & Live Strava Rate Limits */}
       {streamProgress.isDownloading && (
         <div className="bg-slate-950/95 border-b border-indigo-500/30 px-4 py-2 text-xs text-slate-300 animate-in fade-in">
           <div className="max-w-4xl mx-auto flex flex-col sm:flex-row sm:items-center justify-between gap-2">
@@ -840,7 +840,22 @@ export default function App() {
               </span>
             </div>
             <div className="flex items-center gap-3 shrink-0 self-end sm:self-auto">
-              <div className="w-24 sm:w-32 bg-slate-900 rounded-full h-1.5 overflow-hidden border border-slate-800">
+              {streamProgress.rateLimits && (
+                <span
+                  className="hidden md:inline-flex items-center gap-1 text-[11px] font-mono text-slate-400 bg-slate-900 px-2 py-0.5 rounded border border-slate-800"
+                  title="Live Strava Read API usage vs Limits"
+                >
+                  <span className="text-emerald-400">⚡ Reads:</span>
+                  <span>
+                    {streamProgress.rateLimits.read15MinUsage}/{streamProgress.rateLimits.read15MinLimit} (15m)
+                  </span>
+                  <span className="text-slate-600">•</span>
+                  <span>
+                    {streamProgress.rateLimits.readDailyUsage}/{streamProgress.rateLimits.readDailyLimit} (day)
+                  </span>
+                </span>
+              )}
+              <div className="w-20 sm:w-28 bg-slate-900 rounded-full h-1.5 overflow-hidden border border-slate-800">
                 <div
                   className="bg-indigo-500 h-full rounded-full transition-all duration-300"
                   style={{
@@ -864,11 +879,32 @@ export default function App() {
         </div>
       )}
 
-      {/* Stream Downloader Rate Limit Warning */}
+      {/* Stream Downloader Rate Limit Proactive Pause Banner */}
       {streamProgress.isRateLimited && (
-        <div className="bg-amber-950/60 border-b border-amber-500/30 px-4 py-1.5 text-xs text-amber-200">
-          <div className="max-w-4xl mx-auto flex items-center justify-between gap-2">
-            <span>Strava API rate limit reached. Background stream downloader paused for cooldown.</span>
+        <div className="bg-amber-950/80 border-b border-amber-500/40 px-4 py-2 text-xs text-amber-200">
+          <div className="max-w-4xl mx-auto flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+            <div className="flex items-center gap-2">
+              <span className="inline-block w-2 h-2 rounded-full bg-amber-400 animate-ping" />
+              <span className="font-medium">
+                {streamProgress.rateLimitReason || 'Pausing background downloader to respect Strava API rate limits.'}
+              </span>
+            </div>
+            <div className="flex items-center gap-2 text-amber-300 font-mono text-[11px] shrink-0">
+              {streamProgress.rateLimitSecondsLeft !== undefined && (
+                <span>
+                  Resumes in:{' '}
+                  <strong className="text-white">
+                    {Math.floor(streamProgress.rateLimitSecondsLeft / 60)}m{' '}
+                    {(streamProgress.rateLimitSecondsLeft % 60).toString().padStart(2, '0')}s
+                  </strong>
+                </span>
+              )}
+              {streamProgress.rateLimits && (
+                <span className="hidden sm:inline text-amber-400/80">
+                  ({streamProgress.rateLimits.read15MinUsage}/{streamProgress.rateLimits.read15MinLimit} reads used)
+                </span>
+              )}
+            </div>
           </div>
         </div>
       )}

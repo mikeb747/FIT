@@ -1405,10 +1405,158 @@ export function clearActivityEffortFeedback(
 }
 
 // --------------------------------------------------------------------------
+// Strava API Rate Limit Tracking
+// Standard Strava limits:
+// Read: 200 requests / 15 minutes, 2,000 requests / day
+// Overall: 400 requests / 15 minutes, 4,000 requests / day
+// --------------------------------------------------------------------------
+
+export interface StravaRateLimits {
+  read15MinUsage: number;
+  read15MinLimit: number;
+  readDailyUsage: number;
+  readDailyLimit: number;
+  overall15MinUsage: number;
+  overall15MinLimit: number;
+  overallDailyUsage: number;
+  overallDailyLimit: number;
+  remaining15MinReads: number;
+  remainingDailyReads: number;
+  remaining15MinOverall: number;
+  remainingDailyOverall: number;
+  lastUpdated: number;
+  secondsUntil15MinReset: number;
+}
+
+export const STRAVA_RATE_LIMITS_STORAGE_KEY = 'fit_track_strava_rate_limits';
+
+export function getSecondsUntilNext15MinWindow(): number {
+  const now = new Date();
+  const minutes = now.getUTCMinutes();
+  const seconds = now.getUTCSeconds();
+  const minutesUntilNext = 15 - (minutes % 15);
+  const remainingSeconds = minutesUntilNext * 60 - seconds;
+  return Math.max(5, remainingSeconds);
+}
+
+let inMemoryRateLimits: StravaRateLimits | null = null;
+const rateLimitListeners = new Set<(limits: StravaRateLimits) => void>();
+
+function parseHeaderPair(val: string | null): [number, number] | null {
+  if (!val) return null;
+  const parts = val.split(',').map((p) => parseInt(p.trim(), 10));
+  if (parts.length >= 2 && Number.isFinite(parts[0]) && Number.isFinite(parts[1])) {
+    return [parts[0], parts[1]];
+  }
+  return null;
+}
+
+export function getCachedStravaRateLimits(): StravaRateLimits | null {
+  if (inMemoryRateLimits) {
+    return {
+      ...inMemoryRateLimits,
+      secondsUntil15MinReset: getSecondsUntilNext15MinWindow(),
+    };
+  }
+  if (typeof window !== 'undefined') {
+    try {
+      const raw = localStorage.getItem(STRAVA_RATE_LIMITS_STORAGE_KEY);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        inMemoryRateLimits = parsed;
+        return {
+          ...parsed,
+          secondsUntil15MinReset: getSecondsUntilNext15MinWindow(),
+        };
+      }
+    } catch {}
+  }
+  return null;
+}
+
+export function subscribeToStravaRateLimits(
+  listener: (limits: StravaRateLimits) => void
+): () => void {
+  rateLimitListeners.add(listener);
+  const current = getCachedStravaRateLimits();
+  if (current) {
+    listener(current);
+  }
+  return () => {
+    rateLimitListeners.delete(listener);
+  };
+}
+
+export function updateStravaRateLimitsFromHeaders(headers?: Headers): StravaRateLimits | null {
+  if (!headers) return null;
+
+  const readUsage = parseHeaderPair(
+    headers.get('x-readratelimit-usage') || headers.get('X-ReadRateLimit-Usage')
+  );
+  const readLimit = parseHeaderPair(
+    headers.get('x-readratelimit-limit') || headers.get('X-ReadRateLimit-Limit')
+  );
+  const overallUsage = parseHeaderPair(
+    headers.get('x-ratelimit-usage') || headers.get('X-RateLimit-Usage')
+  );
+  const overallLimit = parseHeaderPair(
+    headers.get('x-ratelimit-limit') || headers.get('X-RateLimit-Limit')
+  );
+
+  // If no rate limit headers are present, do not overwrite
+  if (!readUsage && !overallUsage) {
+    return inMemoryRateLimits;
+  }
+
+  const existing = getCachedStravaRateLimits();
+
+  const r15Usage = readUsage ? readUsage[0] : (existing?.read15MinUsage ?? 0);
+  const rDayUsage = readUsage ? readUsage[1] : (existing?.readDailyUsage ?? 0);
+  const r15Limit = readLimit ? readLimit[0] : (existing?.read15MinLimit ?? 200);
+  const rDayLimit = readLimit ? readLimit[1] : (existing?.readDailyLimit ?? 2000);
+
+  const o15Usage = overallUsage ? overallUsage[0] : (existing?.overall15MinUsage ?? 0);
+  const oDayUsage = overallUsage ? overallUsage[1] : (existing?.overallDailyUsage ?? 0);
+  const o15Limit = overallLimit ? overallLimit[0] : (existing?.overall15MinLimit ?? 400);
+  const oDayLimit = overallLimit ? overallLimit[1] : (existing?.overallDailyLimit ?? 4000);
+
+  const status: StravaRateLimits = {
+    read15MinUsage: r15Usage,
+    read15MinLimit: r15Limit,
+    readDailyUsage: rDayUsage,
+    readDailyLimit: rDayLimit,
+    overall15MinUsage: o15Usage,
+    overall15MinLimit: o15Limit,
+    overallDailyUsage: oDayUsage,
+    overallDailyLimit: oDayLimit,
+    remaining15MinReads: Math.max(0, r15Limit - r15Usage),
+    remainingDailyReads: Math.max(0, rDayLimit - rDayUsage),
+    remaining15MinOverall: Math.max(0, o15Limit - o15Usage),
+    remainingDailyOverall: Math.max(0, oDayLimit - oDayUsage),
+    lastUpdated: Date.now(),
+    secondsUntil15MinReset: getSecondsUntilNext15MinWindow(),
+  };
+
+  inMemoryRateLimits = status;
+  if (typeof window !== 'undefined') {
+    try {
+      localStorage.setItem(STRAVA_RATE_LIMITS_STORAGE_KEY, JSON.stringify(status));
+      window.dispatchEvent(new CustomEvent('fit_track_strava_rate_limits', { detail: status }));
+    } catch {}
+  }
+
+  rateLimitListeners.forEach((fn) => fn(status));
+  return status;
+}
+
+// --------------------------------------------------------------------------
 // API Fetching & Pagination
 // --------------------------------------------------------------------------
 
 async function readStravaResponse(response: Response, requestName: string): Promise<unknown> {
+  if (response.headers) {
+    updateStravaRateLimitsFromHeaders(response.headers);
+  }
   const data: unknown = await response.json().catch(() => ({}));
   if (!response.ok) {
     const errorData = data && typeof data === 'object' ? (data as Record<string, unknown>) : {};
@@ -1536,6 +1684,10 @@ export async function syncStravaActivitiesDelta(accessToken: string): Promise<St
         },
       });
 
+      if (res.headers) {
+        updateStravaRateLimitsFromHeaders(res.headers);
+      }
+
       if (res.status === 401) {
         throw new Error('Strava Authorization Error (401): access token expired');
       }
@@ -1568,6 +1720,10 @@ export async function syncStravaActivitiesDelta(accessToken: string): Promise<St
         },
       }
     );
+
+    if (stravaRes.headers) {
+      updateStravaRateLimitsFromHeaders(stravaRes.headers);
+    }
 
     const data = await stravaRes.json();
     if (!stravaRes.ok) {
@@ -1652,6 +1808,10 @@ export async function fetchOlderStravaActivities(
         },
       });
 
+      if (res.headers) {
+        updateStravaRateLimitsFromHeaders(res.headers);
+      }
+
       if (res.status === 401) {
         throw new Error('Strava Authorization Error (401): access token expired');
       }
@@ -1684,6 +1844,10 @@ export async function fetchOlderStravaActivities(
         },
       }
     );
+
+    if (stravaRes.headers) {
+      updateStravaRateLimitsFromHeaders(stravaRes.headers);
+    }
 
     const data = await stravaRes.json();
     if (!stravaRes.ok) {
