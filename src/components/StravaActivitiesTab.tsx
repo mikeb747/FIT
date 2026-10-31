@@ -33,6 +33,7 @@ import {
 import { applyRenameRulesToName } from '../utils/activityRenameRules';
 import type { AthleteProfile } from '../types/athlete';
 import { StravaActivityModal } from './StravaActivityModal';
+import { PWAInstallButton } from './PWAInstallButton';
 
 interface StravaActivitiesTabProps {
   stravaToken: string | null;
@@ -305,6 +306,9 @@ export const StravaActivitiesTab: React.FC<StravaActivitiesTabProps> = ({
           </button>
         </div>
       )}
+
+      {/* Install App button just above the first activity on the activities list if not installed */}
+      <PWAInstallButton />
 
       {/* Activities Feed */}
       {filteredActivities.length > 0 && (

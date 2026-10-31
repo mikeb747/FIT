@@ -681,6 +681,7 @@ export async function fetchHealthDataFromGoogleSheet(spreadsheetId?: string): Pr
       });
     }
 
+    setLastGoogleSheetsSyncTime();
     return logs;
   } catch (err) {
     console.warn('[Google Sheets] Failed to fetch health data:', err);
@@ -807,6 +808,7 @@ export async function batchUploadHealthDataToGoogleSheet(
       }
     }
 
+    setLastGoogleSheetsSyncTime();
     const spreadsheetUrl = `https://docs.google.com/spreadsheets/d/${targetId}/edit`;
     return {
       success: true,
@@ -833,5 +835,38 @@ export async function batchUploadHealthDataToGoogleSheet(
  */
 export async function appendHealthDataToGoogleSheet(log: DailyRecoveryLog, spreadsheetId?: string): Promise<void> {
   await batchUploadHealthDataToGoogleSheet([log], spreadsheetId);
+}
+
+const GOOGLE_SHEETS_LAST_SYNC_KEY = 'gymfit_google_sheets_last_sync_timestamp';
+
+export function getLastGoogleSheetsSyncTime(): number | null {
+  if (typeof window === 'undefined') return null;
+  try {
+    const val = localStorage.getItem(GOOGLE_SHEETS_LAST_SYNC_KEY);
+    return val ? parseInt(val, 10) : null;
+  } catch {
+    return null;
+  }
+}
+
+export function setLastGoogleSheetsSyncTime(timestamp = Date.now()): void {
+  if (typeof window === 'undefined') return;
+  try {
+    localStorage.setItem(GOOGLE_SHEETS_LAST_SYNC_KEY, String(timestamp));
+    window.dispatchEvent(new CustomEvent('gymfit_sheets_sync_updated', { detail: { timestamp } }));
+  } catch {}
+}
+
+export function formatTimeAgo(timestampMs: number | null): string {
+  if (!timestampMs) return 'Never';
+  const sec = Math.floor((Date.now() - timestampMs) / 1000);
+  if (sec < 30) return 'Just now';
+  if (sec < 60) return `${sec}s ago`;
+  const min = Math.floor(sec / 60);
+  if (min < 60) return `${min}m ago`;
+  const hr = Math.floor(min / 60);
+  if (hr < 24) return `${hr}h ago`;
+  const days = Math.floor(hr / 24);
+  return `${days}d ago`;
 }
 

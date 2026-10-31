@@ -104,6 +104,7 @@ export function generateRunFitFile(params: RunFitParams): Uint8Array {
 
   // -------------------------------------------------------------
   // 1. File ID Message (Global 0, Local 0)
+  // Garmin Forerunner 255: manufacturer = 1, product = 3438, serial = 3438182702
   // -------------------------------------------------------------
   records.writeUint8(0x40 | 0); // Definition message, local 0
   records.writeUint8(0);
@@ -113,20 +114,21 @@ export function generateRunFitFile(params: RunFitParams): Uint8Array {
 
   records.writeUint8(0); records.writeUint8(1); records.writeUint8(0x00); // type (enum, 4 = activity)
   records.writeUint8(1); records.writeUint8(2); records.writeUint8(0x84); // manufacturer (uint16, 1 = Garmin)
-  records.writeUint8(2); records.writeUint8(2); records.writeUint8(0x84); // product (uint16, 3843)
-  records.writeUint8(3); records.writeUint8(4); records.writeUint8(0x86); // serial_number (uint32)
+  records.writeUint8(2); records.writeUint8(2); records.writeUint8(0x84); // product (uint16, 3438)
+  records.writeUint8(3); records.writeUint8(4); records.writeUint8(0x86); // serial_number (uint32, 3438182702)
   records.writeUint8(4); records.writeUint8(4); records.writeUint8(0x86); // time_created (uint32)
 
   // Data: File ID
   records.writeUint8(0x00 | 0);
-  records.writeUint8(4);        // 4 = activity
-  records.writeUint16LE(1);     // Garmin
-  records.writeUint16LE(3843);  // Forerunner series
-  records.writeUint32LE(123456789);
+  records.writeUint8(4);           // 4 = activity
+  records.writeUint16LE(1);        // Garmin
+  records.writeUint16LE(3438);     // Forerunner 255 product ID
+  records.writeUint32LE(3438182702); // Serial number from user original FIT file
   records.writeUint32LE(startGarminTime);
 
   // -------------------------------------------------------------
   // 2. Device Info Message (Global 23, Local 1)
+  // Software version = 2905 (29.05), fr255
   // -------------------------------------------------------------
   records.writeUint8(0x40 | 1); // Definition, local 1
   records.writeUint8(0);
@@ -135,18 +137,18 @@ export function generateRunFitFile(params: RunFitParams): Uint8Array {
   records.writeUint8(5);       // 5 fields
 
   records.writeUint8(253); records.writeUint8(4); records.writeUint8(0x86); // timestamp
-  records.writeUint8(0);   records.writeUint8(1); records.writeUint8(0x02); // device_index
+  records.writeUint8(0);   records.writeUint8(1); records.writeUint8(0x02); // device_index (0 = creator)
   records.writeUint8(1);   records.writeUint8(1); records.writeUint8(0x02); // device_type
-  records.writeUint8(2);   records.writeUint8(2); records.writeUint8(0x84); // manufacturer
-  records.writeUint8(4);   records.writeUint8(2); records.writeUint8(0x84); // software_version
+  records.writeUint8(2);   records.writeUint8(2); records.writeUint8(0x84); // manufacturer (Garmin = 1)
+  records.writeUint8(4);   records.writeUint8(2); records.writeUint8(0x84); // software_version (2905 = 29.05)
 
   // Data: Device Info
   records.writeUint8(0x00 | 1);
   records.writeUint32LE(startGarminTime);
-  records.writeUint8(0);
-  records.writeUint8(1);
-  records.writeUint16LE(1);    // Garmin
-  records.writeUint16LE(1000);
+  records.writeUint8(0);        // device_index = 0 (creator)
+  records.writeUint8(1);        // device_type
+  records.writeUint16LE(1);     // Garmin manufacturer
+  records.writeUint16LE(2905);  // software version 29.05
 
   // -------------------------------------------------------------
   // 3. Record Message (Global 20, Local 2)

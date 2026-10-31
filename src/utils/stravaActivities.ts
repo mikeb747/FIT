@@ -1300,6 +1300,34 @@ export async function getCachedStravaActivityRecord(
   });
 }
 
+export async function getAllCachedStravaActivityRecords(): Promise<Record<string, StravaActivityDetailsRecord>> {
+  if (typeof indexedDB === 'undefined') return {};
+  try {
+    const database = await openStravaActivityDatabase();
+    return new Promise((resolve) => {
+      const transaction = database.transaction(STRAVA_ACTIVITY_STORE_NAME, 'readonly');
+      const store = transaction.objectStore(STRAVA_ACTIVITY_STORE_NAME);
+      const request = store.getAll();
+      request.onsuccess = () => {
+        const records = (request.result || []) as StravaActivityDetailsRecord[];
+        const map: Record<string, StravaActivityDetailsRecord> = {};
+        for (const r of records) {
+          if (r && r.id) map[String(r.id)] = r;
+        }
+        resolve(map);
+      };
+      request.onerror = () => resolve({});
+      transaction.oncomplete = () => database.close();
+      transaction.onerror = () => {
+        database.close();
+        resolve({});
+      };
+    });
+  } catch {
+    return {};
+  }
+}
+
 export function ensureStravaActivityRecord(activityId: number | string): Promise<StravaActivityDetailsRecord> {
   return updateStravaActivityRecord(activityId, (record) => record);
 }

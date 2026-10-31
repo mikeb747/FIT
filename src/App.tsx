@@ -27,6 +27,7 @@ import {
   isStravaAuthorizationError,
   getCachedStravaActivities,
   getCachedStravaActivityRecord,
+  getAllCachedStravaActivityRecords,
   ensureStravaActivityRecord,
   saveCachedStravaNewActivityIds,
   saveStravaActivityDetails,
@@ -45,8 +46,18 @@ import {
   fetchHealthDataFromGoogleSheet,
   appendHealthDataToGoogleSheet,
   batchUploadHealthDataToGoogleSheet,
+  getLastGoogleSheetsSyncTime,
+  formatTimeAgo,
 } from './utils/googleSheets';
-import { Settings, Activity, Moon, Heart, Zap, RotateCw } from 'lucide-react';
+import {
+  startBackgroundStreamDownload,
+  pauseStreamDownloader,
+  resumeStreamDownloader,
+  subscribeToStreamDownloader,
+  getStreamDownloaderStatus,
+  StreamDownloaderProgress,
+} from './utils/activityStreamDownloader';
+import { Settings, Activity, Moon, Heart, Zap, RotateCw, FileSpreadsheet, Loader2, CloudCheck, CheckCircle2 } from 'lucide-react';
 import { RecoveryView } from './components/RecoveryView';
 import { FitnessTab } from './components/FitnessTab';
 import { computeFitnessTimeline, calculateTriathlonFitnessIndex } from './utils/fitnessEngine';
@@ -190,30 +201,49 @@ export default function App() {
     }
   });
 
+  const [sheetsLastSynced, setSheetsLastSynced] = useState<number | null>(() => getLastGoogleSheetsSyncTime());
+  const [isSheetsSyncing, setIsSheetsSyncing] = useState(false);
+
+  useEffect(() => {
+    const handleSyncUpdate = (e: any) => {
+      if (e.detail?.timestamp) {
+        setSheetsLastSynced(e.detail.timestamp);
+      }
+    };
+    window.addEventListener('gymfit_sheets_sync_updated', handleSyncUpdate);
+    return () => window.removeEventListener('gymfit_sheets_sync_updated', handleSyncUpdate);
+  }, []);
+
   // When opening the readiness tab, check Google Sheets for saved data on the Health tab
   useEffect(() => {
     if (activeMainTab === 'recovery' && isGoogleConnected) {
-      fetchHealthDataFromGoogleSheet().then((sheetLogs) => {
-        if (sheetLogs && sheetLogs.length > 0) {
-          let current = [...recoveryLogs];
-          let added = false;
-          sheetLogs.forEach((item) => {
-            const idx = current.findIndex((l) => l.date === item.date);
-            if (idx >= 0) {
-              current[idx] = item;
-              added = true;
-            } else {
-              current.push(item);
-              added = true;
+      setIsSheetsSyncing(true);
+      fetchHealthDataFromGoogleSheet()
+        .then((sheetLogs) => {
+          if (sheetLogs && sheetLogs.length > 0) {
+            let current = [...recoveryLogs];
+            let added = false;
+            sheetLogs.forEach((item) => {
+              const idx = current.findIndex((l) => l.date === item.date);
+              if (idx >= 0) {
+                current[idx] = { ...current[idx], ...item };
+                added = true;
+              } else {
+                current.push(item);
+                added = true;
+              }
+            });
+            if (added) {
+              current.sort((a, b) => a.date.localeCompare(b.date));
+              saveRecoveryLogs(current);
+              setRecoveryLogs(current);
             }
-          });
-          if (added) {
-            current.sort((a, b) => a.date.localeCompare(b.date));
-            saveRecoveryLogs(current);
-            setRecoveryLogs(current);
           }
-        }
-      });
+          setSheetsLastSynced(Date.now());
+        })
+        .finally(() => {
+          setIsSheetsSyncing(false);
+        });
     }
   }, [activeMainTab, isGoogleConnected]);
 
@@ -544,22 +574,17 @@ export default function App() {
     }
   }, [stravaToken]);
 
-  // Pre-load existing IndexedDB records on initial mount
+  // Pre-load all existing IndexedDB activity records on startup
   useEffect(() => {
-    if (stravaActivities.length === 0) return;
     let cancelled = false;
 
     const loadCachedRecords = async () => {
       try {
-        const records = await Promise.all(
-          stravaActivities.map((activity) => getCachedStravaActivityRecord(activity.id))
-        );
+        const allCached = await getAllCachedStravaActivityRecords();
         if (cancelled) return;
-        const cachedDetails: Record<string, StravaActivityDetailsRecord> = {};
-        records.forEach((record) => {
-          if (record) cachedDetails[record.id] = record;
-        });
-        setStravaActivityDetails((current) => ({ ...current, ...cachedDetails }));
+        if (allCached && Object.keys(allCached).length > 0) {
+          setStravaActivityDetails((current) => ({ ...allCached, ...current }));
+        }
       } catch {}
     };
 
@@ -567,7 +592,34 @@ export default function App() {
     return () => {
       cancelled = true;
     };
-  }, [stravaActivities]);
+  }, []);
+
+  // Background stream downloader state & live progress subscription
+  const [streamProgress, setStreamProgress] = useState<StreamDownloaderProgress>(() => getStreamDownloaderStatus());
+
+  useEffect(() => {
+    const unsub = subscribeToStreamDownloader((prog) => {
+      setStreamProgress(prog);
+    });
+    return unsub;
+  }, []);
+
+  // Automatically start background downloading detailed streams for activities
+  useEffect(() => {
+    if (!stravaToken || stravaActivities.length === 0) return;
+
+    void startBackgroundStreamDownload({
+      activities: stravaActivities,
+      stravaToken,
+      cachedDetails: stravaActivityDetails,
+      onActivityDownloaded: (record) => {
+        setStravaActivityDetails((current) => ({
+          ...current,
+          [String(record.id)]: record,
+        }));
+      },
+    });
+  }, [stravaToken, stravaActivities]);
 
   const handleTokenUpdated = (token: string | null, tokenData?: StravaTokenResponse | null) => {
     setStravaToken(token);
@@ -752,9 +804,74 @@ export default function App() {
                 {isLoadingStravaActivities ? 'Syncing...' : 'Sync'}
               </span>
             </button>
+
+            {/* Google Sheets Sync Status */}
+            {isGoogleConnected && (
+              <div
+                className={`hidden md:flex items-center gap-1.5 px-2.5 py-1 rounded-xl text-xs font-semibold border transition-all ${
+                  isSheetsSyncing
+                    ? 'bg-amber-500/10 border-amber-500/30 text-amber-300'
+                    : 'bg-emerald-500/10 border-emerald-500/25 text-emerald-400'
+                }`}
+                title="Google Sheets Sync Status"
+              >
+                <FileSpreadsheet className={`w-3.5 h-3.5 ${isSheetsSyncing ? 'animate-pulse' : ''}`} />
+                <span>{isSheetsSyncing ? 'Syncing Sheets...' : `Sheets: ${formatTimeAgo(sheetsLastSynced)}`}</span>
+              </div>
+            )}
           </div>
         </div>
       </header>
+
+      {/* Stream Downloader Progress Banner */}
+      {streamProgress.isDownloading && (
+        <div className="bg-slate-950/95 border-b border-indigo-500/30 px-4 py-2 text-xs text-slate-300 animate-in fade-in">
+          <div className="max-w-4xl mx-auto flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+            <div className="flex items-center gap-2 min-w-0">
+              <Loader2 className="w-3.5 h-3.5 text-indigo-400 animate-spin shrink-0" />
+              <span className="truncate">
+                Pre-fetching activity streams for Fitness analysis:{' '}
+                <strong className="text-white">
+                  {streamProgress.completed} / {streamProgress.total}
+                </strong>
+                {streamProgress.currentActivityName ? (
+                  <span className="text-slate-400"> • {streamProgress.currentActivityName}</span>
+                ) : null}
+              </span>
+            </div>
+            <div className="flex items-center gap-3 shrink-0 self-end sm:self-auto">
+              <div className="w-24 sm:w-32 bg-slate-900 rounded-full h-1.5 overflow-hidden border border-slate-800">
+                <div
+                  className="bg-indigo-500 h-full rounded-full transition-all duration-300"
+                  style={{
+                    width: `${Math.round(
+                      (streamProgress.completed / Math.max(1, streamProgress.total)) * 100
+                    )}%`,
+                  }}
+                />
+              </div>
+              <button
+                type="button"
+                onClick={() =>
+                  streamProgress.isPaused ? resumeStreamDownloader() : pauseStreamDownloader()
+                }
+                className="text-[11px] font-bold text-indigo-300 hover:text-white underline cursor-pointer"
+              >
+                {streamProgress.isPaused ? 'Resume' : 'Pause'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Stream Downloader Rate Limit Warning */}
+      {streamProgress.isRateLimited && (
+        <div className="bg-amber-950/60 border-b border-amber-500/30 px-4 py-1.5 text-xs text-amber-200">
+          <div className="max-w-4xl mx-auto flex items-center justify-between gap-2">
+            <span>Strava API rate limit reached. Background stream downloader paused for cooldown.</span>
+          </div>
+        </div>
+      )}
 
       {/* ========================================================= */}
       {/* MAIN VIEW: STRAVA ACTIVITIES, READINESS, OR FITNESS */}
