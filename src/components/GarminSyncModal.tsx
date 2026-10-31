@@ -31,6 +31,8 @@ import {
   getStoredGarminToken,
   getStoredGarminProxyUrl,
 } from '../utils/garminConfig';
+import { batchUploadHealthDataToGoogleSheet } from '../utils/googleSheets';
+import { getGoogleAccessToken } from '../utils/googleAuth';
 
 interface GarminSyncModalProps {
   isOpen: boolean;
@@ -233,8 +235,24 @@ export const GarminSyncModal: React.FC<GarminSyncModalProps> = ({
 
       const merged = mergeRecoveryLogs(existingLogs, result.logs);
       onSyncComplete(merged);
+
+      let sheetNote = '';
+      if (getGoogleAccessToken()) {
+        setProgressMsg('Uploading recovery telemetry to GymFIT Training Log on Google Sheets...');
+        try {
+          const sheetRes = await batchUploadHealthDataToGoogleSheet(result.logs);
+          if (sheetRes.success) {
+            sheetNote = ' • Saved to GymFIT Training Log on Google Sheets!';
+          } else if (sheetRes.error) {
+            sheetNote = ` • (Google Sheets: ${sheetRes.error})`;
+          }
+        } catch (e: any) {
+          console.warn('[Google Sheets] auto-upload error:', e);
+        }
+      }
+
       setSuccess(
-        `Successfully imported ${result.syncedDays} day(s) of Garmin recovery data for ${rangeLabel}!`
+        `Successfully imported ${result.syncedDays} day(s) of Garmin recovery data for ${rangeLabel}${sheetNote}`
       );
     } catch (err: any) {
       setError(err.message || 'An unexpected error occurred during Garmin synchronization.');

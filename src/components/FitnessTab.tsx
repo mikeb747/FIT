@@ -668,19 +668,19 @@ export const FitnessTab: React.FC<FitnessTabProps> = ({
       </div>
 
       {/* ========================================================= */}
-      {/* 3. WEEKLY RUNNING MILEAGE (MONDAY TO SUNDAY) GRAPH        */}
+      {/* 3. CHARTS CONTAINER: VOLUME & MULTIDIMENSIONAL ZONES       */}
       {/* ========================================================= */}
-      {/* Displayed prominently for Running and Triathlon views */}
-      {(selectedSport === 'run' || selectedSport === 'triathlon') && (
-        <WeeklyMileageChart
-          activities={activities}
-          theme={theme}
-          onSelectActivity={(actId) => {
-            setSelectedZoneActivityId(actId);
-            handleOpenActivityModal(actId);
-          }}
-        />
-      )}
+      <WeeklyMileageChart
+        activities={activities}
+        activityDetails={activityDetails}
+        athleteProfile={athleteProfile}
+        initialTab={selectedSport === 'bike' ? 'cycling_power' : 'mileage'}
+        theme={theme}
+        onSelectActivity={(actId) => {
+          setSelectedZoneActivityId(actId);
+          handleOpenActivityModal(actId);
+        }}
+      />
 
       {/* ========================================================= */}
       {/* 4. DISCIPLINE CTL BREAKDOWN CARDS (SWIM / BIKE / RUN)     */}

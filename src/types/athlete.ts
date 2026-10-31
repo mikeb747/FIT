@@ -378,7 +378,7 @@ export function getAthleteHeartRateZones(profile: AthleteProfile, sport: 'run' |
       name: 'Recovery',
       minHr: restHr,
       maxHr: Math.round(lthr * 0.81),
-      color: '#38bdf8', // sky-400
+      color: '#00e5ff', // Cyan
       description: 'Active recovery, easy aerobic flushing',
     },
     {
@@ -386,7 +386,7 @@ export function getAthleteHeartRateZones(profile: AthleteProfile, sport: 'run' |
       name: 'Aerobic / Base',
       minHr: Math.round(lthr * 0.82),
       maxHr: Math.round(lthr * 0.89),
-      color: '#34d399', // emerald-400
+      color: '#00b0ff', // Blue
       description: 'Base endurance, fat oxidation, conversational',
     },
     {
@@ -394,7 +394,7 @@ export function getAthleteHeartRateZones(profile: AthleteProfile, sport: 'run' |
       name: 'Tempo',
       minHr: Math.round(lthr * 0.90),
       maxHr: Math.round(lthr * 0.94),
-      color: '#fbbf24', // amber-400
+      color: '#ffea00', // Yellow
       description: 'Aerobic power, marathon pace, sustainable effort',
     },
     {
@@ -402,7 +402,7 @@ export function getAthleteHeartRateZones(profile: AthleteProfile, sport: 'run' |
       name: 'Sub-Threshold',
       minHr: Math.round(lthr * 0.95),
       maxHr: Math.round(lthr * 0.99),
-      color: '#fb923c', // orange-400
+      color: '#ff9100', // Orange
       description: 'Lactate threshold, 1-hour race pace effort',
     },
     {
@@ -410,7 +410,7 @@ export function getAthleteHeartRateZones(profile: AthleteProfile, sport: 'run' |
       name: 'Threshold & VO2max',
       minHr: Math.round(lthr * 1.00),
       maxHr: maxHr,
-      color: '#f87171', // rose-400
+      color: '#ff1744', // Red
       description: 'Above threshold, anaerobic capacity and neuromuscular power',
     },
   ];
@@ -457,7 +457,7 @@ export function getAthletePaceZones(profile: AthleteProfile, isTreadmill = false
       minPaceSec: z1Fast,
       maxPaceSec: z1Slow,
       rangeFormatted: `>${formatSecondsToMinSec(z1Fast)}/km`,
-      color: '#38bdf8', // sky-400
+      color: '#00e5ff', // Cyan
       description: 'Active recovery and warm-up jog',
     },
     {
@@ -466,7 +466,7 @@ export function getAthletePaceZones(profile: AthleteProfile, isTreadmill = false
       minPaceSec: z2Fast,
       maxPaceSec: z1Fast,
       rangeFormatted: `${formatSecondsToMinSec(z2Fast)} - ${formatSecondsToMinSec(z1Fast)}/km`,
-      color: '#34d399', // emerald-400
+      color: '#00b0ff', // Blue
       description: 'Base building, long runs, easy mileage',
     },
     {
@@ -475,7 +475,7 @@ export function getAthletePaceZones(profile: AthleteProfile, isTreadmill = false
       minPaceSec: z3Fast,
       maxPaceSec: z2Fast,
       rangeFormatted: `${formatSecondsToMinSec(z3Fast)} - ${formatSecondsToMinSec(z2Fast)}/km`,
-      color: '#fbbf24', // amber-400
+      color: '#ffea00', // Yellow
       description: 'Aerobic power, half/full marathon race pace',
     },
     {
@@ -484,7 +484,7 @@ export function getAthletePaceZones(profile: AthleteProfile, isTreadmill = false
       minPaceSec: z4Fast,
       maxPaceSec: z3Fast,
       rangeFormatted: `${formatSecondsToMinSec(z4Fast)} - ${formatSecondsToMinSec(z3Fast)}/km`,
-      color: '#fb923c', // orange-400
+      color: '#ff9100', // Orange
       description: 'Lactate threshold, 10k-15k pace',
     },
     {
@@ -493,7 +493,7 @@ export function getAthletePaceZones(profile: AthleteProfile, isTreadmill = false
       minPaceSec: z5Fast,
       maxPaceSec: z4Fast,
       rangeFormatted: `<${formatSecondsToMinSec(z4Fast)}/km`,
-      color: '#f87171', // rose-400
+      color: '#ff1744', // Red
       description: 'Intervals, 5k and neuromuscular speed work',
     },
   ];
@@ -516,13 +516,14 @@ export interface PowerZone {
 export function getAthletePowerZones(profile: AthleteProfile): PowerZone[] {
   const ftp = profile.bikeFtp || 310;
 
-  // Coggan 6-Zone cycling power distribution:
+  // Coggan 7-Zone cycling power distribution:
   // Z1: Active Recovery (< 55% FTP)
   // Z2: Endurance (56% - 75% FTP)
   // Z3: Tempo (76% - 90% FTP)
   // Z4: Lactate Threshold (91% - 105% FTP)
   // Z5: VO2 Max (106% - 120% FTP)
-  // Z6: Anaerobic & Neuromuscular (> 120% FTP)
+  // Z6: Anaerobic Capacity (121% - 150% FTP)
+  // Z7: Neuromuscular (> 150% FTP)
 
   const z1Max = Math.round(ftp * 0.55);
   const z2Max = Math.round(ftp * 0.75);
@@ -538,7 +539,7 @@ export function getAthletePowerZones(profile: AthleteProfile): PowerZone[] {
       minWatts: 0,
       maxWatts: z1Max,
       rangeFormatted: `<${z1Max}W`,
-      color: '#38bdf8', // sky-400
+      color: '#00e5ff', // Cyan
       description: 'Easy spinning, flushing lactate',
     },
     {
@@ -547,7 +548,7 @@ export function getAthletePowerZones(profile: AthleteProfile): PowerZone[] {
       minWatts: z1Max + 1,
       maxWatts: z2Max,
       rangeFormatted: `${z1Max + 1} - ${z2Max}W`,
-      color: '#34d399', // emerald-400
+      color: '#00b0ff', // Blue
       description: 'All-day aerobic endurance, fat burning',
     },
     {
@@ -556,7 +557,7 @@ export function getAthletePowerZones(profile: AthleteProfile): PowerZone[] {
       minWatts: z2Max + 1,
       maxWatts: z3Max,
       rangeFormatted: `${z2Max + 1} - ${z3Max}W`,
-      color: '#fbbf24', // amber-400
+      color: '#00e676', // Green
       description: 'Rhythmic aerobic effort, sweetspot base',
     },
     {
@@ -565,7 +566,7 @@ export function getAthletePowerZones(profile: AthleteProfile): PowerZone[] {
       minWatts: z3Max + 1,
       maxWatts: z4Max,
       rangeFormatted: `${z3Max + 1} - ${z4Max}W`,
-      color: '#fb923c', // orange-400
+      color: '#ffea00', // Yellow
       description: 'FTP race pace, sustainable 1-hour power',
     },
     {
@@ -574,7 +575,7 @@ export function getAthletePowerZones(profile: AthleteProfile): PowerZone[] {
       minWatts: z4Max + 1,
       maxWatts: z5Max,
       rangeFormatted: `${z4Max + 1} - ${z5Max}W`,
-      color: '#f87171', // rose-400
+      color: '#ff9100', // Orange
       description: '3-8 min high-intensity interval efforts',
     },
     {
@@ -582,9 +583,18 @@ export function getAthletePowerZones(profile: AthleteProfile): PowerZone[] {
       name: 'Anaerobic',
       minWatts: z5Max + 1,
       maxWatts: z6Max,
-      rangeFormatted: `>${z5Max}W`,
-      color: '#c084fc', // purple-400
-      description: 'Short bursts, sprint surges & attacks',
+      rangeFormatted: `${z5Max + 1} - ${z6Max}W`,
+      color: '#ff1744', // Red
+      description: '30s - 2min high-power attacks',
+    },
+    {
+      zone: 7,
+      name: 'Neuromuscular',
+      minWatts: z6Max + 1,
+      maxWatts: 9999,
+      rangeFormatted: `>${z6Max}W`,
+      color: '#d500f9', // Purple
+      description: 'Maximal sprint surges < 30s',
     },
   ];
 }

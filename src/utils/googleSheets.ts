@@ -15,8 +15,29 @@ export const GOOGLE_SHEETS_CONFIG = {
     SPREADSHEET_NAME: 'gymfit_google_sheets_spreadsheet_name',
     LAST_CHECKED: 'gymfit_google_sheets_last_checked',
   },
-  DEFAULT_SPREADSHEET_NAME: 'FIT Track Training Log',
+  DEFAULT_SPREADSHEET_NAME: 'GymFIT Training Log',
 };
+
+/**
+ * Extracts a Google Spreadsheet ID from either a raw ID or a full Google Sheets URL
+ */
+export function parseSpreadsheetId(input: string): string | null {
+  if (!input) return null;
+  const trimmed = input.trim();
+  const match = trimmed.match(/\/spreadsheets\/d\/([a-zA-Z0-9-_]+)/);
+  if (match && match[1]) return match[1];
+  if (/^[a-zA-Z0-9-_]{20,80}$/.test(trimmed)) return trimmed;
+  return null;
+}
+
+export function setCustomSpreadsheetId(idOrUrl: string, name = 'GymFIT Training Log'): string | null {
+  const parsed = parseSpreadsheetId(idOrUrl);
+  if (parsed) {
+    saveCachedSpreadsheetId(parsed, name);
+    return parsed;
+  }
+  return null;
+}
 
 export interface SheetExportResult {
   success: boolean;
@@ -91,9 +112,9 @@ export async function getOrCreateTrainingLogSheet(): Promise<string> {
     }
   }
 
-  // Search Drive for an existing "FIT Track Training Log" or legacy "GymFIT Training Log" file
+  // Search Drive for an existing "GymFIT Training Log" or legacy "FIT Track Training Log" file
   try {
-    const query = encodeURIComponent("(name = 'FIT Track Training Log' or name = 'GymFIT Training Log') and mimeType = 'application/vnd.google-apps.spreadsheet' and trashed = false");
+    const query = encodeURIComponent("(name = 'GymFIT Training Log' or name = 'FIT Track Training Log') and mimeType = 'application/vnd.google-apps.spreadsheet' and trashed = false");
     const searchRes = await fetch(`https://www.googleapis.com/drive/v3/files?q=${query}&fields=files(id,name)&pageSize=1`, {
       headers: { Authorization: `Bearer ${token}` },
     });
@@ -110,7 +131,7 @@ export async function getOrCreateTrainingLogSheet(): Promise<string> {
     // Search failed, fall through to creation
   }
 
-  // Create new Spreadsheet with headers
+  // Create new Spreadsheet with Workouts and Health tabs
   const createRes = await fetch('https://sheets.googleapis.com/v4/spreadsheets', {
     method: 'POST',
     headers: {
@@ -159,6 +180,25 @@ export async function getOrCreateTrainingLogSheet(): Promise<string> {
                     { userEnteredValue: { stringValue: 'Strava URL' } },
                     { userEnteredValue: { stringValue: 'Synced At' } },
                   ],
+                },
+              ],
+            },
+          ],
+        },
+        {
+          properties: {
+            title: 'Health',
+            gridProperties: {
+              frozenRowCount: 1,
+            },
+          },
+          data: [
+            {
+              startRow: 0,
+              startColumn: 0,
+              rowData: [
+                {
+                  values: HEALTH_SHEET_HEADERS.map((h) => ({ userEnteredValue: { stringValue: h } })),
                 },
               ],
             },
@@ -421,8 +461,62 @@ export async function appendActivityToTrainingLog(
 
 import type { DailyRecoveryLog } from '../types/recovery';
 
+export const HEALTH_SHEET_HEADERS = [
+  'Date',
+  'Readiness Score',
+  'Sleep Score',
+  'Sleep Duration (hrs)',
+  'HRV (rMSSD)',
+  'Resting HR (bpm)',
+  'Body Battery',
+  'Stress',
+  'Respiration (brpm)',
+  'Pulse Ox / SpO2 (%)',
+  'VO2 Max Run',
+  'VO2 Max Bike',
+  'Steps',
+  'Calories (kcal)',
+  'Deep Sleep (min)',
+  'REM Sleep (min)',
+  'Light Sleep (min)',
+  'Awake (min)',
+  'Source',
+  'Notes / Tags',
+  'Synced At',
+];
+
+export function formatHealthLogRow(log: DailyRecoveryLog): (string | number)[] {
+  const sleepHours = log.sleepDurationMinutes ? (log.sleepDurationMinutes / 60).toFixed(1) : '';
+  const notesStr = [log.notes, ...(log.tags || [])].filter(Boolean).join(' · ');
+  const nowIso = new Date().toISOString();
+
+  return [
+    log.date,
+    '', // readiness score (computed dynamically)
+    log.sleepScore ?? '',
+    sleepHours,
+    log.hrvRmssd ?? '',
+    log.restingHr ?? '',
+    log.bodyBattery ?? '',
+    log.stress ?? '',
+    log.respiration ?? '',
+    log.pulseOx !== undefined ? `${log.pulseOx}%` : '',
+    log.vo2MaxRun ?? '',
+    log.vo2MaxBike ?? '',
+    log.steps ?? '',
+    log.calories ?? '',
+    log.deepSleepMinutes ?? '',
+    log.remSleepMinutes ?? '',
+    log.lightSleepMinutes ?? '',
+    log.awakeMinutes ?? '',
+    log.source ?? 'garmin',
+    notesStr,
+    nowIso,
+  ];
+}
+
 /**
- * Ensure the "Health" sheet tab exists in the Google Spreadsheet
+ * Ensure the "Health" sheet tab exists in the Google Spreadsheet with full 21 columns
  */
 export async function getOrCreateHealthSheet(spreadsheetId: string): Promise<void> {
   const token = getGoogleAccessToken();
@@ -438,7 +532,7 @@ export async function getOrCreateHealthSheet(spreadsheetId: string): Promise<voi
     const hasHealth = sheets.some((s: any) => s.properties?.title === 'Health');
 
     if (!hasHealth) {
-      // Add "Health" sheet and header row
+      // Add "Health" sheet
       const batchRes = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}:batchUpdate`, {
         method: 'POST',
         headers: {
@@ -460,9 +554,9 @@ export async function getOrCreateHealthSheet(spreadsheetId: string): Promise<voi
       });
 
       if (batchRes.ok) {
-        // Populate header row
+        // Populate header row A1:U1
         await fetch(
-          `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/Health!A1:M1?valueInputOption=USER_ENTERED`,
+          `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/Health!A1:U1?valueInputOption=USER_ENTERED`,
           {
             method: 'PUT',
             headers: {
@@ -470,28 +564,29 @@ export async function getOrCreateHealthSheet(spreadsheetId: string): Promise<voi
               'Content-Type': 'application/json',
             },
             body: JSON.stringify({
-              values: [[
-                'Date',
-                'Readiness Score',
-                'Sleep Score',
-                'Sleep Duration (hrs)',
-                'HRV (rMSSD)',
-                'Resting HR',
-                'Deep Sleep (min)',
-                'REM Sleep (min)',
-                'Light Sleep (min)',
-                'Awake (min)',
-                'Source',
-                'Notes / Tags',
-                'Synced At',
-              ]],
+              values: [HEALTH_SHEET_HEADERS],
             }),
           }
         );
       }
+    } else {
+      // Update header row to ensure all 21 columns exist
+      await fetch(
+        `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/Health!A1:U1?valueInputOption=USER_ENTERED`,
+        {
+          method: 'PUT',
+          headers: {
+            Authorization: `Bearer ${token}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            values: [HEALTH_SHEET_HEADERS],
+          }),
+        }
+      ).catch(() => {});
     }
   } catch (err) {
-    console.warn('[Google Sheets] Failed to create Health sheet:', err);
+    console.warn('[Google Sheets] Failed to create or verify Health sheet:', err);
   }
 }
 
@@ -508,7 +603,7 @@ export async function fetchHealthDataFromGoogleSheet(spreadsheetId?: string): Pr
   try {
     await getOrCreateHealthSheet(targetId);
     const res = await fetch(
-      `https://sheets.googleapis.com/v4/spreadsheets/${targetId}/values/Health!A2:M1000`,
+      `https://sheets.googleapis.com/v4/spreadsheets/${targetId}/values/Health!A2:U3000`,
       {
         headers: { Authorization: `Bearer ${token}` },
       }
@@ -528,12 +623,39 @@ export async function fetchHealthDataFromGoogleSheet(spreadsheetId?: string): Pr
       const sleepDurationMinutes = Math.round(sleepHours * 60);
       const hrvRmssd = Number(row[4]) || 0;
       const restingHr = Number(row[5]) || 41;
-      const deepSleepMinutes = Number(row[6]) || 0;
-      const remSleepMinutes = Number(row[7]) || 0;
-      const lightSleepMinutes = Number(row[8]) || 0;
-      const awakeMinutes = Number(row[9]) || 0;
-      const source = (row[10] as any) || 'garmin';
-      const notes = String(row[11] || '').trim();
+
+      // Extended Garmin biometrics
+      const rawBattery = Number(row[6]);
+      const bodyBattery = Number.isFinite(rawBattery) && rawBattery >= 0 ? rawBattery : undefined;
+
+      const rawStress = Number(row[7]);
+      const stress = Number.isFinite(rawStress) && rawStress >= 0 ? rawStress : undefined;
+
+      const rawResp = Number(row[8]);
+      const respiration = Number.isFinite(rawResp) && rawResp >= 0 ? rawResp : undefined;
+
+      const rawPulseOxStr = String(row[9] || '').replace('%', '').trim();
+      const rawPulseOx = Number(rawPulseOxStr);
+      const pulseOx = Number.isFinite(rawPulseOx) && rawPulseOx >= 0 ? rawPulseOx : undefined;
+
+      const rawVo2Run = Number(row[10]);
+      const vo2MaxRun = Number.isFinite(rawVo2Run) && rawVo2Run > 0 ? rawVo2Run : undefined;
+
+      const rawVo2Bike = Number(row[11]);
+      const vo2MaxBike = Number.isFinite(rawVo2Bike) && rawVo2Bike > 0 ? rawVo2Bike : undefined;
+
+      const rawSteps = Number(row[12]);
+      const steps = Number.isFinite(rawSteps) && rawSteps >= 0 ? rawSteps : undefined;
+
+      const rawCal = Number(row[13]);
+      const calories = Number.isFinite(rawCal) && rawCal >= 0 ? rawCal : undefined;
+
+      const deepSleepMinutes = Number(row[14]) || 0;
+      const remSleepMinutes = Number(row[15]) || 0;
+      const lightSleepMinutes = Number(row[16]) || 0;
+      const awakeMinutes = Number(row[17]) || 0;
+      const source = (row[18] as any) || 'garmin';
+      const notes = String(row[19] || '').trim();
 
       logs.push({
         id: `sheets-health-${date}`,
@@ -542,6 +664,14 @@ export async function fetchHealthDataFromGoogleSheet(spreadsheetId?: string): Pr
         hrvRmssd,
         sleepDurationMinutes: sleepDurationMinutes > 0 ? sleepDurationMinutes : 480,
         sleepScore: sleepScore > 0 ? sleepScore : 75,
+        bodyBattery,
+        stress,
+        respiration,
+        pulseOx,
+        vo2MaxRun,
+        vo2MaxBike,
+        steps,
+        calories,
         deepSleepMinutes,
         remSleepMinutes,
         lightSleepMinutes,
@@ -558,71 +688,87 @@ export async function fetchHealthDataFromGoogleSheet(spreadsheetId?: string): Pr
   }
 }
 
+export interface BatchHealthUploadResult {
+  success: boolean;
+  totalLogs: number;
+  appendedCount: number;
+  updatedCount: number;
+  spreadsheetId?: string;
+  spreadsheetUrl?: string;
+  error?: string;
+}
+
 /**
- * Append or update a daily recovery log to the "Health" tab in Google Sheets
+ * Batch upload multiple recovery logs to the "Health" tab in Google Sheets safely
+ * (Deduplicates by date, prevents 429 rate limits, writes all 21 metric columns)
  */
-export async function appendHealthDataToGoogleSheet(log: DailyRecoveryLog, spreadsheetId?: string): Promise<void> {
+export async function batchUploadHealthDataToGoogleSheet(
+  logs: DailyRecoveryLog[],
+  spreadsheetId?: string
+): Promise<BatchHealthUploadResult> {
   const token = getGoogleAccessToken();
-  if (!token) return;
+  if (!token) {
+    return {
+      success: false,
+      totalLogs: logs.length,
+      appendedCount: 0,
+      updatedCount: 0,
+      error: 'Google account is not connected or session expired. Please click "Connect Google Account".',
+    };
+  }
+
+  if (!logs || logs.length === 0) {
+    return {
+      success: true,
+      totalLogs: 0,
+      appendedCount: 0,
+      updatedCount: 0,
+    };
+  }
 
   try {
     const targetId = spreadsheetId || (await getOrCreateTrainingLogSheet());
     await getOrCreateHealthSheet(targetId);
 
-    const sleepHours = log.sleepDurationMinutes ? (log.sleepDurationMinutes / 60).toFixed(1) : '';
-    const notesStr = [log.notes, ...(log.tags || [])].filter(Boolean).join(' · ');
-    const nowIso = new Date().toISOString();
-
-    const rowValues = [
-      log.date,
-      '', // readiness score computed dynamically
-      log.sleepScore ?? '',
-      sleepHours,
-      log.hrvRmssd ?? '',
-      log.restingHr ?? '',
-      log.deepSleepMinutes ?? '',
-      log.remSleepMinutes ?? '',
-      log.lightSleepMinutes ?? '',
-      log.awakeMinutes ?? '',
-      log.source ?? 'garmin',
-      notesStr,
-      nowIso,
-    ];
-
-    // Check if date already exists in Health sheet column A
+    // Read existing dates from column A (Health!A2:A5000)
     const checkRes = await fetch(
-      `https://sheets.googleapis.com/v4/spreadsheets/${targetId}/values/Health!A2:A1000`,
+      `https://sheets.googleapis.com/v4/spreadsheets/${targetId}/values/Health!A2:A5000`,
       { headers: { Authorization: `Bearer ${token}` } }
     );
 
-    let rowIndex = -1;
+    const dateToRowIndex = new Map<string, number>();
     if (checkRes.ok) {
       const checkData = await checkRes.json();
       const rows = checkData.values || [];
       for (let i = 0; i < rows.length; i++) {
-        if (String(rows[i][0]).trim() === log.date) {
-          rowIndex = i + 2; // +2 because 1-indexed and header is row 1
-          break;
-        }
+        const d = String(rows[i][0] || '').trim();
+        if (d) dateToRowIndex.set(d, i + 2); // 1-indexed, row 1 is header
       }
     }
 
-    if (rowIndex > 0) {
-      // Update existing row
-      await fetch(
-        `https://sheets.googleapis.com/v4/spreadsheets/${targetId}/values/Health!A${rowIndex}:M${rowIndex}?valueInputOption=USER_ENTERED`,
-        {
-          method: 'PUT',
-          headers: {
-            Authorization: `Bearer ${token}`,
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({ values: [rowValues] }),
-        }
-      );
-    } else {
-      // Append new row
-      await fetch(
+    const rowsToAppend: (string | number)[][] = [];
+    const updates: { range: string; values: (string | number)[][] }[] = [];
+
+    // Sort logs chronologically
+    const sorted = [...logs].sort((a, b) => a.date.localeCompare(b.date));
+
+    for (const log of sorted) {
+      const row = formatHealthLogRow(log);
+      const existingRowIndex = dateToRowIndex.get(log.date);
+
+      if (existingRowIndex) {
+        updates.push({
+          range: `Health!A${existingRowIndex}:U${existingRowIndex}`,
+          values: [row],
+        });
+      } else {
+        rowsToAppend.push(row);
+      }
+    }
+
+    // Append new rows in one single request
+    if (rowsToAppend.length > 0) {
+      const appendRes = await fetch(
         `https://sheets.googleapis.com/v4/spreadsheets/${targetId}/values/Health!A1:append?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS`,
         {
           method: 'POST',
@@ -630,12 +776,62 @@ export async function appendHealthDataToGoogleSheet(log: DailyRecoveryLog, sprea
             Authorization: `Bearer ${token}`,
             'Content-Type': 'application/json',
           },
-          body: JSON.stringify({ values: [rowValues] }),
+          body: JSON.stringify({ values: rowsToAppend }),
         }
       );
+      if (!appendRes.ok) {
+        const errJson = await appendRes.json().catch(() => ({}));
+        throw new Error(errJson.error?.message || `Append failed (${appendRes.status})`);
+      }
     }
-  } catch (err) {
-    console.warn('[Google Sheets] Failed to upload health data to sheet:', err);
+
+    // Batch update existing rows
+    if (updates.length > 0) {
+      const updateRes = await fetch(
+        `https://sheets.googleapis.com/v4/spreadsheets/${targetId}/values:batchUpdate`,
+        {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${token}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            valueInputOption: 'USER_ENTERED',
+            data: updates,
+          }),
+        }
+      );
+      if (!updateRes.ok) {
+        const errJson = await updateRes.json().catch(() => ({}));
+        throw new Error(errJson.error?.message || `Batch update failed (${updateRes.status})`);
+      }
+    }
+
+    const spreadsheetUrl = `https://docs.google.com/spreadsheets/d/${targetId}/edit`;
+    return {
+      success: true,
+      totalLogs: logs.length,
+      appendedCount: rowsToAppend.length,
+      updatedCount: updates.length,
+      spreadsheetId: targetId,
+      spreadsheetUrl,
+    };
+  } catch (err: any) {
+    console.error('[Google Sheets] batchUploadHealthDataToGoogleSheet failed:', err);
+    return {
+      success: false,
+      totalLogs: logs.length,
+      appendedCount: 0,
+      updatedCount: 0,
+      error: err.message || 'Failed to save health data to Google Sheets',
+    };
   }
+}
+
+/**
+ * Append or update a single daily recovery log to the "Health" tab in Google Sheets
+ */
+export async function appendHealthDataToGoogleSheet(log: DailyRecoveryLog, spreadsheetId?: string): Promise<void> {
+  await batchUploadHealthDataToGoogleSheet([log], spreadsheetId);
 }
 

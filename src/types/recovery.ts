@@ -22,6 +22,15 @@ export interface DailyRecoveryLog {
   notes?: string;
   source: RecoverySource;
   tags?: string[]; // e.g. ['late meal', 'travel', 'hard race', 'alcohol free']
+  // Extended Garmin Health Telemetry
+  bodyBattery?: number; // 0 - 100
+  stress?: number; // 0 - 100
+  respiration?: number; // Breaths per minute (e.g. 14 brpm)
+  pulseOx?: number; // Blood oxygen SpO2 % (e.g. 96)
+  vo2MaxRun?: number; // Cardiovascular capacity ml/kg/min
+  vo2MaxBike?: number; // Cycling VO2 Max ml/kg/min
+  steps?: number; // Daily step count
+  calories?: number; // Total / active kilocalories
 }
 
 export type ReadinessStatus = 'optimal' | 'good' | 'moderate' | 'low';

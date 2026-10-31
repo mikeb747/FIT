@@ -307,7 +307,23 @@ export function mergeRecoveryLogs(
     map.set(log.date, log);
   }
   for (const log of incoming) {
-    map.set(log.date, log);
+    const prev = map.get(log.date);
+    if (prev) {
+      map.set(log.date, {
+        ...prev,
+        ...log,
+        bodyBattery: log.bodyBattery ?? prev.bodyBattery,
+        stress: log.stress ?? prev.stress,
+        respiration: log.respiration ?? prev.respiration,
+        pulseOx: log.pulseOx ?? prev.pulseOx,
+        vo2MaxRun: log.vo2MaxRun ?? prev.vo2MaxRun,
+        vo2MaxBike: log.vo2MaxBike ?? prev.vo2MaxBike,
+        steps: log.steps ?? prev.steps,
+        calories: log.calories ?? prev.calories,
+      });
+    } else {
+      map.set(log.date, log);
+    }
   }
   const result = Array.from(map.values()).sort((a, b) => a.date.localeCompare(b.date));
   saveRecoveryLogs(result);
@@ -1041,7 +1057,9 @@ async function syncGarminViaProxy(
       sleepMinutes > 0 ||
       (restingHeartRate && restingHeartRate > 0) ||
       (hrvRmssd && hrvRmssd > 0) ||
-      (steps !== undefined && steps > 0);
+      (steps !== undefined && steps > 0) ||
+      (bodyBattery !== undefined && bodyBattery > 0) ||
+      (stress !== undefined && stress > 0);
 
     if (hasAnyValidMetric) {
       collectedLogs.push({
@@ -1057,6 +1075,14 @@ async function syncGarminViaProxy(
         awakeMinutes: Math.round(Number(sleepData.awakeSleepSeconds || 0) / 60),
         source: 'garmin' as const,
         notes: `Garmin sync via Cloudflare Worker for ${queryDate} UTC`,
+        bodyBattery,
+        stress,
+        respiration,
+        pulseOx,
+        vo2MaxRun,
+        vo2MaxBike,
+        steps,
+        calories,
       });
     }
   }

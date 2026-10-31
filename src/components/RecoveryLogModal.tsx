@@ -52,6 +52,25 @@ export const RecoveryLogModal: React.FC<RecoveryLogModalProps> = ({
   const [source, setSource] = useState<RecoverySource>(initialLog?.source ?? 'garmin');
   const [notes, setNotes] = useState<string>(initialLog?.notes ?? '');
 
+  const [bodyBattery, setBodyBattery] = useState<string>(
+    initialLog?.bodyBattery !== undefined ? String(initialLog.bodyBattery) : ''
+  );
+  const [stress, setStress] = useState<string>(
+    initialLog?.stress !== undefined ? String(initialLog.stress) : ''
+  );
+  const [respiration, setRespiration] = useState<string>(
+    initialLog?.respiration !== undefined ? String(initialLog.respiration) : ''
+  );
+  const [pulseOx, setPulseOx] = useState<string>(
+    initialLog?.pulseOx !== undefined ? String(initialLog.pulseOx) : ''
+  );
+  const [steps, setSteps] = useState<string>(
+    initialLog?.steps !== undefined ? String(initialLog.steps) : ''
+  );
+  const [calories, setCalories] = useState<string>(
+    initialLog?.calories !== undefined ? String(initialLog.calories) : ''
+  );
+
   if (!isOpen) return null;
 
   const totalSleepMinutes = sleepHours * 60 + sleepMinutes;
@@ -73,6 +92,14 @@ export const RecoveryLogModal: React.FC<RecoveryLogModalProps> = ({
       subjectiveFeel,
       notes: notes.trim(),
       source,
+      bodyBattery: bodyBattery && !isNaN(Number(bodyBattery)) ? Number(bodyBattery) : undefined,
+      stress: stress && !isNaN(Number(stress)) ? Number(stress) : undefined,
+      respiration: respiration && !isNaN(Number(respiration)) ? Number(respiration) : undefined,
+      pulseOx: pulseOx && !isNaN(Number(pulseOx)) ? Number(pulseOx) : undefined,
+      vo2MaxRun: initialLog?.vo2MaxRun,
+      vo2MaxBike: initialLog?.vo2MaxBike,
+      steps: steps && !isNaN(Number(steps)) ? Number(steps) : undefined,
+      calories: calories && !isNaN(Number(calories)) ? Number(calories) : undefined,
     };
     onSave(log);
     onClose();
@@ -531,6 +558,120 @@ export const RecoveryLogModal: React.FC<RecoveryLogModalProps> = ({
                   <span className="text-[10px] font-normal leading-tight block">{item.label}</span>
                 </button>
               ))}
+            </div>
+          </div>
+
+          {/* Garmin Health Biometrics */}
+          <div className={`p-3.5 rounded-2xl border space-y-3 ${
+            isLight ? 'bg-slate-50 border-slate-200' : 'bg-slate-950/60 border-slate-800'
+          }`}>
+            <label
+              className={`block text-xs font-bold uppercase tracking-wider ${
+                isLight ? 'text-slate-700' : 'text-slate-300'
+              }`}
+            >
+              Garmin Health Biometrics (Optional)
+            </label>
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
+              <div>
+                <label className="block text-[11px] font-semibold text-sky-400 mb-1">
+                  Body Battery (1-100)
+                </label>
+                <input
+                  type="number"
+                  min="1"
+                  max="100"
+                  placeholder="e.g. 78"
+                  value={bodyBattery}
+                  onChange={(e) => setBodyBattery(e.target.value)}
+                  className={`w-full rounded-xl px-2.5 py-1.5 text-xs font-mono font-bold outline-none border ${
+                    isLight ? 'bg-white border-slate-200 text-slate-900' : 'bg-slate-900 border-slate-700 text-white'
+                  }`}
+                />
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-semibold text-amber-400 mb-1">
+                  Stress Level (1-100)
+                </label>
+                <input
+                  type="number"
+                  min="1"
+                  max="100"
+                  placeholder="e.g. 22"
+                  value={stress}
+                  onChange={(e) => setStress(e.target.value)}
+                  className={`w-full rounded-xl px-2.5 py-1.5 text-xs font-mono font-bold outline-none border ${
+                    isLight ? 'bg-white border-slate-200 text-slate-900' : 'bg-slate-900 border-slate-700 text-white'
+                  }`}
+                />
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-semibold text-teal-400 mb-1">
+                  Respiration (brpm)
+                </label>
+                <input
+                  type="number"
+                  min="4"
+                  max="35"
+                  placeholder="e.g. 14"
+                  value={respiration}
+                  onChange={(e) => setRespiration(e.target.value)}
+                  className={`w-full rounded-xl px-2.5 py-1.5 text-xs font-mono font-bold outline-none border ${
+                    isLight ? 'bg-white border-slate-200 text-slate-900' : 'bg-slate-900 border-slate-700 text-white'
+                  }`}
+                />
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-semibold text-cyan-400 mb-1">
+                  Pulse Ox SpO2 (%)
+                </label>
+                <input
+                  type="number"
+                  min="70"
+                  max="100"
+                  placeholder="e.g. 96"
+                  value={pulseOx}
+                  onChange={(e) => setPulseOx(e.target.value)}
+                  className={`w-full rounded-xl px-2.5 py-1.5 text-xs font-mono font-bold outline-none border ${
+                    isLight ? 'bg-white border-slate-200 text-slate-900' : 'bg-slate-900 border-slate-700 text-white'
+                  }`}
+                />
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-semibold text-slate-400 mb-1">
+                  Steps Count
+                </label>
+                <input
+                  type="number"
+                  min="0"
+                  placeholder="e.g. 8420"
+                  value={steps}
+                  onChange={(e) => setSteps(e.target.value)}
+                  className={`w-full rounded-xl px-2.5 py-1.5 text-xs font-mono font-bold outline-none border ${
+                    isLight ? 'bg-white border-slate-200 text-slate-900' : 'bg-slate-900 border-slate-700 text-white'
+                  }`}
+                />
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-semibold text-amber-500 mb-1">
+                  Calories (kcal)
+                </label>
+                <input
+                  type="number"
+                  min="0"
+                  placeholder="e.g. 2350"
+                  value={calories}
+                  onChange={(e) => setCalories(e.target.value)}
+                  className={`w-full rounded-xl px-2.5 py-1.5 text-xs font-mono font-bold outline-none border ${
+                    isLight ? 'bg-white border-slate-200 text-slate-900' : 'bg-slate-900 border-slate-700 text-white'
+                  }`}
+                />
+              </div>
             </div>
           </div>
 

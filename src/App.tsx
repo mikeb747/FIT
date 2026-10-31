@@ -38,11 +38,13 @@ import {
   initGoogleAuth,
   signInWithGoogle,
   signOutGoogle,
+  getGoogleAccessToken,
 } from './utils/googleAuth';
 import {
   getCachedSpreadsheetId,
   fetchHealthDataFromGoogleSheet,
   appendHealthDataToGoogleSheet,
+  batchUploadHealthDataToGoogleSheet,
 } from './utils/googleSheets';
 import { Settings, Activity, Moon, Heart, Zap, RotateCw } from 'lucide-react';
 import { RecoveryView } from './components/RecoveryView';
@@ -218,8 +220,8 @@ export default function App() {
   const handleUpsertRecoveryLog = (log: DailyRecoveryLog) => {
     const updated = upsertRecoveryLog(log);
     setRecoveryLogs(updated);
-    if (isGoogleConnected) {
-      void appendHealthDataToGoogleSheet(log);
+    if (isGoogleConnected && getGoogleAccessToken()) {
+      void batchUploadHealthDataToGoogleSheet([log]);
     }
   };
 
@@ -241,8 +243,8 @@ export default function App() {
     current.sort((a, b) => a.date.localeCompare(b.date));
     saveRecoveryLogs(current);
     setRecoveryLogs(current);
-    if (isGoogleConnected) {
-      imported.forEach((log) => void appendHealthDataToGoogleSheet(log));
+    if (isGoogleConnected && getGoogleAccessToken()) {
+      void batchUploadHealthDataToGoogleSheet(imported);
     }
   };
 
@@ -798,6 +800,10 @@ export default function App() {
             onDeleteLog={handleDeleteRecoveryLog}
             onImportLogs={handleImportRecoveryLogs}
             onResetDefaults={handleResetRecoveryDefaults}
+            isGoogleConnected={isGoogleConnected}
+            googleUserEmail={googleUserEmail}
+            googleSheetUrl={googleSheetUrl}
+            onConnectGoogle={handleConnectGoogle}
             onOpenAthleteSettings={(tab) => {
               setProfileModalTab(tab || 'physiology');
               setIsAthleteProfileOpen(true);

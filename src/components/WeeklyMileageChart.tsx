@@ -11,24 +11,35 @@ import {
   ArrowDownRight,
   BarChart2,
 } from 'lucide-react';
-import { StravaActivity } from '../utils/stravaActivities';
+import { StravaActivity, StravaActivityDetailsRecord } from '../utils/stravaActivities';
+import { AthleteProfile } from '../types/athlete';
 import {
   computeWeeklyRunningMileage,
   WeeklyMileageBucket,
 } from '../utils/mileageEngine';
+import { FitnessZoneCharts, ZoneChartMode } from './FitnessZoneCharts';
+
+export type ChartDatasetTab = 'mileage' | 'cycling_power' | 'running_pace' | 'running_hr';
 
 interface WeeklyMileageChartProps {
   activities: StravaActivity[];
+  activityDetails?: Record<string, StravaActivityDetailsRecord>;
+  athleteProfile?: AthleteProfile;
   theme?: 'dark' | 'light';
   onSelectActivity?: (activityId: string | number) => void;
+  initialTab?: ChartDatasetTab;
 }
 
 export const WeeklyMileageChart: React.FC<WeeklyMileageChartProps> = ({
   activities,
+  activityDetails,
+  athleteProfile,
   theme = 'dark',
   onSelectActivity,
+  initialTab = 'mileage',
 }) => {
   const isLight = theme === 'light';
+  const [activeTab, setActiveTab] = useState<ChartDatasetTab>(initialTab);
   const [numWeeks, setNumWeeks] = useState<number>(12); // 4, 8, 12, 24
   const [unit, setUnit] = useState<'miles' | 'km'>('miles');
   const [selectedWeek, setSelectedWeek] = useState<WeeklyMileageBucket | null>(null);
@@ -63,13 +74,161 @@ export const WeeklyMileageChart: React.FC<WeeklyMileageChartProps> = ({
           : 'bg-slate-900/60 border-slate-800'
       }`}
     >
-      {/* Header with Title & Controls */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-4 border-b border-slate-200 dark:border-slate-800/80">
-        <div className="flex items-center gap-2.5">
-          <div className="p-2 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-500">
-            <Footprints className="w-5 h-5" />
+      {/* Top Section: Charts Heading, Tabs, and Range Selectors */}
+      <div className="pb-4 border-b border-slate-200 dark:border-slate-800/80 space-y-3">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div className="flex items-center gap-2.5">
+            <div className="p-2 rounded-xl bg-cyan-500/10 border border-cyan-500/20 text-cyan-400">
+              <BarChart2 className="w-5 h-5" />
+            </div>
+            <div>
+              <h2
+                className={`text-base sm:text-lg font-black tracking-tight ${
+                  isLight ? 'text-slate-900' : 'text-white'
+                }`}
+              >
+                Charts
+              </h2>
+              <p className={`text-xs ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>
+                Visual analytics for running volume and multidimensional training zones
+              </p>
+            </div>
           </div>
-          <div>
+
+          {/* Lookback & Unit Selectors */}
+          <div className="flex items-center gap-2 self-start sm:self-auto flex-wrap">
+            {/* Unit Toggle: Miles vs KM (Shown when on Weekly Running Mileage) */}
+            {activeTab === 'mileage' && (
+              <div className="flex items-center p-0.5 rounded-lg bg-slate-950/40 border border-slate-800 text-[11px] font-bold">
+                <button
+                  type="button"
+                  onClick={() => setUnit('miles')}
+                  className={`px-2 py-1 rounded-md transition-colors cursor-pointer ${
+                    unit === 'miles'
+                      ? 'bg-amber-500 text-slate-950 shadow-xs'
+                      : isLight
+                      ? 'text-slate-600 hover:text-slate-900'
+                      : 'text-slate-400 hover:text-white'
+                  }`}
+                >
+                  Miles
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setUnit('km')}
+                  className={`px-2 py-1 rounded-md transition-colors cursor-pointer ${
+                    unit === 'km'
+                      ? 'bg-amber-500 text-slate-950 shadow-xs'
+                      : isLight
+                      ? 'text-slate-600 hover:text-slate-900'
+                      : 'text-slate-400 hover:text-white'
+                  }`}
+                >
+                  KM
+                </button>
+              </div>
+            )}
+
+            {/* Week Range Filter: 4W, 8W, 12W, 24W */}
+            <div className="flex items-center p-0.5 rounded-lg bg-slate-950/40 border border-slate-800 text-[11px] font-bold">
+              {[
+                { label: '4W', value: 4 },
+                { label: '8W', value: 8 },
+                { label: '12W', value: 12 },
+                { label: '24W', value: 24 },
+              ].map((option) => (
+                <button
+                  key={option.value}
+                  type="button"
+                  onClick={() => setNumWeeks(option.value)}
+                  className={`px-2 py-1 rounded-md transition-colors cursor-pointer ${
+                    numWeeks === option.value
+                      ? 'bg-amber-500 text-slate-950 shadow-xs'
+                      : isLight
+                      ? 'text-slate-600 hover:text-slate-900'
+                      : 'text-slate-400 hover:text-white'
+                  }`}
+                >
+                  {option.label}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        {/* 4 Dataset Switch Tabs */}
+        <div className="flex items-center gap-1.5 overflow-x-auto scrollbar-none pt-1">
+          {[
+            { id: 'mileage', label: 'Weekly Running Mileage' },
+            { id: 'cycling_power', label: 'Cycling Power Zones' },
+            { id: 'running_pace', label: 'Running Pace Zones' },
+            { id: 'running_hr', label: 'Running Heart Rate Zones' },
+          ].map((tab) => (
+            <button
+              key={tab.id}
+              type="button"
+              onClick={() => setActiveTab(tab.id as ChartDatasetTab)}
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap transition-all cursor-pointer ${
+                activeTab === tab.id
+                  ? 'bg-amber-500 text-slate-950 shadow-sm shadow-amber-500/20'
+                  : isLight
+                  ? 'bg-slate-100 hover:bg-slate-200 text-slate-700'
+                  : 'bg-slate-800/80 hover:bg-slate-700 text-slate-300'
+              }`}
+            >
+              {tab.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Conditional Rendering of Selected Dataset */}
+      {activeTab === 'cycling_power' && (
+        <div className="pt-4">
+          <FitnessZoneCharts
+            mode="cycling_power"
+            activities={activities}
+            activityDetails={activityDetails}
+            athleteProfile={athleteProfile}
+            numWeeks={numWeeks}
+            theme={theme}
+            onSelectActivity={onSelectActivity}
+          />
+        </div>
+      )}
+
+      {activeTab === 'running_pace' && (
+        <div className="pt-4">
+          <FitnessZoneCharts
+            mode="running_pace"
+            activities={activities}
+            activityDetails={activityDetails}
+            athleteProfile={athleteProfile}
+            numWeeks={numWeeks}
+            theme={theme}
+            onSelectActivity={onSelectActivity}
+          />
+        </div>
+      )}
+
+      {activeTab === 'running_hr' && (
+        <div className="pt-4">
+          <FitnessZoneCharts
+            mode="running_hr"
+            activities={activities}
+            activityDetails={activityDetails}
+            athleteProfile={athleteProfile}
+            numWeeks={numWeeks}
+            theme={theme}
+            onSelectActivity={onSelectActivity}
+          />
+        </div>
+      )}
+
+      {activeTab === 'mileage' && (
+        <>
+          {/* Subheader: Weekly Running Mileage */}
+          <div className="flex items-center justify-between gap-3 pt-4 pb-2">
             <div className="flex items-center gap-2">
               <h3
                 className={`text-sm sm:text-base font-extrabold tracking-tight ${
@@ -86,66 +245,6 @@ export const WeeklyMileageChart: React.FC<WeeklyMileageChartProps> = ({
               Weekly aggregated distance strictly Monday through Sunday
             </p>
           </div>
-        </div>
-
-        {/* Lookback & Unit Selectors */}
-        <div className="flex items-center gap-2 self-start sm:self-auto flex-wrap">
-          {/* Unit Toggle: Miles vs KM */}
-          <div className="flex items-center p-0.5 rounded-lg bg-slate-950/40 border border-slate-800 text-[11px] font-bold">
-            <button
-              type="button"
-              onClick={() => setUnit('miles')}
-              className={`px-2 py-1 rounded-md transition-colors cursor-pointer ${
-                unit === 'miles'
-                  ? 'bg-amber-500 text-slate-950 shadow-xs'
-                  : isLight
-                  ? 'text-slate-600 hover:text-slate-900'
-                  : 'text-slate-400 hover:text-white'
-              }`}
-            >
-              Miles
-            </button>
-            <button
-              type="button"
-              onClick={() => setUnit('km')}
-              className={`px-2 py-1 rounded-md transition-colors cursor-pointer ${
-                unit === 'km'
-                  ? 'bg-amber-500 text-slate-950 shadow-xs'
-                  : isLight
-                  ? 'text-slate-600 hover:text-slate-900'
-                  : 'text-slate-400 hover:text-white'
-              }`}
-            >
-              KM
-            </button>
-          </div>
-
-          {/* Week Range Filter */}
-          <div className="flex items-center p-0.5 rounded-lg bg-slate-950/40 border border-slate-800 text-[11px] font-bold">
-            {[
-              { label: '4W', value: 4 },
-              { label: '8W', value: 8 },
-              { label: '12W', value: 12 },
-              { label: '24W', value: 24 },
-            ].map((option) => (
-              <button
-                key={option.value}
-                type="button"
-                onClick={() => setNumWeeks(option.value)}
-                className={`px-2 py-1 rounded-md transition-colors cursor-pointer ${
-                  numWeeks === option.value
-                    ? 'bg-amber-500 text-slate-950 shadow-xs'
-                    : isLight
-                    ? 'text-slate-600 hover:text-slate-900'
-                    : 'text-slate-400 hover:text-white'
-                }`}
-              >
-                {option.label}
-              </button>
-            ))}
-          </div>
-        </div>
-      </div>
 
       {/* KPI Stats Cards */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 sm:gap-3 my-4">
@@ -425,6 +524,8 @@ export const WeeklyMileageChart: React.FC<WeeklyMileageChartProps> = ({
             </div>
           )}
         </div>
+      )}
+        </>
       )}
     </div>
   );

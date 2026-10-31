@@ -22,6 +22,12 @@ import {
   Brain,
   Zap,
   RotateCw,
+  ChevronLeft,
+  ChevronRight,
+  Wind,
+  ExternalLink,
+  Loader2,
+  Check,
 } from 'lucide-react';
 import type { DailyRecoveryLog, ReadinessScoreResult } from '../types/recovery';
 import type { AthleteProfile } from '../types/athlete';
@@ -31,6 +37,10 @@ import { RecoveryLogModal } from './RecoveryLogModal';
 import { RecoveryCsvModal } from './RecoveryCsvModal';
 import { GarminSyncModal } from './GarminSyncModal';
 import { GarminTriangleIcon } from '../utils/garminConfig';
+import {
+  batchUploadHealthDataToGoogleSheet,
+  GOOGLE_SHEETS_CONFIG,
+} from '../utils/googleSheets';
 
 interface RecoveryViewProps {
   logs: DailyRecoveryLog[];
@@ -45,6 +55,10 @@ interface RecoveryViewProps {
   isGarminConnected?: boolean;
   garminEmail?: string | null;
   onOpenGarminSync?: () => void;
+  isGoogleConnected?: boolean;
+  googleUserEmail?: string | null;
+  googleSheetUrl?: string | null;
+  onConnectGoogle?: () => void;
 }
 
 type ChartViewMode = 'sleep_rhr' | 'readiness_hrv' | 'training_stress';
@@ -62,6 +76,10 @@ export const RecoveryView: React.FC<RecoveryViewProps> = ({
   isGarminConnected = false,
   garminEmail = null,
   onOpenGarminSync,
+  isGoogleConnected = false,
+  googleUserEmail = null,
+  googleSheetUrl = null,
+  onConnectGoogle,
 }) => {
   const [selectedChartMode, setSelectedChartMode] = useState<ChartViewMode>('sleep_rhr');
   const [isLogModalOpen, setIsLogModalOpen] = useState(false);
@@ -190,6 +208,158 @@ export const RecoveryView: React.FC<RecoveryViewProps> = ({
       return dateStr;
     }
   };
+
+  // Google Sheets manual sync state
+  const [isSyncingSheets, setIsSyncingSheets] = useState(false);
+  const [sheetSyncFeedback, setSheetSyncFeedback] = useState<string | null>(null);
+
+  const handleManualSyncGoogleSheets = async () => {
+    if (!sortedLogs || sortedLogs.length === 0) return;
+    setIsSyncingSheets(true);
+    setSheetSyncFeedback(null);
+    try {
+      const result = await batchUploadHealthDataToGoogleSheet(sortedLogs);
+      if (result.success) {
+        setSheetSyncFeedback(`Synced ${result.appendedCount + result.updatedCount} days!`);
+        setTimeout(() => setSheetSyncFeedback(null), 3500);
+      } else {
+        alert(result.error || 'Failed to sync to Google Sheets');
+      }
+    } catch (err: any) {
+      alert(err.message || 'Error uploading to Google Sheets');
+    } finally {
+      setIsSyncingSheets(false);
+    }
+  };
+
+  const getOrdinal = (n: number) => {
+    const s = ['th', 'st', 'nd', 'rd'];
+    const v = n % 100;
+    return s[(v - 20) % 10] || s[v] || s[0];
+  };
+
+  const formatShortDate = (dStr: string) => {
+    if (!dStr) return '';
+    const parts = dStr.split('-');
+    if (parts.length < 3) return dStr;
+    const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    const m = parseInt(parts[1], 10) - 1;
+    const d = parseInt(parts[2], 10);
+    return `${d} ${monthNames[m] || ''}`;
+  };
+
+  // Pagination for Logged Recovery History:
+  // "Make the logged recovery history paginated, by the last month. So you can see the last 20 days, or last month, which ever is greater, and the next month data is on the next page.
+  // So if its between 5th of the month you will see the previous 20 days, if its the 25th of the month you will see until the start of the month on the first page."
+  interface HistoryPage {
+    id: string;
+    pageNumber: number;
+    label: string;
+    monthTitle: string;
+    isRecentWindow: boolean;
+    startDate: string;
+    endDate: string;
+    logs: DailyRecoveryLog[];
+  }
+
+  const historyPages = useMemo<HistoryPage[]>(() => {
+    if (!sortedLogs || sortedLogs.length === 0) {
+      return [
+        {
+          id: 'page_empty',
+          pageNumber: 1,
+          label: 'No Logs',
+          monthTitle: 'No Records',
+          isRecentWindow: true,
+          startDate: '',
+          endDate: '',
+          logs: [],
+        },
+      ];
+    }
+
+    const latest = sortedLogs[sortedLogs.length - 1];
+    const refDateStr = latest.date;
+    const refYear = parseInt(refDateStr.slice(0, 4), 10);
+    const refMonth = parseInt(refDateStr.slice(5, 7), 10) - 1;
+    const refDay = parseInt(refDateStr.slice(8, 10), 10);
+
+    const startOfMonthStr = `${refDateStr.slice(0, 7)}-01`;
+    const refDateObj = new Date(refYear, refMonth, refDay);
+    const twentyDaysAgoObj = new Date(refDateObj.getTime() - 19 * 24 * 60 * 60 * 1000);
+    const twentyDaysAgoStr = twentyDaysAgoObj.toISOString().slice(0, 10);
+
+    const monthNames = [
+      'January', 'February', 'March', 'April', 'May', 'June',
+      'July', 'August', 'September', 'October', 'November', 'December',
+    ];
+
+    let page1Cutoff: string;
+    let page1Label: string;
+
+    // Rule: days in month so far (refDay) vs 20 days, whichever is greater
+    if (refDay >= 20) {
+      page1Cutoff = startOfMonthStr;
+      page1Label = `${monthNames[refMonth]} ${refYear} (1st–${refDay}${getOrdinal(refDay)})`;
+    } else {
+      page1Cutoff = twentyDaysAgoStr;
+      page1Label = `Last 20 Days (${formatShortDate(twentyDaysAgoStr)} – ${formatShortDate(refDateStr)})`;
+    }
+
+    const page1Logs = sortedLogs
+      .filter((l) => l.date >= page1Cutoff && l.date <= refDateStr)
+      .reverse();
+
+    const pages: HistoryPage[] = [
+      {
+        id: 'page_1_recent',
+        pageNumber: 1,
+        label: page1Label,
+        monthTitle: `${monthNames[refMonth]} ${refYear}`,
+        isRecentWindow: true,
+        startDate: page1Cutoff,
+        endDate: refDateStr,
+        logs: page1Logs,
+      },
+    ];
+
+    // Older logs before page1Cutoff grouped by calendar month
+    const olderLogs = sortedLogs.filter((l) => l.date < page1Cutoff);
+    if (olderLogs.length > 0) {
+      const monthMap = new Map<string, DailyRecoveryLog[]>();
+      for (const log of olderLogs) {
+        const ym = log.date.slice(0, 7);
+        if (!monthMap.has(ym)) {
+          monthMap.set(ym, []);
+        }
+        monthMap.get(ym)!.push(log);
+      }
+
+      const sortedMonthKeys = Array.from(monthMap.keys()).sort((a, b) => b.localeCompare(a));
+      sortedMonthKeys.forEach((ym, idx) => {
+        const y = parseInt(ym.slice(0, 4), 10);
+        const m = parseInt(ym.slice(5, 7), 10) - 1;
+        const mLogs = monthMap.get(ym)!.sort((a, b) => a.date.localeCompare(b.date)).reverse();
+        const mTitle = `${monthNames[m]} ${y}`;
+        pages.push({
+          id: `page_month_${ym}`,
+          pageNumber: idx + 2,
+          label: `${mTitle} (${mLogs.length} days)`,
+          monthTitle: mTitle,
+          isRecentWindow: false,
+          startDate: mLogs[mLogs.length - 1].date,
+          endDate: mLogs[0].date,
+          logs: mLogs,
+        });
+      });
+    }
+
+    return pages;
+  }, [sortedLogs]);
+
+  const [currentPageIndex, setCurrentPageIndex] = useState<number>(0);
+  const safePageIndex = Math.min(currentPageIndex, Math.max(0, historyPages.length - 1));
+  const activePage = historyPages[safePageIndex] || historyPages[0];
 
   return (
     <div className="space-y-6 animate-in fade-in duration-300">
@@ -1363,16 +1533,25 @@ export const RecoveryView: React.FC<RecoveryViewProps> = ({
           isLight ? 'bg-white border-slate-200 shadow-xs' : 'bg-slate-900/60 border-slate-800'
         }`}
       >
-        <div className="flex items-center justify-between">
+        {/* Header row */}
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div>
-            <h3 className={`text-base font-bold ${isLight ? 'text-slate-900' : 'text-white'}`}>
-              Logged Recovery History
-            </h3>
-            <p className={`text-xs ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>
-              {sortedLogs.length} total days tracked in FIT Track
+            <div className="flex items-center gap-2">
+              <h3 className={`text-base font-bold ${isLight ? 'text-slate-900' : 'text-white'}`}>
+                Logged Recovery History
+              </h3>
+              <span className={`text-[10px] font-mono px-2 py-0.5 rounded-full border ${
+                isLight ? 'bg-slate-100 text-slate-700 border-slate-200' : 'bg-slate-800 text-slate-300 border-slate-700'
+              }`}>
+                {sortedLogs.length} total days
+              </span>
+            </div>
+            <p className={`text-xs mt-0.5 ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>
+              Viewing <strong className="text-amber-500">{activePage.label}</strong> ({activePage.logs.length} days shown on this page)
             </p>
           </div>
-          <div className="flex items-center gap-2">
+
+          <div className="flex items-center gap-2 flex-wrap">
             <button
               type="button"
               onClick={() => setIsGarminModalOpen(true)}
@@ -1383,7 +1562,7 @@ export const RecoveryView: React.FC<RecoveryViewProps> = ({
               }`}
             >
               <RotateCw className="w-3.5 h-3.5 text-sky-500" />
-              <span>Garmin Multi-Week</span>
+              <span>Garmin Health Data</span>
             </button>
             <button
               type="button"
@@ -1403,6 +1582,174 @@ export const RecoveryView: React.FC<RecoveryViewProps> = ({
           </div>
         </div>
 
+        {/* Google Sheets Sync Card */}
+        <div
+          className={`p-3 sm:p-3.5 rounded-xl border flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs transition-colors ${
+            isLight
+              ? 'bg-emerald-50/70 border-emerald-200 text-slate-800'
+              : 'bg-emerald-950/20 border-emerald-800/40 text-emerald-200'
+          }`}
+        >
+          <div className="flex items-center gap-2.5">
+            <div className="w-8 h-8 rounded-lg bg-emerald-500/20 border border-emerald-500/30 flex items-center justify-center text-emerald-400 shrink-0">
+              <FileSpreadsheet className="w-4 h-4 text-emerald-500" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="font-bold text-xs">
+                  {isGoogleConnected ? 'Google Sheets Sync Active' : 'Google Sheets Not Connected'}
+                </span>
+                <span className={`text-[10px] font-mono px-2 py-0.5 rounded-md border ${
+                  isGoogleConnected
+                    ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30 font-bold'
+                    : 'bg-amber-500/20 text-amber-400 border-amber-500/30'
+                }`}>
+                  Target: {GOOGLE_SHEETS_CONFIG.DEFAULT_SPREADSHEET_NAME}
+                </span>
+              </div>
+              <p className={`text-[11px] mt-0.5 ${isLight ? 'text-slate-600' : 'text-slate-400'}`}>
+                {isGoogleConnected
+                  ? `Recovery telemetry is linked to the "Health" tab in your Google Drive ${googleUserEmail ? `(${googleUserEmail})` : ''}.`
+                  : 'Connect your Google account to automatically store daily Garmin recovery telemetry to "GymFIT Training Log".'}
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2 shrink-0">
+            {isGoogleConnected ? (
+              <>
+                {googleSheetUrl && (
+                  <a
+                    href={googleSheetUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className={`px-2.5 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1 transition-colors border ${
+                      isLight
+                        ? 'bg-white hover:bg-slate-50 text-slate-700 border-slate-300'
+                        : 'bg-slate-900 hover:bg-slate-800 text-slate-200 border-slate-700'
+                    }`}
+                    title="Open spreadsheet in Google Sheets"
+                  >
+                    <ExternalLink className="w-3.5 h-3.5 text-emerald-500" />
+                    <span>Open Sheet</span>
+                  </a>
+                )}
+                <button
+                  type="button"
+                  onClick={handleManualSyncGoogleSheets}
+                  disabled={isSyncingSheets}
+                  className="px-3 py-1.5 rounded-lg text-xs font-bold bg-emerald-500 hover:bg-emerald-400 text-slate-950 flex items-center gap-1.5 transition-all cursor-pointer shadow-sm active:scale-95 disabled:opacity-50"
+                  title="Upload all recovery logs to GymFIT Training Log on Google Sheets"
+                >
+                  {isSyncingSheets ? (
+                    <>
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      <span>Syncing...</span>
+                    </>
+                  ) : sheetSyncFeedback ? (
+                    <>
+                      <Check className="w-3.5 h-3.5 stroke-[3]" />
+                      <span>{sheetSyncFeedback}</span>
+                    </>
+                  ) : (
+                    <>
+                      <RotateCw className="w-3.5 h-3.5 text-slate-950" />
+                      <span>Sync to Sheet</span>
+                    </>
+                  )}
+                </button>
+              </>
+            ) : (
+              <button
+                type="button"
+                onClick={onConnectGoogle}
+                className="px-3.5 py-1.5 rounded-lg text-xs font-black bg-emerald-500 hover:bg-emerald-400 text-slate-950 flex items-center gap-1.5 transition-all cursor-pointer shadow-md shadow-emerald-500/20 active:scale-95"
+              >
+                <FileSpreadsheet className="w-3.5 h-3.5" />
+                <span>Save to Sheets</span>
+              </button>
+            )}
+          </div>
+        </div>
+
+        {/* Pagination Toolbar */}
+        <div
+          className={`flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 pt-1 pb-1 border-b ${
+            isLight ? 'border-slate-200' : 'border-slate-800'
+          }`}
+        >
+          {/* Quick Month Selectors */}
+          <div className="flex items-center gap-1.5 overflow-x-auto scrollbar-none py-0.5">
+            <span className={`text-[11px] font-bold uppercase tracking-wider shrink-0 mr-1 ${
+              isLight ? 'text-slate-500' : 'text-slate-400'
+            }`}>
+              Months:
+            </span>
+            {historyPages.map((pg, idx) => {
+              const isSelected = idx === safePageIndex;
+              return (
+                <button
+                  key={pg.id}
+                  type="button"
+                  onClick={() => setCurrentPageIndex(idx)}
+                  className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer whitespace-nowrap shrink-0 border ${
+                    isSelected
+                      ? 'bg-amber-500 text-slate-950 border-amber-400 font-black shadow-xs'
+                      : isLight
+                      ? 'bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-200'
+                      : 'bg-slate-900 hover:bg-slate-800 text-slate-300 border-slate-800'
+                  }`}
+                >
+                  <span>{pg.monthTitle}</span>
+                  <span className={`ml-1 text-[10px] font-mono opacity-80 ${isSelected ? 'text-slate-950' : 'text-slate-400'}`}>
+                    ({pg.logs.length})
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+
+          {/* Prev / Next controls */}
+          <div className="flex items-center gap-2 shrink-0 self-end sm:self-auto">
+            <button
+              type="button"
+              disabled={safePageIndex === 0}
+              onClick={() => setCurrentPageIndex((prev) => Math.max(0, prev - 1))}
+              className={`px-2.5 py-1 rounded-lg text-xs font-bold flex items-center gap-1 border transition-all cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed ${
+                isLight
+                  ? 'bg-white hover:bg-slate-100 text-slate-700 border-slate-200 shadow-xs'
+                  : 'bg-slate-900 hover:bg-slate-800 text-slate-200 border-slate-700'
+              }`}
+              title="View Newer Logs"
+            >
+              <ChevronLeft className="w-3.5 h-3.5" />
+              <span>Newer</span>
+            </button>
+
+            <span className={`text-xs font-mono font-bold px-2 py-1 rounded-md border ${
+              isLight ? 'bg-slate-100 text-slate-700 border-slate-200' : 'bg-slate-950 text-slate-300 border-slate-800'
+            }`}>
+              Page {safePageIndex + 1} of {historyPages.length}
+            </span>
+
+            <button
+              type="button"
+              disabled={safePageIndex >= historyPages.length - 1}
+              onClick={() => setCurrentPageIndex((prev) => Math.min(historyPages.length - 1, prev + 1))}
+              className={`px-2.5 py-1 rounded-lg text-xs font-bold flex items-center gap-1 border transition-all cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed ${
+                isLight
+                  ? 'bg-white hover:bg-slate-100 text-slate-700 border-slate-200 shadow-xs'
+                  : 'bg-slate-900 hover:bg-slate-800 text-slate-200 border-slate-700'
+              }`}
+              title="View Older Month"
+            >
+              <span>Older</span>
+              <ChevronRight className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        </div>
+
+        {/* History Table */}
         <div className="overflow-x-auto">
           <table className="w-full text-left text-xs border-collapse">
             <thead>
@@ -1414,10 +1761,13 @@ export const RecoveryView: React.FC<RecoveryViewProps> = ({
                 <th className="py-2.5 px-3">Date</th>
                 <th className="py-2.5 px-3">Readiness</th>
                 <th className="py-2.5 px-3">Morning RHR</th>
-                <th className="py-2.5 px-3">Overnight HRV</th>
-                <th className="py-2.5 px-3">Total Sleep</th>
-                <th className="py-2.5 px-3">Stages (Deep / REM)</th>
-                <th className="py-2.5 px-3">Feel</th>
+                <th className="py-2.5 px-3">HRV</th>
+                <th className="py-2.5 px-3">Sleep</th>
+                <th className="py-2.5 px-3">Body Battery</th>
+                <th className="py-2.5 px-3">Stress</th>
+                <th className="py-2.5 px-3">Respiration</th>
+                <th className="py-2.5 px-3">SpO2</th>
+                <th className="py-2.5 px-3">Steps &amp; Cal</th>
                 <th className="py-2.5 px-3 text-right">Actions</th>
               </tr>
             </thead>
@@ -1426,146 +1776,245 @@ export const RecoveryView: React.FC<RecoveryViewProps> = ({
                 isLight ? 'divide-y divide-slate-100' : 'divide-y divide-slate-800/60'
               }
             >
-              {!hasGarminData || sortedLogs.length === 0 ? (
+              {!hasGarminData || activePage.logs.length === 0 ? (
                 <tr>
-                  <td colSpan={8} className="py-14 text-center text-slate-400">
+                  <td colSpan={11} className="py-14 text-center text-slate-400">
                     <div className="flex flex-col items-center justify-center gap-2">
                       <Moon className="w-8 h-8 text-slate-400/40 stroke-1" />
                       <p className={`text-sm font-semibold ${isLight ? 'text-slate-700' : 'text-slate-300'}`}>
-                        No Garmin recovery data recorded
+                        No recovery records on this page
                       </p>
                       <p className="text-xs text-slate-500 max-w-sm">
                         {isGarminActive
-                          ? 'Click "Garmin Sync" to download historical days, or click "Log Morning Stats" to log manually.'
+                          ? 'Click "Garmin Health Data" to download historical days, or click "Add Entry" to log manually.'
                           : 'Connect your Garmin account to automatically record and correlate daily recovery data.'}
                       </p>
                     </div>
                   </td>
                 </tr>
               ) : (
-                [...sortedLogs].reverse().map((log) => {
-                const read = computeDailyReadiness(log, sortedLogs, athleteProfile);
-                const rawRhr = Number(log.restingHr);
-                const safeRhr = Number.isFinite(rawRhr) ? rawRhr : null;
-                const rhrDiff = safeRhr !== null && Number.isFinite(baselineRhr) ? safeRhr - baselineRhr : null;
+                activePage.logs.map((log) => {
+                  const read = computeDailyReadiness(log, sortedLogs, athleteProfile);
+                  const rawRhr = Number(log.restingHr);
+                  const safeRhr = Number.isFinite(rawRhr) ? rawRhr : null;
+                  const rhrDiff = safeRhr !== null && Number.isFinite(baselineRhr) ? safeRhr - baselineRhr : null;
 
-                return (
-                  <tr
-                    key={log.id}
-                    className={`transition-colors ${
-                      isLight ? 'hover:bg-slate-50/80' : 'hover:bg-slate-800/30'
-                    }`}
-                  >
-                    <td
-                      className={`py-2.5 px-3 font-semibold whitespace-nowrap ${
-                        isLight ? 'text-slate-800' : 'text-slate-200'
+                  return (
+                    <tr
+                      key={log.id}
+                      className={`transition-colors ${
+                        isLight ? 'hover:bg-slate-50/80' : 'hover:bg-slate-800/30'
                       }`}
                     >
-                      {log.date}
-                    </td>
-
-                    <td className="py-2.5 px-3 whitespace-nowrap">
-                      <span
-                        className={`px-2 py-0.5 rounded-md text-[11px] font-bold ${read.badgeBg} ${read.badgeText}`}
+                      {/* Date */}
+                      <td
+                        className={`py-2.5 px-3 font-semibold whitespace-nowrap ${
+                          isLight ? 'text-slate-800' : 'text-slate-200'
+                        }`}
                       >
-                        {Number.isFinite(read.score) ? read.score : '--'}% • {read.status}
-                      </span>
-                    </td>
+                        {log.date}
+                      </td>
 
-                    <td className="py-2.5 px-3 whitespace-nowrap">
-                      <span
-                        className={`font-bold ${isLight ? 'text-slate-900' : 'text-white'}`}
-                      >
-                        {safeRhr !== null ? `${safeRhr} bpm` : '-- bpm'}
-                      </span>
-                      {rhrDiff !== null && (
+                      {/* Readiness */}
+                      <td className="py-2.5 px-3 whitespace-nowrap">
                         <span
-                          className={`ml-1.5 text-[10px] ${
-                            rhrDiff <= 0
-                              ? 'text-emerald-500 font-semibold'
-                              : rhrDiff <= 2
-                              ? 'text-sky-500 font-semibold'
-                              : 'text-amber-500 font-semibold'
-                          }`}
+                          className={`px-2 py-0.5 rounded-md text-[11px] font-bold ${read.badgeBg} ${read.badgeText}`}
                         >
-                          ({rhrDiff > 0 ? `+${rhrDiff}` : rhrDiff})
+                          {Number.isFinite(read.score) ? read.score : '--'}% • {read.status}
                         </span>
-                      )}
-                    </td>
+                      </td>
 
-                    <td
-                      className={`py-2.5 px-3 whitespace-nowrap font-semibold ${
-                        isLight ? 'text-purple-600' : 'text-purple-400'
-                      }`}
-                    >
-                      {Number.isFinite(log.hrvRmssd) ? `${log.hrvRmssd} ms` : '-- ms'}
-                    </td>
+                      {/* RHR */}
+                      <td className="py-2.5 px-3 whitespace-nowrap">
+                        <span
+                          className={`font-bold ${isLight ? 'text-slate-900' : 'text-white'}`}
+                        >
+                          {safeRhr !== null ? `${safeRhr} bpm` : '-- bpm'}
+                        </span>
+                        {rhrDiff !== null && (
+                          <span
+                            className={`ml-1 text-[10px] ${
+                              rhrDiff <= 0
+                                ? 'text-emerald-500 font-semibold'
+                                : rhrDiff <= 2
+                                ? 'text-sky-500 font-semibold'
+                                : 'text-amber-500 font-semibold'
+                            }`}
+                          >
+                            ({rhrDiff > 0 ? `+${rhrDiff}` : rhrDiff})
+                          </span>
+                        )}
+                      </td>
 
-                    <td
-                      className={`py-2.5 px-3 whitespace-nowrap ${
-                        isLight ? 'text-slate-700' : 'text-slate-300'
-                      }`}
-                    >
-                      {formatMinutesToHhMm(log.sleepDurationMinutes)}
-                      <span className="text-slate-400 ml-1.5">
-                        ({Number.isFinite(log.sleepScore) ? log.sleepScore : '--'}/100)
-                      </span>
-                    </td>
-
-                    <td className="py-2.5 px-3 whitespace-nowrap text-slate-400">
-                      <span className="text-indigo-500 font-medium">
-                        {Number.isFinite(log.deepSleepMinutes) ? `${log.deepSleepMinutes}m` : '--'}
-                      </span>{' '}
-                      /{' '}
-                      <span className="text-cyan-500 font-medium">
-                        {Number.isFinite(log.remSleepMinutes) ? `${log.remSleepMinutes}m` : '--'}
-                      </span>
-                    </td>
-
-                    <td
-                      className={`py-2.5 px-3 whitespace-nowrap ${
-                        isLight ? 'text-slate-700' : 'text-slate-300'
-                      }`}
-                    >
-                      {log.subjectiveFeel ? `${log.subjectiveFeel}/5` : '—'}
-                    </td>
-
-                    <td className="py-2.5 px-3 text-right whitespace-nowrap">
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setEditingLog(log);
-                          setIsLogModalOpen(true);
-                        }}
-                        className={`p-1 rounded-lg transition-colors mr-1 ${
-                          isLight
-                            ? 'text-slate-400 hover:text-slate-700 hover:bg-slate-100'
-                            : 'text-slate-400 hover:text-white hover:bg-slate-800'
+                      {/* HRV */}
+                      <td
+                        className={`py-2.5 px-3 whitespace-nowrap font-semibold ${
+                          isLight ? 'text-purple-600' : 'text-purple-400'
                         }`}
-                        title="Edit log"
                       >
-                        <Edit2 className="w-3.5 h-3.5" />
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => onDeleteLog(log.id)}
-                        className={`p-1 rounded-lg transition-colors ${
-                          isLight
-                            ? 'text-slate-400 hover:text-rose-600 hover:bg-rose-50'
-                            : 'text-slate-500 hover:text-rose-400 hover:bg-slate-800'
+                        {Number.isFinite(log.hrvRmssd) && log.hrvRmssd > 0 ? `${log.hrvRmssd} ms` : '--'}
+                      </td>
+
+                      {/* Sleep */}
+                      <td
+                        className={`py-2.5 px-3 whitespace-nowrap ${
+                          isLight ? 'text-slate-700' : 'text-slate-300'
                         }`}
-                        title="Delete log"
                       >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
-                    </td>
-                  </tr>
-                );
-              })
-            )}
+                        <span>{formatMinutesToHhMm(log.sleepDurationMinutes)}</span>
+                        {Number.isFinite(log.sleepScore) && log.sleepScore > 0 && (
+                          <span className="text-slate-400 ml-1 text-[11px]">
+                            ({log.sleepScore})
+                          </span>
+                        )}
+                      </td>
+
+                      {/* Body Battery */}
+                      <td className="py-2.5 px-3 whitespace-nowrap">
+                        {log.bodyBattery !== undefined && log.bodyBattery > 0 ? (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-bold bg-sky-500/15 text-sky-400 border border-sky-500/30">
+                            <Zap className="w-3 h-3 text-sky-400" />
+                            <span>{log.bodyBattery}</span>
+                          </span>
+                        ) : (
+                          <span className="text-slate-500">—</span>
+                        )}
+                      </td>
+
+                      {/* Stress */}
+                      <td className="py-2.5 px-3 whitespace-nowrap">
+                        {log.stress !== undefined && log.stress > 0 ? (
+                          <span
+                            className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-bold border ${
+                              log.stress <= 25
+                                ? 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30'
+                                : log.stress <= 50
+                                ? 'bg-sky-500/15 text-sky-400 border-sky-500/30'
+                                : log.stress <= 75
+                                ? 'bg-amber-500/15 text-amber-400 border-amber-500/30'
+                                : 'bg-rose-500/15 text-rose-400 border-rose-500/30'
+                            }`}
+                          >
+                            <Brain className="w-3 h-3" />
+                            <span>{log.stress}</span>
+                          </span>
+                        ) : (
+                          <span className="text-slate-500">—</span>
+                        )}
+                      </td>
+
+                      {/* Respiration */}
+                      <td className="py-2.5 px-3 whitespace-nowrap">
+                        {log.respiration !== undefined && log.respiration > 0 ? (
+                          <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-teal-400">
+                            <Wind className="w-3 h-3 text-teal-400" />
+                            <span>{log.respiration} brpm</span>
+                          </span>
+                        ) : (
+                          <span className="text-slate-500">—</span>
+                        )}
+                      </td>
+
+                      {/* Pulse Ox */}
+                      <td className="py-2.5 px-3 whitespace-nowrap">
+                        {log.pulseOx !== undefined && log.pulseOx > 0 ? (
+                          <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-cyan-400">
+                            <span>{log.pulseOx}%</span>
+                          </span>
+                        ) : (
+                          <span className="text-slate-500">—</span>
+                        )}
+                      </td>
+
+                      {/* Steps & Calories */}
+                      <td className="py-2.5 px-3 whitespace-nowrap">
+                        <div className="flex flex-col text-[10px] leading-tight">
+                          {log.steps !== undefined && log.steps > 0 && (
+                            <span className="font-mono text-slate-300 font-medium">
+                              {log.steps.toLocaleString()} steps
+                            </span>
+                          )}
+                          {log.calories !== undefined && log.calories > 0 && (
+                            <span className="font-mono text-amber-400/90">
+                              {Math.round(log.calories)} kcal
+                            </span>
+                          )}
+                          {!log.steps && !log.calories && <span className="text-slate-500">—</span>}
+                        </div>
+                      </td>
+
+                      {/* Actions */}
+                      <td className="py-2.5 px-3 text-right whitespace-nowrap">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setEditingLog(log);
+                            setIsLogModalOpen(true);
+                          }}
+                          className={`p-1 rounded-lg transition-colors mr-1 cursor-pointer ${
+                            isLight
+                              ? 'text-slate-400 hover:text-slate-700 hover:bg-slate-100'
+                              : 'text-slate-400 hover:text-white hover:bg-slate-800'
+                          }`}
+                          title="Edit log"
+                        >
+                          <Edit2 className="w-3.5 h-3.5" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => onDeleteLog(log.id)}
+                          className={`p-1 rounded-lg transition-colors cursor-pointer ${
+                            isLight
+                              ? 'text-slate-400 hover:text-rose-600 hover:bg-rose-50'
+                              : 'text-slate-500 hover:text-rose-400 hover:bg-slate-800'
+                          }`}
+                          title="Delete log"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })
+              )}
             </tbody>
           </table>
         </div>
+
+        {/* Bottom Pagination Info Bar */}
+        {historyPages.length > 1 && (
+          <div
+            className={`pt-3 border-t flex items-center justify-between gap-3 text-xs ${
+              isLight ? 'border-slate-200 text-slate-600' : 'border-slate-800 text-slate-400'
+            }`}
+          >
+            <span>
+              Showing {activePage.logs.length} days from {activePage.label}
+            </span>
+            <div className="flex items-center gap-1.5">
+              <button
+                type="button"
+                disabled={safePageIndex === 0}
+                onClick={() => setCurrentPageIndex((prev) => Math.max(0, prev - 1))}
+                className={`px-2 py-1 rounded-lg text-xs font-bold border transition-colors cursor-pointer disabled:opacity-30 ${
+                  isLight ? 'bg-white border-slate-200 hover:bg-slate-50' : 'bg-slate-900 border-slate-800 hover:bg-slate-800'
+                }`}
+              >
+                ← Newer Month
+              </button>
+              <button
+                type="button"
+                disabled={safePageIndex >= historyPages.length - 1}
+                onClick={() => setCurrentPageIndex((prev) => Math.min(historyPages.length - 1, prev + 1))}
+                className={`px-2 py-1 rounded-lg text-xs font-bold border transition-colors cursor-pointer disabled:opacity-30 ${
+                  isLight ? 'bg-white border-slate-200 hover:bg-slate-50' : 'bg-slate-900 border-slate-800 hover:bg-slate-800'
+                }`}
+              >
+                Older Month →
+              </button>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Modals */}
