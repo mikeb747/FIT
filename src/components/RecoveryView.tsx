@@ -169,20 +169,135 @@ export const RecoveryView: React.FC<RecoveryViewProps> = ({
     return map;
   }, [stravaActivities]);
 
-  // Prepare chart series (last 14 days or available logs)
-  const chartDays = useMemo(() => {
-    const slice = sortedLogs.slice(-14);
-    return slice.map((l) => {
-      const read = computeDailyReadiness(l, sortedLogs, athleteProfile);
-      const rawTss = tssByDate[l.date];
-      const tss = Number.isFinite(rawTss) ? rawTss : 0;
+  // 10-Day Chart Window Pagination State (0 = latest 10 days, 1 = previous 10 days, 2 = 20 days ago, etc.)
+  const [chartOffset, setChartOffset] = useState<number>(0);
+
+  // Prepare chart series (strictly 10 days with pagination offset)
+  const { chartDays, chartDateRangeLabel, canGoPrevious10Days, canGoNext10Days } = useMemo(() => {
+    if (sortedLogs.length === 0) {
       return {
-        log: l,
+        chartDays: [],
+        chartDateRangeLabel: '',
+        canGoPrevious10Days: false,
+        canGoNext10Days: false,
+      };
+    }
+
+    // Anchor at the latest log date (or today if latest log is past)
+    const latestDateStr = sortedLogs[sortedLogs.length - 1].date;
+    const [ly, lm, ld] = latestDateStr.split('-').map(Number);
+    const anchorDate = new Date(ly, lm - 1, ld);
+
+    // End date for the current 10-day page
+    const pageEndDate = new Date(anchorDate);
+    pageEndDate.setDate(anchorDate.getDate() - chartOffset * 10);
+
+    // Map existing logs by date for fast lookup
+    const logsMap: Record<string, DailyRecoveryLog> = {};
+    sortedLogs.forEach((l) => {
+      logsMap[l.date] = l;
+    });
+
+    // Earliest log date to check if there is older data
+    const earliestDateStr = sortedLogs[0].date;
+    const [ey, em, ed] = earliestDateStr.split('-').map(Number);
+    const earliestDate = new Date(ey, em - 1, ed);
+
+    // Build exactly 10 consecutive calendar days ending on pageEndDate
+    const days: {
+      log: DailyRecoveryLog;
+      readiness: ReadinessScoreResult;
+      tss: number;
+      dayWeekday: string;
+      dayNumber: string;
+      hasData: boolean;
+    }[] = [];
+
+    for (let i = 9; i >= 0; i--) {
+      const dt = new Date(pageEndDate);
+      dt.setDate(pageEndDate.getDate() - i);
+      const yStr = dt.getFullYear();
+      const mStr = String(dt.getMonth() + 1).padStart(2, '0');
+      const dStr = String(dt.getDate()).padStart(2, '0');
+      const dateStr = `${yStr}-${mStr}-${dStr}`;
+
+      const existingLog = logsMap[dateStr];
+      const hasData = Boolean(
+        existingLog &&
+          (existingLog.sleepDurationMinutes || existingLog.restingHr || existingLog.hrvRmssd)
+      );
+      const logToUse: DailyRecoveryLog = existingLog || {
+        date: dateStr,
+        sleepDurationMinutes: 0,
+        restingHr: 0,
+        hrvRmssd: 0,
+        deepSleepMinutes: 0,
+        remSleepMinutes: 0,
+        lightSleepMinutes: 0,
+        awakeMinutes: 0,
+        source: 'manual',
+      };
+
+      const read = existingLog
+        ? computeDailyReadiness(existingLog, sortedLogs, athleteProfile)
+        : {
+            score: 0,
+            status: 'optimal' as const,
+            label: 'No Data',
+            accentColor: '#64748b',
+            badgeBg: isLight ? 'bg-slate-100' : 'bg-slate-800',
+            badgeText: isLight ? 'text-slate-500' : 'text-slate-400',
+            hrvStatus: 'balanced' as const,
+            hrvBaseline7d: 0,
+            hrvStdDev7d: 0,
+            hrvDelta: 0,
+            rhrDelta: 0,
+            rhr7dAvg: 0,
+            sleepQualityRating: 'optimal' as const,
+            sleepAvg7dMinutes: 0,
+            sleepScoreAvg7d: 0,
+            trainingRecommendation: 'No telemetry recorded for this date.',
+            recommendedIntensity: 'Rest / Active Recovery' as const,
+            subscores: { hrvScore: 0, sleepScore: 0, rhrScore: 0, loadModifier: 0 },
+            insights: [],
+          };
+
+      const rawTss = tssByDate[dateStr];
+      const tss = Number.isFinite(rawTss) ? rawTss : 0;
+
+      const dayWeekday = dt.toLocaleDateString(undefined, { weekday: 'short' });
+      const dayNumber = String(dt.getDate());
+
+      days.push({
+        log: logToUse,
         readiness: read,
         tss,
-      };
+        dayWeekday,
+        dayNumber,
+        hasData,
+      });
+    }
+
+    const firstDateObj = new Date(pageEndDate);
+    firstDateObj.setDate(pageEndDate.getDate() - 9);
+    const rangeFormat: Intl.DateTimeFormatOptions = { day: 'numeric', month: 'short' };
+    const rangeStart = firstDateObj.toLocaleDateString(undefined, rangeFormat);
+    const rangeEnd = pageEndDate.toLocaleDateString(undefined, {
+      ...rangeFormat,
+      year: 'numeric',
     });
-  }, [sortedLogs, athleteProfile, tssByDate]);
+    const chartDateRangeLabel = `${rangeStart} – ${rangeEnd}`;
+
+    const canGoPrevious10Days = firstDateObj.getTime() > earliestDate.getTime() - 10 * 86400000;
+    const canGoNext10Days = chartOffset > 0;
+
+    return {
+      chartDays: days,
+      chartDateRangeLabel,
+      canGoPrevious10Days,
+      canGoNext10Days,
+    };
+  }, [sortedLogs, chartOffset, athleteProfile, tssByDate, isLight]);
 
   // Helpers
   const formatMinutesToHhMm = (mins: number) => {
@@ -847,17 +962,93 @@ export const RecoveryView: React.FC<RecoveryViewProps> = ({
       {/* ========================================================= */}
       {/* 3. INTERACTIVE CROSS-CORRELATION CHARTS */}
       {/* ========================================================= */}
+      {/* ========================================================= */}
+      {/* 3. INTERACTIVE CROSS-CORRELATION CHARTS (10 DAYS)        */}
+      {/* ========================================================= */}
       <div
         className={`border rounded-2xl p-4 sm:p-5 space-y-4 transition-colors ${
           isLight ? 'bg-white border-slate-200 shadow-xs' : 'bg-slate-900/60 border-slate-800'
         }`}
       >
-        {/* Chart Mode Controls */}
+        {/* Top Header with Corner Navigation Buttons */}
         <div
-          className={`flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-2 border-b ${
+          className={`flex items-center justify-between gap-2 pb-3 border-b ${
             isLight ? 'border-slate-200' : 'border-slate-800'
           }`}
         >
+          {/* Top-Left Corner Button: Move to previous 10 days */}
+          <button
+            type="button"
+            onClick={() => setChartOffset((prev) => prev + 1)}
+            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer shadow-xs active:scale-95 ${
+              isLight
+                ? 'bg-slate-100 hover:bg-slate-200 text-slate-800 border border-slate-300'
+                : 'bg-slate-800 hover:bg-slate-700 text-slate-100 border border-slate-700'
+            }`}
+            title="Display the previous 10 days"
+          >
+            <ChevronLeft className="w-4 h-4 text-sky-400 stroke-[2.5]" />
+            <span>Previous 10 Days</span>
+          </button>
+
+          {/* Center: Date Range Title */}
+          <div className="flex items-center gap-2">
+            <span
+              className={`font-mono font-extrabold text-xs sm:text-sm px-3 py-1 rounded-lg border ${
+                isLight
+                  ? 'bg-slate-100 text-slate-800 border-slate-200'
+                  : 'bg-slate-950 text-slate-200 border-slate-800'
+              }`}
+            >
+              {chartDateRangeLabel}
+            </span>
+            {chartOffset === 0 ? (
+              <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-400 border border-emerald-500/25">
+                Current 10 Days
+              </span>
+            ) : (
+              <button
+                type="button"
+                onClick={() => setChartOffset(0)}
+                className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-sky-500/15 hover:bg-sky-500/25 text-sky-400 border border-sky-500/30 cursor-pointer transition-colors"
+                title="Return to latest 10 days"
+              >
+                Jump to Latest
+              </button>
+            )}
+          </div>
+
+          {/* Top-Right Corner Button: Move to previous 10 days / next 10 days */}
+          <div className="flex items-center gap-1.5">
+            <button
+              type="button"
+              onClick={() => setChartOffset((prev) => prev + 1)}
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer shadow-xs active:scale-95 ${
+                isLight
+                  ? 'bg-slate-100 hover:bg-slate-200 text-slate-800 border border-slate-300'
+                : 'bg-slate-800 hover:bg-slate-700 text-slate-100 border border-slate-700'
+              }`}
+              title="Display the previous 10 days"
+            >
+              <ChevronLeft className="w-4 h-4 text-sky-400 stroke-[2.5]" />
+              <span>Previous 10 Days</span>
+            </button>
+            {canGoNext10Days && (
+              <button
+                type="button"
+                onClick={() => setChartOffset((prev) => Math.max(0, prev - 1))}
+                className="px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer bg-sky-500 hover:bg-sky-400 text-slate-950 shadow-xs active:scale-95"
+                title="Display the next 10 days"
+              >
+                <span>Next 10 Days</span>
+                <ChevronRight className="w-4 h-4 stroke-[2.5]" />
+              </button>
+            )}
+          </div>
+        </div>
+
+        {/* Chart Mode Controls & Description */}
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-2 border-b border-slate-200/60 dark:border-slate-800/60">
           <div>
             <h2
               className={`text-base font-bold flex items-center gap-2 ${
@@ -869,7 +1060,7 @@ export const RecoveryView: React.FC<RecoveryViewProps> = ({
             </h2>
             <p className={`text-xs ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>
               Correlating sleep stages and volume with morning resting HR (baseline {baselineRhr} bpm)
-              and overnight HRV
+              and overnight HRV over 10 days
             </p>
           </div>
 
@@ -932,11 +1123,11 @@ export const RecoveryView: React.FC<RecoveryViewProps> = ({
             <>
               <div className="flex items-center gap-1.5 text-indigo-500 font-medium">
                 <span className="w-3 h-3 rounded bg-indigo-500 inline-block" />
-                <span>Deep Sleep (Physical)</span>
+                <span>Deep Sleep</span>
               </div>
               <div className="flex items-center gap-1.5 text-cyan-500 font-medium">
                 <span className="w-3 h-3 rounded bg-cyan-400 inline-block" />
-                <span>REM Sleep (Neural)</span>
+                <span>REM Sleep</span>
               </div>
               <div className="flex items-center gap-1.5 text-slate-500 font-medium">
                 <span className="w-3 h-3 rounded bg-slate-400 dark:bg-slate-600 inline-block" />
@@ -963,10 +1154,6 @@ export const RecoveryView: React.FC<RecoveryViewProps> = ({
                 <span className="w-3 h-0.5 bg-purple-500 inline-block" />
                 <span>Overnight HRV rMSSD (ms)</span>
               </div>
-              <div className="flex items-center gap-1.5 text-purple-400">
-                <span className="w-3 h-3 rounded bg-purple-500/20 inline-block border border-purple-500/30" />
-                <span>7-Day HRV Baseline Corridor</span>
-              </div>
             </>
           )}
 
@@ -976,21 +1163,13 @@ export const RecoveryView: React.FC<RecoveryViewProps> = ({
                 <span className="w-3 h-3 rounded bg-orange-500 inline-block" />
                 <span>Strava Activity TSS</span>
               </div>
-              <div className="flex items-center gap-1.5 text-rose-500 font-semibold">
-                <span className="w-3 h-0.5 bg-rose-500 inline-block" />
-                <span>Next-Day Morning RHR</span>
-              </div>
-              <div className="flex items-center gap-1.5 text-emerald-500 font-semibold">
-                <span className="w-3 h-0.5 bg-emerald-500 inline-block" />
-                <span>Readiness</span>
-              </div>
             </>
           )}
         </div>
 
-        {/* SVG Chart Canvas */}
+        {/* SVG Chart Canvas: Zero Padding, Full Width */}
         <div
-          className={`relative rounded-xl p-3 sm:p-4 overflow-hidden border ${
+          className={`relative rounded-xl p-0 overflow-hidden border ${
             isLight
               ? 'bg-slate-50/70 border-slate-200'
               : 'bg-slate-950/60 border-slate-800/80'
@@ -1020,61 +1199,78 @@ export const RecoveryView: React.FC<RecoveryViewProps> = ({
             </div>
           ) : (
             <div className="w-full h-64 sm:h-72">
-              <svg className="w-full h-full overflow-visible" viewBox="0 0 800 240">
-                {/* Grid Lines */}
+              <svg className="w-full h-full overflow-hidden" viewBox="0 0 800 240">
+                {/* Horizontal Grid Lines Across Full Width */}
                 <line
-                  x1="40"
+                  x1="0"
                   y1="30"
-                  x2="760"
+                  x2="800"
                   y2="30"
                   stroke={isLight ? '#e2e8f0' : '#1e293b'}
                   strokeDasharray="3 3"
                 />
                 <line
-                  x1="40"
+                  x1="0"
                   y1="80"
-                  x2="760"
+                  x2="800"
                   y2="80"
                   stroke={isLight ? '#e2e8f0' : '#1e293b'}
                   strokeDasharray="3 3"
                 />
                 <line
-                  x1="40"
+                  x1="0"
                   y1="130"
-                  x2="760"
+                  x2="800"
                   y2="130"
                   stroke={isLight ? '#e2e8f0' : '#1e293b'}
                   strokeDasharray="3 3"
                 />
                 <line
-                  x1="40"
+                  x1="0"
                   y1="180"
-                  x2="760"
+                  x2="800"
                   y2="180"
                   stroke={isLight ? '#e2e8f0' : '#1e293b'}
                   strokeDasharray="3 3"
                 />
 
-                {/* 41 bpm Baseline Reference Line (when mode is sleep_rhr) */}
+                {/* Vertical Date Column Separators (10 Days, 80px per day) */}
+                {Array.from({ length: 9 }).map((_, i) => (
+                  <line
+                    key={`vdiv-${i}`}
+                    x1={(i + 1) * 80}
+                    y1="0"
+                    x2={(i + 1) * 80}
+                    y2="200"
+                    stroke={isLight ? '#e2e8f0' : '#1e293b'}
+                    strokeDasharray="2 3"
+                    strokeWidth="1"
+                    opacity="0.4"
+                  />
+                ))}
+
+                {/* Baseline Reference Line (when mode is sleep_rhr) */}
                 {selectedChartMode === 'sleep_rhr' && (
                   <>
                     <line
-                      x1="40"
+                      x1="0"
                       y1="140"
-                      x2="760"
+                      x2="800"
                       y2="140"
-                      stroke={isLight ? '#94a3b8' : '#475569'}
+                      stroke="#f43f5e"
                       strokeWidth="1.5"
                       strokeDasharray="4 4"
+                      opacity="0.75"
                     />
                     <text
-                      x="765"
-                      y="144"
-                      fill={isLight ? '#475569' : '#64748b'}
+                      x="795"
+                      y="135"
+                      textAnchor="end"
+                      fill="#f43f5e"
                       fontSize="10"
                       fontWeight="bold"
                     >
-                      {baselineRhr} bpm
+                      {baselineRhr} bpm Baseline
                     </text>
                   </>
                 )}
@@ -1082,17 +1278,18 @@ export const RecoveryView: React.FC<RecoveryViewProps> = ({
                 {/* Render Chart Mode 1: Sleep Stages Stacked Bars + Morning RHR Line */}
                 {selectedChartMode === 'sleep_rhr' && (
                   <>
-                    {/* Sleep Bars */}
+                    {/* Sleep Bars: 78px wide, 2px gap between dates */}
                     {chartDays.map((item, idx) => {
-                      const step = 720 / Math.max(1, chartDays.length);
-                      const x = 50 + idx * step;
-                      const barWidth = Math.min(26, step * 0.6);
+                      const step = 80;
+                      const xBar = idx * step + 1;
+                      const xCenter = idx * step + 40;
+                      const barWidth = 78;
 
                       const rawSleep = Number(item.log.sleepDurationMinutes);
                       const safeSleep = Number.isFinite(rawSleep) && rawSleep > 0 ? rawSleep : 0;
                       const totalMin = Math.max(180, safeSleep);
                       const maxChartMin = 600; // 10 hrs
-                      const totalBarHeight = (totalMin / maxChartMin) * 150;
+                      const totalBarHeight = (totalMin / maxChartMin) * 155;
 
                       const rawDeep = Number(item.log.deepSleepMinutes);
                       const safeDeep = Number.isFinite(rawDeep) && rawDeep > 0 ? rawDeep : 0;
@@ -1117,103 +1314,163 @@ export const RecoveryView: React.FC<RecoveryViewProps> = ({
                           onMouseLeave={() => setHoveredDataIndex(null)}
                           className="cursor-pointer"
                         >
-                          {/* Deep sleep bottom segment */}
+                          {/* Column Hover Background Highlight */}
                           <rect
-                            x={x - barWidth / 2}
-                            y={Number.isFinite(deepY) ? deepY : baseY}
-                            width={barWidth}
-                            height={Number.isFinite(deepH) ? deepH : 0}
-                            fill="#6366f1"
-                            rx="1"
+                            x={idx * step}
+                            y="0"
+                            width={step}
+                            height="200"
+                            fill="#38bdf8"
+                            opacity={hoveredDataIndex === idx ? 0.08 : 0}
                           />
-                          {/* REM sleep middle segment */}
-                          <rect
-                            x={x - barWidth / 2}
-                            y={Number.isFinite(remY) ? remY : baseY}
-                            width={barWidth}
-                            height={Number.isFinite(remH) ? remH : 0}
-                            fill="#22d3ee"
-                          />
-                          {/* Light sleep top segment */}
-                          <rect
-                            x={x - barWidth / 2}
-                            y={Number.isFinite(lightY) ? lightY : baseY}
-                            width={barWidth}
-                            height={Number.isFinite(lightH) ? lightH : 0}
-                            fill={isLight ? '#94a3b8' : '#475569'}
-                            rx="2"
-                          />
-                          {/* Date label at bottom */}
+
+                          {safeSleep > 0 ? (
+                            <>
+                              {/* Deep sleep bottom segment */}
+                              <rect
+                                x={xBar}
+                                y={Number.isFinite(deepY) ? deepY : baseY}
+                                width={barWidth}
+                                height={Number.isFinite(deepH) ? deepH : 0}
+                                fill="#6366f1"
+                                rx="1"
+                              />
+                              {/* REM sleep middle segment */}
+                              <rect
+                                x={xBar}
+                                y={Number.isFinite(remY) ? remY : baseY}
+                                width={barWidth}
+                                height={Number.isFinite(remH) ? remH : 0}
+                                fill="#22d3ee"
+                              />
+                              {/* Light sleep top segment */}
+                              <rect
+                                x={xBar}
+                                y={Number.isFinite(lightY) ? lightY : baseY}
+                                width={barWidth}
+                                height={Number.isFinite(lightH) ? lightH : 0}
+                                fill={isLight ? '#94a3b8' : '#475569'}
+                                rx="2"
+                              />
+                              {/* Duration text on bar top */}
+                              <text
+                                x={xCenter}
+                                y={Math.max(18, lightY - 5)}
+                                fill="#38bdf8"
+                                fontSize="10"
+                                fontWeight="bold"
+                                fontFamily="monospace"
+                                textAnchor="middle"
+                              >
+                                {formatMinutesToHhMm(safeSleep)}
+                              </text>
+                            </>
+                          ) : (
+                            /* Unrecorded placeholder */
+                            <g opacity="0.4">
+                              <rect
+                                x={xBar}
+                                y="180"
+                                width={barWidth}
+                                height="20"
+                                fill="none"
+                                stroke={isLight ? '#cbd5e1' : '#334155'}
+                                strokeDasharray="3 3"
+                                rx="2"
+                              />
+                              <text
+                                x={xCenter}
+                                y="194"
+                                fill="#64748b"
+                                fontSize="9"
+                                textAnchor="middle"
+                              >
+                                No Log
+                              </text>
+                            </g>
+                          )}
+
+                          {/* Date label: Weekday & Day of Month */}
                           <text
-                            x={x}
-                            y="220"
-                            fill={isLight ? '#64748b' : '#64748b'}
-                            fontSize="9"
+                            x={xCenter}
+                            y="216"
+                            fill={isLight ? '#64748b' : '#94a3b8'}
+                            fontSize="10"
+                            fontWeight="bold"
                             textAnchor="middle"
                           >
-                            {formatDateLabel(item.log.date).split(' ')[0]}
+                            {item.dayWeekday}
+                          </text>
+                          <text
+                            x={xCenter}
+                            y="232"
+                            fill={isLight ? '#0f172a' : '#f8fafc'}
+                            fontSize="11"
+                            fontFamily="monospace"
+                            fontWeight="800"
+                            textAnchor="middle"
+                          >
+                            {item.dayNumber}
                           </text>
                         </g>
                       );
                     })}
 
-                    {/* Resting HR Polyline */}
+                    {/* Resting HR Polyline across 10 Days */}
                     {(() => {
-                      const step = 720 / Math.max(1, chartDays.length);
-                      const points = chartDays.map((item, idx) => {
-                        const x = 50 + idx * step;
-                        const rawRhr = Number(item.log.restingHr);
-                        const safeRhr = Number.isFinite(rawRhr) && rawRhr > 0 ? rawRhr : baselineRhr;
-                        const rawY = 180 - ((safeRhr - 37) / 12) * 130;
-                        const y = Number.isFinite(rawY) ? rawY : 180;
-                        return `${x},${y}`;
-                      });
+                      const validPoints = chartDays
+                        .map((item, idx) => {
+                          const x = idx * 80 + 40;
+                          const rawRhr = Number(item.log.restingHr);
+                          if (!Number.isFinite(rawRhr) || rawRhr <= 0) return null;
+                          const rawY = 175 - ((rawRhr - 37) / 14) * 135;
+                          const y = Number.isFinite(rawY) ? rawY : 175;
+                          return { x, y, rawRhr, idx };
+                        })
+                        .filter(Boolean) as { x: number; y: number; rawRhr: number; idx: number }[];
+
+                      const polylineStr = validPoints.map((p) => `${p.x},${p.y}`).join(' ');
 
                       return (
                         <g>
-                          <polyline
-                            fill="none"
-                            stroke="#f43f5e"
-                            strokeWidth="2.5"
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            points={points.join(' ')}
-                          />
-                          {chartDays.map((item, idx) => {
-                            const x = 50 + idx * step;
-                            const rawRhr = Number(item.log.restingHr);
-                            const safeRhr = Number.isFinite(rawRhr) && rawRhr > 0 ? rawRhr : baselineRhr;
-                            const rawY = 180 - ((safeRhr - 37) / 12) * 130;
-                            const y = Number.isFinite(rawY) ? rawY : 180;
-                            const displayRhr = Number.isFinite(rawRhr) && rawRhr > 0 ? String(rawRhr) : '--';
-                            return (
-                              <g
-                                key={`rhr-pt-${idx}`}
-                                onMouseEnter={() => setHoveredDataIndex(idx)}
-                                onMouseLeave={() => setHoveredDataIndex(null)}
-                                className="cursor-pointer"
+                          {polylineStr && (
+                            <polyline
+                              fill="none"
+                              stroke="#f43f5e"
+                              strokeWidth="3"
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                              points={polylineStr}
+                            />
+                          )}
+                          {validPoints.map((pt) => (
+                            <g
+                              key={`rhr-pt-${pt.idx}`}
+                              onMouseEnter={() => setHoveredDataIndex(pt.idx)}
+                              onMouseLeave={() => setHoveredDataIndex(null)}
+                              className="cursor-pointer"
+                            >
+                              <circle
+                                cx={pt.x}
+                                cy={pt.y}
+                                r="5"
+                                fill="#f43f5e"
+                                stroke={isLight ? '#ffffff' : '#090a0f'}
+                                strokeWidth="2.5"
+                              />
+                              <text
+                                x={pt.x}
+                                y={pt.y - 8}
+                                fill="#f43f5e"
+                                fontSize="11"
+                                fontWeight="bold"
+                                fontFamily="monospace"
+                                textAnchor="middle"
                               >
-                                <circle
-                                  cx={x}
-                                  cy={y}
-                                  r="4"
-                                  fill="#f43f5e"
-                                  stroke={isLight ? '#ffffff' : '#090a0f'}
-                                  strokeWidth="2"
-                                />
-                                <text
-                                  x={x}
-                                  y={y - 8}
-                                  fill="#f43f5e"
-                                  fontSize="9"
-                                  fontWeight="bold"
-                                  textAnchor="middle"
-                                >
-                                  {displayRhr}
-                                </text>
-                              </g>
-                            );
-                          })}
+                                {pt.rawRhr}
+                              </text>
+                            </g>
+                          ))}
                         </g>
                       );
                     })()}
@@ -1224,34 +1481,48 @@ export const RecoveryView: React.FC<RecoveryViewProps> = ({
                 {selectedChartMode === 'readiness_hrv' && (
                   <>
                     {(() => {
-                      const step = 720 / Math.max(1, chartDays.length);
+                      const step = 80;
 
                       // HRV line points
                       const hrvPoints = chartDays.map((item, idx) => {
-                        const x = 50 + idx * step;
+                        const x = idx * step + 40;
                         const rawHrv = Number(item.log.hrvRmssd);
                         const safeHrv = Number.isFinite(rawHrv) && rawHrv > 0 ? rawHrv : 65;
-                        const rawY = 200 - ((safeHrv - 50) / 60) * 150;
+                        const rawY = 200 - ((safeHrv - 40) / 75) * 155;
                         const y = Number.isFinite(rawY) ? rawY : 200;
                         return `${x},${y}`;
                       });
 
                       // Readiness line points
                       const readPoints = chartDays.map((item, idx) => {
-                        const x = 50 + idx * step;
+                        const x = idx * step + 40;
                         const rawScore = Number(item.readiness?.score);
                         const safeScore = Number.isFinite(rawScore) ? rawScore : 0;
-                        const rawY = 200 - (safeScore / 100) * 150;
+                        const rawY = 200 - (safeScore / 100) * 155;
                         const y = Number.isFinite(rawY) ? rawY : 200;
                         return `${x},${y}`;
                       });
 
                       return (
                         <g>
+                          {/* Day column background slots */}
+                          {chartDays.map((item, idx) => (
+                            <rect
+                              key={`slot-${idx}`}
+                              x={idx * step + 1}
+                              y="10"
+                              width={78}
+                              height="190"
+                              fill="#10b981"
+                              opacity={hoveredDataIndex === idx ? 0.15 : 0.04}
+                              rx="3"
+                            />
+                          ))}
+
                           <polyline
                             fill="none"
                             stroke="#10b981"
-                            strokeWidth="2.5"
+                            strokeWidth="3"
                             strokeLinecap="round"
                             strokeLinejoin="round"
                             points={readPoints.join(' ')}
@@ -1259,22 +1530,23 @@ export const RecoveryView: React.FC<RecoveryViewProps> = ({
                           <polyline
                             fill="none"
                             stroke="#c084fc"
-                            strokeWidth="2"
+                            strokeWidth="2.5"
+                            strokeDasharray="4 2"
                             strokeLinecap="round"
                             strokeLinejoin="round"
                             points={hrvPoints.join(' ')}
                           />
 
                           {chartDays.map((item, idx) => {
-                            const x = 50 + idx * step;
+                            const x = idx * step + 40;
                             const rawHrv = Number(item.log.hrvRmssd);
-                            const safeHrv = Number.isFinite(rawHrv) && rawHrv > 0 ? rawHrv : 65;
-                            const rawYHrv = 200 - ((safeHrv - 50) / 60) * 150;
+                            const safeHrv = Number.isFinite(rawHrv) && rawHrv > 0 ? rawHrv : null;
+                            const rawYHrv = safeHrv ? 200 - ((safeHrv - 40) / 75) * 155 : 200;
                             const yHrv = Number.isFinite(rawYHrv) ? rawYHrv : 200;
 
                             const rawScore = Number(item.readiness?.score);
                             const safeScore = Number.isFinite(rawScore) ? rawScore : 0;
-                            const rawYRead = 200 - (safeScore / 100) * 150;
+                            const rawYRead = 200 - (safeScore / 100) * 155;
                             const yRead = Number.isFinite(rawYRead) ? rawYRead : 200;
 
                             return (
@@ -1284,38 +1556,78 @@ export const RecoveryView: React.FC<RecoveryViewProps> = ({
                                 onMouseLeave={() => setHoveredDataIndex(null)}
                                 className="cursor-pointer"
                               >
-                                <circle
-                                  cx={x}
-                                  cy={yRead}
-                                  r="4"
-                                  fill="#10b981"
-                                  stroke={isLight ? '#ffffff' : '#090a0f'}
-                                  strokeWidth="1.5"
-                                />
-                                <circle
-                                  cx={x}
-                                  cy={yHrv}
-                                  r="3.5"
-                                  fill="#c084fc"
-                                  stroke={isLight ? '#ffffff' : '#090a0f'}
-                                  strokeWidth="1.5"
-                                />
+                                {safeScore > 0 && (
+                                  <>
+                                    <circle
+                                      cx={x}
+                                      cy={yRead}
+                                      r="5"
+                                      fill="#10b981"
+                                      stroke={isLight ? '#ffffff' : '#090a0f'}
+                                      strokeWidth="2"
+                                    />
+                                    <text
+                                      x={x}
+                                      y={yRead - 8}
+                                      fill="#10b981"
+                                      fontSize="10"
+                                      fontWeight="bold"
+                                      fontFamily="monospace"
+                                      textAnchor="middle"
+                                    >
+                                      {safeScore}%
+                                    </text>
+                                  </>
+                                )}
+                                {safeHrv && (
+                                  <>
+                                    <circle
+                                      cx={x}
+                                      cy={yHrv}
+                                      r="4.5"
+                                      fill="#c084fc"
+                                      stroke={isLight ? '#ffffff' : '#090a0f'}
+                                      strokeWidth="2"
+                                    />
+                                    <text
+                                      x={x}
+                                      y={yHrv + 14}
+                                      fill="#c084fc"
+                                      fontSize="10"
+                                      fontWeight="bold"
+                                      fontFamily="monospace"
+                                      textAnchor="middle"
+                                    >
+                                      {safeHrv}ms
+                                    </text>
+                                  </>
+                                )}
+
+                                {/* Date label: Weekday & Day of Month */}
+                                <text
+                                  x={x}
+                                  y="216"
+                                  fill={isLight ? '#64748b' : '#94a3b8'}
+                                  fontSize="10"
+                                  fontWeight="bold"
+                                  textAnchor="middle"
+                                >
+                                  {item.dayWeekday}
+                                </text>
+                                <text
+                                  x={x}
+                                  y="232"
+                                  fill={isLight ? '#0f172a' : '#f8fafc'}
+                                  fontSize="11"
+                                  fontFamily="monospace"
+                                  fontWeight="800"
+                                  textAnchor="middle"
+                                >
+                                  {item.dayNumber}
+                                </text>
                               </g>
                             );
                           })}
-
-                          {chartDays.map((item, idx) => (
-                            <text
-                              key={`date-${idx}`}
-                              x={50 + idx * step}
-                              y="222"
-                              fill={isLight ? '#64748b' : '#64748b'}
-                              fontSize="9"
-                              textAnchor="middle"
-                            >
-                              {formatDateLabel(item.log.date).split(' ')[0]}
-                            </text>
-                          ))}
                         </g>
                       );
                     })()}
@@ -1326,48 +1638,83 @@ export const RecoveryView: React.FC<RecoveryViewProps> = ({
                 {selectedChartMode === 'training_stress' && (
                   <>
                     {(() => {
-                      const step = 720 / Math.max(1, chartDays.length);
-                      const barWidth = Math.min(28, step * 0.6);
+                      const step = 80;
+                      const barWidth = 76;
 
                       return (
                         <g>
                           {chartDays.map((item, idx) => {
-                            const x = 50 + idx * step;
+                            const xBar = idx * step + 2;
+                            const xCenter = idx * step + 40;
                             const rawTss = Number(item.tss);
                             const safeTss = Number.isFinite(rawTss) && rawTss > 0 ? rawTss : 0;
-                            const tssHeight = Math.max(0, Math.min(140, (safeTss / 200) * 140));
+                            const tssHeight = Math.max(0, Math.min(150, (safeTss / 200) * 150));
                             const rawY = 200 - tssHeight;
                             const y = Number.isFinite(rawY) ? rawY : 200;
 
                             return (
-                              <g key={idx}>
-                                <rect
-                                  x={x - barWidth / 2}
-                                  y={y}
-                                  width={barWidth}
-                                  height={Number.isFinite(tssHeight) ? tssHeight : 0}
-                                  fill="#f97316"
-                                  opacity="0.85"
-                                  rx="2"
-                                />
+                              <g
+                                key={idx}
+                                onMouseEnter={() => setHoveredDataIndex(idx)}
+                                onMouseLeave={() => setHoveredDataIndex(null)}
+                                className="cursor-pointer"
+                              >
+                                {safeTss > 0 ? (
+                                  <>
+                                    <rect
+                                      x={xBar}
+                                      y={y}
+                                      width={barWidth}
+                                      height={Number.isFinite(tssHeight) ? tssHeight : 0}
+                                      fill="#f97316"
+                                      opacity="0.9"
+                                      rx="3"
+                                    />
+                                    <text
+                                      x={xCenter}
+                                      y={y - 5}
+                                      fill="#f97316"
+                                      fontSize="11"
+                                      fontWeight="bold"
+                                      fontFamily="monospace"
+                                      textAnchor="middle"
+                                    >
+                                      {safeTss}
+                                    </text>
+                                  </>
+                                ) : (
+                                  <rect
+                                    x={xBar}
+                                    y="190"
+                                    width={barWidth}
+                                    height="10"
+                                    fill={isLight ? '#e2e8f0' : '#1e293b'}
+                                    rx="2"
+                                    opacity="0.4"
+                                  />
+                                )}
+
+                                {/* Date label: Weekday & Day of Month */}
                                 <text
-                                  x={x}
-                                  y={y - 4}
-                                  fill="#f97316"
-                                  fontSize="9"
+                                  x={xCenter}
+                                  y="216"
+                                  fill={isLight ? '#64748b' : '#94a3b8'}
+                                  fontSize="10"
                                   fontWeight="bold"
                                   textAnchor="middle"
                                 >
-                                  {safeTss > 0 ? String(safeTss) : ''}
+                                  {item.dayWeekday}
                                 </text>
                                 <text
-                                  x={x}
-                                  y="222"
-                                  fill={isLight ? '#64748b' : '#64748b'}
-                                  fontSize="9"
+                                  x={xCenter}
+                                  y="232"
+                                  fill={isLight ? '#0f172a' : '#f8fafc'}
+                                  fontSize="11"
+                                  fontFamily="monospace"
+                                  fontWeight="800"
                                   textAnchor="middle"
                                 >
-                                  {formatDateLabel(item.log.date).split(' ')[0]}
+                                  {item.dayNumber}
                                 </text>
                               </g>
                             );
