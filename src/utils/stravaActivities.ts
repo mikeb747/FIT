@@ -37,6 +37,15 @@ export interface CalibratedSwimLap {
   isRest?: boolean;
 }
 
+export interface CalibratedRunSection {
+  id: string;
+  name: string;
+  durationSec: number;
+  speedKph: number;
+  paceMinSec?: string;
+  distanceM?: number;
+}
+
 export interface ActivityCalibration {
   isIgnoredFromTrainingStatus?: boolean; // Exclude from TSS & training load calculations
   calibratedDistanceM?: number; // Overrides total distance (treadmill calibration)
@@ -46,6 +55,7 @@ export interface ActivityCalibration {
   calibratedAvgWatts?: number;
   calibratedNormalizedPower?: number;
   calibratedLaps?: CalibratedSwimLap[]; // Fix inaccurate swim watch laps
+  calibratedRunSections?: CalibratedRunSection[]; // Indoor / treadmill simulated run sections
   calibratedAt?: string;
   calibrationNotes?: string;
   manualTss?: number;

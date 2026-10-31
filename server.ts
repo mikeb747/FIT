@@ -222,8 +222,8 @@ app.post('/api/strava/upload', async (req, res) => {
     formData.append('name', name || 'Strength & Conditioning');
     formData.append('description', description || 'Logged via FIT Track');
     formData.append('data_type', 'fit');
-    formData.append('sport_type', 'WeightTraining');
-    formData.append('activity_type', 'weight_training');
+    formData.append('sport_type', req.body.sport_type || 'Run');
+    formData.append('activity_type', req.body.activity_type || 'run');
 
     const stravaRes = await fetch('https://www.strava.com/api/v3/uploads', {
       method: 'POST',

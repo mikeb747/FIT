@@ -1581,6 +1581,7 @@ export const StravaActivityModal: React.FC<StravaActivityModalProps> = ({
           isOpen={isCalibrationOpen}
           activity={activity}
           detailsRecord={detailsRecord}
+          stravaToken={stravaToken}
           onClose={() => setIsCalibrationOpen(false)}
           onCalibrationSaved={(updatedRecord) => {
             setDetailsRecord(updatedRecord);
