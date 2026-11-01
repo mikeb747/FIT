@@ -130,6 +130,7 @@ export const StravaActivitiesTab: React.FC<StravaActivitiesTabProps> = ({
   const [activeModalActivity, setActiveModalActivity] = useState<StravaActivity | null>(null);
   const [isBackingUpSheets, setIsBackingUpSheets] = useState(false);
   const [backupFeedback, setBackupFeedback] = useState<string | null>(null);
+  const [backupProgressMsg, setBackupProgressMsg] = useState<string | null>(null);
 
   const handleBackupAllToSheets = async () => {
     if (!isGoogleConnected) {
@@ -138,20 +139,40 @@ export const StravaActivitiesTab: React.FC<StravaActivitiesTabProps> = ({
     }
     setIsBackingUpSheets(true);
     setBackupFeedback(null);
+    setBackupProgressMsg('Checking Google Sheets...');
     try {
-      const res = await batchBackupActivitiesToGoogleSheet(activities, activityDetails, athleteProfile);
+      const res = await batchBackupActivitiesToGoogleSheet(
+        activities,
+        activityDetails,
+        athleteProfile,
+        undefined,
+        (prog) => {
+          setBackupProgressMsg(prog.message);
+        }
+      );
       if (res.success) {
-        setBackupFeedback(res.backedUpCount > 0 ? `Backed up ${res.backedUpCount} activities!` : 'All activities up to date!');
-        setTimeout(() => setBackupFeedback(null), 3500);
+        let msg = '';
+        if (res.backedUpCount > 0 && res.streamsBackedUpCount > 0) {
+          msg = `Backed up ${res.backedUpCount} workouts & ${res.streamsBackedUpCount} streams!`;
+        } else if (res.streamsBackedUpCount > 0) {
+          msg = `Backed up ${res.streamsBackedUpCount} streams!`;
+        } else if (res.backedUpCount > 0) {
+          msg = `Backed up ${res.backedUpCount} workouts!`;
+        } else {
+          msg = `All ${res.alreadyCount || activities.length} workouts & streams up to date!`;
+        }
+        setBackupFeedback(msg);
+        setTimeout(() => setBackupFeedback(null), 4500);
       } else {
         setBackupFeedback(res.error || 'Backup failed');
-        setTimeout(() => setBackupFeedback(null), 3500);
+        setTimeout(() => setBackupFeedback(null), 4500);
       }
     } catch (e: any) {
       setBackupFeedback(e.message || 'Error backing up to Sheets');
-      setTimeout(() => setBackupFeedback(null), 3500);
+      setTimeout(() => setBackupFeedback(null), 4500);
     } finally {
       setIsBackingUpSheets(false);
+      setBackupProgressMsg(null);
     }
   };
 
@@ -298,7 +319,7 @@ export const StravaActivitiesTab: React.FC<StravaActivitiesTabProps> = ({
           {isBackingUpSheets ? (
             <>
               <Loader2 className="w-3.5 h-3.5 animate-spin text-emerald-400" />
-              <span>Backing up to Sheet...</span>
+              <span>{backupProgressMsg || 'Backing up to Sheet...'}</span>
             </>
           ) : backupFeedback ? (
             <>

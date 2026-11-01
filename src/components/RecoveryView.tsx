@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import {
   Heart,
   Moon,
@@ -169,28 +169,30 @@ export const RecoveryView: React.FC<RecoveryViewProps> = ({
     return map;
   }, [stravaActivities]);
 
-  // 10-Day Chart Window Pagination State (0 = latest 10 days, 1 = previous 10 days, 2 = 20 days ago, etc.)
-  const [chartOffset, setChartOffset] = useState<number>(0);
+  // Horizontal Scrollable Timeline State for 7-Day Viewport with swipe/drag loading ahead
+  const scrollContainerRef = React.useRef<HTMLDivElement>(null);
+  const [canGoPrevious, setCanGoPrevious] = useState(false);
+  const [canGoNext, setCanGoNext] = useState(false);
+  const [chartDateRangeLabel, setChartDateRangeLabel] = useState<string>('');
 
-  // Prepare chart series (strictly 10 days with pagination offset)
-  const { chartDays, chartDateRangeLabel, canGoPrevious10Days, canGoNext10Days } = useMemo(() => {
-    if (sortedLogs.length === 0) {
-      return {
-        chartDays: [],
-        chartDateRangeLabel: '',
-        canGoPrevious10Days: false,
-        canGoNext10Days: false,
-      };
-    }
+  // Mouse drag-to-scroll state for desktop
+  const [isMouseDown, setIsMouseDown] = useState(false);
+  const [dragStartX, setDragStartX] = useState(0);
+  const [dragStartScrollLeft, setDragStartScrollLeft] = useState(0);
 
-    // Anchor at the latest log date (or today if latest log is past)
+  const DAY_COL_WIDTH = 110;
+
+  // Prepare full continuous timeline of days (pre-loads 42 to 180 days so swiping is instant)
+  const timelineDays = useMemo(() => {
+    if (sortedLogs.length === 0) return [];
+
+    // Anchor at latest log date (or today if latest log is past)
     const latestDateStr = sortedLogs[sortedLogs.length - 1].date;
-    const [ly, lm, ld] = latestDateStr.split('-').map(Number);
-    const anchorDate = new Date(ly, lm - 1, ld);
+    const todayStr = new Date().toISOString().slice(0, 10);
+    const endAnchorStr = latestDateStr > todayStr ? latestDateStr : todayStr;
 
-    // End date for the current 10-day page
-    const pageEndDate = new Date(anchorDate);
-    pageEndDate.setDate(anchorDate.getDate() - chartOffset * 10);
+    const [ly, lm, ld] = endAnchorStr.split('-').map(Number);
+    const anchorDate = new Date(ly, lm - 1, ld);
 
     // Map existing logs by date for fast lookup
     const logsMap: Record<string, DailyRecoveryLog> = {};
@@ -198,24 +200,27 @@ export const RecoveryView: React.FC<RecoveryViewProps> = ({
       logsMap[l.date] = l;
     });
 
-    // Earliest log date to check if there is older data
+    // Earliest log date to calculate full span
     const earliestDateStr = sortedLogs[0].date;
     const [ey, em, ed] = earliestDateStr.split('-').map(Number);
     const earliestDate = new Date(ey, em - 1, ed);
 
-    // Build exactly 10 consecutive calendar days ending on pageEndDate
+    // Number of days to generate: at least 42 days (6 weeks) up to 180 days
+    const totalDaysCount = Math.max(42, Math.min(180, Math.ceil((anchorDate.getTime() - earliestDate.getTime()) / 86400000) + 7));
+
     const days: {
       log: DailyRecoveryLog;
       readiness: ReadinessScoreResult;
       tss: number;
       dayWeekday: string;
       dayNumber: string;
+      date: string;
       hasData: boolean;
     }[] = [];
 
-    for (let i = 9; i >= 0; i--) {
-      const dt = new Date(pageEndDate);
-      dt.setDate(pageEndDate.getDate() - i);
+    for (let i = totalDaysCount - 1; i >= 0; i--) {
+      const dt = new Date(anchorDate);
+      dt.setDate(anchorDate.getDate() - i);
       const yStr = dt.getFullYear();
       const mStr = String(dt.getMonth() + 1).padStart(2, '0');
       const dStr = String(dt.getDate()).padStart(2, '0');
@@ -274,30 +279,92 @@ export const RecoveryView: React.FC<RecoveryViewProps> = ({
         tss,
         dayWeekday,
         dayNumber,
+        date: dateStr,
         hasData,
       });
     }
 
-    const firstDateObj = new Date(pageEndDate);
-    firstDateObj.setDate(pageEndDate.getDate() - 9);
-    const rangeFormat: Intl.DateTimeFormatOptions = { day: 'numeric', month: 'short' };
-    const rangeStart = firstDateObj.toLocaleDateString(undefined, rangeFormat);
-    const rangeEnd = pageEndDate.toLocaleDateString(undefined, {
-      ...rangeFormat,
-      year: 'numeric',
-    });
-    const chartDateRangeLabel = `${rangeStart} – ${rangeEnd}`;
+    return days;
+  }, [sortedLogs, athleteProfile, tssByDate, isLight]);
 
-    const canGoPrevious10Days = firstDateObj.getTime() > earliestDate.getTime() - 10 * 86400000;
-    const canGoNext10Days = chartOffset > 0;
+  // Alias for compatibility with downstream hover and inspection
+  const chartDays = timelineDays;
 
-    return {
-      chartDays: days,
-      chartDateRangeLabel,
-      canGoPrevious10Days,
-      canGoNext10Days,
-    };
-  }, [sortedLogs, chartOffset, athleteProfile, tssByDate, isLight]);
+  // Compute 7-day visible date range label & button availability from scroll position
+  const handleChartScroll = React.useCallback(() => {
+    if (!scrollContainerRef.current || timelineDays.length === 0) return;
+    const el = scrollContainerRef.current;
+    const scrollLeft = el.scrollLeft;
+    const maxScroll = el.scrollWidth - el.clientWidth;
+
+    setCanGoNext(scrollLeft < maxScroll - 8);
+    setCanGoPrevious(scrollLeft > 8);
+
+    // 7-day window estimation based on scrollLeft
+    const startIndex = Math.max(0, Math.min(timelineDays.length - 1, Math.round(scrollLeft / DAY_COL_WIDTH)));
+    const visibleCount = Math.max(1, Math.round(el.clientWidth / DAY_COL_WIDTH));
+    const endIndex = Math.min(timelineDays.length - 1, startIndex + Math.max(6, visibleCount - 1));
+
+    const startDay = timelineDays[startIndex];
+    const endDay = timelineDays[endIndex];
+
+    if (startDay && endDay) {
+      const [sy, sm, sd] = startDay.date.split('-').map(Number);
+      const [ey, em, ed] = endDay.date.split('-').map(Number);
+      const dStart = new Date(sy, sm - 1, sd);
+      const dEnd = new Date(ey, em - 1, ed);
+
+      const rangeFormat: Intl.DateTimeFormatOptions = { day: 'numeric', month: 'short' };
+      const labelStart = dStart.toLocaleDateString(undefined, rangeFormat);
+      const labelEnd = dEnd.toLocaleDateString(undefined, {
+        ...rangeFormat,
+        year: 'numeric',
+      });
+      setChartDateRangeLabel(`${labelStart} – ${labelEnd}`);
+    }
+  }, [timelineDays, DAY_COL_WIDTH]);
+
+  // Scroll to latest (rightmost) 7 days on mount / data change
+  useEffect(() => {
+    if (scrollContainerRef.current && timelineDays.length > 0) {
+      const el = scrollContainerRef.current;
+      el.scrollLeft = el.scrollWidth - el.clientWidth;
+      handleChartScroll();
+    }
+  }, [timelineDays, handleChartScroll]);
+
+  // Handlers for < Previous and Next > buttons (scroll by 7 days)
+  const handleScrollPrevious = () => {
+    if (!scrollContainerRef.current) return;
+    const distance = DAY_COL_WIDTH * 7;
+    scrollContainerRef.current.scrollBy({ left: -distance, behavior: 'smooth' });
+  };
+
+  const handleScrollNext = () => {
+    if (!scrollContainerRef.current) return;
+    const distance = DAY_COL_WIDTH * 7;
+    scrollContainerRef.current.scrollBy({ left: distance, behavior: 'smooth' });
+  };
+
+  // Mouse Drag Handlers for desktop
+  const handleMouseDown = (e: React.MouseEvent) => {
+    if (!scrollContainerRef.current) return;
+    setIsMouseDown(true);
+    setDragStartX(e.pageX - scrollContainerRef.current.offsetLeft);
+    setDragStartScrollLeft(scrollContainerRef.current.scrollLeft);
+  };
+
+  const handleMouseMove = (e: React.MouseEvent) => {
+    if (!isMouseDown || !scrollContainerRef.current) return;
+    e.preventDefault();
+    const x = e.pageX - scrollContainerRef.current.offsetLeft;
+    const walk = (x - dragStartX) * 1.3;
+    scrollContainerRef.current.scrollLeft = dragStartScrollLeft - walk;
+  };
+
+  const handleMouseUpOrLeave = () => {
+    setIsMouseDown(false);
+  };
 
   // Helpers
   const formatMinutesToHhMm = (mins: number) => {
@@ -972,79 +1039,58 @@ export const RecoveryView: React.FC<RecoveryViewProps> = ({
       >
         {/* Top Header with Corner Navigation Buttons */}
         <div
-          className={`flex items-center justify-between gap-2 pb-3 border-b ${
+          className={`flex items-center justify-between gap-3 pb-3 border-b ${
             isLight ? 'border-slate-200' : 'border-slate-800'
           }`}
         >
-          {/* Top-Left Corner Button: Move to previous 10 days */}
+          {/* Top-Left Corner Button: Move to previous 7 days */}
           <button
             type="button"
-            onClick={() => setChartOffset((prev) => prev + 1)}
-            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer shadow-xs active:scale-95 ${
-              isLight
-                ? 'bg-slate-100 hover:bg-slate-200 text-slate-800 border border-slate-300'
-                : 'bg-slate-800 hover:bg-slate-700 text-slate-100 border border-slate-700'
+            onClick={handleScrollPrevious}
+            disabled={!canGoPrevious}
+            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 shadow-xs active:scale-95 ${
+              !canGoPrevious
+                ? isLight
+                  ? 'bg-slate-100 text-slate-400 border border-slate-200 cursor-not-allowed opacity-50'
+                  : 'bg-slate-800/50 text-slate-600 border border-slate-800 cursor-not-allowed opacity-50'
+                : isLight
+                ? 'bg-slate-100 hover:bg-slate-200 text-slate-800 border border-slate-300 cursor-pointer'
+                : 'bg-slate-800 hover:bg-slate-700 text-slate-100 border border-slate-700 cursor-pointer'
             }`}
-            title="Display the previous 10 days"
+            title="Display previous 7 days"
           >
-            <ChevronLeft className="w-4 h-4 text-sky-400 stroke-[2.5]" />
-            <span>Previous 10 Days</span>
+            <span>&lt; Previous</span>
           </button>
 
-          {/* Center: Date Range Title */}
-          <div className="flex items-center gap-2">
+          {/* Center: Date Range Title (clean typography, no grey box) */}
+          <div className="flex items-center justify-center text-center px-1">
             <span
-              className={`font-mono font-extrabold text-xs sm:text-sm px-3 py-1 rounded-lg border ${
-                isLight
-                  ? 'bg-slate-100 text-slate-800 border-slate-200'
-                  : 'bg-slate-950 text-slate-200 border-slate-800'
+              className={`font-mono font-extrabold text-xs sm:text-sm tracking-wide ${
+                isLight ? 'text-slate-800' : 'text-slate-100'
               }`}
             >
               {chartDateRangeLabel}
             </span>
-            {chartOffset === 0 ? (
-              <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-400 border border-emerald-500/25">
-                Current 10 Days
-              </span>
-            ) : (
-              <button
-                type="button"
-                onClick={() => setChartOffset(0)}
-                className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-sky-500/15 hover:bg-sky-500/25 text-sky-400 border border-sky-500/30 cursor-pointer transition-colors"
-                title="Return to latest 10 days"
-              >
-                Jump to Latest
-              </button>
-            )}
           </div>
 
-          {/* Top-Right Corner Button: Move to previous 10 days / next 10 days */}
-          <div className="flex items-center gap-1.5">
-            <button
-              type="button"
-              onClick={() => setChartOffset((prev) => prev + 1)}
-              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer shadow-xs active:scale-95 ${
-                isLight
-                  ? 'bg-slate-100 hover:bg-slate-200 text-slate-800 border border-slate-300'
-                : 'bg-slate-800 hover:bg-slate-700 text-slate-100 border border-slate-700'
-              }`}
-              title="Display the previous 10 days"
-            >
-              <ChevronLeft className="w-4 h-4 text-sky-400 stroke-[2.5]" />
-              <span>Previous 10 Days</span>
-            </button>
-            {canGoNext10Days && (
-              <button
-                type="button"
-                onClick={() => setChartOffset((prev) => Math.max(0, prev - 1))}
-                className="px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer bg-sky-500 hover:bg-sky-400 text-slate-950 shadow-xs active:scale-95"
-                title="Display the next 10 days"
-              >
-                <span>Next 10 Days</span>
-                <ChevronRight className="w-4 h-4 stroke-[2.5]" />
-              </button>
-            )}
-          </div>
+          {/* Top-Right Corner Button: Move to next 7 days (greyed out if already at latest date) */}
+          <button
+            type="button"
+            onClick={handleScrollNext}
+            disabled={!canGoNext}
+            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 shadow-xs active:scale-95 ${
+              !canGoNext
+                ? isLight
+                  ? 'bg-slate-100 text-slate-400 border border-slate-200 cursor-not-allowed opacity-50'
+                  : 'bg-slate-800/50 text-slate-600 border border-slate-800 cursor-not-allowed opacity-50'
+                : isLight
+                ? 'bg-sky-500 hover:bg-sky-400 text-slate-950 font-extrabold cursor-pointer'
+                : 'bg-sky-500 hover:bg-sky-400 text-slate-950 font-extrabold cursor-pointer'
+            }`}
+            title={canGoNext ? 'Display next 7 days' : 'Already at latest date'}
+          >
+            <span>Next &gt;</span>
+          </button>
         </div>
 
         {/* Chart Mode Controls & Description */}
@@ -1199,7 +1245,7 @@ export const RecoveryView: React.FC<RecoveryViewProps> = ({
             </div>
           ) : (() => {
             // Compute dynamic Y-axis maximum for displayed sleep data
-            const displayedSleepMinutes = chartDays
+            const displayedSleepMinutes = timelineDays
               .map((item) => Number(item.log.sleepDurationMinutes))
               .filter((m) => Number.isFinite(m) && m > 0);
 
@@ -1207,57 +1253,104 @@ export const RecoveryView: React.FC<RecoveryViewProps> = ({
               ? Math.max(...displayedSleepMinutes)
               : 480;
 
-            // Reduce the Y axis to be the nearest full hour of the maximum height of any displayed data
-            // E.g. if max sleep is 7.4 hrs -> 8 hrs (480 min). If max sleep is 6.2 hrs -> 7 hrs (420 min).
-            const maxSleepHours = Math.max(1, Math.ceil(maxDisplayedSleepMin / 60));
+            // Reduce Y axis to nearest full hour of maximum height (min 8 hours)
+            const maxSleepHours = Math.max(8, Math.ceil(maxDisplayedSleepMin / 60));
             const maxChartMin = maxSleepHours * 60;
 
-            // Chart geometry: zero top gap, plot area spans from y=4 down to chartBaseY=196
-            const chartTopY = 4;
-            const chartBaseY = 196;
+            // Chart geometry: double height!
+            const chartTopY = 16;
+            const chartBaseY = 370;
             const availablePlotHeight = chartBaseY - chartTopY;
+            const totalChartWidth = Math.max(770, timelineDays.length * DAY_COL_WIDTH);
+
+            // Hours gridlines strictly at 4-5-6-7-8 hours
+            const sleepGridHours = [4, 5, 6, 7, 8].filter((h) => h <= maxSleepHours);
+            if (maxSleepHours > 8 && !sleepGridHours.includes(maxSleepHours)) {
+              sleepGridHours.push(maxSleepHours);
+            }
 
             return (
-              <div className="w-full overflow-hidden">
-                <svg className="w-full h-auto block overflow-hidden" viewBox="0 0 800 232">
-                  {/* Dynamic Hour Grid Lines matching the reduced Y-axis with no top spacing */}
-                  {Array.from({ length: maxSleepHours }).map((_, i) => {
-                    const hour = i + 1;
-                    const showLine = maxSleepHours <= 6 || hour % 2 === 0 || hour === maxSleepHours;
-                    if (!showLine) return null;
-                    const lineY = chartBaseY - (hour / maxSleepHours) * availablePlotHeight;
-                    return (
-                      <g key={`h-grid-${hour}`}>
-                        <line
-                          x1="0"
-                          y1={lineY}
-                          x2="800"
-                          y2={lineY}
-                          stroke={isLight ? '#e2e8f0' : '#1e293b'}
-                          strokeDasharray="3 3"
-                          strokeWidth="1"
-                        />
-                        <text
-                          x="6"
-                          y={lineY - 3}
-                          fill={isLight ? '#94a3b8' : '#475569'}
-                          fontSize="9"
-                          fontFamily="monospace"
-                          fontWeight="600"
-                        >
-                          {hour}h
-                        </text>
-                      </g>
-                    );
-                  })}
+              <div
+                ref={scrollContainerRef}
+                onScroll={handleChartScroll}
+                onMouseDown={handleMouseDown}
+                onMouseMove={handleMouseMove}
+                onMouseUp={handleMouseUpOrLeave}
+                onMouseLeave={handleMouseUpOrLeave}
+                className="w-full overflow-x-auto touch-pan-x cursor-grab active:cursor-grabbing select-none scrollbar-thin scrollbar-thumb-slate-700/40"
+                style={{ WebkitOverflowScrolling: 'touch' }}
+              >
+                <svg
+                  style={{ width: `${totalChartWidth}px`, height: '440px', minWidth: '100%' }}
+                  viewBox={`0 0 ${totalChartWidth} 440`}
+                  className="block overflow-hidden"
+                >
+                  {/* Dynamic Grid Lines for Sleep Mode: Major gridlines strictly at 4-5-6-7-8 hours */}
+                  {selectedChartMode === 'sleep_rhr' &&
+                    sleepGridHours.map((hour) => {
+                      const lineY = chartBaseY - (hour / maxSleepHours) * availablePlotHeight;
+                      return (
+                        <g key={`sleep-grid-${hour}`}>
+                          <line
+                            x1="0"
+                            y1={lineY}
+                            x2={totalChartWidth}
+                            y2={lineY}
+                            stroke={isLight ? '#e2e8f0' : '#1e293b'}
+                            strokeDasharray="4 4"
+                            strokeWidth="1"
+                          />
+                          <text
+                            x="10"
+                            y={lineY - 4}
+                            fill={isLight ? '#64748b' : '#94a3b8'}
+                            fontSize="12"
+                            fontFamily="monospace"
+                            fontWeight="700"
+                          >
+                            {hour}h
+                          </text>
+                        </g>
+                      );
+                    })}
 
-                  {/* Vertical Date Column Separators (10 Days, 80px per day) */}
-                  {Array.from({ length: 9 }).map((_, i) => (
+                  {/* Dynamic Grid Lines for Readiness & HRV: removing dead space below */}
+                  {selectedChartMode === 'readiness_hrv' &&
+                    [50, 60, 70, 80, 90, 100].map((score) => {
+                      // Clamped from 40% to 100% to maximize chart vertical space
+                      const lineY = chartBaseY - ((score - 40) / 60) * (availablePlotHeight - 20);
+                      return (
+                        <g key={`read-grid-${score}`}>
+                          <line
+                            x1="0"
+                            y1={lineY}
+                            x2={totalChartWidth}
+                            y2={lineY}
+                            stroke={isLight ? '#e2e8f0' : '#1e293b'}
+                            strokeDasharray="4 4"
+                            strokeWidth="1"
+                          />
+                          <text
+                            x="10"
+                            y={lineY - 4}
+                            fill={isLight ? '#64748b' : '#94a3b8'}
+                            fontSize="11"
+                            fontFamily="monospace"
+                            fontWeight="700"
+                          >
+                            {score}%
+                          </text>
+                        </g>
+                      );
+                    })}
+
+                  {/* Vertical Date Column Separators across full timeline */}
+                  {Array.from({ length: timelineDays.length - 1 }).map((_, i) => (
                     <line
                       key={`vdiv-${i}`}
-                      x1={(i + 1) * 80}
+                      x1={(i + 1) * DAY_COL_WIDTH}
                       y1="0"
-                      x2={(i + 1) * 80}
+                      x2={(i + 1) * DAY_COL_WIDTH}
                       y2={chartBaseY}
                       stroke={isLight ? '#e2e8f0' : '#1e293b'}
                       strokeDasharray="2 3"
@@ -1270,33 +1363,33 @@ export const RecoveryView: React.FC<RecoveryViewProps> = ({
                   <line
                     x1="0"
                     y1={chartBaseY}
-                    x2="800"
+                    x2={totalChartWidth}
                     y2={chartBaseY}
                     stroke={isLight ? '#cbd5e1' : '#334155'}
-                    strokeWidth="1"
+                    strokeWidth="1.5"
                   />
 
                   {/* Baseline Reference Line (when mode is sleep_rhr) */}
                   {selectedChartMode === 'sleep_rhr' && (() => {
-                    const bY = Math.max(chartTopY + 12, Math.min(chartBaseY - 12, 175 - ((baselineRhr - 37) / 14) * 135));
+                    const bY = Math.max(chartTopY + 20, Math.min(chartBaseY - 20, chartBaseY - ((baselineRhr - 35) / 35) * (availablePlotHeight - 50)));
                     return (
                       <>
                         <line
                           x1="0"
                           y1={bY}
-                          x2="800"
+                          x2={totalChartWidth}
                           y2={bY}
                           stroke="#f43f5e"
                           strokeWidth="1.5"
-                          strokeDasharray="4 4"
-                          opacity="0.75"
+                          strokeDasharray="5 5"
+                          opacity="0.8"
                         />
                         <text
-                          x="795"
-                          y={bY - 4}
+                          x={totalChartWidth - 12}
+                          y={bY - 6}
                           textAnchor="end"
                           fill="#f43f5e"
-                          fontSize="10"
+                          fontSize="12"
                           fontWeight="bold"
                         >
                           {baselineRhr} bpm Baseline
@@ -1308,16 +1401,15 @@ export const RecoveryView: React.FC<RecoveryViewProps> = ({
                   {/* Render Chart Mode 1: Sleep Stages Stacked Bars + Morning RHR Line */}
                   {selectedChartMode === 'sleep_rhr' && (
                     <>
-                      {/* Sleep Bars: 78px wide, 2px gap between dates */}
-                      {chartDays.map((item, idx) => {
-                        const step = 80;
-                        const xBar = idx * step + 1;
-                        const xCenter = idx * step + 40;
-                        const barWidth = 78;
+                      {/* Sleep Bars: 104px wide, spacious, double height */}
+                      {timelineDays.map((item, idx) => {
+                        const step = DAY_COL_WIDTH;
+                        const xBar = idx * step + 3;
+                        const xCenter = idx * step + DAY_COL_WIDTH / 2;
+                        const barWidth = DAY_COL_WIDTH - 6;
 
                         const rawSleep = Number(item.log.sleepDurationMinutes);
                         const safeSleep = Number.isFinite(rawSleep) && rawSleep > 0 ? rawSleep : 0;
-                        // Full uncompressed bar height scaled against nearest full hour Y-axis
                         const totalBarHeight = (safeSleep / maxChartMin) * availablePlotHeight;
 
                         const rawDeep = Number(item.log.deepSleepMinutes);
@@ -1327,8 +1419,7 @@ export const RecoveryView: React.FC<RecoveryViewProps> = ({
                         const rawLight = Number(item.log.lightSleepMinutes);
                         const safeLight = Number.isFinite(rawLight) && rawLight > 0 ? rawLight : 0;
 
-                        // Proportional breakdown within the bar
-                        const stageSum = (safeDeep + safeRem + safeLight) > 0 ? (safeDeep + safeRem + safeLight) : safeSleep;
+                        const stageSum = safeDeep + safeRem + safeLight > 0 ? safeDeep + safeRem + safeLight : safeSleep;
                         const deepH = safeSleep > 0 && stageSum > 0 ? (safeDeep / stageSum) * totalBarHeight : 0;
                         const remH = safeSleep > 0 && stageSum > 0 ? (safeRem / stageSum) * totalBarHeight : 0;
                         const lightH = Math.max(0, totalBarHeight - deepH - remH);
@@ -1363,7 +1454,7 @@ export const RecoveryView: React.FC<RecoveryViewProps> = ({
                                   width={barWidth}
                                   height={Number.isFinite(deepH) ? deepH : 0}
                                   fill="#6366f1"
-                                  rx="1"
+                                  rx="2"
                                 />
                                 {/* REM sleep middle segment */}
                                 <rect
@@ -1380,15 +1471,15 @@ export const RecoveryView: React.FC<RecoveryViewProps> = ({
                                   width={barWidth}
                                   height={Number.isFinite(lightH) ? lightH : 0}
                                   fill={isLight ? '#94a3b8' : '#475569'}
-                                  rx="2"
+                                  rx="3"
                                 />
-                                {/* Duration text: if bar reaches near ceiling (lightY <= 26), render inside bar top for 0 top spacing */}
-                                {lightY <= 26 ? (
+                                {/* Duration text: larger font, highly legible */}
+                                {lightY <= chartTopY + 28 ? (
                                   <text
                                     x={xCenter}
-                                    y={lightY + 12}
+                                    y={lightY + 16}
                                     fill="#ffffff"
-                                    fontSize="10"
+                                    fontSize="13"
                                     fontWeight="800"
                                     fontFamily="monospace"
                                     textAnchor="middle"
@@ -1398,10 +1489,10 @@ export const RecoveryView: React.FC<RecoveryViewProps> = ({
                                 ) : (
                                   <text
                                     x={xCenter}
-                                    y={lightY - 4}
+                                    y={lightY - 6}
                                     fill="#38bdf8"
-                                    fontSize="10"
-                                    fontWeight="bold"
+                                    fontSize="13"
+                                    fontWeight="800"
                                     fontFamily="monospace"
                                     textAnchor="middle"
                                   >
@@ -1414,19 +1505,19 @@ export const RecoveryView: React.FC<RecoveryViewProps> = ({
                               <g opacity="0.4">
                                 <rect
                                   x={xBar}
-                                  y={chartBaseY - 20}
+                                  y={chartBaseY - 28}
                                   width={barWidth}
-                                  height="20"
+                                  height="28"
                                   fill="none"
                                   stroke={isLight ? '#cbd5e1' : '#334155'}
                                   strokeDasharray="3 3"
-                                  rx="2"
+                                  rx="3"
                                 />
                                 <text
                                   x={xCenter}
-                                  y={chartBaseY - 6}
+                                  y={chartBaseY - 10}
                                   fill="#64748b"
-                                  fontSize="9"
+                                  fontSize="11"
                                   textAnchor="middle"
                                 >
                                   No Log
@@ -1434,12 +1525,12 @@ export const RecoveryView: React.FC<RecoveryViewProps> = ({
                               </g>
                             )}
 
-                            {/* Date label: Weekday & Day of Month */}
+                            {/* Date label: Weekday & Day of Month (larger and bold) */}
                             <text
                               x={xCenter}
-                              y="212"
+                              y="398"
                               fill={isLight ? '#64748b' : '#94a3b8'}
-                              fontSize="10"
+                              fontSize="12"
                               fontWeight="bold"
                               textAnchor="middle"
                             >
@@ -1447,9 +1538,9 @@ export const RecoveryView: React.FC<RecoveryViewProps> = ({
                             </text>
                             <text
                               x={xCenter}
-                              y="226"
+                              y="422"
                               fill={isLight ? '#0f172a' : '#f8fafc'}
-                              fontSize="11"
+                              fontSize="15"
                               fontFamily="monospace"
                               fontWeight="800"
                               textAnchor="middle"
@@ -1460,15 +1551,15 @@ export const RecoveryView: React.FC<RecoveryViewProps> = ({
                         );
                       })}
 
-                      {/* Resting HR Polyline across 10 Days */}
+                      {/* Resting HR Polyline across timeline */}
                       {(() => {
-                        const validPoints = chartDays
+                        const validPoints = timelineDays
                           .map((item, idx) => {
-                            const x = idx * 80 + 40;
+                            const x = idx * DAY_COL_WIDTH + DAY_COL_WIDTH / 2;
                             const rawRhr = Number(item.log.restingHr);
                             if (!Number.isFinite(rawRhr) || rawRhr <= 0) return null;
-                            const rawY = 175 - ((rawRhr - 37) / 14) * 135;
-                            const y = Math.max(chartTopY + 10, Math.min(chartBaseY - 10, Number.isFinite(rawY) ? rawY : 175));
+                            const rawY = chartBaseY - ((rawRhr - 35) / 35) * (availablePlotHeight - 50);
+                            const y = Math.max(chartTopY + 16, Math.min(chartBaseY - 16, Number.isFinite(rawY) ? rawY : 300));
                             return { x, y, rawRhr, idx };
                           })
                           .filter(Boolean) as { x: number; y: number; rawRhr: number; idx: number }[];
@@ -1481,7 +1572,7 @@ export const RecoveryView: React.FC<RecoveryViewProps> = ({
                               <polyline
                                 fill="none"
                                 stroke="#f43f5e"
-                                strokeWidth="3"
+                                strokeWidth="3.5"
                                 strokeLinecap="round"
                                 strokeLinejoin="round"
                                 points={polylineStr}
@@ -1497,17 +1588,17 @@ export const RecoveryView: React.FC<RecoveryViewProps> = ({
                                 <circle
                                   cx={pt.x}
                                   cy={pt.y}
-                                  r="5"
+                                  r="6"
                                   fill="#f43f5e"
                                   stroke={isLight ? '#ffffff' : '#090a0f'}
                                   strokeWidth="2.5"
                                 />
                                 <text
                                   x={pt.x}
-                                  y={pt.y - 8}
+                                  y={pt.y - 10}
                                   fill="#f43f5e"
-                                  fontSize="11"
-                                  fontWeight="bold"
+                                  fontSize="13"
+                                  fontWeight="800"
                                   fontFamily="monospace"
                                   textAnchor="middle"
                                 >
@@ -1521,42 +1612,42 @@ export const RecoveryView: React.FC<RecoveryViewProps> = ({
                     </>
                   )}
 
-                  {/* Render Chart Mode 2: Readiness & Overnight HRV */}
+                  {/* Render Chart Mode 2: Readiness & Overnight HRV with zero waste space */}
                   {selectedChartMode === 'readiness_hrv' && (
                     <>
                       {(() => {
-                        const step = 80;
+                        const step = DAY_COL_WIDTH;
 
-                        // HRV line points
-                        const hrvPoints = chartDays.map((item, idx) => {
-                          const x = idx * step + 40;
-                          const rawHrv = Number(item.log.hrvRmssd);
-                          const safeHrv = Number.isFinite(rawHrv) && rawHrv > 0 ? rawHrv : 65;
-                          const rawY = chartBaseY - ((safeHrv - 40) / 75) * (chartBaseY - 16);
-                          const y = Number.isFinite(rawY) ? rawY : chartBaseY;
+                        // Clamped scaling: readiness scaled from 40 to 100, eliminating waste space below
+                        const readPoints = timelineDays.map((item, idx) => {
+                          const x = idx * step + step / 2;
+                          const rawScore = Number(item.readiness?.score);
+                          const safeScore = Number.isFinite(rawScore) ? rawScore : 0;
+                          const rawY = chartBaseY - ((safeScore - 40) / 60) * (availablePlotHeight - 20);
+                          const y = Number.isFinite(rawY) ? Math.max(chartTopY + 16, Math.min(chartBaseY - 10, rawY)) : chartBaseY;
                           return `${x},${y}`;
                         });
 
-                        // Readiness line points
-                        const readPoints = chartDays.map((item, idx) => {
-                          const x = idx * step + 40;
-                          const rawScore = Number(item.readiness?.score);
-                          const safeScore = Number.isFinite(rawScore) ? rawScore : 0;
-                          const rawY = chartBaseY - (safeScore / 100) * (chartBaseY - 16);
-                          const y = Number.isFinite(rawY) ? rawY : chartBaseY;
+                        // HRV points dynamically mapped
+                        const hrvPoints = timelineDays.map((item, idx) => {
+                          const x = idx * step + step / 2;
+                          const rawHrv = Number(item.log.hrvRmssd);
+                          const safeHrv = Number.isFinite(rawHrv) && rawHrv > 0 ? rawHrv : 65;
+                          const rawY = chartBaseY - ((safeHrv - 35) / 75) * (availablePlotHeight - 20);
+                          const y = Number.isFinite(rawY) ? Math.max(chartTopY + 16, Math.min(chartBaseY - 10, rawY)) : chartBaseY;
                           return `${x},${y}`;
                         });
 
                         return (
                           <g>
                             {/* Day column background slots */}
-                            {chartDays.map((item, idx) => (
+                            {timelineDays.map((item, idx) => (
                               <rect
                                 key={`slot-${idx}`}
-                                x={idx * step + 1}
-                                y="10"
-                                width={78}
-                                height={chartBaseY - 10}
+                                x={idx * step + 2}
+                                y="14"
+                                width={step - 4}
+                                height={chartBaseY - 14}
                                 fill="#10b981"
                                 opacity={hoveredDataIndex === idx ? 0.15 : 0.04}
                                 rx="3"
@@ -1566,7 +1657,7 @@ export const RecoveryView: React.FC<RecoveryViewProps> = ({
                             <polyline
                               fill="none"
                               stroke="#10b981"
-                              strokeWidth="3"
+                              strokeWidth="3.5"
                               strokeLinecap="round"
                               strokeLinejoin="round"
                               points={readPoints.join(' ')}
@@ -1574,24 +1665,24 @@ export const RecoveryView: React.FC<RecoveryViewProps> = ({
                             <polyline
                               fill="none"
                               stroke="#c084fc"
-                              strokeWidth="2.5"
-                              strokeDasharray="4 2"
+                              strokeWidth="3"
+                              strokeDasharray="5 3"
                               strokeLinecap="round"
                               strokeLinejoin="round"
                               points={hrvPoints.join(' ')}
                             />
 
-                            {chartDays.map((item, idx) => {
-                              const x = idx * step + 40;
+                            {timelineDays.map((item, idx) => {
+                              const x = idx * step + step / 2;
                               const rawHrv = Number(item.log.hrvRmssd);
                               const safeHrv = Number.isFinite(rawHrv) && rawHrv > 0 ? rawHrv : null;
-                              const rawYHrv = safeHrv ? chartBaseY - ((safeHrv - 40) / 75) * (chartBaseY - 16) : chartBaseY;
-                              const yHrv = Number.isFinite(rawYHrv) ? rawYHrv : chartBaseY;
+                              const rawYHrv = safeHrv ? chartBaseY - ((safeHrv - 35) / 75) * (availablePlotHeight - 20) : chartBaseY;
+                              const yHrv = Number.isFinite(rawYHrv) ? Math.max(chartTopY + 16, Math.min(chartBaseY - 10, rawYHrv)) : chartBaseY;
 
                               const rawScore = Number(item.readiness?.score);
                               const safeScore = Number.isFinite(rawScore) ? rawScore : 0;
-                              const rawYRead = chartBaseY - (safeScore / 100) * (chartBaseY - 16);
-                              const yRead = Number.isFinite(rawYRead) ? rawYRead : chartBaseY;
+                              const rawYRead = chartBaseY - ((safeScore - 40) / 60) * (availablePlotHeight - 20);
+                              const yRead = Number.isFinite(rawYRead) ? Math.max(chartTopY + 16, Math.min(chartBaseY - 10, rawYRead)) : chartBaseY;
 
                               return (
                                 <g
@@ -1605,17 +1696,17 @@ export const RecoveryView: React.FC<RecoveryViewProps> = ({
                                       <circle
                                         cx={x}
                                         cy={yRead}
-                                        r="5"
+                                        r="6"
                                         fill="#10b981"
                                         stroke={isLight ? '#ffffff' : '#090a0f'}
-                                        strokeWidth="2"
+                                        strokeWidth="2.5"
                                       />
                                       <text
                                         x={x}
-                                        y={yRead - 8}
+                                        y={yRead - 10}
                                         fill="#10b981"
-                                        fontSize="10"
-                                        fontWeight="bold"
+                                        fontSize="13"
+                                        fontWeight="800"
                                         fontFamily="monospace"
                                         textAnchor="middle"
                                       >
@@ -1628,17 +1719,17 @@ export const RecoveryView: React.FC<RecoveryViewProps> = ({
                                       <circle
                                         cx={x}
                                         cy={yHrv}
-                                        r="4.5"
+                                        r="5.5"
                                         fill="#c084fc"
                                         stroke={isLight ? '#ffffff' : '#090a0f'}
-                                        strokeWidth="2"
+                                        strokeWidth="2.5"
                                       />
                                       <text
                                         x={x}
-                                        y={yHrv + 14}
+                                        y={yHrv + 18}
                                         fill="#c084fc"
-                                        fontSize="10"
-                                        fontWeight="bold"
+                                        fontSize="13"
+                                        fontWeight="800"
                                         fontFamily="monospace"
                                         textAnchor="middle"
                                       >
@@ -1650,9 +1741,9 @@ export const RecoveryView: React.FC<RecoveryViewProps> = ({
                                   {/* Date label: Weekday & Day of Month */}
                                   <text
                                     x={x}
-                                    y="212"
+                                    y="398"
                                     fill={isLight ? '#64748b' : '#94a3b8'}
-                                    fontSize="10"
+                                    fontSize="12"
                                     fontWeight="bold"
                                     textAnchor="middle"
                                   >
@@ -1660,9 +1751,9 @@ export const RecoveryView: React.FC<RecoveryViewProps> = ({
                                   </text>
                                   <text
                                     x={x}
-                                    y="226"
+                                    y="422"
                                     fill={isLight ? '#0f172a' : '#f8fafc'}
-                                    fontSize="11"
+                                    fontSize="15"
                                     fontFamily="monospace"
                                     fontWeight="800"
                                     textAnchor="middle"
@@ -1682,17 +1773,17 @@ export const RecoveryView: React.FC<RecoveryViewProps> = ({
                   {selectedChartMode === 'training_stress' && (
                     <>
                       {(() => {
-                        const step = 80;
-                        const barWidth = 76;
+                        const step = DAY_COL_WIDTH;
+                        const barWidth = DAY_COL_WIDTH - 8;
 
                         return (
                           <g>
-                            {chartDays.map((item, idx) => {
-                              const xBar = idx * step + 2;
-                              const xCenter = idx * step + 40;
+                            {timelineDays.map((item, idx) => {
+                              const xBar = idx * step + 4;
+                              const xCenter = idx * step + step / 2;
                               const rawTss = Number(item.tss);
                               const safeTss = Number.isFinite(rawTss) && rawTss > 0 ? rawTss : 0;
-                              const tssHeight = Math.max(0, Math.min(chartBaseY - 16, (safeTss / 200) * (chartBaseY - 16)));
+                              const tssHeight = Math.max(0, Math.min(availablePlotHeight - 20, (safeTss / 220) * (availablePlotHeight - 20)));
                               const rawY = chartBaseY - tssHeight;
                               const y = Number.isFinite(rawY) ? rawY : chartBaseY;
 
@@ -1716,10 +1807,10 @@ export const RecoveryView: React.FC<RecoveryViewProps> = ({
                                       />
                                       <text
                                         x={xCenter}
-                                        y={y - 5}
+                                        y={y - 6}
                                         fill="#f97316"
-                                        fontSize="11"
-                                        fontWeight="bold"
+                                        fontSize="13"
+                                        fontWeight="800"
                                         fontFamily="monospace"
                                         textAnchor="middle"
                                       >
@@ -1729,9 +1820,9 @@ export const RecoveryView: React.FC<RecoveryViewProps> = ({
                                   ) : (
                                     <rect
                                       x={xBar}
-                                      y={chartBaseY - 10}
+                                      y={chartBaseY - 14}
                                       width={barWidth}
-                                      height="10"
+                                      height="14"
                                       fill={isLight ? '#e2e8f0' : '#1e293b'}
                                       rx="2"
                                       opacity="0.4"
@@ -1741,9 +1832,9 @@ export const RecoveryView: React.FC<RecoveryViewProps> = ({
                                   {/* Date label: Weekday & Day of Month */}
                                   <text
                                     x={xCenter}
-                                    y="212"
+                                    y="398"
                                     fill={isLight ? '#64748b' : '#94a3b8'}
-                                    fontSize="10"
+                                    fontSize="12"
                                     fontWeight="bold"
                                     textAnchor="middle"
                                   >
@@ -1751,9 +1842,9 @@ export const RecoveryView: React.FC<RecoveryViewProps> = ({
                                   </text>
                                   <text
                                     x={xCenter}
-                                    y="226"
+                                    y="422"
                                     fill={isLight ? '#0f172a' : '#f8fafc'}
-                                    fontSize="11"
+                                    fontSize="15"
                                     fontFamily="monospace"
                                     fontWeight="800"
                                     textAnchor="middle"

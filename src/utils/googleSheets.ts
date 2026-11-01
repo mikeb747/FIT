@@ -8,6 +8,7 @@ import {
   markStravaActivityPublishedToGoogleSheets,
   saveStravaActivityDetails,
   getCachedStravaActivityRecord,
+  getAllCachedStravaActivityRecords,
   updateStravaActivityRecord,
 } from './stravaActivities';
 import type { AthleteProfile } from '../types/athlete';
@@ -293,6 +294,26 @@ export async function getExistingActivityIdsInSheet(spreadsheetId: string): Prom
 }
 
 /**
+ * Check existing Strava Activity IDs in the Streams tab to prevent duplicate stream rows
+ */
+export async function getExistingStreamActivityIdsInSheet(spreadsheetId: string, token: string): Promise<Set<string>> {
+  try {
+    const res = await fetch(
+      `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(
+        STREAMS_SHEET_TITLE + '!A2:A'
+      )}`,
+      { headers: { Authorization: `Bearer ${token}` } }
+    );
+    if (!res.ok) return new Set();
+    const data = await res.json();
+    const rows = data.values || [];
+    return new Set(rows.map((row: any[]) => String(row[0]).trim()).filter(Boolean));
+  } catch {
+    return new Set();
+  }
+}
+
+/**
  * Formats a Strava activity with all its analysis, streams, and calibration metrics into a 22-column Google Sheet row
  */
 export function buildActivitySheetRow(
@@ -519,63 +540,103 @@ export async function appendActivityToTrainingLog(
   };
 }
 
+export interface BatchBackupProgress {
+  stage: 'checking' | 'workouts' | 'streams';
+  current: number;
+  total: number;
+  message: string;
+}
+
+export interface BatchBackupResult {
+  success: boolean;
+  backedUpCount: number;
+  alreadyCount: number;
+  streamsBackedUpCount: number;
+  streamsAlreadyCount: number;
+  error?: string;
+}
+
 /**
- * Batch backup multiple Strava activities to Google Sheets at once
- * - Runs automatically as soon as activities or stream details arrive
- * - Avoids duplication by checking existing activity IDs in Column B
+ * Batch backup multiple Strava activities and their telemetry streams to Google Sheets at once
+ * - Runs automatically or via "Backup to Sheets" button
+ * - Avoids duplication in both Workouts tab (Column B ID) and Streams tab (Column A ID)
+ * - Safely batches streams in chunks of 20 to strictly respect Google Sheets API quotas
  */
 export async function batchBackupActivitiesToGoogleSheet(
   activities: StravaActivity[],
   detailsMap: Record<string, StravaActivityDetailsRecord> = {},
   athleteProfile?: AthleteProfile,
-  spreadsheetIdParam?: string
-): Promise<{ success: boolean; backedUpCount: number; alreadyCount: number; error?: string }> {
+  spreadsheetIdParam?: string,
+  onProgress?: (progress: BatchBackupProgress) => void
+): Promise<BatchBackupResult> {
   const token = getGoogleAccessToken();
   if (!token) {
-    return { success: false, backedUpCount: 0, alreadyCount: 0, error: 'Google authorization token required' };
+    return {
+      success: false,
+      backedUpCount: 0,
+      alreadyCount: 0,
+      streamsBackedUpCount: 0,
+      streamsAlreadyCount: 0,
+      error: 'Google authorization token required',
+    };
   }
 
   const validActivities = activities.filter((a) => !a.isDeleted);
   if (validActivities.length === 0) {
-    return { success: true, backedUpCount: 0, alreadyCount: 0 };
+    return {
+      success: true,
+      backedUpCount: 0,
+      alreadyCount: 0,
+      streamsBackedUpCount: 0,
+      streamsAlreadyCount: 0,
+    };
   }
 
   try {
     const spreadsheetId = spreadsheetIdParam || (await getOrCreateTrainingLogSheet());
-    const existingIds = await getExistingActivityIdsInSheet(spreadsheetId);
 
-    // Identify which activities are missing from the sheet
-    const toAppend = validActivities.filter((act) => !existingIds.has(String(act.id)));
-
-    if (toAppend.length === 0) {
-      return { success: true, backedUpCount: 0, alreadyCount: existingIds.size };
+    // Merge in-memory detailsMap with all IndexedDB records to guarantee all downloaded streams are available
+    let mergedDetails: Record<string, StravaActivityDetailsRecord> = { ...detailsMap };
+    try {
+      const allCached = await getAllCachedStravaActivityRecords();
+      if (allCached && Object.keys(allCached).length > 0) {
+        mergedDetails = { ...allCached, ...mergedDetails };
+      }
+    } catch (cacheErr) {
+      console.warn('[Google Sheets] Notice loading IndexedDB records for backup:', cacheErr);
     }
 
-    // Format all missing activities into rows
-    const rows = toAppend.map((act) => {
-      const details = detailsMap[String(act.id)];
-      return buildActivitySheetRow(act, details, athleteProfile);
+    // ==========================================
+    // 1. WORKOUTS TAB BACKUP
+    // ==========================================
+    onProgress?.({
+      stage: 'checking',
+      current: 0,
+      total: validActivities.length,
+      message: 'Checking existing workouts in Google Sheets...',
     });
 
-    // Chunk in batches of 100 to stay well within Google Sheets limits
-    const CHUNK_SIZE = 100;
-    for (let c = 0; c < rows.length; c += CHUNK_SIZE) {
-      const chunk = rows.slice(c, c + CHUNK_SIZE);
-      let res = await fetch(
-        `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/Workouts!A1:append?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS`,
-        {
-          method: 'POST',
-          headers: {
-            Authorization: `Bearer ${token}`,
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({ values: chunk }),
-        }
-      );
+    const existingIds = await getExistingActivityIdsInSheet(spreadsheetId);
+    const toAppend = validActivities.filter((act) => !existingIds.has(String(act.id)));
 
-      if (!res.ok) {
-        res = await fetch(
-          `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/A1:append?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS`,
+    if (toAppend.length > 0) {
+      const rows = toAppend.map((act) => {
+        const details = mergedDetails[String(act.id)];
+        return buildActivitySheetRow(act, details, athleteProfile);
+      });
+
+      const CHUNK_SIZE = 100;
+      for (let c = 0; c < rows.length; c += CHUNK_SIZE) {
+        const chunk = rows.slice(c, c + CHUNK_SIZE);
+        onProgress?.({
+          stage: 'workouts',
+          current: Math.min(c + chunk.length, rows.length),
+          total: rows.length,
+          message: `Backing up workouts: ${Math.min(c + chunk.length, rows.length)} / ${rows.length}...`,
+        });
+
+        let res = await fetch(
+          `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/Workouts!A1:append?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS`,
           {
             method: 'POST',
             headers: {
@@ -585,17 +646,107 @@ export async function batchBackupActivitiesToGoogleSheet(
             body: JSON.stringify({ values: chunk }),
           }
         );
+
+        if (!res.ok) {
+          res = await fetch(
+            `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/A1:append?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS`,
+            {
+              method: 'POST',
+              headers: {
+                Authorization: `Bearer ${token}`,
+                'Content-Type': 'application/json',
+              },
+              body: JSON.stringify({ values: chunk }),
+            }
+          );
+        }
+
+        if (c + CHUNK_SIZE < rows.length) {
+          await new Promise((r) => setTimeout(r, 200));
+        }
       }
+
+      await Promise.all(toAppend.map((act) => markStravaActivityPublishedToGoogleSheets(act.id)));
     }
 
-    // Mark all appended activities as published in local cache
-    await Promise.all(toAppend.map((act) => markStravaActivityPublishedToGoogleSheets(act.id)));
+    // ==========================================
+    // 2. STREAMS TAB BACKUP (NEVER SKIPPED!)
+    // ==========================================
+    onProgress?.({
+      stage: 'checking',
+      current: 0,
+      total: validActivities.length,
+      message: 'Checking Streams tab in Google Sheets...',
+    });
 
-    // Backup streams for activities that have streams present in detailsMap
+    await ensureStreamsSheetExists(spreadsheetId, token);
+    const existingStreamIds = await getExistingStreamActivityIdsInSheet(spreadsheetId, token);
+
+    // Identify all activities that have streams locally but are missing from the Streams tab
+    const streamRowsToAppend: (string | number)[][] = [];
     for (const act of validActivities) {
-      const details = detailsMap[String(act.id)];
-      if (details?.streams) {
-        backupActivityStreamsToGoogleSheet(act, details.streams, spreadsheetId).catch(() => {});
+      const actIdStr = String(act.id);
+      if (existingStreamIds.has(actIdStr)) continue; // already backed up in Streams tab
+
+      const details = mergedDetails[actIdStr];
+      const streams = details?.streams as Record<string, any> | undefined;
+      if (!streams || typeof streams !== 'object' || Object.keys(streams).length === 0) continue;
+
+      const { compactJson, keys, pointsCount } = compressStreamsForStorage(streams);
+      if (keys.length === 0 || !compactJson || compactJson === '{}') continue;
+
+      const { category } = classifyActivity(act);
+      streamRowsToAppend.push([
+        actIdStr,
+        act.start_date || '',
+        act.name || '',
+        category || act.type || '',
+        keys.join(', '),
+        pointsCount,
+        compactJson,
+        new Date().toISOString(),
+      ]);
+    }
+
+    let streamsAppendedCount = 0;
+    if (streamRowsToAppend.length > 0) {
+      // Chunk in batches of 20 rows to keep payloads small (~400KB-800KB) and respect Google Sheets quotas
+      const STREAM_CHUNK_SIZE = 20;
+      for (let s = 0; s < streamRowsToAppend.length; s += STREAM_CHUNK_SIZE) {
+        const chunk = streamRowsToAppend.slice(s, s + STREAM_CHUNK_SIZE);
+        const currentCount = Math.min(s + chunk.length, streamRowsToAppend.length);
+        onProgress?.({
+          stage: 'streams',
+          current: currentCount,
+          total: streamRowsToAppend.length,
+          message: `Backing up streams: ${currentCount} / ${streamRowsToAppend.length}...`,
+        });
+
+        const appendRes = await fetch(
+          `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(
+            STREAMS_SHEET_TITLE + '!A1:H1'
+          )}:append?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS`,
+          {
+            method: 'POST',
+            headers: {
+              Authorization: `Bearer ${token}`,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ values: chunk }),
+          }
+        );
+
+        if (appendRes.ok) {
+          streamsAppendedCount += chunk.length;
+        } else {
+          const errText = await appendRes.text().catch(() => '');
+          console.warn(`[Google Sheets] Stream batch append warning (${appendRes.status}):`, errText);
+        }
+
+        // 250ms delay between batch chunks to avoid hitting Google's 60 writes/min limit
+        if (s + STREAM_CHUNK_SIZE < streamRowsToAppend.length) {
+          await new Promise((r) => setTimeout(r, 250));
+        }
       }
     }
 
@@ -603,6 +754,8 @@ export async function batchBackupActivitiesToGoogleSheet(
       success: true,
       backedUpCount: toAppend.length,
       alreadyCount: existingIds.size,
+      streamsBackedUpCount: streamsAppendedCount,
+      streamsAlreadyCount: existingStreamIds.size,
     };
   } catch (err: any) {
     console.error('[Google Sheets] batchBackupActivitiesToGoogleSheet failed:', err);
@@ -610,6 +763,8 @@ export async function batchBackupActivitiesToGoogleSheet(
       success: false,
       backedUpCount: 0,
       alreadyCount: 0,
+      streamsBackedUpCount: 0,
+      streamsAlreadyCount: 0,
       error: err.message || 'Failed to backup activities to Google Sheets',
     };
   }
