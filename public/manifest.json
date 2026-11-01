@@ -2,28 +2,46 @@
   "id": "fit-track-activity-tracker-v1",
   "name": "FIT Track - Activity & Performance Tracker",
   "short_name": "FIT Track",
-  "description": "Android strength workout logger with digit-scroll wheel weight selection, dual continuous and lap timers, and Strava-compatible Garmin .FIT export.",
+  "description": "Activity tracker and performance analytics with Strava integration, physiological trends, and recovery monitoring.",
   "start_url": "./index.html",
   "scope": "./",
   "display": "standalone",
-  "background_color": "#090A0F",
+  "background_color": "#ffffff",
   "theme_color": "#090A0F",
   "orientation": "portrait",
   "icons": [
     {
-      "src": "./pwa-192x192.png?v=1.1.5",
+      "src": "./pwa-192x192.png?v=1.2.0",
       "sizes": "192x192",
       "type": "image/png",
       "purpose": "any"
     },
     {
-      "src": "./pwa-512x512.png?v=1.1.5",
+      "src": "./android-chrome-192x192.png?v=1.2.0",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "./pwa-512x512.png?v=1.2.0",
       "sizes": "512x512",
       "type": "image/png",
       "purpose": "any"
     },
     {
-      "src": "./pwa-maskable-512x512.png?v=1.1.5",
+      "src": "./android-chrome-512x512.png?v=1.2.0",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "./512_maskable_icon.png?v=1.2.0",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    },
+    {
+      "src": "./pwa-maskable-512x512.png?v=1.2.0",
       "sizes": "512x512",
       "type": "image/png",
       "purpose": "maskable"
