@@ -180,7 +180,7 @@ export const RecoveryView: React.FC<RecoveryViewProps> = ({
   const [dragStartX, setDragStartX] = useState(0);
   const [dragStartScrollLeft, setDragStartScrollLeft] = useState(0);
 
-  const DAY_COL_WIDTH = 110;
+  const DAY_COL_WIDTH = 55;
 
   // Prepare full continuous timeline of days (pre-loads 42 to 180 days so swiping is instant)
   const timelineDays = useMemo(() => {
@@ -1401,12 +1401,12 @@ export const RecoveryView: React.FC<RecoveryViewProps> = ({
                   {/* Render Chart Mode 1: Sleep Stages Stacked Bars + Morning RHR Line */}
                   {selectedChartMode === 'sleep_rhr' && (
                     <>
-                      {/* Sleep Bars: 104px wide, spacious, double height */}
+                      {/* Sleep Bars: 52px wide, 3px gap (50% reduction), double height */}
                       {timelineDays.map((item, idx) => {
                         const step = DAY_COL_WIDTH;
-                        const xBar = idx * step + 3;
+                        const xBar = idx * step + 1.5;
                         const xCenter = idx * step + DAY_COL_WIDTH / 2;
-                        const barWidth = DAY_COL_WIDTH - 6;
+                        const barWidth = DAY_COL_WIDTH - 3;
 
                         const rawSleep = Number(item.log.sleepDurationMinutes);
                         const safeSleep = Number.isFinite(rawSleep) && rawSleep > 0 ? rawSleep : 0;
@@ -1473,13 +1473,13 @@ export const RecoveryView: React.FC<RecoveryViewProps> = ({
                                   fill={isLight ? '#94a3b8' : '#475569'}
                                   rx="3"
                                 />
-                                {/* Duration text: larger font, highly legible */}
-                                {lightY <= chartTopY + 28 ? (
+                                {/* Duration text: fits cleanly in 52px width */}
+                                {lightY <= chartTopY + 24 ? (
                                   <text
                                     x={xCenter}
-                                    y={lightY + 16}
+                                    y={lightY + 14}
                                     fill="#ffffff"
-                                    fontSize="13"
+                                    fontSize="11"
                                     fontWeight="800"
                                     fontFamily="monospace"
                                     textAnchor="middle"
@@ -1489,9 +1489,9 @@ export const RecoveryView: React.FC<RecoveryViewProps> = ({
                                 ) : (
                                   <text
                                     x={xCenter}
-                                    y={lightY - 6}
+                                    y={lightY - 5}
                                     fill="#38bdf8"
-                                    fontSize="13"
+                                    fontSize="11"
                                     fontWeight="800"
                                     fontFamily="monospace"
                                     textAnchor="middle"
@@ -1505,19 +1505,19 @@ export const RecoveryView: React.FC<RecoveryViewProps> = ({
                               <g opacity="0.4">
                                 <rect
                                   x={xBar}
-                                  y={chartBaseY - 28}
+                                  y={chartBaseY - 24}
                                   width={barWidth}
-                                  height="28"
+                                  height="24"
                                   fill="none"
                                   stroke={isLight ? '#cbd5e1' : '#334155'}
-                                  strokeDasharray="3 3"
-                                  rx="3"
+                                  strokeDasharray="2 2"
+                                  rx="2"
                                 />
                                 <text
                                   x={xCenter}
-                                  y={chartBaseY - 10}
+                                  y={chartBaseY - 8}
                                   fill="#64748b"
-                                  fontSize="11"
+                                  fontSize="10"
                                   textAnchor="middle"
                                 >
                                   No Log
@@ -1525,12 +1525,12 @@ export const RecoveryView: React.FC<RecoveryViewProps> = ({
                               </g>
                             )}
 
-                            {/* Date label: Weekday & Day of Month (larger and bold) */}
+                            {/* Date label: Weekday & Day of Month */}
                             <text
                               x={xCenter}
-                              y="398"
+                              y="396"
                               fill={isLight ? '#64748b' : '#94a3b8'}
-                              fontSize="12"
+                              fontSize="10"
                               fontWeight="bold"
                               textAnchor="middle"
                             >
@@ -1538,9 +1538,9 @@ export const RecoveryView: React.FC<RecoveryViewProps> = ({
                             </text>
                             <text
                               x={xCenter}
-                              y="422"
+                              y="418"
                               fill={isLight ? '#0f172a' : '#f8fafc'}
-                              fontSize="15"
+                              fontSize="13"
                               fontFamily="monospace"
                               fontWeight="800"
                               textAnchor="middle"
@@ -1572,7 +1572,7 @@ export const RecoveryView: React.FC<RecoveryViewProps> = ({
                               <polyline
                                 fill="none"
                                 stroke="#f43f5e"
-                                strokeWidth="3.5"
+                                strokeWidth="3"
                                 strokeLinecap="round"
                                 strokeLinejoin="round"
                                 points={polylineStr}
@@ -1588,16 +1588,16 @@ export const RecoveryView: React.FC<RecoveryViewProps> = ({
                                 <circle
                                   cx={pt.x}
                                   cy={pt.y}
-                                  r="6"
+                                  r="4.5"
                                   fill="#f43f5e"
                                   stroke={isLight ? '#ffffff' : '#090a0f'}
-                                  strokeWidth="2.5"
+                                  strokeWidth="2"
                                 />
                                 <text
                                   x={pt.x}
-                                  y={pt.y - 10}
+                                  y={pt.y - 8}
                                   fill="#f43f5e"
-                                  fontSize="13"
+                                  fontSize="11"
                                   fontWeight="800"
                                   fontFamily="monospace"
                                   textAnchor="middle"
@@ -1644,20 +1644,20 @@ export const RecoveryView: React.FC<RecoveryViewProps> = ({
                             {timelineDays.map((item, idx) => (
                               <rect
                                 key={`slot-${idx}`}
-                                x={idx * step + 2}
+                                x={idx * step + 1.5}
                                 y="14"
-                                width={step - 4}
+                                width={step - 3}
                                 height={chartBaseY - 14}
                                 fill="#10b981"
                                 opacity={hoveredDataIndex === idx ? 0.15 : 0.04}
-                                rx="3"
+                                rx="2"
                               />
                             ))}
 
                             <polyline
                               fill="none"
                               stroke="#10b981"
-                              strokeWidth="3.5"
+                              strokeWidth="3"
                               strokeLinecap="round"
                               strokeLinejoin="round"
                               points={readPoints.join(' ')}
@@ -1665,8 +1665,8 @@ export const RecoveryView: React.FC<RecoveryViewProps> = ({
                             <polyline
                               fill="none"
                               stroke="#c084fc"
-                              strokeWidth="3"
-                              strokeDasharray="5 3"
+                              strokeWidth="2.5"
+                              strokeDasharray="4 2"
                               strokeLinecap="round"
                               strokeLinejoin="round"
                               points={hrvPoints.join(' ')}
@@ -1696,16 +1696,16 @@ export const RecoveryView: React.FC<RecoveryViewProps> = ({
                                       <circle
                                         cx={x}
                                         cy={yRead}
-                                        r="6"
+                                        r="4.5"
                                         fill="#10b981"
                                         stroke={isLight ? '#ffffff' : '#090a0f'}
-                                        strokeWidth="2.5"
+                                        strokeWidth="2"
                                       />
                                       <text
                                         x={x}
-                                        y={yRead - 10}
+                                        y={yRead - 8}
                                         fill="#10b981"
-                                        fontSize="13"
+                                        fontSize="11"
                                         fontWeight="800"
                                         fontFamily="monospace"
                                         textAnchor="middle"
@@ -1719,16 +1719,16 @@ export const RecoveryView: React.FC<RecoveryViewProps> = ({
                                       <circle
                                         cx={x}
                                         cy={yHrv}
-                                        r="5.5"
+                                        r="4"
                                         fill="#c084fc"
                                         stroke={isLight ? '#ffffff' : '#090a0f'}
-                                        strokeWidth="2.5"
+                                        strokeWidth="2"
                                       />
                                       <text
                                         x={x}
-                                        y={yHrv + 18}
+                                        y={yHrv + 15}
                                         fill="#c084fc"
-                                        fontSize="13"
+                                        fontSize="11"
                                         fontWeight="800"
                                         fontFamily="monospace"
                                         textAnchor="middle"
@@ -1741,9 +1741,9 @@ export const RecoveryView: React.FC<RecoveryViewProps> = ({
                                   {/* Date label: Weekday & Day of Month */}
                                   <text
                                     x={x}
-                                    y="398"
+                                    y="396"
                                     fill={isLight ? '#64748b' : '#94a3b8'}
-                                    fontSize="12"
+                                    fontSize="10"
                                     fontWeight="bold"
                                     textAnchor="middle"
                                   >
@@ -1751,9 +1751,9 @@ export const RecoveryView: React.FC<RecoveryViewProps> = ({
                                   </text>
                                   <text
                                     x={x}
-                                    y="422"
+                                    y="418"
                                     fill={isLight ? '#0f172a' : '#f8fafc'}
-                                    fontSize="15"
+                                    fontSize="13"
                                     fontFamily="monospace"
                                     fontWeight="800"
                                     textAnchor="middle"
@@ -1774,12 +1774,12 @@ export const RecoveryView: React.FC<RecoveryViewProps> = ({
                     <>
                       {(() => {
                         const step = DAY_COL_WIDTH;
-                        const barWidth = DAY_COL_WIDTH - 8;
+                        const barWidth = DAY_COL_WIDTH - 3;
 
                         return (
                           <g>
                             {timelineDays.map((item, idx) => {
-                              const xBar = idx * step + 4;
+                              const xBar = idx * step + 1.5;
                               const xCenter = idx * step + step / 2;
                               const rawTss = Number(item.tss);
                               const safeTss = Number.isFinite(rawTss) && rawTss > 0 ? rawTss : 0;
@@ -1803,13 +1803,13 @@ export const RecoveryView: React.FC<RecoveryViewProps> = ({
                                         height={Number.isFinite(tssHeight) ? tssHeight : 0}
                                         fill="#f97316"
                                         opacity="0.9"
-                                        rx="3"
+                                        rx="2"
                                       />
                                       <text
                                         x={xCenter}
-                                        y={y - 6}
+                                        y={y - 5}
                                         fill="#f97316"
-                                        fontSize="13"
+                                        fontSize="11"
                                         fontWeight="800"
                                         fontFamily="monospace"
                                         textAnchor="middle"
@@ -1832,9 +1832,9 @@ export const RecoveryView: React.FC<RecoveryViewProps> = ({
                                   {/* Date label: Weekday & Day of Month */}
                                   <text
                                     x={xCenter}
-                                    y="398"
+                                    y="396"
                                     fill={isLight ? '#64748b' : '#94a3b8'}
-                                    fontSize="12"
+                                    fontSize="10"
                                     fontWeight="bold"
                                     textAnchor="middle"
                                   >
@@ -1842,9 +1842,9 @@ export const RecoveryView: React.FC<RecoveryViewProps> = ({
                                   </text>
                                   <text
                                     x={xCenter}
-                                    y="422"
+                                    y="418"
                                     fill={isLight ? '#0f172a' : '#f8fafc'}
-                                    fontSize="15"
+                                    fontSize="13"
                                     fontFamily="monospace"
                                     fontWeight="800"
                                     textAnchor="middle"

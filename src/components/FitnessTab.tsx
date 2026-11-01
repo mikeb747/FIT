@@ -46,7 +46,6 @@ import {
   SWIMMING_MODEL_PROFILES,
 } from '../utils/fitnessEngine';
 import { WeeklyMileageChart } from './WeeklyMileageChart';
-import { ActivityZoneChart } from './ActivityZoneChart';
 import { StravaActivityModal } from './StravaActivityModal';
 
 interface FitnessTabProps {
@@ -91,9 +90,6 @@ export const FitnessTab: React.FC<FitnessTabProps> = ({
   const [timelineLookback, setTimelineLookback] = useState<number>(60); // 30, 60, 90 days
   const [selectedChartDiscipline, setSelectedChartDiscipline] = useState<'combined' | 'swim' | 'bike' | 'run'>('combined');
   const [hoveredRecord, setHoveredRecord] = useState<DailyFitnessRecord | null>(null);
-
-  // Selected Activity for Per-Activity Zone Analysis
-  const [selectedZoneActivityId, setSelectedZoneActivityId] = useState<string | number | null>(null);
 
   // Modal inspection state
   const [activeModalActivity, setActiveModalActivity] = useState<StravaActivity | null>(null);
@@ -216,81 +212,6 @@ export const FitnessTab: React.FC<FitnessTabProps> = ({
       badge: fitnessIndexResult.weights.label,
     };
   }, [selectedSport, selectedRunningModel, selectedCyclingModel, selectedSwimmingModel, latestRecord, fitnessIndexResult]);
-
-  // Filter activities matching the sport for the Activity Zone Analyzer
-  const relevantActivitiesForZones = useMemo(() => {
-    return activities.filter((act) => {
-      const cls = classifyActivity(act);
-      if (selectedSport === 'run') return cls.category === 'Run';
-      if (selectedSport === 'bike') return cls.category === 'Bike';
-      if (selectedSport === 'swim') return cls.category === 'Swim';
-      return true; // all
-    });
-  }, [activities, selectedSport]);
-
-  // Current activity for zone chart
-  const activeZoneActivity = useMemo(() => {
-    if (selectedZoneActivityId) {
-      const found = activities.find((a) => String(a.id) === String(selectedZoneActivityId));
-      if (found) return found;
-    }
-    // Default to the most recent relevant activity
-    return relevantActivitiesForZones.length > 0 ? relevantActivitiesForZones[0] : null;
-  }, [selectedZoneActivityId, activities, relevantActivitiesForZones]);
-
-  // Local cache of loaded activity details records (with 1-sec streams) for zone analysis
-  const [loadedZoneDetails, setLoadedZoneDetails] = useState<Record<string, StravaActivityDetailsRecord>>({});
-  const [isLoadingZoneStreams, setIsLoadingZoneStreams] = useState(false);
-
-  // Auto-load 1-sec telemetry streams for the active zone activity from IndexedDB or Strava API
-  React.useEffect(() => {
-    if (!activeZoneActivity) return;
-    const actId = String(activeZoneActivity.id);
-
-    // If streams are already present in activityDetails prop or in loadedZoneDetails, skip
-    if (activityDetails[actId]?.streams || loadedZoneDetails[actId]?.streams) return;
-
-    let isCancelled = false;
-    async function loadStreams() {
-      setIsLoadingZoneStreams(true);
-      try {
-        // 1. Try reading from IndexedDB
-        const cached = await getCachedStravaActivityRecord(actId);
-        if (cached?.streams) {
-          if (!isCancelled) {
-            setLoadedZoneDetails((prev) => ({ ...prev, [actId]: cached }));
-          }
-          return;
-        }
-
-        // 2. If not cached, fetch via Strava API if token is provided
-        if (stravaToken) {
-          const fresh = await fetchStravaActivityDetails(actId, stravaToken);
-          if (!isCancelled && fresh) {
-            const updated = await getCachedStravaActivityRecord(actId);
-            if (updated) {
-              setLoadedZoneDetails((prev) => ({ ...prev, [actId]: updated }));
-            }
-          }
-        }
-      } catch (err) {
-        console.warn('Could not load streams for fitness zone chart:', err);
-      } finally {
-        if (!isCancelled) setIsLoadingZoneStreams(false);
-      }
-    }
-
-    loadStreams();
-    return () => {
-      isCancelled = true;
-    };
-  }, [activeZoneActivity, activityDetails, loadedZoneDetails, stravaToken]);
-
-  const currentZoneStreams =
-    activeZoneActivity
-      ? (activityDetails[String(activeZoneActivity.id)]?.streams ||
-         loadedZoneDetails[String(activeZoneActivity.id)]?.streams)
-      : undefined;
 
   // Active A-Goal Triathlon for custom display
   const activeTriGoal = useMemo(() => {
@@ -886,7 +807,6 @@ export const FitnessTab: React.FC<FitnessTabProps> = ({
         initialTab={selectedSport === 'bike' ? 'cycling_power' : 'mileage'}
         theme={theme}
         onSelectActivity={(actId) => {
-          setSelectedZoneActivityId(actId);
           handleOpenActivityModal(actId);
         }}
       />
@@ -984,88 +904,6 @@ export const FitnessTab: React.FC<FitnessTabProps> = ({
         </div>
       )}
 
-      {/* ========================================================= */}
-      {/* 5. TIME IN TRAINING ZONES PER ACTIVITY (ANALYZER)          */}
-      {/* ========================================================= */}
-      <div className="space-y-3">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-          <div className="flex items-center gap-2">
-            <PieChart className="w-4 h-4 text-amber-500" />
-            <h3 className={`text-sm font-bold uppercase tracking-wider ${isLight ? 'text-slate-800' : 'text-slate-200'}`}>
-              Time in Training Zones (Per Activity)
-            </h3>
-          </div>
-
-          {/* Activity selector dropdown / chips */}
-          {relevantActivitiesForZones.length > 0 && (
-            <div className="flex items-center gap-2">
-              <span className="text-[11px] text-slate-500">Select Activity:</span>
-              <select
-                value={activeZoneActivity ? String(activeZoneActivity.id) : ''}
-                onChange={(e) => setSelectedZoneActivityId(e.target.value)}
-                className={`text-xs font-mono py-1 px-2.5 rounded-lg border cursor-pointer ${
-                  isLight
-                    ? 'bg-white border-slate-300 text-slate-800'
-                    : 'bg-slate-950 border-slate-800 text-slate-200'
-                }`}
-              >
-                {relevantActivitiesForZones.slice(0, 20).map((act) => {
-                  const actDate = act.start_date ? act.start_date.split('T')[0] : '';
-                  return (
-                    <option key={act.id} value={String(act.id)}>
-                      {actDate} — {act.name} ({act.type})
-                    </option>
-                  );
-                })}
-              </select>
-
-              {activeZoneActivity && (
-                <button
-                  type="button"
-                  onClick={() => handleOpenActivityModal(activeZoneActivity.id)}
-                  className={`p-1.5 rounded-lg border text-xs font-bold flex items-center gap-1 transition-colors cursor-pointer ${
-                    isLight
-                      ? 'bg-slate-100 hover:bg-slate-200 border-slate-300 text-slate-700'
-                      : 'bg-slate-800 hover:bg-slate-700 border-slate-700 text-slate-300'
-                  }`}
-                  title="Open activity details & stream inspection modal"
-                >
-                  <ExternalLink className="w-3.5 h-3.5" />
-                  <span className="hidden sm:inline">Details</span>
-                </button>
-              )}
-            </div>
-          )}
-        </div>
-
-        {activeZoneActivity ? (
-          <div className="relative">
-            {isLoadingZoneStreams && !currentZoneStreams && (
-              <div className="p-4 rounded-xl border border-amber-500/30 bg-amber-500/10 text-amber-300 text-xs flex items-center gap-2 mb-2">
-                <Loader2 className="w-4 h-4 animate-spin text-amber-400" />
-                <span>Loading 1-sec streams from Strava for exact zone calculations...</span>
-              </div>
-            )}
-            <ActivityZoneChart
-              activity={activeZoneActivity}
-              streams={currentZoneStreams}
-              athleteProfile={athleteProfile}
-              theme={theme}
-              title={`${activeZoneActivity.name} — Training Zones`}
-            />
-          </div>
-        ) : (
-          <div
-            className={`p-6 rounded-2xl border text-center text-xs ${
-              isLight
-                ? 'bg-white border-slate-200 text-slate-500'
-                : 'bg-slate-900/60 border-slate-800 text-slate-400'
-            }`}
-          >
-            No activities available in this category to calculate training zone time.
-          </div>
-        )}
-      </div>
 
       {/* ========================================================= */}
       {/* 6. TIMELINE CHART: FITNESS, FATIGUE & FORM               */}

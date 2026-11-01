@@ -357,7 +357,7 @@ export const WeeklyMileageChart: React.FC<WeeklyMileageChartProps> = ({
             {/* Average Reference Line */}
             {stats.averageWeeklyMiles > 0 && (
               <div
-                className="absolute left-0 right-0 border-b border-dashed border-sky-400/40 z-0 pointer-events-none"
+                className="absolute left-0 right-0 border-b-2 border-dotted border-red-500 z-20 pointer-events-none"
                 style={{
                   bottom: `${Math.min(
                     90,
@@ -367,14 +367,14 @@ export const WeeklyMileageChart: React.FC<WeeklyMileageChartProps> = ({
                   )}%`,
                 }}
               >
-                <span className="absolute right-1 -top-4 text-[9px] font-mono text-sky-400/80 bg-slate-950/80 px-1 rounded">
+                <span className="absolute right-1 -top-4 text-[10px] font-mono font-bold text-black bg-white/95 border border-slate-300 px-1.5 py-0.5 rounded shadow-sm">
                   Avg: {unit === 'miles' ? stats.averageWeeklyMiles : stats.averageWeeklyKm} {unit}
                 </span>
               </div>
             )}
 
             {/* Bar Chart Grid */}
-            <div className="h-44 sm:h-52 w-full flex items-end gap-1.5 sm:gap-2.5 px-1 relative z-10">
+            <div className="h-44 sm:h-52 w-full flex items-end gap-1 sm:gap-1.5 px-0.5 relative z-10">
               {weeks.map((w) => {
                 const val = unit === 'miles' ? w.distanceMiles : w.distanceKm;
                 const heightPct = Math.min(100, Math.max(val > 0 ? 6 : 2, (val / maxWeeklyDist) * 100));
@@ -403,7 +403,7 @@ export const WeeklyMileageChart: React.FC<WeeklyMileageChartProps> = ({
 
                     {/* Bar */}
                     <div
-                      className="w-full relative rounded-t-md transition-all duration-300"
+                      className="w-full relative rounded-t-md transition-all duration-300 border border-black box-border"
                       style={{
                         height: `${heightPct}%`,
                         backgroundColor:
