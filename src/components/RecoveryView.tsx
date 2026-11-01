@@ -1110,22 +1110,18 @@ export const RecoveryView: React.FC<RecoveryViewProps> = ({
             </p>
           </div>
 
-          <div
-            className={`flex items-center gap-1 p-1 rounded-xl border self-start sm:self-auto ${
-              isLight ? 'bg-slate-100 border-slate-200' : 'bg-slate-950 border-slate-800'
-            }`}
-          >
+          <div className="flex items-center gap-1.5 p-0.5 self-start sm:self-auto flex-wrap">
             <button
               type="button"
               onClick={() => setSelectedChartMode('sleep_rhr')}
-              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
                 selectedChartMode === 'sleep_rhr'
                   ? isLight
-                    ? 'bg-white text-sky-600 shadow-xs border border-slate-200'
-                    : 'bg-slate-800 text-sky-400 shadow-sm'
+                    ? 'bg-white text-sky-600 shadow-xs border-2 border-slate-400'
+                    : 'bg-slate-800 text-sky-400 shadow-sm border-2 border-slate-500'
                   : isLight
-                  ? 'text-slate-500 hover:text-slate-900'
-                  : 'text-slate-400 hover:text-slate-200'
+                  ? 'text-slate-600 hover:text-slate-900 hover:bg-slate-100/70 border border-transparent'
+                  : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/50 border border-transparent'
               }`}
             >
               Sleep &amp; Morning RHR
@@ -1133,14 +1129,14 @@ export const RecoveryView: React.FC<RecoveryViewProps> = ({
             <button
               type="button"
               onClick={() => setSelectedChartMode('readiness_hrv')}
-              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
                 selectedChartMode === 'readiness_hrv'
                   ? isLight
-                    ? 'bg-white text-purple-600 shadow-xs border border-slate-200'
-                    : 'bg-slate-800 text-purple-400 shadow-sm'
+                    ? 'bg-white text-purple-600 shadow-xs border-2 border-slate-400'
+                    : 'bg-slate-800 text-purple-400 shadow-sm border-2 border-slate-500'
                   : isLight
-                  ? 'text-slate-500 hover:text-slate-900'
-                  : 'text-slate-400 hover:text-slate-200'
+                  ? 'text-slate-600 hover:text-slate-900 hover:bg-slate-100/70 border border-transparent'
+                  : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/50 border border-transparent'
               }`}
             >
               Readiness &amp; HRV
@@ -1148,14 +1144,14 @@ export const RecoveryView: React.FC<RecoveryViewProps> = ({
             <button
               type="button"
               onClick={() => setSelectedChartMode('training_stress')}
-              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
                 selectedChartMode === 'training_stress'
                   ? isLight
-                    ? 'bg-white text-orange-600 shadow-xs border border-slate-200'
-                    : 'bg-slate-800 text-orange-400 shadow-sm'
+                    ? 'bg-white text-orange-600 shadow-xs border-2 border-slate-400'
+                    : 'bg-slate-800 text-orange-400 shadow-sm border-2 border-slate-500'
                   : isLight
-                  ? 'text-slate-500 hover:text-slate-900'
-                  : 'text-slate-400 hover:text-slate-200'
+                  ? 'text-slate-600 hover:text-slate-900 hover:bg-slate-100/70 border border-transparent'
+                  : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/50 border border-transparent'
               }`}
             >
               Training Load vs Recovery

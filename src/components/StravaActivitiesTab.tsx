@@ -198,13 +198,7 @@ export const StravaActivitiesTab: React.FC<StravaActivitiesTabProps> = ({
       {/* CATEGORY FILTER TABS: All, Swim, Bike, Run, Gym (EXACT ORDER) */}
       {/* ========================================================= */}
       <div className="w-full">
-        <div
-          className={`w-full flex items-center rounded-xl border overflow-x-auto scrollbar-none divide-x-2 shadow-xs ${
-            isLight
-              ? 'bg-slate-100 border-slate-200 divide-slate-200'
-              : 'bg-slate-950 border-slate-800 divide-slate-700/80'
-          }`}
-        >
+        <div className="w-full flex items-center gap-1.5 sm:gap-2 overflow-x-auto scrollbar-none py-0.5">
           {(['All', 'Swim', 'Bike', 'Run', 'Gym'] as const).map((cat) => {
             const count = categoryCounts[cat] || 0;
             const isActive = selectedCategory === cat;
@@ -213,14 +207,14 @@ export const StravaActivitiesTab: React.FC<StravaActivitiesTabProps> = ({
                 key={cat}
                 type="button"
                 onClick={() => setSelectedCategory(cat)}
-                className={`flex-1 min-w-[65px] sm:min-w-0 px-2 sm:px-4 py-2 text-xs font-bold whitespace-nowrap flex items-center justify-center gap-1 sm:gap-1.5 transition-all cursor-pointer ${
+                className={`flex-1 min-w-[65px] sm:min-w-0 px-2 sm:px-4 py-2 text-xs font-bold whitespace-nowrap flex items-center justify-center gap-1 sm:gap-1.5 rounded-xl transition-all cursor-pointer ${
                   isActive
                     ? isLight
-                      ? 'bg-amber-500 text-white font-black shadow-xs'
-                      : 'bg-amber-500 text-slate-950 font-black shadow-xs'
+                      ? 'bg-amber-500 text-white font-black border-2 border-slate-400 shadow-sm'
+                      : 'bg-amber-500 text-slate-950 font-black border-2 border-slate-400 shadow-sm'
                     : isLight
-                    ? 'bg-white hover:bg-slate-50 text-slate-700 hover:text-slate-900'
-                    : 'bg-slate-950 hover:bg-slate-900 text-slate-400 hover:text-white'
+                    ? 'bg-white hover:bg-slate-50 text-slate-700 hover:text-slate-900 border border-slate-200 shadow-xs'
+                    : 'bg-slate-900 hover:bg-slate-850 text-slate-300 hover:text-white border border-slate-800'
                 }`}
               >
                 {cat === 'Swim' && (

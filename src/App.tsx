@@ -26,6 +26,7 @@ import {
   fetchOlderStravaActivities,
   isStravaAuthorizationError,
   getCachedStravaActivities,
+  saveCachedStravaActivities,
   getCachedStravaActivityRecord,
   getAllCachedStravaActivityRecords,
   ensureStravaActivityRecord,
@@ -71,6 +72,13 @@ import {
   resetRecoveryLogsToDefaults,
 } from './utils/recoveryStorage';
 import { computeDailyReadiness } from './utils/readinessEngine';
+import {
+  isAIStudioEnvironment,
+  isDemoModeActive,
+  setDemoModeActive,
+  generateDemoActivities,
+  generateDemoRecoveryLogs,
+} from './utils/demoData';
 
 const STORAGE_KEYS = {
   STRAVA_TOKEN: 'ironfit_strava_token',
@@ -332,6 +340,32 @@ export default function App() {
   const [stravaActivitiesError, setStravaActivitiesError] = useState<string | null>(null);
 
   const [isStravaSettingsOpen, setIsStravaSettingsOpen] = useState(false);
+
+  // AI Studio Preview Demo Mode
+  const isAIStudioEnv = useMemo(() => isAIStudioEnvironment(), []);
+  const [isDemoActive, setIsDemoActive] = useState<boolean>(() => isDemoModeActive());
+
+  const handleLoadDemoData = useCallback(() => {
+    if (!isAIStudioEnvironment()) return;
+    const demoActs = generateDemoActivities();
+    const demoLogs = generateDemoRecoveryLogs();
+    saveCachedStravaActivities(demoActs);
+    setStravaActivities(demoActs);
+    saveRecoveryLogs(demoLogs);
+    setRecoveryLogs(demoLogs);
+    setDemoModeActive(true);
+    setIsDemoActive(true);
+    setGarminConnected(true);
+  }, []);
+
+  const handleClearDemoData = useCallback(() => {
+    setDemoModeActive(false);
+    setIsDemoActive(false);
+    saveCachedStravaActivities([]);
+    setStravaActivities([]);
+    saveRecoveryLogs([]);
+    setRecoveryLogs([]);
+  }, []);
 
 
 
@@ -682,6 +716,38 @@ export default function App() {
         theme === 'light' ? 'bg-slate-50 text-slate-900' : 'bg-[#090A0F] text-slate-100'
       }`}
     >
+      {/* AI Studio Environment Banner: Strictly isolated to AI Studio preview */}
+      {isAIStudioEnv && (
+        <div className="bg-amber-500/10 border-b border-amber-500/20 px-4 py-1.5 text-xs flex items-center justify-between text-amber-500 shrink-0 z-50">
+          <div className="flex items-center gap-1.5 font-bold">
+            <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse" />
+            <span>AI Studio Sandbox</span>
+            <span className="text-[11px] font-normal text-slate-500 dark:text-slate-400 hidden sm:inline">
+              (Demo data is strictly isolated to Google AI Studio and never appears in your published app)
+            </span>
+          </div>
+          <div className="flex items-center gap-2">
+            {isDemoActive ? (
+              <button
+                type="button"
+                onClick={handleClearDemoData}
+                className="px-2.5 py-0.5 rounded-md bg-rose-500/10 hover:bg-rose-500/20 text-rose-500 font-bold border border-rose-500/30 cursor-pointer transition-colors"
+              >
+                Clear Demo Data
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={handleLoadDemoData}
+                className="px-2.5 py-0.5 rounded-md bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold cursor-pointer transition-colors shadow-xs"
+              >
+                Load Demo Triathlon Data
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* ========================================================= */}
       {/* Top Application Bar */}
       {/* ========================================================= */}
@@ -694,24 +760,18 @@ export default function App() {
       >
         <div className="max-w-5xl xl:max-w-6xl mx-auto flex items-center justify-between gap-3">
           {/* Navigation Switcher */}
-          <div
-            className={`flex items-center gap-1 p-1 rounded-xl border transition-colors ${
-              theme === 'light'
-                ? 'bg-slate-100 border-slate-200'
-                : 'bg-slate-950/80 border-slate-800/80'
-            }`}
-          >
+          <div className="flex items-center gap-1.5 p-0.5">
             <button
               type="button"
               onClick={() => setActiveMainTab('activities')}
-              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer ${
+              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer ${
                 activeMainTab === 'activities'
                   ? theme === 'light'
-                    ? 'bg-white text-slate-900 shadow-xs border border-slate-200/80'
-                    : 'bg-slate-800 text-white shadow-sm'
+                    ? 'bg-white text-slate-900 shadow-xs border-2 border-slate-400'
+                    : 'bg-slate-800 text-white shadow-sm border-2 border-slate-500'
                   : theme === 'light'
-                  ? 'text-slate-500 hover:text-slate-900'
-                  : 'text-slate-400 hover:text-slate-200'
+                  ? 'text-slate-600 hover:text-slate-900 hover:bg-slate-100/70 border border-transparent'
+                  : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/50 border border-transparent'
               }`}
             >
               <Activity className="w-3.5 h-3.5 text-orange-400" />
@@ -732,14 +792,14 @@ export default function App() {
             <button
               type="button"
               onClick={() => setActiveMainTab('recovery')}
-              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer ${
+              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer ${
                 activeMainTab === 'recovery'
                   ? theme === 'light'
-                    ? 'bg-white text-slate-900 shadow-xs border border-slate-200/80'
-                    : 'bg-slate-800 text-white shadow-sm'
+                    ? 'bg-white text-slate-900 shadow-xs border-2 border-slate-400'
+                    : 'bg-slate-800 text-white shadow-sm border-2 border-slate-500'
                   : theme === 'light'
-                  ? 'text-slate-500 hover:text-slate-900'
-                  : 'text-slate-400 hover:text-slate-200'
+                  ? 'text-slate-600 hover:text-slate-900 hover:bg-slate-100/70 border border-transparent'
+                  : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/50 border border-transparent'
               }`}
             >
               <Heart className="w-3.5 h-3.5 text-rose-500" />
@@ -756,14 +816,14 @@ export default function App() {
             <button
               type="button"
               onClick={() => setActiveMainTab('fitness')}
-              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer ${
+              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer ${
                 activeMainTab === 'fitness'
                   ? theme === 'light'
-                    ? 'bg-white text-slate-900 shadow-xs border border-slate-200/80'
-                    : 'bg-slate-800 text-white shadow-sm'
+                    ? 'bg-white text-slate-900 shadow-xs border-2 border-slate-400'
+                    : 'bg-slate-800 text-white shadow-sm border-2 border-slate-500'
                   : theme === 'light'
-                  ? 'text-slate-500 hover:text-slate-900'
-                  : 'text-slate-400 hover:text-slate-200'
+                  ? 'text-slate-600 hover:text-slate-900 hover:bg-slate-100/70 border border-transparent'
+                  : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/50 border border-transparent'
               }`}
             >
               <Zap className="w-3.5 h-3.5 text-indigo-500" />
@@ -1045,6 +1105,10 @@ export default function App() {
         onOpenGarminSync={() => setIsGarminSyncOpen(true)}
         onDisconnectGarmin={handleDisconnectGarmin}
         onActivitiesUpdated={(updated) => setStravaActivities(updated)}
+        isAIStudioEnv={isAIStudioEnv}
+        isDemoActive={isDemoActive}
+        onLoadDemoData={handleLoadDemoData}
+        onClearDemoData={handleClearDemoData}
       />
 
       <StravaSettingsModal

@@ -494,16 +494,16 @@ export const FitnessTab: React.FC<FitnessTabProps> = ({
 
         {/* Discipline / Sport View Toggle */}
         <div className="flex items-center gap-2 flex-wrap">
-          <div className="flex items-center gap-1 p-1 rounded-xl bg-slate-950/60 border border-slate-800 text-xs font-bold">
+          <div className="flex items-center gap-1.5 p-0.5 text-xs font-bold">
             <button
               type="button"
               onClick={() => setSelectedSport('triathlon')}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg transition-all cursor-pointer whitespace-nowrap ${
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl transition-all cursor-pointer whitespace-nowrap ${
                 selectedSport === 'triathlon'
-                  ? 'bg-amber-500 text-slate-950 shadow-sm'
+                  ? 'bg-amber-500 text-slate-950 shadow-sm border-2 border-slate-400'
                   : isLight
-                  ? 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
-                  : 'text-slate-400 hover:text-white hover:bg-slate-800'
+                  ? 'text-slate-600 hover:text-slate-900 hover:bg-slate-100/70 border border-transparent'
+                  : 'text-slate-400 hover:text-white hover:bg-slate-800/50 border border-transparent'
               }`}
             >
               <Award className="w-3.5 h-3.5" />
@@ -513,12 +513,12 @@ export const FitnessTab: React.FC<FitnessTabProps> = ({
             <button
               type="button"
               onClick={() => setSelectedSport('run')}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg transition-all cursor-pointer whitespace-nowrap ${
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl transition-all cursor-pointer whitespace-nowrap ${
                 selectedSport === 'run'
-                  ? 'bg-amber-500 text-slate-950 shadow-sm'
+                  ? 'bg-amber-500 text-slate-950 shadow-sm border-2 border-slate-400'
                   : isLight
-                  ? 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
-                  : 'text-slate-400 hover:text-white hover:bg-slate-800'
+                  ? 'text-slate-600 hover:text-slate-900 hover:bg-slate-100/70 border border-transparent'
+                  : 'text-slate-400 hover:text-white hover:bg-slate-800/50 border border-transparent'
               }`}
             >
               <Footprints className="w-3.5 h-3.5 text-amber-400" />
@@ -528,12 +528,12 @@ export const FitnessTab: React.FC<FitnessTabProps> = ({
             <button
               type="button"
               onClick={() => setSelectedSport('bike')}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg transition-all cursor-pointer whitespace-nowrap ${
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl transition-all cursor-pointer whitespace-nowrap ${
                 selectedSport === 'bike'
-                  ? 'bg-amber-500 text-slate-950 shadow-sm'
+                  ? 'bg-amber-500 text-slate-950 shadow-sm border-2 border-slate-400'
                   : isLight
-                  ? 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
-                  : 'text-slate-400 hover:text-white hover:bg-slate-800'
+                  ? 'text-slate-600 hover:text-slate-900 hover:bg-slate-100/70 border border-transparent'
+                  : 'text-slate-400 hover:text-white hover:bg-slate-800/50 border border-transparent'
               }`}
             >
               <Bike className="w-3.5 h-3.5 text-orange-400" />
@@ -543,12 +543,12 @@ export const FitnessTab: React.FC<FitnessTabProps> = ({
             <button
               type="button"
               onClick={() => setSelectedSport('swim')}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg transition-all cursor-pointer whitespace-nowrap ${
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl transition-all cursor-pointer whitespace-nowrap ${
                 selectedSport === 'swim'
-                  ? 'bg-amber-500 text-slate-950 shadow-sm'
+                  ? 'bg-amber-500 text-slate-950 shadow-sm border-2 border-slate-400'
                   : isLight
-                  ? 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
-                  : 'text-slate-400 hover:text-white hover:bg-slate-800'
+                  ? 'text-slate-600 hover:text-slate-900 hover:bg-slate-100/70 border border-transparent'
+                  : 'text-slate-400 hover:text-white hover:bg-slate-800/50 border border-transparent'
               }`}
             >
               <Waves className="w-3.5 h-3.5 text-sky-400" />
@@ -558,7 +558,7 @@ export const FitnessTab: React.FC<FitnessTabProps> = ({
 
           {/* Triathlon Performance Readiness Presets */}
           {selectedSport === 'triathlon' && (
-            <div className="flex items-center gap-1 p-1 rounded-xl bg-slate-950/60 border border-slate-800 text-xs">
+            <div className="flex items-center gap-1 p-0.5 text-xs">
               {[
                 { id: 'sprint' as const, label: 'Sprint' },
                 { id: 'olympic' as const, label: 'Olympic' },
@@ -571,8 +571,12 @@ export const FitnessTab: React.FC<FitnessTabProps> = ({
                   onClick={() => setSelectedModel(m.id)}
                   className={`px-2.5 py-1.5 rounded-lg font-bold transition-all cursor-pointer text-xs whitespace-nowrap ${
                     selectedModel === m.id
-                      ? 'bg-slate-800 text-amber-400 border border-amber-500/40 shadow-xs'
-                      : 'text-slate-400 hover:text-white'
+                      ? isLight
+                        ? 'bg-white text-amber-700 border-2 border-slate-400 shadow-xs'
+                        : 'bg-slate-800 text-amber-400 border-2 border-slate-500 shadow-xs'
+                      : isLight
+                      ? 'text-slate-600 hover:text-slate-900 border border-transparent'
+                      : 'text-slate-400 hover:text-white border border-transparent'
                   }`}
                 >
                   {m.label}
@@ -583,7 +587,7 @@ export const FitnessTab: React.FC<FitnessTabProps> = ({
 
           {/* Running Performance Readiness Presets (26.2M down to 5K) */}
           {selectedSport === 'run' && (
-            <div className="flex items-center gap-1 p-1 rounded-xl bg-slate-950/60 border border-slate-800 text-xs">
+            <div className="flex items-center gap-1 p-0.5 text-xs">
               {[
                 { id: 'marathon_26_2' as const, label: '26.2M' },
                 { id: 'half_13_1' as const, label: '13.1M' },
@@ -597,8 +601,12 @@ export const FitnessTab: React.FC<FitnessTabProps> = ({
                   onClick={() => setSelectedRunningModel(m.id)}
                   className={`px-2.5 py-1.5 rounded-lg font-bold transition-all cursor-pointer text-xs whitespace-nowrap ${
                     selectedRunningModel === m.id
-                      ? 'bg-slate-800 text-amber-400 border border-amber-500/40 shadow-xs'
-                      : 'text-slate-400 hover:text-white'
+                      ? isLight
+                        ? 'bg-white text-amber-700 border-2 border-slate-400 shadow-xs'
+                        : 'bg-slate-800 text-amber-400 border-2 border-slate-500 shadow-xs'
+                      : isLight
+                      ? 'text-slate-600 hover:text-slate-900 border border-transparent'
+                      : 'text-slate-400 hover:text-white border border-transparent'
                   }`}
                   title={RUNNING_MODEL_PROFILES[m.id].description}
                 >
@@ -610,7 +618,7 @@ export const FitnessTab: React.FC<FitnessTabProps> = ({
 
           {/* Cycling Performance Readiness Presets (Century down to 10M TT) */}
           {selectedSport === 'bike' && (
-            <div className="flex items-center gap-1 p-1 rounded-xl bg-slate-950/60 border border-slate-800 text-xs">
+            <div className="flex items-center gap-1 p-0.5 text-xs">
               {[
                 { id: 'century_100' as const, label: 'Century' },
                 { id: 'fifty_m_50' as const, label: '50M' },
@@ -623,8 +631,12 @@ export const FitnessTab: React.FC<FitnessTabProps> = ({
                   onClick={() => setSelectedCyclingModel(m.id)}
                   className={`px-2.5 py-1.5 rounded-lg font-bold transition-all cursor-pointer text-xs whitespace-nowrap ${
                     selectedCyclingModel === m.id
-                      ? 'bg-slate-800 text-amber-400 border border-amber-500/40 shadow-xs'
-                      : 'text-slate-400 hover:text-white'
+                      ? isLight
+                        ? 'bg-white text-amber-700 border-2 border-slate-400 shadow-xs'
+                        : 'bg-slate-800 text-amber-400 border-2 border-slate-500 shadow-xs'
+                      : isLight
+                      ? 'text-slate-600 hover:text-slate-900 border border-transparent'
+                      : 'text-slate-400 hover:text-white border border-transparent'
                   }`}
                   title={CYCLING_MODEL_PROFILES[m.id].description}
                 >
@@ -636,7 +648,7 @@ export const FitnessTab: React.FC<FitnessTabProps> = ({
 
           {/* Swimming Performance Readiness Presets (50m down to 10k) */}
           {selectedSport === 'swim' && (
-            <div className="flex items-center gap-1 p-1 rounded-xl bg-slate-950/60 border border-slate-800 text-xs">
+            <div className="flex items-center gap-1 p-0.5 text-xs">
               {[
                 { id: 'swim_50m' as const, label: '50m' },
                 { id: 'swim_100m' as const, label: '100m' },
@@ -652,8 +664,12 @@ export const FitnessTab: React.FC<FitnessTabProps> = ({
                   onClick={() => setSelectedSwimmingModel(m.id)}
                   className={`px-2 py-1.5 rounded-lg font-bold transition-all cursor-pointer text-xs whitespace-nowrap ${
                     selectedSwimmingModel === m.id
-                      ? 'bg-slate-800 text-amber-400 border border-amber-500/40 shadow-xs'
-                      : 'text-slate-400 hover:text-white'
+                      ? isLight
+                        ? 'bg-white text-amber-700 border-2 border-slate-400 shadow-xs'
+                        : 'bg-slate-800 text-amber-400 border-2 border-slate-500 shadow-xs'
+                      : isLight
+                      ? 'text-slate-600 hover:text-slate-900 border border-transparent'
+                      : 'text-slate-400 hover:text-white border border-transparent'
                   }`}
                   title={SWIMMING_MODEL_PROFILES[m.id].description}
                 >

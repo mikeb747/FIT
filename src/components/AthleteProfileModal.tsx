@@ -127,6 +127,12 @@ interface AthleteProfileModalProps {
 
   // Auto-rename sync update callback
   onActivitiesUpdated?: (activities: StravaActivity[]) => void;
+
+  // AI Studio Sandbox Demo Mode
+  isAIStudioEnv?: boolean;
+  isDemoActive?: boolean;
+  onLoadDemoData?: () => void;
+  onClearDemoData?: () => void;
 }
 
 export const AthleteProfileModal: React.FC<AthleteProfileModalProps> = ({
@@ -156,6 +162,10 @@ export const AthleteProfileModal: React.FC<AthleteProfileModalProps> = ({
   onOpenGarminSync,
   onDisconnectGarmin,
   onActivitiesUpdated,
+  isAIStudioEnv = false,
+  isDemoActive = false,
+  onLoadDemoData,
+  onClearDemoData,
 }) => {
   const [activeTab, setActiveTab] = useState<ProfileTab>('settings');
   const [savedFeedback, setSavedFeedback] = useState(false);
@@ -982,7 +992,7 @@ export const AthleteProfileModal: React.FC<AthleteProfileModalProps> = ({
               onClick={() => handleSelectTab('settings')}
               className={`px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer whitespace-nowrap shrink-0 ${
                 activeTab === 'settings'
-                  ? 'bg-amber-500 text-slate-950 font-black shadow-sm'
+                  ? 'bg-amber-500 text-slate-950 font-black shadow-sm border-2 border-slate-400 dark:border-slate-500'
                   : theme === 'light'
                   ? 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
                   : 'text-slate-400 hover:text-white hover:bg-slate-800'
@@ -1001,7 +1011,7 @@ export const AthleteProfileModal: React.FC<AthleteProfileModalProps> = ({
               onClick={() => handleSelectTab('physiology')}
               className={`px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer whitespace-nowrap shrink-0 ${
                 activeTab === 'physiology'
-                  ? 'bg-amber-500 text-slate-950 font-black shadow-sm'
+                  ? 'bg-amber-500 text-slate-950 font-black shadow-sm border-2 border-slate-400 dark:border-slate-500'
                   : theme === 'light'
                   ? 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
                   : 'text-slate-400 hover:text-white hover:bg-slate-800'
@@ -1020,7 +1030,7 @@ export const AthleteProfileModal: React.FC<AthleteProfileModalProps> = ({
               onClick={() => handleSelectTab('swimming')}
               className={`px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer whitespace-nowrap shrink-0 ${
                 activeTab === 'swimming'
-                  ? 'bg-amber-500 text-slate-950 font-black shadow-sm'
+                  ? 'bg-amber-500 text-slate-950 font-black shadow-sm border-2 border-slate-400 dark:border-slate-500'
                   : theme === 'light'
                   ? 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
                   : 'text-slate-400 hover:text-white hover:bg-slate-800'
@@ -1039,7 +1049,7 @@ export const AthleteProfileModal: React.FC<AthleteProfileModalProps> = ({
               onClick={() => handleSelectTab('cycling')}
               className={`px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer whitespace-nowrap shrink-0 ${
                 activeTab === 'cycling'
-                  ? 'bg-amber-500 text-slate-950 font-black shadow-sm'
+                  ? 'bg-amber-500 text-slate-950 font-black shadow-sm border-2 border-slate-400 dark:border-slate-500'
                   : theme === 'light'
                   ? 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
                   : 'text-slate-400 hover:text-white hover:bg-slate-800'
@@ -1058,7 +1068,7 @@ export const AthleteProfileModal: React.FC<AthleteProfileModalProps> = ({
               onClick={() => handleSelectTab('running')}
               className={`px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer whitespace-nowrap shrink-0 ${
                 activeTab === 'running'
-                  ? 'bg-amber-500 text-slate-950 font-black shadow-sm'
+                  ? 'bg-amber-500 text-slate-950 font-black shadow-sm border-2 border-slate-400 dark:border-slate-500'
                   : theme === 'light'
                   ? 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
                   : 'text-slate-400 hover:text-white hover:bg-slate-800'
@@ -1077,7 +1087,7 @@ export const AthleteProfileModal: React.FC<AthleteProfileModalProps> = ({
               onClick={() => handleSelectTab('zones')}
               className={`px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer whitespace-nowrap shrink-0 ${
                 activeTab === 'zones'
-                  ? 'bg-amber-500 text-slate-950 font-black shadow-sm'
+                  ? 'bg-amber-500 text-slate-950 font-black shadow-sm border-2 border-slate-400 dark:border-slate-500'
                   : theme === 'light'
                   ? 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
                   : 'text-slate-400 hover:text-white hover:bg-slate-800'
@@ -1096,7 +1106,7 @@ export const AthleteProfileModal: React.FC<AthleteProfileModalProps> = ({
               onClick={() => handleSelectTab('goals')}
               className={`px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer whitespace-nowrap shrink-0 ${
                 activeTab === 'goals'
-                  ? 'bg-amber-500 text-slate-950 font-black shadow-sm'
+                  ? 'bg-amber-500 text-slate-950 font-black shadow-sm border-2 border-slate-400 dark:border-slate-500'
                   : theme === 'light'
                   ? 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
                   : 'text-slate-400 hover:text-white hover:bg-slate-800'
@@ -1115,7 +1125,7 @@ export const AthleteProfileModal: React.FC<AthleteProfileModalProps> = ({
               onClick={() => handleSelectTab('garmin_health')}
               className={`px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer whitespace-nowrap shrink-0 ${
                 activeTab === 'garmin_health'
-                  ? 'bg-amber-500 text-slate-950 font-black shadow-sm'
+                  ? 'bg-amber-500 text-slate-950 font-black shadow-sm border-2 border-slate-400 dark:border-slate-500'
                   : theme === 'light'
                   ? 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
                   : 'text-slate-400 hover:text-white hover:bg-slate-800'
@@ -1419,6 +1429,66 @@ export const AthleteProfileModal: React.FC<AthleteProfileModalProps> = ({
                   )}
                 </div>
               </div>
+
+              {/* AI Studio Sandbox Demo Mode (Strictly isolated to AI Studio preview) */}
+              {isAIStudioEnv && (
+                <div
+                  className={`p-3.5 rounded-2xl border space-y-2.5 transition-colors ${
+                    theme === 'light'
+                      ? 'bg-amber-50/70 border-amber-200'
+                      : 'bg-amber-950/20 border-amber-800/40'
+                  }`}
+                >
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <div className="w-6 h-6 rounded-full bg-amber-500/20 text-amber-500 flex items-center justify-center font-bold text-xs">
+                        🧪
+                      </div>
+                      <div>
+                        <h3 className="text-xs font-bold text-amber-500 uppercase tracking-wider">
+                          AI Studio Preview Demo Data
+                        </h3>
+                        <p className={`text-[11px] ${theme === 'light' ? 'text-slate-600' : 'text-slate-400'}`}>
+                          Populate realistic triathlon activities and recovery logs to test charts
+                        </p>
+                      </div>
+                    </div>
+                    {isDemoActive ? (
+                      <span className="text-[10px] font-bold text-amber-500 bg-amber-500/10 border border-amber-500/20 px-2 py-0.5 rounded-md font-mono">
+                        Demo Active
+                      </span>
+                    ) : (
+                      <span className="text-[10px] text-slate-400 font-mono">
+                        Not Loaded
+                      </span>
+                    )}
+                  </div>
+
+                  <p className={`text-[11px] leading-relaxed ${theme === 'light' ? 'text-slate-500' : 'text-slate-400'}`}>
+                    🔒 <strong>Isolation Guarantee:</strong> This demo dataset is strictly limited to Google AI Studio. It will <strong className="underline">never</strong> be loaded or shown on your published GitHub Pages site or custom domain.
+                  </p>
+
+                  <div className="pt-1 flex items-center gap-2">
+                    {isDemoActive ? (
+                      <button
+                        type="button"
+                        onClick={onClearDemoData}
+                        className="py-2 px-3 rounded-xl bg-rose-500/10 hover:bg-rose-500/20 text-rose-500 text-xs font-bold border border-rose-500/30 flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
+                      >
+                        Clear Demo Data
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={onLoadDemoData}
+                        className="py-2 px-3 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs font-bold flex items-center justify-center gap-1.5 transition-colors cursor-pointer shadow-xs"
+                      >
+                        Load Sample Triathlon Data
+                      </button>
+                    )}
+                  </div>
+                </div>
+              )}
 
               {/* 2. Theme Switch */}
               <div className="p-3.5 rounded-2xl bg-slate-950 border border-slate-800 space-y-2">
