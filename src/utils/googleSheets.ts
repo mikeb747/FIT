@@ -8,6 +8,7 @@ import {
   markStravaActivityPublishedToGoogleSheets,
   saveStravaActivityDetails,
   getCachedStravaActivityRecord,
+  updateStravaActivityRecord,
 } from './stravaActivities';
 import type { AthleteProfile } from '../types/athlete';
 import { calculateWorkKj } from '../types/athlete';
@@ -90,6 +91,18 @@ export async function checkGoogleSheetsReachability(): Promise<{ reachable: bool
     return { reachable: false, error: err.message || 'Network error reaching Google Sheets' };
   }
 }
+
+export const STREAMS_SHEET_TITLE = 'Streams';
+export const STREAMS_SHEET_HEADERS = [
+  'Strava Activity ID',
+  'Date / Time',
+  'Activity Name',
+  'Category',
+  'Stream Keys',
+  'Data Points',
+  'Streams Payload (JSON)',
+  'Backed Up At',
+];
 
 /**
  * Find or create the dedicated "GymFIT Training Log" spreadsheet in the user's Google Drive
@@ -202,6 +215,25 @@ export async function getOrCreateTrainingLogSheet(): Promise<string> {
               rowData: [
                 {
                   values: HEALTH_SHEET_HEADERS.map((h) => ({ userEnteredValue: { stringValue: h } })),
+                },
+              ],
+            },
+          ],
+        },
+        {
+          properties: {
+            title: STREAMS_SHEET_TITLE,
+            gridProperties: {
+              frozenRowCount: 1,
+            },
+          },
+          data: [
+            {
+              startRow: 0,
+              startColumn: 0,
+              rowData: [
+                {
+                  values: STREAMS_SHEET_HEADERS.map((h) => ({ userEnteredValue: { stringValue: h } })),
                 },
               ],
             },
@@ -419,6 +451,11 @@ export async function appendActivityToTrainingLog(
   const actIdStr = String(activity.id);
 
   if (existingIds.has(actIdStr)) {
+    if (details?.streams) {
+      backupActivityStreamsToGoogleSheet(activity, details.streams, spreadsheetId).catch((err) => {
+        console.warn('[Google Sheets] Stream backup notice:', err);
+      });
+    }
     return {
       success: true,
       alreadyExists: true,
@@ -467,6 +504,12 @@ export async function appendActivityToTrainingLog(
   }
 
   await markStravaActivityPublishedToGoogleSheets(activity.id);
+
+  if (details?.streams) {
+    backupActivityStreamsToGoogleSheet(activity, details.streams, spreadsheetId).catch((err) => {
+      console.warn('[Google Sheets] Stream backup notice:', err);
+    });
+  }
 
   return {
     success: true,
@@ -547,6 +590,14 @@ export async function batchBackupActivitiesToGoogleSheet(
 
     // Mark all appended activities as published in local cache
     await Promise.all(toAppend.map((act) => markStravaActivityPublishedToGoogleSheets(act.id)));
+
+    // Backup streams for activities that have streams present in detailsMap
+    for (const act of validActivities) {
+      const details = detailsMap[String(act.id)];
+      if (details?.streams) {
+        backupActivityStreamsToGoogleSheet(act, details.streams, spreadsheetId).catch(() => {});
+      }
+    }
 
     return {
       success: true,
@@ -687,10 +738,321 @@ export async function hydrateActivitiesFromGoogleSheet(
         await markStravaActivityPublishedToGoogleSheets(actId);
       }
     }
+
+    // Also attempt restoring any raw streams stored in the Google Sheets Streams tab
+    try {
+      const streamRestoreRes = await restoreStreamsFromGoogleSheet();
+      if (streamRestoreRes.restoredCount > 0) {
+        hydratedCount += streamRestoreRes.restoredCount;
+      }
+    } catch (streamErr) {
+      console.warn('[Google Sheets] Stream restoration notice:', streamErr);
+    }
+
     return hydratedCount;
   } catch (e) {
     console.warn('[Google Sheets] hydrateActivitiesFromGoogleSheet failed:', e);
     return 0;
+  }
+}
+
+/**
+ * Ensures the 'Streams' tab exists in the user's Google Spreadsheet.
+ * If the sheet is older and doesn't have the tab yet, creates it and appends the header row.
+ */
+export async function ensureStreamsSheetExists(spreadsheetId: string, token: string): Promise<void> {
+  try {
+    const metaRes = await fetch(
+      `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}?fields=sheets.properties.title`,
+      {
+        headers: { Authorization: `Bearer ${token}` },
+      }
+    );
+    if (!metaRes.ok) return;
+    const meta = await metaRes.json();
+    const sheetTitles = (meta.sheets || []).map((s: any) => s.properties?.title);
+    if (sheetTitles.includes(STREAMS_SHEET_TITLE)) {
+      return;
+    }
+
+    // Tab does not exist yet -> create it
+    const addRes = await fetch(
+      `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}:batchUpdate`,
+      {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          requests: [
+            {
+              addSheet: {
+                properties: {
+                  title: STREAMS_SHEET_TITLE,
+                  gridProperties: { frozenRowCount: 1 },
+                },
+              },
+            },
+          ],
+        }),
+      }
+    );
+
+    if (addRes.ok) {
+      // Write header row
+      await fetch(
+        `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(
+          STREAMS_SHEET_TITLE + '!A1:H1'
+        )}?valueInputOption=USER_ENTERED`,
+        {
+          method: 'PUT',
+          headers: {
+            Authorization: `Bearer ${token}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ values: [STREAMS_SHEET_HEADERS] }),
+        }
+      );
+    }
+  } catch (err) {
+    console.warn('[Google Sheets] Failed to verify/create Streams tab:', err);
+  }
+}
+
+/**
+ * Compresses/formats activity streams into an optimized compact JSON payload.
+ * Guarantees staying within Google Sheets' 50,000 character-per-cell limit.
+ */
+export function compressStreamsForStorage(streams: Record<string, any>): {
+  compactJson: string;
+  keys: string[];
+  pointsCount: number;
+} {
+  const allowedKeys = [
+    'time',
+    'distance',
+    'heartrate',
+    'watts',
+    'cadence',
+    'velocity_smooth',
+    'altitude',
+    'temp',
+    'moving',
+    'grade_smooth',
+    'latlng',
+  ];
+  const compact: Record<string, any[]> = {};
+  const presentKeys: string[] = [];
+  let maxPoints = 0;
+
+  for (const k of allowedKeys) {
+    const arr = streams[k]?.data || (Array.isArray(streams[k]) ? streams[k] : null);
+    if (Array.isArray(arr) && arr.length > 0) {
+      compact[k] = arr;
+      presentKeys.push(k);
+      if (arr.length > maxPoints) maxPoints = arr.length;
+    }
+  }
+
+  let serialized = JSON.stringify(compact);
+
+  // If serialized string exceeds 48,000 characters (Sheets max is 50,000),
+  // adaptively sample points while keeping start and end points intact.
+  if (serialized.length > 48000 && maxPoints > 0) {
+    const targetLength = 40000;
+    const ratio = serialized.length / targetLength;
+    const step = Math.max(2, Math.ceil(ratio));
+
+    const downsampled: Record<string, any[]> = {};
+    for (const [key, arr] of Object.entries(compact)) {
+      const sampledArr: any[] = [];
+      for (let i = 0; i < arr.length; i += step) {
+        sampledArr.push(arr[i]);
+      }
+      if ((arr.length - 1) % step !== 0) {
+        sampledArr.push(arr[arr.length - 1]);
+      }
+      downsampled[key] = sampledArr;
+    }
+    serialized = JSON.stringify(downsampled);
+  }
+
+  return {
+    compactJson: serialized,
+    keys: presentKeys,
+    pointsCount: maxPoints,
+  };
+}
+
+/**
+ * Reconstructs standard Strava stream objects from the compact JSON stored in Google Sheets.
+ */
+export function unpackStreamsFromStorage(
+  compactJson: string
+): Record<string, { data: any[] }> | null {
+  try {
+    if (!compactJson || typeof compactJson !== 'string') return null;
+    const parsed = JSON.parse(compactJson);
+    if (!parsed || typeof parsed !== 'object') return null;
+
+    const unpacked: Record<string, { data: any[] }> = {};
+    for (const [k, v] of Object.entries(parsed)) {
+      if (Array.isArray(v)) {
+        unpacked[k] = { data: v };
+      }
+    }
+    return Object.keys(unpacked).length > 0 ? unpacked : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Backs up an activity's raw streams to the 'Streams' tab in Google Sheets.
+ * Deduplicates by Activity ID: updates existing row if present, otherwise appends.
+ */
+export async function backupActivityStreamsToGoogleSheet(
+  activity: StravaActivity,
+  streams: Record<string, any>,
+  spreadsheetIdParam?: string
+): Promise<{ success: boolean; error?: string }> {
+  const token = getGoogleAccessToken();
+  if (!token) return { success: false, error: 'Google authentication required' };
+
+  try {
+    const spreadsheetId = spreadsheetIdParam || (await getOrCreateTrainingLogSheet());
+    await ensureStreamsSheetExists(spreadsheetId, token);
+
+    const actIdStr = String(activity.id);
+    const { compactJson, keys, pointsCount } = compressStreamsForStorage(streams);
+
+    if (keys.length === 0 || !compactJson || compactJson === '{}') {
+      return { success: true };
+    }
+
+    // Read column A of Streams tab to check if row already exists
+    const checkRes = await fetch(
+      `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(
+        STREAMS_SHEET_TITLE + '!A2:A5000'
+      )}`,
+      { headers: { Authorization: `Bearer ${token}` } }
+    );
+
+    let existingRowIndex = -1;
+    if (checkRes.ok) {
+      const checkData = await checkRes.json();
+      const rows = checkData.values || [];
+      for (let r = 0; r < rows.length; r++) {
+        if (rows[r] && String(rows[r][0]) === actIdStr) {
+          existingRowIndex = r + 2; // 1-indexed, accounting for header row
+          break;
+        }
+      }
+    }
+
+    const { category } = classifyActivity(activity);
+    const rowValues = [
+      actIdStr,
+      activity.start_date || '',
+      activity.name || '',
+      category || activity.type || '',
+      keys.join(', '),
+      pointsCount,
+      compactJson,
+      new Date().toISOString(),
+    ];
+
+    if (existingRowIndex > 0) {
+      // Update existing row
+      const updateRange = `${STREAMS_SHEET_TITLE}!A${existingRowIndex}:H${existingRowIndex}`;
+      await fetch(
+        `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(
+          updateRange
+        )}?valueInputOption=USER_ENTERED`,
+        {
+          method: 'PUT',
+          headers: {
+            Authorization: `Bearer ${token}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ values: [rowValues] }),
+        }
+      );
+    } else {
+      // Append new row
+      await fetch(
+        `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(
+          STREAMS_SHEET_TITLE + '!A1:H1'
+        )}:append?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS`,
+        {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${token}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ values: [rowValues] }),
+        }
+      );
+    }
+
+    return { success: true };
+  } catch (err: any) {
+    console.warn(`[Google Sheets] Failed to backup streams for ${activity.id}:`, err);
+    return { success: false, error: err.message || 'Stream backup failed' };
+  }
+}
+
+/**
+ * Restores activity streams from Google Sheets into local IndexedDB.
+ * Reads the 'Streams' tab and re-hydrates any activities that are missing streams locally.
+ */
+export async function restoreStreamsFromGoogleSheet(
+  spreadsheetIdParam?: string
+): Promise<{ success: boolean; restoredCount: number; error?: string }> {
+  const token = getGoogleAccessToken();
+  if (!token) return { success: false, restoredCount: 0, error: 'Not authenticated with Google' };
+
+  try {
+    const spreadsheetId = spreadsheetIdParam || (await getOrCreateTrainingLogSheet());
+    const res = await fetch(
+      `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(
+        STREAMS_SHEET_TITLE + '!A2:H5000'
+      )}`,
+      { headers: { Authorization: `Bearer ${token}` } }
+    );
+
+    if (!res.ok) return { success: true, restoredCount: 0 };
+    const data = await res.json();
+    const rows: string[][] = data.values || [];
+    if (rows.length === 0) return { success: true, restoredCount: 0 };
+
+    let restoredCount = 0;
+    for (const row of rows) {
+      const actId = row[0];
+      const payload = row[6];
+      if (!actId || !payload) continue;
+
+      const existing = await getCachedStravaActivityRecord(actId);
+      const hasLocalStreams = Boolean(existing?.streams && Object.keys(existing.streams).length > 0);
+
+      if (!hasLocalStreams) {
+        const unpacked = unpackStreamsFromStorage(payload);
+        if (unpacked) {
+          await updateStravaActivityRecord(actId, (record) => ({
+            ...record,
+            streams: unpacked,
+            fetchedAt: record.fetchedAt || row[7] || new Date().toISOString(),
+            googleDrivePublishedAt: record.googleDrivePublishedAt || row[7] || new Date().toISOString(),
+          }));
+          restoredCount++;
+        }
+      }
+    }
+
+    return { success: true, restoredCount };
+  } catch (err: any) {
+    return { success: false, restoredCount: 0, error: err.message || 'Failed to restore streams' };
   }
 }
 

@@ -14,6 +14,8 @@ import {
   Sliders,
   ChevronDown,
   ChevronUp,
+  ChevronLeft,
+  ChevronRight,
   Sparkles,
   BarChart2,
   PieChart,
@@ -397,6 +399,143 @@ export const FitnessTab: React.FC<FitnessTabProps> = ({
   };
 
   const formStatus = getFormLabel(disciplineFitness.tsb);
+
+  // Helper for ordinal numbers (1st, 2nd, 3rd, 4th, etc.)
+  const getOrdinal = (n: number) => {
+    const s = ['th', 'st', 'nd', 'rd'];
+    const v = n % 100;
+    return s[(v - 20) % 10] || s[v] || s[0];
+  };
+
+  const formatShortDate = (dStr: string) => {
+    if (!dStr) return '';
+    const parts = dStr.split('-');
+    if (parts.length < 3) return dStr;
+    const monthNames = [
+      'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+      'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+    ];
+    const m = parseInt(parts[1], 10) - 1;
+    const d = parseInt(parts[2], 10);
+    return `${d} ${monthNames[m] || ''}`;
+  };
+
+  // Pagination for Daily Training Log:
+  // Shows either the last 20 days or the current month to date (whichever is greater),
+  // with older training logs neatly organized page-by-page by calendar month.
+  interface TrainingLogPage {
+    id: string;
+    pageNumber: number;
+    label: string;
+    monthTitle: string;
+    isRecentWindow: boolean;
+    startDate: string;
+    endDate: string;
+    records: DailyFitnessRecord[];
+  }
+
+  const trainingLogPages = useMemo<TrainingLogPage[]>(() => {
+    if (!fitnessTimeline || fitnessTimeline.length === 0) {
+      return [
+        {
+          id: 'page_empty',
+          pageNumber: 1,
+          label: 'No Records',
+          monthTitle: 'No Records',
+          isRecentWindow: true,
+          startDate: '',
+          endDate: '',
+          records: [],
+        },
+      ];
+    }
+
+    const latest = fitnessTimeline[fitnessTimeline.length - 1];
+    const refDateStr = latest.date;
+    const refYear = parseInt(refDateStr.slice(0, 4), 10);
+    const refMonth = parseInt(refDateStr.slice(5, 7), 10) - 1;
+    const refDay = parseInt(refDateStr.slice(8, 10), 10);
+
+    const startOfMonthStr = `${refDateStr.slice(0, 7)}-01`;
+    const refDateObj = new Date(refYear, refMonth, refDay);
+    const twentyDaysAgoObj = new Date(refDateObj.getTime() - 19 * 24 * 60 * 60 * 1000);
+    const twentyDaysAgoStr = twentyDaysAgoObj.toISOString().slice(0, 10);
+
+    const monthNames = [
+      'January', 'February', 'March', 'April', 'May', 'June',
+      'July', 'August', 'September', 'October', 'November', 'December',
+    ];
+
+    let page1Cutoff: string;
+    let page1Label: string;
+
+    // Rule: days in month so far (refDay) vs 20 days, whichever is greater
+    if (refDay >= 20) {
+      page1Cutoff = startOfMonthStr;
+      page1Label = `${monthNames[refMonth]} ${refYear} (1st–${refDay}${getOrdinal(refDay)})`;
+    } else {
+      page1Cutoff = twentyDaysAgoStr;
+      page1Label = `Last 20 Days (${formatShortDate(twentyDaysAgoStr)} – ${formatShortDate(refDateStr)})`;
+    }
+
+    const page1Records = fitnessTimeline
+      .filter((r) => r.date >= page1Cutoff && r.date <= refDateStr)
+      .slice()
+      .reverse();
+
+    const pages: TrainingLogPage[] = [
+      {
+        id: 'page_1_recent',
+        pageNumber: 1,
+        label: page1Label,
+        monthTitle: `${monthNames[refMonth]} ${refYear}`,
+        isRecentWindow: true,
+        startDate: page1Cutoff,
+        endDate: refDateStr,
+        records: page1Records,
+      },
+    ];
+
+    // Older records before page1Cutoff grouped by calendar month
+    const olderRecords = fitnessTimeline.filter((r) => r.date < page1Cutoff);
+    if (olderRecords.length > 0) {
+      const monthMap = new Map<string, DailyFitnessRecord[]>();
+      for (const rec of olderRecords) {
+        const ym = rec.date.slice(0, 7);
+        if (!monthMap.has(ym)) {
+          monthMap.set(ym, []);
+        }
+        monthMap.get(ym)!.push(rec);
+      }
+
+      const sortedMonthKeys = Array.from(monthMap.keys()).sort((a, b) => b.localeCompare(a));
+      sortedMonthKeys.forEach((ym, idx) => {
+        const y = parseInt(ym.slice(0, 4), 10);
+        const m = parseInt(ym.slice(5, 7), 10) - 1;
+        const mRecords = monthMap.get(ym)!.sort((a, b) => a.date.localeCompare(b.date)).reverse();
+        const mTitle = `${monthNames[m]} ${y}`;
+        pages.push({
+          id: `page_month_${ym}`,
+          pageNumber: idx + 2,
+          label: `${mTitle} (${mRecords.length} days)`,
+          monthTitle: mTitle,
+          isRecentWindow: false,
+          startDate: mRecords[mRecords.length - 1].date,
+          endDate: mRecords[0].date,
+          records: mRecords,
+        });
+      });
+    }
+
+    return pages;
+  }, [fitnessTimeline]);
+
+  const [currentTrainingPageIndex, setCurrentTrainingPageIndex] = useState<number>(0);
+  const safeTrainingPageIndex = Math.min(
+    currentTrainingPageIndex,
+    Math.max(0, trainingLogPages.length - 1)
+  );
+  const activeTrainingPage = trainingLogPages[safeTrainingPageIndex] || trainingLogPages[0];
 
   const handleOpenActivityModal = (actId: string | number) => {
     const act = activities.find((a) => String(a.id) === String(actId));
@@ -1292,20 +1431,114 @@ export const FitnessTab: React.FC<FitnessTabProps> = ({
       </div>
 
       {/* ========================================================= */}
-      {/* 7. DAILY TRAINING LOG TABLE                               */}
+      {/* 7. DAILY TRAINING LOG TABLE (PAGINATED)                   */}
       {/* ========================================================= */}
       <div
         className={`rounded-2xl border overflow-hidden ${
           isLight ? 'bg-white border-slate-200 shadow-sm' : 'bg-slate-900/60 border-slate-800'
         }`}
       >
-        <div className="p-4 border-b border-slate-800/80 flex items-center justify-between">
-          <h3 className={`text-xs font-bold uppercase tracking-wider ${isLight ? 'text-slate-800' : 'text-slate-200'}`}>
-            Daily Training Log (Recent {Math.min(14, fitnessTimeline.length)} Days)
-          </h3>
+        <div className="p-4 border-b border-slate-800/80 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+          <div>
+            <h3 className={`text-xs font-bold uppercase tracking-wider ${isLight ? 'text-slate-800' : 'text-slate-200'}`}>
+              Daily Training Log
+            </h3>
+            <p className={`text-[11px] mt-0.5 ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>
+              {activeTrainingPage.label} • Showing {activeTrainingPage.records.length} days
+            </p>
+          </div>
           <span className="text-[11px] text-slate-500 font-mono">
             {fitnessTimeline.length} total days analyzed
           </span>
+        </div>
+
+        {/* Pagination Toolbar */}
+        <div
+          className={`px-4 py-2 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 border-b ${
+            isLight ? 'bg-slate-50/60 border-slate-200' : 'bg-slate-950/40 border-slate-800'
+          }`}
+        >
+          {/* Quick Month Selectors */}
+          <div className="flex items-center gap-1.5 overflow-x-auto scrollbar-none py-0.5">
+            <span
+              className={`text-[11px] font-bold uppercase tracking-wider shrink-0 mr-1 ${
+                isLight ? 'text-slate-500' : 'text-slate-400'
+              }`}
+            >
+              Months:
+            </span>
+            {trainingLogPages.map((pg, idx) => {
+              const isSelected = idx === safeTrainingPageIndex;
+              return (
+                <button
+                  key={pg.id}
+                  type="button"
+                  onClick={() => setCurrentTrainingPageIndex(idx)}
+                  className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer whitespace-nowrap shrink-0 border ${
+                    isSelected
+                      ? 'bg-amber-500 text-slate-950 border-amber-400 font-black shadow-xs'
+                      : isLight
+                      ? 'bg-white hover:bg-slate-100 text-slate-700 border-slate-200'
+                      : 'bg-slate-900 hover:bg-slate-800 text-slate-300 border-slate-800'
+                  }`}
+                >
+                  <span>{pg.monthTitle}</span>
+                  <span
+                    className={`ml-1 text-[10px] font-mono opacity-80 ${
+                      isSelected ? 'text-slate-950' : 'text-slate-400'
+                    }`}
+                  >
+                    ({pg.records.length})
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+
+          {/* Prev / Next controls */}
+          <div className="flex items-center gap-2 shrink-0 self-end sm:self-auto">
+            <button
+              type="button"
+              disabled={safeTrainingPageIndex === 0}
+              onClick={() => setCurrentTrainingPageIndex((prev) => Math.max(0, prev - 1))}
+              className={`px-2.5 py-1 rounded-lg text-xs font-bold flex items-center gap-1 border transition-all cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed ${
+                isLight
+                  ? 'bg-white hover:bg-slate-100 text-slate-700 border-slate-200 shadow-xs'
+                  : 'bg-slate-900 hover:bg-slate-800 text-slate-200 border-slate-700'
+              }`}
+              title="View Newer Logs"
+            >
+              <ChevronLeft className="w-3.5 h-3.5" />
+              <span>Newer</span>
+            </button>
+
+            <span
+              className={`text-xs font-mono font-bold px-2 py-1 rounded-md border ${
+                isLight
+                  ? 'bg-slate-100 text-slate-700 border-slate-200'
+                  : 'bg-slate-950 text-slate-300 border-slate-800'
+              }`}
+            >
+              Page {safeTrainingPageIndex + 1} of {trainingLogPages.length}
+            </span>
+
+            <button
+              type="button"
+              disabled={safeTrainingPageIndex >= trainingLogPages.length - 1}
+              onClick={() =>
+                setCurrentTrainingPageIndex((prev) => Math.min(trainingLogPages.length - 1, prev + 1))
+              }
+              className={`px-2.5 py-1 rounded-lg text-xs font-bold flex items-center gap-1 border transition-all cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed ${
+                isLight
+                  ? 'bg-white hover:bg-slate-100 text-slate-700 border-slate-200 shadow-xs'
+                  : 'bg-slate-900 hover:bg-slate-800 text-slate-200 border-slate-700'
+              }`}
+              title="View Older Month"
+            >
+              <span>Older</span>
+              <ChevronRight className="w-3.5 h-3.5" />
+            </button>
+          </div>
         </div>
 
         <div className="overflow-x-auto">
@@ -1323,16 +1556,41 @@ export const FitnessTab: React.FC<FitnessTabProps> = ({
                 <th className="py-2.5 px-3 text-orange-400">Bike TSS</th>
                 <th className="py-2.5 px-3 text-amber-400">Run TSS</th>
                 <th className="py-2.5 px-3 text-white">Daily Tri TSS</th>
-                <th className="py-2.5 px-3 text-sky-400">Tri CTL</th>
-                <th className="py-2.5 px-3 text-purple-400">Tri ATL</th>
+                <th className="py-2.5 px-3 text-sky-400">
+                  {selectedChartDiscipline === 'swim'
+                    ? 'Swim CTL'
+                    : selectedChartDiscipline === 'bike'
+                    ? 'Bike CTL'
+                    : selectedChartDiscipline === 'run'
+                    ? 'Run CTL'
+                    : 'Tri CTL'}
+                </th>
+                <th className="py-2.5 px-3 text-purple-400">
+                  {selectedChartDiscipline === 'swim'
+                    ? 'Swim ATL'
+                    : selectedChartDiscipline === 'bike'
+                    ? 'Bike ATL'
+                    : selectedChartDiscipline === 'run'
+                    ? 'Run ATL'
+                    : 'Tri ATL'}
+                </th>
                 <th className="py-2.5 px-4 text-emerald-400">Form (TSB)</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-800/40">
-              {fitnessTimeline
-                .slice(-14)
-                .reverse()
-                .map((r) => {
+            <tbody className={isLight ? 'divide-y divide-slate-100' : 'divide-y divide-slate-800/40'}>
+              {activeTrainingPage.records.length === 0 ? (
+                <tr>
+                  <td colSpan={8} className="py-12 text-center text-slate-400">
+                    <p className={`text-sm font-semibold ${isLight ? 'text-slate-700' : 'text-slate-300'}`}>
+                      No training logs on this page
+                    </p>
+                    <p className="text-xs text-slate-500 mt-1">
+                      No training activities or stress score recorded during this window.
+                    </p>
+                  </td>
+                </tr>
+              ) : (
+                activeTrainingPage.records.map((r) => {
                   let formattedDateWithWeekday = r.date;
                   try {
                     const [y, m, d] = r.date.split('-').map(Number);
@@ -1345,26 +1603,118 @@ export const FitnessTab: React.FC<FitnessTabProps> = ({
                     formattedDateWithWeekday = r.date;
                   }
 
+                  const curCtl =
+                    selectedChartDiscipline === 'swim'
+                      ? r.swimCtl
+                      : selectedChartDiscipline === 'bike'
+                      ? r.bikeCtl
+                      : selectedChartDiscipline === 'run'
+                      ? r.runCtl
+                      : r.triCtl;
+                  const curAtl =
+                    selectedChartDiscipline === 'swim'
+                      ? r.swimAtl
+                      : selectedChartDiscipline === 'bike'
+                      ? r.bikeAtl
+                      : selectedChartDiscipline === 'run'
+                      ? r.runAtl
+                      : r.triAtl;
+                  const curTsb =
+                    selectedChartDiscipline === 'swim'
+                      ? r.swimTsb
+                      : selectedChartDiscipline === 'bike'
+                      ? r.bikeTsb
+                      : selectedChartDiscipline === 'run'
+                      ? r.runTsb
+                      : r.triTsb;
+
                   return (
-                    <tr key={r.date} className="hover:bg-slate-800/30 transition-colors">
-                      <td className="py-2.5 px-4 font-sans font-medium text-slate-300 whitespace-nowrap">
+                    <tr
+                      key={r.date}
+                      className={`transition-colors ${
+                        isLight ? 'hover:bg-slate-50/80' : 'hover:bg-slate-800/30'
+                      }`}
+                    >
+                      <td
+                        className={`py-2.5 px-4 font-sans font-medium whitespace-nowrap ${
+                          isLight ? 'text-slate-800' : 'text-slate-300'
+                        }`}
+                      >
                         {formattedDateWithWeekday}
                       </td>
-                      <td className="py-2.5 px-3 text-slate-300">{r.swimTss > 0 ? r.swimTss : '—'}</td>
-                      <td className="py-2.5 px-3 text-slate-300">{r.bikeTss > 0 ? r.bikeTss : '—'}</td>
-                      <td className="py-2.5 px-3 text-slate-300">{r.runTss > 0 ? r.runTss : '—'}</td>
-                      <td className="py-2.5 px-3 font-bold text-white">{r.totalTriTss > 0 ? r.totalTriTss : '0'}</td>
-                      <td className="py-2.5 px-3 font-bold text-sky-400">{r.triCtl}</td>
-                      <td className="py-2.5 px-3 font-bold text-purple-400">{r.triAtl}</td>
-                      <td className={`py-2.5 px-4 font-bold ${r.triTsb >= 0 ? 'text-emerald-400' : 'text-amber-400'}`}>
-                        {r.triTsb > 0 ? `+${r.triTsb}` : r.triTsb}
+                      <td className={`py-2.5 px-3 ${isLight ? 'text-slate-700' : 'text-slate-300'}`}>
+                        {r.swimTss > 0 ? r.swimTss : '—'}
+                      </td>
+                      <td className={`py-2.5 px-3 ${isLight ? 'text-slate-700' : 'text-slate-300'}`}>
+                        {r.bikeTss > 0 ? r.bikeTss : '—'}
+                      </td>
+                      <td className={`py-2.5 px-3 ${isLight ? 'text-slate-700' : 'text-slate-300'}`}>
+                        {r.runTss > 0 ? r.runTss : '—'}
+                      </td>
+                      <td className={`py-2.5 px-3 font-bold ${isLight ? 'text-slate-900' : 'text-white'}`}>
+                        {r.totalTriTss > 0 ? r.totalTriTss : '0'}
+                      </td>
+                      <td className="py-2.5 px-3 font-bold text-sky-400">{curCtl}</td>
+                      <td className="py-2.5 px-3 font-bold text-purple-400">{curAtl}</td>
+                      <td
+                        className={`py-2.5 px-4 font-bold ${
+                          curTsb >= 0 ? 'text-emerald-400' : 'text-amber-400'
+                        }`}
+                      >
+                        {curTsb > 0 ? `+${curTsb}` : curTsb}
                       </td>
                     </tr>
                   );
-                })}
+                })
+              )}
             </tbody>
           </table>
         </div>
+
+        {/* Bottom Pagination Info Bar */}
+        {trainingLogPages.length > 1 && (
+          <div
+            className={`p-3 border-t flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs ${
+              isLight
+                ? 'border-slate-200 text-slate-600 bg-slate-50/50'
+                : 'border-slate-800 text-slate-400 bg-slate-950/40'
+            }`}
+          >
+            <span>
+              Showing {activeTrainingPage.records.length} days from {activeTrainingPage.label}
+            </span>
+            <div className="flex items-center gap-1.5 self-end sm:self-auto">
+              <button
+                type="button"
+                disabled={safeTrainingPageIndex === 0}
+                onClick={() => setCurrentTrainingPageIndex((prev) => Math.max(0, prev - 1))}
+                className={`px-2.5 py-1 rounded-lg text-xs font-bold border transition-colors cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed ${
+                  isLight
+                    ? 'bg-white border-slate-200 hover:bg-slate-50 text-slate-700'
+                    : 'bg-slate-900 border-slate-800 hover:bg-slate-800 text-slate-200'
+                }`}
+              >
+                ← Newer Month
+              </button>
+              <button
+                type="button"
+                disabled={safeTrainingPageIndex >= trainingLogPages.length - 1}
+                onClick={() =>
+                  setCurrentTrainingPageIndex((prev) =>
+                    Math.min(trainingLogPages.length - 1, prev + 1)
+                  )
+                }
+                className={`px-2.5 py-1 rounded-lg text-xs font-bold border transition-colors cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed ${
+                  isLight
+                    ? 'bg-white border-slate-200 hover:bg-slate-50 text-slate-700'
+                    : 'bg-slate-900 border-slate-800 hover:bg-slate-800 text-slate-200'
+                }`}
+              >
+                Older Month →
+              </button>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Detailed Modal when inspecting activity */}
