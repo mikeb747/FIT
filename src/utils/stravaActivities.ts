@@ -75,6 +75,8 @@ export interface StravaActivityDetailsRecord {
   activity?: Record<string, unknown>;
   streams?: Record<string, unknown>;
   streamsError?: string;
+  noStreamsAvailable?: boolean;
+  isHydratedFromSheet?: boolean;
   calibration?: ActivityCalibration;
   effortFeedback?: ActivityEffortFeedback;
   fetchedAt?: string;
@@ -1336,14 +1338,22 @@ export function saveStravaActivityDetails(
   activityId: number | string,
   details: StravaActivityDetailsResponse
 ): Promise<StravaActivityDetailsRecord> {
+  const hasValidStreams = Boolean(
+    details.streams &&
+    typeof details.streams === 'object' &&
+    Object.keys(details.streams).length > 0
+  );
+
   return updateStravaActivityRecord(activityId, (record) => ({
     ...record,
     activity: details.activity,
-    ...(details.streams
-      ? { streams: details.streams, streamsError: undefined }
-      : details.streamsError
-        ? { streamsError: details.streamsError }
-        : {}),
+    ...(hasValidStreams
+      ? { streams: details.streams, streamsError: undefined, noStreamsAvailable: false }
+      : {
+          streams: undefined,
+          streamsError: details.streamsError || 'No streams available for this activity',
+          noStreamsAvailable: true,
+        }),
     fetchedAt: new Date().toISOString(),
   }));
 }

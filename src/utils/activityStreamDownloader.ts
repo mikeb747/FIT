@@ -228,7 +228,12 @@ export async function startBackgroundStreamDownload({
       !existing.streamsError &&
       Object.keys(existing.streams).length > 0;
 
-    if (!hasStreams) {
+    // Check if already confirmed that this activity has no streams on Strava (e.g. gym/weight workout or manual entry)
+    const existingNoStreams =
+      Boolean(existing?.noStreamsAvailable) ||
+      (Boolean(existing?.fetchedAt) && (Boolean(existing?.streamsError) || !existing?.streams));
+
+    if (!hasStreams && !existingNoStreams) {
       // Double check IndexedDB in case it's in DB or was hydrated from Google Sheets
       const dbRecord = await getCachedStravaActivityRecord(actId);
       const dbHasStreams =
@@ -236,9 +241,18 @@ export async function startBackgroundStreamDownload({
         typeof dbRecord.streams === 'object' &&
         !dbRecord.streamsError &&
         Object.keys(dbRecord.streams).length > 0;
-      const isHydratedFromSheet = dbRecord?.calibration?.manualTss !== undefined;
+      const dbNoStreams =
+        Boolean(dbRecord?.noStreamsAvailable) ||
+        (Boolean(dbRecord?.fetchedAt) && (Boolean(dbRecord?.streamsError) || !dbRecord?.streams));
+      const isHydratedFromSheet =
+        Boolean(dbRecord?.isHydratedFromSheet) || dbRecord?.calibration?.manualTss !== undefined;
 
-      if (!dbHasStreams && !isHydratedFromSheet) {
+      // Pure gym / strength / workout activities without distance have no 1-sec streams on Strava
+      const isGymWorkout =
+        (act.type === 'WeightTraining' || act.type === 'Workout' || act.sport_type === 'WeightTraining') &&
+        (!act.distance || act.distance === 0);
+
+      if (!dbHasStreams && !dbNoStreams && !isHydratedFromSheet && !(isGymWorkout && dbRecord?.fetchedAt)) {
         queue.push(act);
       } else if (dbRecord && onActivityDownloaded) {
         onActivityDownloaded(dbRecord);
@@ -374,8 +388,17 @@ export async function startBackgroundStreamDownload({
         currentProgress.rateLimitReason = undefined;
         notifyListeners();
       } else {
-        // Non-rate-limit individual activity failure; wait 2.5s and proceed with queue
-        await new Promise((r) => setTimeout(r, 2500));
+        // Non-rate-limit individual activity failure (e.g. 404 streams not found for gym/manual workout);
+        // mark as checked so it won't repeatedly loop in the queue
+        try {
+          await saveStravaActivityDetails(activity.id, {
+            activity: activity as any,
+            streamsError: msg,
+          });
+        } catch {}
+        currentProgress.completed = i + 1;
+        notifyListeners();
+        await new Promise((r) => setTimeout(r, 1500));
       }
     }
   }

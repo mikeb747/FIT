@@ -675,6 +675,9 @@ export default function App() {
 
   return (
     <div
+      style={{
+        zoom: typeof displayDensity === 'number' && displayDensity !== 100 ? `${displayDensity}%` : undefined,
+      }}
       className={`min-h-screen flex flex-col font-sans antialiased pb-20 sm:pb-12 transition-colors ${
         theme === 'light' ? 'bg-slate-50 text-slate-900' : 'bg-[#090A0F] text-slate-100'
       }`}
@@ -689,7 +692,7 @@ export default function App() {
             : 'bg-[#090A0F]/90 border-slate-800/80'
         }`}
       >
-        <div className="max-w-4xl mx-auto flex items-center justify-between gap-3">
+        <div className="max-w-5xl xl:max-w-6xl mx-auto flex items-center justify-between gap-3">
           {/* Navigation Switcher */}
           <div
             className={`flex items-center gap-1 p-1 rounded-xl border transition-colors ${
@@ -778,10 +781,8 @@ export default function App() {
             </button>
           </div>
 
-          {/* Action cluster: PWA Install, Settings, Strava Sync */}
+          {/* Action cluster: Settings, Strava Sync */}
           <div className="flex items-center gap-2">
-            <PWAInstallButton />
-
             {/* Settings & Athlete Profile Button */}
             <button
               type="button"
@@ -849,7 +850,7 @@ export default function App() {
       {/* Stream Downloader Progress Banner & Live Strava Rate Limits */}
       {streamProgress.isDownloading && (
         <div className="bg-slate-950/95 border-b border-indigo-500/30 px-4 py-2 text-xs text-slate-300 animate-in fade-in">
-          <div className="max-w-4xl mx-auto flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+          <div className="max-w-5xl xl:max-w-6xl 2xl:max-w-7xl mx-auto flex flex-col sm:flex-row sm:items-center justify-between gap-2">
             <div className="flex items-center gap-2 min-w-0">
               <Loader2 className="w-3.5 h-3.5 text-indigo-400 animate-spin shrink-0" />
               <span className="truncate">
@@ -905,7 +906,7 @@ export default function App() {
       {/* Stream Downloader Rate Limit Proactive Pause Banner */}
       {streamProgress.isRateLimited && (
         <div className="bg-amber-950/80 border-b border-amber-500/40 px-4 py-2 text-xs text-amber-200">
-          <div className="max-w-4xl mx-auto flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+          <div className="max-w-5xl xl:max-w-6xl 2xl:max-w-7xl mx-auto flex flex-col sm:flex-row sm:items-center justify-between gap-2">
             <div className="flex items-center gap-2">
               <span className="inline-block w-2 h-2 rounded-full bg-amber-400 animate-ping" />
               <span className="font-medium">
@@ -935,7 +936,7 @@ export default function App() {
       {/* ========================================================= */}
       {/* MAIN VIEW: STRAVA ACTIVITIES, READINESS, OR FITNESS */}
       {/* ========================================================= */}
-      <main className="flex-1 max-w-4xl w-full mx-auto p-4 sm:p-6 space-y-6">
+      <main className="flex-1 max-w-5xl xl:max-w-6xl 2xl:max-w-7xl w-full mx-auto p-4 sm:p-6 space-y-6">
         {activeMainTab === 'activities' ? (
           <StravaActivitiesTab
             theme={theme}

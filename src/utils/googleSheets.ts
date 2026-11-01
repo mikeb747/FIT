@@ -887,6 +887,7 @@ export async function hydrateActivitiesFromGoogleSheet(
           },
           googleDrivePublishedAt: new Date().toISOString(),
           fetchedAt: new Date().toISOString(),
+          isHydratedFromSheet: true,
         } as any);
         hydratedCount++;
       } else if (!existing?.googleDrivePublishedAt) {

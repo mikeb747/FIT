@@ -128,53 +128,6 @@ export const StravaActivitiesTab: React.FC<StravaActivitiesTabProps> = ({
   const isLight = theme === 'light';
   const [selectedCategory, setSelectedCategory] = useState<ActivityFilterCategory>('All');
   const [activeModalActivity, setActiveModalActivity] = useState<StravaActivity | null>(null);
-  const [isBackingUpSheets, setIsBackingUpSheets] = useState(false);
-  const [backupFeedback, setBackupFeedback] = useState<string | null>(null);
-  const [backupProgressMsg, setBackupProgressMsg] = useState<string | null>(null);
-
-  const handleBackupAllToSheets = async () => {
-    if (!isGoogleConnected) {
-      onConnectGoogle();
-      return;
-    }
-    setIsBackingUpSheets(true);
-    setBackupFeedback(null);
-    setBackupProgressMsg('Checking Google Sheets...');
-    try {
-      const res = await batchBackupActivitiesToGoogleSheet(
-        activities,
-        activityDetails,
-        athleteProfile,
-        undefined,
-        (prog) => {
-          setBackupProgressMsg(prog.message);
-        }
-      );
-      if (res.success) {
-        let msg = '';
-        if (res.backedUpCount > 0 && res.streamsBackedUpCount > 0) {
-          msg = `Backed up ${res.backedUpCount} workouts & ${res.streamsBackedUpCount} streams!`;
-        } else if (res.streamsBackedUpCount > 0) {
-          msg = `Backed up ${res.streamsBackedUpCount} streams!`;
-        } else if (res.backedUpCount > 0) {
-          msg = `Backed up ${res.backedUpCount} workouts!`;
-        } else {
-          msg = `All ${res.alreadyCount || activities.length} workouts & streams up to date!`;
-        }
-        setBackupFeedback(msg);
-        setTimeout(() => setBackupFeedback(null), 4500);
-      } else {
-        setBackupFeedback(res.error || 'Backup failed');
-        setTimeout(() => setBackupFeedback(null), 4500);
-      }
-    } catch (e: any) {
-      setBackupFeedback(e.message || 'Error backing up to Sheets');
-      setTimeout(() => setBackupFeedback(null), 4500);
-    } finally {
-      setIsBackingUpSheets(false);
-      setBackupProgressMsg(null);
-    }
-  };
 
   // Filter activities by selected category: All, Swim, Bike, Run, Gym
   const filteredActivities = useMemo(() => {
@@ -244,10 +197,9 @@ export const StravaActivitiesTab: React.FC<StravaActivitiesTabProps> = ({
       {/* ========================================================= */}
       {/* CATEGORY FILTER TABS: All, Swim, Bike, Run, Gym (EXACT ORDER) */}
       {/* ========================================================= */}
-      {/* Filter Tabs & Backup to Sheets Button */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
+      <div className="w-full">
         <div
-          className={`inline-flex items-center rounded-xl border overflow-x-auto scrollbar-none divide-x-2 shadow-xs max-w-full ${
+          className={`w-full flex items-center rounded-xl border overflow-x-auto scrollbar-none divide-x-2 shadow-xs ${
             isLight
               ? 'bg-slate-100 border-slate-200 divide-slate-200'
               : 'bg-slate-950 border-slate-800 divide-slate-700/80'
@@ -261,7 +213,7 @@ export const StravaActivitiesTab: React.FC<StravaActivitiesTabProps> = ({
                 key={cat}
                 type="button"
                 onClick={() => setSelectedCategory(cat)}
-                className={`px-2 sm:px-3 py-1.5 text-[11px] sm:text-xs font-bold whitespace-nowrap flex items-center gap-1 sm:gap-1.5 transition-all cursor-pointer ${
+                className={`flex-1 min-w-[65px] sm:min-w-0 px-2 sm:px-4 py-2 text-xs font-bold whitespace-nowrap flex items-center justify-center gap-1 sm:gap-1.5 transition-all cursor-pointer ${
                   isActive
                     ? isLight
                       ? 'bg-amber-500 text-white font-black shadow-xs'
@@ -285,7 +237,7 @@ export const StravaActivitiesTab: React.FC<StravaActivitiesTabProps> = ({
                 )}
                 <span>{cat}</span>
                 <span
-                  className={`text-[10px] px-1 py-0.2 rounded-full font-mono ${
+                  className={`text-[10px] px-1.5 py-0.2 rounded-full font-mono ${
                     isActive
                       ? isLight
                         ? 'bg-white/20 text-white font-black'
@@ -301,38 +253,6 @@ export const StravaActivitiesTab: React.FC<StravaActivitiesTabProps> = ({
             );
           })}
         </div>
-
-        {/* Backup to Sheets Button */}
-        <button
-          type="button"
-          onClick={handleBackupAllToSheets}
-          disabled={isBackingUpSheets || activities.length === 0}
-          className={`px-3 py-1.5 rounded-xl border text-xs font-bold flex items-center justify-center gap-1.5 transition-all shadow-xs cursor-pointer self-start sm:self-auto shrink-0 ${
-            backupFeedback
-              ? 'bg-emerald-500/20 border-emerald-500/40 text-emerald-400'
-              : isLight
-              ? 'bg-emerald-50 hover:bg-emerald-100 border-emerald-200 text-emerald-800'
-              : 'bg-emerald-500/10 hover:bg-emerald-500/20 border-emerald-500/30 text-emerald-300'
-          } disabled:opacity-50 disabled:cursor-not-allowed`}
-          title="Backup all workouts to GymFIT Training Log on Google Sheets"
-        >
-          {isBackingUpSheets ? (
-            <>
-              <Loader2 className="w-3.5 h-3.5 animate-spin text-emerald-400" />
-              <span>{backupProgressMsg || 'Backing up to Sheet...'}</span>
-            </>
-          ) : backupFeedback ? (
-            <>
-              <Check className="w-3.5 h-3.5 text-emerald-400 stroke-[3]" />
-              <span>{backupFeedback}</span>
-            </>
-          ) : (
-            <>
-              <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-400" />
-              <span>Backup to Sheets</span>
-            </>
-          )}
-        </button>
       </div>
 
       {/* Loading Skeletons */}
