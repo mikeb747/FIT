@@ -175,7 +175,7 @@ function getCountdownInfo(eventDateStr: string, isLight: boolean): {
 
 export const GoalsTab: React.FC<GoalsTabProps> = ({ goals, onChangeGoals, profile, theme = 'dark' }) => {
   const isLight = theme === 'light';
-  const [filterPriority, setFilterPriority] = useState<string>('all');
+  const [filterPriority, setFilterPriority] = useState<string>('upcoming');
   const [editingGoal, setEditingGoal] = useState<TrainingGoal | null>(null);
   const [isEditorOpen, setIsEditorOpen] = useState(false);
   const EXPANDED_STORAGE_KEY = 'gymfit_expanded_goal_ids_v1';
@@ -311,7 +311,6 @@ export const GoalsTab: React.FC<GoalsTabProps> = ({ goals, onChangeGoals, profil
 
   const filteredGoals = useMemo(() => {
     const list = goals.filter((g) => {
-      if (filterPriority === 'all') return true;
       if (filterPriority === 'A' || filterPriority === 'B' || filterPriority === 'C') {
         return g.priority === filterPriority;
       }
@@ -342,9 +341,6 @@ export const GoalsTab: React.FC<GoalsTabProps> = ({ goals, onChangeGoals, profil
             }`}>
               Race & Performance Goals
             </h3>
-            <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-amber-500/20 text-amber-700 dark:text-amber-300 border border-amber-500/30">
-              {goals.length} {goals.length === 1 ? 'Goal' : 'Goals'}
-            </span>
           </div>
           <p className={`text-xs mt-0.5 ${isLight ? 'text-slate-600' : 'text-slate-400'}`}>
             Define target events and work backwards to establish training paces, splits, and milestones.
@@ -353,22 +349,6 @@ export const GoalsTab: React.FC<GoalsTabProps> = ({ goals, onChangeGoals, profil
 
         {/* Action Buttons */}
         <div className="flex items-center gap-1.5 shrink-0">
-          <button
-            type="button"
-            onClick={() => {
-              const reset = resetAthleteGoalsToDefaults();
-              onChangeGoals(reset);
-            }}
-            className={`px-2.5 py-1.5 rounded-xl text-xs font-semibold flex items-center gap-1 transition-colors cursor-pointer border ${
-              isLight
-                ? 'bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-200'
-                : 'bg-slate-800 hover:bg-slate-700 text-slate-300 border-slate-700'
-            }`}
-            title="Restore the 3 default races (Cotswold Classic V2, The Seven Sins 2027, Oldbury 10 Miler)"
-          >
-            <RotateCw className="w-3.5 h-3.5 text-amber-500" />
-            <span>Reset 3 Default Races</span>
-          </button>
           <button
             type="button"
             onClick={() => handleAddNewGoal('triathlon')}
@@ -383,9 +363,8 @@ export const GoalsTab: React.FC<GoalsTabProps> = ({ goals, onChangeGoals, profil
       {/* Filter Tabs */}
       <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-none text-xs">
         {[
-          { id: 'all', label: 'All Goals' },
           { id: 'upcoming', label: 'Upcoming' },
-          { id: 'A', label: 'A-Goals (Peak)' },
+          { id: 'A', label: 'A-Goals' },
           { id: 'B', label: 'B-Goals' },
           { id: 'C', label: 'C-Goals' },
           { id: 'completed', label: 'Completed' },

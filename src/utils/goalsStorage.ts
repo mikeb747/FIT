@@ -158,17 +158,13 @@ export const DEFAULT_GOALS: TrainingGoal[] = [
 ];
 
 export function loadAthleteGoals(): TrainingGoal[] {
-  if (typeof window === 'undefined') return DEFAULT_GOALS;
+  if (typeof window === 'undefined') return [];
   try {
     const rawV2 = localStorage.getItem(GOALS_STORAGE_KEY);
     if (rawV2) {
       const parsed = JSON.parse(rawV2);
-      if (Array.isArray(parsed) && parsed.length > 0) {
-        // If it contains the deprecated demo goals (Mallorca / Valencia), upgrade to the new default races
-        const hasLegacy = parsed.some((g) => g.id === 'goal-demo-tri-703' || g.id === 'goal-demo-marathon');
-        if (!hasLegacy) {
-          return parsed;
-        }
+      if (Array.isArray(parsed)) {
+        return parsed;
       }
     }
 
@@ -177,20 +173,15 @@ export function loadAthleteGoals(): TrainingGoal[] {
     if (rawV1) {
       const parsedV1 = JSON.parse(rawV1);
       if (Array.isArray(parsedV1) && parsedV1.length > 0) {
-        const hasLegacy = parsedV1.some((g) => g.id === 'goal-demo-tri-703' || g.id === 'goal-demo-marathon');
-        if (!hasLegacy) {
-          saveAthleteGoals(parsedV1);
-          return parsedV1;
-        }
+        saveAthleteGoals(parsedV1);
+        return parsedV1;
       }
     }
 
-    // Default to the 3 new default races
-    saveAthleteGoals(DEFAULT_GOALS);
-    return DEFAULT_GOALS;
+    return [];
   } catch (err) {
-    console.warn('[Goals Storage] Failed to load goals, using defaults:', err);
-    return DEFAULT_GOALS;
+    console.warn('[Goals Storage] Failed to load goals:', err);
+    return [];
   }
 }
 

@@ -13,7 +13,7 @@ import {
   resetAthleteProfile,
 } from './utils/athleteStorage';
 import type { TrainingGoal } from './types/goals';
-import { loadAthleteGoals, saveAthleteGoals } from './utils/goalsStorage';
+import { loadAthleteGoals, saveAthleteGoals, DEFAULT_GOALS } from './utils/goalsStorage';
 import {
   checkAndProcessOAuthRedirect,
   refreshStravaAccessToken,
@@ -139,7 +139,13 @@ export default function App() {
   const [isAthleteProfileOpen, setIsAthleteProfileOpen] = useState(false);
   const [profileModalTab, setProfileModalTab] = useState<ProfileTab>('settings');
   const [athleteProfile, setAthleteProfile] = useState<AthleteProfile>(() => loadAthleteProfile());
-  const [athleteGoals, setAthleteGoals] = useState<TrainingGoal[]>(() => loadAthleteGoals());
+  const [athleteGoals, setAthleteGoals] = useState<TrainingGoal[]>(() => {
+    const loaded = loadAthleteGoals();
+    if (loaded.length === 0 && isDemoModeActive()) {
+      return DEFAULT_GOALS;
+    }
+    return loaded;
+  });
 
   const handleSaveAthleteProfile = (updated: AthleteProfile) => {
     setAthleteProfile(updated);
@@ -353,6 +359,8 @@ export default function App() {
     setStravaActivities(demoActs);
     saveRecoveryLogs(demoLogs);
     setRecoveryLogs(demoLogs);
+    saveAthleteGoals(DEFAULT_GOALS);
+    setAthleteGoals(DEFAULT_GOALS);
     setDemoModeActive(true);
     setIsDemoActive(true);
     setGarminConnected(true);
@@ -365,6 +373,8 @@ export default function App() {
     setStravaActivities([]);
     saveRecoveryLogs([]);
     setRecoveryLogs([]);
+    saveAthleteGoals([]);
+    setAthleteGoals([]);
   }, []);
 
 
