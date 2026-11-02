@@ -717,6 +717,72 @@ export default function App() {
     }
   };
 
+  // -------------------------------------------------------------
+  // Header Navigation Responsive Adaptation Controller
+  // -------------------------------------------------------------
+  const headerNavRef = useRef<HTMLDivElement>(null);
+  const [navLayoutLevel, setNavLayoutLevel] = useState<number>(0);
+
+  useEffect(() => {
+    const container = headerNavRef.current;
+    if (!container) return;
+
+    const evaluateFit = () => {
+      if (!container) return;
+      const width = container.clientWidth;
+      let targetLevel = 0;
+      if (width < 450) {
+        targetLevel = 3;
+      } else if (width < 540) {
+        targetLevel = 2;
+      } else if (width < 660) {
+        targetLevel = 1;
+      }
+
+      setNavLayoutLevel((prev) => {
+        // If overflowing beyond clientWidth, increase layout level
+        if (container.scrollWidth > container.clientWidth + 2 && prev < 3) {
+          return Math.min(3, Math.max(prev + 1, targetLevel));
+        }
+        return targetLevel;
+      });
+    };
+
+    evaluateFit();
+
+    let ro: ResizeObserver | null = null;
+    if (typeof ResizeObserver !== 'undefined') {
+      ro = new ResizeObserver(() => evaluateFit());
+      ro.observe(container);
+    }
+
+    window.addEventListener('resize', evaluateFit);
+    return () => {
+      if (ro) ro.disconnect();
+      window.removeEventListener('resize', evaluateFit);
+    };
+  }, [displayDensity, stravaActivities.length]);
+
+  useEffect(() => {
+    const container = headerNavRef.current;
+    if (!container) return;
+    if (container.scrollWidth > container.clientWidth + 2 && navLayoutLevel < 3) {
+      setNavLayoutLevel((l) => Math.min(3, l + 1));
+    }
+  }, [navLayoutLevel]);
+
+  const showSettingsSyncText = navLayoutLevel === 0;
+  const showActivityCount = navLayoutLevel < 2;
+  const showTabIcons = navLayoutLevel < 3;
+  const buttonPaddingClass =
+    navLayoutLevel >= 3
+      ? 'px-2 py-1.5'
+      : navLayoutLevel >= 2
+      ? 'px-2.5 py-1.5'
+      : navLayoutLevel >= 1
+      ? 'px-3 py-1.5'
+      : 'px-3.5 py-1.5';
+
   return (
     <div
       style={{
@@ -762,19 +828,22 @@ export default function App() {
       {/* Top Application Bar */}
       {/* ========================================================= */}
       <header
-        className={`sticky top-0 z-40 backdrop-blur-md border-b px-[3px] sm:px-4 py-2 transition-colors overflow-x-auto scrollbar-none ${
+        className={`sticky top-0 z-40 backdrop-blur-md border-b px-2 sm:px-4 py-2 transition-colors overflow-x-auto scrollbar-none ${
           theme === 'light'
             ? 'bg-white/90 border-slate-200/80 shadow-xs'
             : 'bg-[#090A0F]/90 border-slate-800/80'
         }`}
       >
-        <div className="max-w-5xl xl:max-w-6xl mx-auto flex items-center justify-between gap-2 overflow-x-auto scrollbar-none whitespace-nowrap">
+        <div
+          ref={headerNavRef}
+          className="max-w-5xl xl:max-w-6xl mx-auto flex items-center justify-between gap-1.5 sm:gap-2 whitespace-nowrap"
+        >
           {/* Navigation Switcher */}
-          <div className="flex items-center rounded-xl border border-slate-700/60 dark:border-slate-800 bg-slate-900/40 overflow-hidden">
+          <div className="flex items-center rounded-xl border border-slate-700/60 dark:border-slate-800 bg-slate-900/40 overflow-hidden shrink-0">
             <button
               type="button"
               onClick={() => setActiveMainTab('activities')}
-              className={`px-3.5 py-1.5 text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer border-r border-slate-700 dark:border-slate-800 ${
+              className={`${buttonPaddingClass} text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer border-r border-slate-700 dark:border-slate-800 ${
                 activeMainTab === 'activities'
                   ? theme === 'light'
                     ? 'bg-white text-slate-900 shadow-xs'
@@ -784,11 +853,11 @@ export default function App() {
                   : 'bg-slate-900 hover:bg-slate-800 text-slate-400 hover:text-slate-200'
               }`}
             >
-              <Activity className="w-3.5 h-3.5 text-orange-400 hidden sm:inline" />
+              {showTabIcons && <Activity className="w-3.5 h-3.5 text-orange-400 shrink-0" />}
               <span>Activities</span>
-              {stravaActivities.length > 0 && (
+              {showActivityCount && stravaActivities.length > 0 && (
                 <span
-                  className={`text-[10px] px-1.5 py-0.2 rounded-md hidden sm:inline ${
+                  className={`text-[10px] px-1.5 py-0.2 rounded-md ${
                     theme === 'light'
                       ? 'bg-slate-200 text-slate-600'
                       : 'bg-slate-900 text-slate-400'
@@ -802,7 +871,7 @@ export default function App() {
             <button
               type="button"
               onClick={() => setActiveMainTab('recovery')}
-              className={`px-3.5 py-1.5 text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer border-r border-slate-700 dark:border-slate-800 ${
+              className={`${buttonPaddingClass} text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer border-r border-slate-700 dark:border-slate-800 ${
                 activeMainTab === 'recovery'
                   ? theme === 'light'
                     ? 'bg-white text-slate-900 shadow-xs'
@@ -812,7 +881,7 @@ export default function App() {
                   : 'bg-slate-900 hover:bg-slate-800 text-slate-400 hover:text-slate-200'
               }`}
             >
-              <Heart className="w-3.5 h-3.5 text-rose-500 hidden sm:inline" />
+              {showTabIcons && <Heart className="w-3.5 h-3.5 text-rose-500 shrink-0" />}
               <span>Readiness</span>
               {headerReadiness && Number.isFinite(headerReadiness.score) && (
                 <span
@@ -826,7 +895,7 @@ export default function App() {
             <button
               type="button"
               onClick={() => setActiveMainTab('fitness')}
-              className={`px-3.5 py-1.5 text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer ${
+              className={`${buttonPaddingClass} text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
                 activeMainTab === 'fitness'
                   ? theme === 'light'
                     ? 'bg-white text-slate-900 shadow-xs'
@@ -836,7 +905,7 @@ export default function App() {
                   : 'bg-slate-900 hover:bg-slate-800 text-slate-400 hover:text-slate-200'
               }`}
             >
-              <Zap className="w-3.5 h-3.5 text-indigo-500 hidden sm:inline" />
+              {showTabIcons && <Zap className="w-3.5 h-3.5 text-indigo-500 shrink-0" />}
               <span>Fitness</span>
               <span
                 className={`text-[10px] px-1.5 py-0.5 rounded-md font-extrabold ${
@@ -852,7 +921,7 @@ export default function App() {
           </div>
 
           {/* Action cluster: Settings, Strava Sync */}
-          <div className="flex items-center rounded-xl border border-slate-700/60 dark:border-slate-800 bg-slate-900/40 overflow-hidden">
+          <div className="flex items-center rounded-xl border border-slate-700/60 dark:border-slate-800 bg-slate-900/40 overflow-hidden shrink-0">
             {/* Settings & Athlete Profile Button */}
             <button
               type="button"
@@ -861,14 +930,14 @@ export default function App() {
                 setIsAthleteProfileOpen(true);
               }}
               title="Settings & Athlete Profile"
-              className={`px-3.5 py-1.5 text-xs font-bold flex items-center gap-1.5 transition-all active:scale-95 cursor-pointer border-r border-slate-700 dark:border-slate-800 shrink-0 ${
+              className={`${buttonPaddingClass} text-xs font-bold flex items-center justify-center gap-1.5 transition-all active:scale-95 cursor-pointer border-r border-slate-700 dark:border-slate-800 shrink-0 ${
                 theme === 'light'
                   ? 'bg-[#f0f0f0] hover:bg-slate-200 text-slate-700 hover:text-slate-900'
                   : 'bg-slate-900 hover:bg-slate-800 text-slate-300 hover:text-white'
               }`}
             >
-              <Settings className="w-4 h-4 text-amber-400" />
-              <span className="hidden sm:inline">Settings</span>
+              <Settings className="w-4 h-4 text-amber-400 shrink-0" />
+              {showSettingsSyncText && <span>Settings</span>}
             </button>
 
             {/* Strava Sync Button */}
@@ -883,20 +952,22 @@ export default function App() {
               }}
               disabled={isLoadingStravaActivities}
               title={stravaToken ? 'Sync Strava activities (smart delta sync)' : 'Connect Strava'}
-              className={`px-3.5 py-1.5 text-xs font-bold flex items-center gap-1.5 transition-all active:scale-95 cursor-pointer disabled:opacity-50 shrink-0 ${
+              className={`${buttonPaddingClass} text-xs font-bold flex items-center justify-center gap-1.5 transition-all active:scale-95 cursor-pointer disabled:opacity-50 shrink-0 ${
                 theme === 'light'
                   ? 'bg-[#f0f0f0] hover:bg-slate-200 text-slate-700 hover:text-slate-900'
                   : 'bg-slate-900 hover:bg-slate-800 text-slate-300 hover:text-white'
               }`}
             >
               <RotateCw
-                className={`w-3.5 h-3.5 ${
+                className={`w-3.5 h-3.5 shrink-0 ${
                   isLoadingStravaActivities ? 'animate-spin text-amber-500' : 'text-[#FC5200]'
                 }`}
               />
-              <span className="hidden sm:inline">
-                {isLoadingStravaActivities ? 'Syncing...' : 'Sync'}
-              </span>
+              {showSettingsSyncText && (
+                <span>
+                  {isLoadingStravaActivities ? 'Syncing...' : 'Sync'}
+                </span>
+              )}
             </button>
           </div>
         </div>
