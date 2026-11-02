@@ -437,7 +437,11 @@ ${todayWorkout.structure.map((s) => `• [${s.phase}] (${s.duration}): ${s.descr
 
           <div className="flex items-center gap-2 text-[11px] text-slate-400">
             <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-            <span>Model: {coachStatus.model}</span>
+            <span>
+              {coachStatus.model === 'gemini-3.8-flash'
+                ? 'Engine: Gemini 3.8 Flash'
+                : 'Engine: Sports Science Physiological Model'}
+            </span>
           </div>
         </div>
       </div>

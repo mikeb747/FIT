@@ -1,6 +1,6 @@
 import type { AthleteProfile } from '../types/athlete';
 import type { TrainingGoal } from '../types/goals';
-import type { DailyRecoveryLog, ReadinessScoreResult } from '../types/recovery';
+import type { DailyRecoveryLog } from '../types/recovery';
 import type { StravaActivity, StravaActivityDetailsRecord } from './stravaActivities';
 import type {
   RecommendedWorkout,
@@ -10,20 +10,44 @@ import type {
 } from '../types/coach';
 import { computeFitnessTimeline, calculateTriathlonFitnessIndex } from './fitnessEngine';
 import { computeDailyReadiness } from './readinessEngine';
+import {
+  generateSportsScienceWorkout,
+  generateSportsSciencePlan,
+  generateSportsScienceChat,
+} from './sportsScienceEngine';
+
+const isGitHubPages =
+  typeof window !== 'undefined' &&
+  (window.location.hostname.includes('github.io') || window.location.protocol === 'file:');
 
 export async function fetchCoachStatus(): Promise<{
   available: boolean;
   model: string;
   features: string[];
 }> {
+  // If running on a static host like GitHub Pages, no backend server is available.
+  // Use the local sports science physiological engine directly.
+  if (isGitHubPages) {
+    return {
+      available: true,
+      model: 'sports-science-engine',
+      features: ['workout-recommendation', 'periodized-plan', 'ai-chat-coach'],
+    };
+  }
+
   try {
     const res = await fetch('/api/coach/status');
-    if (!res.ok) throw new Error('Status failed');
-    return await res.json();
+    if (!res.ok) throw new Error(`Status HTTP ${res.status}`);
+    const data = await res.json();
+    return {
+      available: Boolean(data.available),
+      model: data.model || 'gemini-3.8-flash',
+      features: data.features || ['workout-recommendation', 'periodized-plan', 'ai-chat-coach'],
+    };
   } catch {
     return {
-      available: false,
-      model: 'fallback-sports-science',
+      available: true,
+      model: 'sports-science-engine',
       features: ['workout-recommendation', 'periodized-plan', 'ai-chat-coach'],
     };
   }
@@ -49,7 +73,13 @@ export function prepareCoachPayload(
   const timeline = computeFitnessTimeline(activities, activityDetails, athleteProfile, 45);
   const latestFitness = timeline.length > 0 ? timeline[timeline.length - 1] : null;
   const tfiResult = latestFitness
-    ? calculateTriathlonFitnessIndex(latestFitness.swimCtl, latestFitness.bikeCtl, latestFitness.runCtl, 'middle_70_3', goals)
+    ? calculateTriathlonFitnessIndex(
+        latestFitness.swimCtl,
+        latestFitness.bikeCtl,
+        latestFitness.runCtl,
+        'middle_70_3',
+        goals
+      )
     : null;
 
   // 3. Last 14 days activity summary
@@ -107,42 +137,85 @@ export function prepareCoachPayload(
 export async function requestRecommendedWorkout(
   payload: CoachRequestPayload
 ): Promise<{ workout: RecommendedWorkout; source: string; notice?: string }> {
-  const response = await fetch('/api/coach/recommend-workout', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload),
-  });
-
-  if (!response.ok) {
-    const errorText = await response.text();
-    throw new Error(`Failed to generate workout: ${response.statusText} - ${errorText}`);
+  // If on static GitHub Pages, generate directly via sports science engine
+  if (isGitHubPages) {
+    return {
+      workout: generateSportsScienceWorkout(payload),
+      source: 'sports-science-engine',
+    };
   }
 
-  const data = await response.json();
+  // Attempt backend API call (Gemini 3.8 Flash)
+  try {
+    const response = await fetch('/api/coach/recommend-workout', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+
+    if (response.ok) {
+      const contentType = response.headers.get('content-type') || '';
+      if (contentType.includes('application/json')) {
+        const data = await response.json();
+        if (data && data.workout) {
+          return {
+            workout: data.workout,
+            source: data.source || 'gemini-3.8-flash',
+            notice: data.notice,
+          };
+        }
+      }
+    }
+  } catch (err) {
+    console.info('[Coach API] Backend request unavailable, seamlessly using sports science engine:', err);
+  }
+
+  // Resilient fallback: Never display 405 or HTML errors to athlete
   return {
-    workout: data.workout,
-    source: data.source,
-    notice: data.notice,
+    workout: generateSportsScienceWorkout(payload),
+    source: 'sports-science-engine',
   };
 }
 
 export async function requestPeriodizedPlan(
   payload: CoachRequestPayload
 ): Promise<{ plan: PeriodizedPlan; source: string }> {
-  const response = await fetch('/api/coach/generate-plan', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload),
-  });
-
-  if (!response.ok) {
-    throw new Error('Failed to generate training plan');
+  // If on static GitHub Pages, generate directly via sports science engine
+  if (isGitHubPages) {
+    return {
+      plan: generateSportsSciencePlan(payload),
+      source: 'sports-science-engine',
+    };
   }
 
-  const data = await response.json();
+  // Attempt backend API call
+  try {
+    const response = await fetch('/api/coach/generate-plan', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+
+    if (response.ok) {
+      const contentType = response.headers.get('content-type') || '';
+      if (contentType.includes('application/json')) {
+        const data = await response.json();
+        if (data && data.plan) {
+          return {
+            plan: data.plan,
+            source: data.source || 'gemini-3.8-flash',
+          };
+        }
+      }
+    }
+  } catch (err) {
+    console.info('[Coach API] Backend plan request unavailable, using sports science engine:', err);
+  }
+
+  // Resilient fallback
   return {
-    plan: data.plan,
-    source: data.source,
+    plan: generateSportsSciencePlan(payload),
+    source: 'sports-science-engine',
   };
 }
 
@@ -151,23 +224,39 @@ export async function sendCoachChatMessage(
   payload: CoachRequestPayload,
   history: any[]
 ): Promise<string> {
-  const response = await fetch('/api/coach/chat', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      question,
-      athleteProfile: payload.athleteProfile,
-      fitnessStats: payload.fitnessStats,
-      latestReadiness: payload.latestReadiness,
-      goals: payload.goals,
-      history,
-    }),
-  });
-
-  if (!response.ok) {
-    throw new Error('Coach chat request failed');
+  // If on static GitHub Pages, generate directly via sports science engine
+  if (isGitHubPages) {
+    return generateSportsScienceChat(question, payload, history);
   }
 
-  const data = await response.json();
-  return data.answer;
+  // Attempt backend API call
+  try {
+    const response = await fetch('/api/coach/chat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        question,
+        athleteProfile: payload.athleteProfile,
+        fitnessStats: payload.fitnessStats,
+        latestReadiness: payload.latestReadiness,
+        goals: payload.goals,
+        history,
+      }),
+    });
+
+    if (response.ok) {
+      const contentType = response.headers.get('content-type') || '';
+      if (contentType.includes('application/json')) {
+        const data = await response.json();
+        if (data && typeof data.answer === 'string') {
+          return data.answer;
+        }
+      }
+    }
+  } catch (err) {
+    console.info('[Coach API] Backend chat unavailable, using sports science engine:', err);
+  }
+
+  // Resilient fallback
+  return generateSportsScienceChat(question, payload, history);
 }
