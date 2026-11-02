@@ -729,19 +729,20 @@ export default function App() {
 
     const evaluateFit = () => {
       if (!container) return;
-      const width = container.clientWidth;
+      const width = Math.min(container.clientWidth, typeof window !== 'undefined' ? window.innerWidth : container.clientWidth);
       let targetLevel = 0;
-      if (width < 450) {
+      if (width < 480) {
         targetLevel = 3;
-      } else if (width < 540) {
+      } else if (width < 580) {
         targetLevel = 2;
-      } else if (width < 660) {
+      } else if (width < 700) {
         targetLevel = 1;
       }
 
       setNavLayoutLevel((prev) => {
-        // If overflowing beyond clientWidth, increase layout level
-        if (container.scrollWidth > container.clientWidth + 2 && prev < 3) {
+        // If overflowing beyond available viewport width, increase layout level
+        const maxAvail = Math.min(container.clientWidth, typeof window !== 'undefined' ? window.innerWidth : container.clientWidth);
+        if (container.scrollWidth > maxAvail + 2 && prev < 3) {
           return Math.min(3, Math.max(prev + 1, targetLevel));
         }
         return targetLevel;
@@ -766,7 +767,8 @@ export default function App() {
   useEffect(() => {
     const container = headerNavRef.current;
     if (!container) return;
-    if (container.scrollWidth > container.clientWidth + 2 && navLayoutLevel < 3) {
+    const maxAvail = Math.min(container.clientWidth, typeof window !== 'undefined' ? window.innerWidth : container.clientWidth);
+    if (container.scrollWidth > maxAvail + 2 && navLayoutLevel < 3) {
       setNavLayoutLevel((l) => Math.min(3, l + 1));
     }
   }, [navLayoutLevel]);
@@ -839,11 +841,15 @@ export default function App() {
           className="max-w-5xl xl:max-w-6xl mx-auto flex items-center justify-between gap-1.5 sm:gap-2 whitespace-nowrap"
         >
           {/* Navigation Switcher */}
-          <div className="flex items-center rounded-xl border border-slate-700/60 dark:border-slate-800 bg-slate-900/40 overflow-hidden shrink-0">
+          <div
+            className="flex items-center rounded-xl border border-slate-700/60 dark:border-slate-800 bg-slate-900/40 overflow-hidden grow shrink-0"
+            style={{ flexGrow: 1, flexShrink: 0 }}
+          >
             <button
               type="button"
               onClick={() => setActiveMainTab('activities')}
-              className={`${buttonPaddingClass} text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer border-r border-slate-700 dark:border-slate-800 ${
+              style={{ flexGrow: 1, flexShrink: 0 }}
+              className={`${buttonPaddingClass} grow shrink-0 text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer border-r border-slate-700 dark:border-slate-800 ${
                 activeMainTab === 'activities'
                   ? theme === 'light'
                     ? 'bg-white text-slate-900 shadow-xs'
@@ -871,7 +877,8 @@ export default function App() {
             <button
               type="button"
               onClick={() => setActiveMainTab('recovery')}
-              className={`${buttonPaddingClass} text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer border-r border-slate-700 dark:border-slate-800 ${
+              style={{ flexGrow: 1, flexShrink: 0 }}
+              className={`${buttonPaddingClass} grow shrink-0 text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer border-r border-slate-700 dark:border-slate-800 ${
                 activeMainTab === 'recovery'
                   ? theme === 'light'
                     ? 'bg-white text-slate-900 shadow-xs'
@@ -895,7 +902,8 @@ export default function App() {
             <button
               type="button"
               onClick={() => setActiveMainTab('fitness')}
-              className={`${buttonPaddingClass} text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+              style={{ flexGrow: 1, flexShrink: 0 }}
+              className={`${buttonPaddingClass} grow shrink-0 text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
                 activeMainTab === 'fitness'
                   ? theme === 'light'
                     ? 'bg-white text-slate-900 shadow-xs'
