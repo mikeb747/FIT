@@ -39,6 +39,7 @@ export interface AthleteProfile {
 
   // Running Pace Zones (Customized or Derived from Threshold)
   customPaceZones?: Record<number, { minPaceSec: number; maxPaceSec: number; rangeFormatted?: string }>;
+  customPaceZonesTreadmill?: Record<number, { minPaceSec: number; maxPaceSec: number; rangeFormatted?: string }>;
   customHrZonesRun?: Record<number, { minHr: number; maxHr: number; rangeFormatted?: string }>;
   customPowerZones?: Record<number, { minWatts: number; maxWatts: number; rangeFormatted?: string }>;
 
@@ -468,7 +469,7 @@ export function getAthletePaceZones(profile: AthleteProfile, isTreadmill = false
   const z4Fast = Math.round(thresholdSec * 0.98);
   const z5Fast = Math.round(thresholdSec * 0.85);
 
-  return [
+  const defaultZones: PaceZone[] = [
     {
       zone: 1,
       name: 'Recovery',
@@ -515,6 +516,24 @@ export function getAthletePaceZones(profile: AthleteProfile, isTreadmill = false
       description: 'Intervals, 5k and neuromuscular speed work',
     },
   ];
+
+  const customZones = isTreadmill ? profile.customPaceZonesTreadmill : profile.customPaceZones;
+  if (customZones) {
+    return defaultZones.map((z) => {
+      const custom = customZones[z.zone];
+      if (custom) {
+        return {
+          ...z,
+          minPaceSec: custom.minPaceSec,
+          maxPaceSec: custom.maxPaceSec,
+          rangeFormatted: z.zone === 5 ? `<${formatSecondsToMinSec(custom.minPaceSec)}/km` : z.zone === 1 ? `>${formatSecondsToMinSec(custom.minPaceSec)}/km` : `${formatSecondsToMinSec(custom.minPaceSec)} - ${formatSecondsToMinSec(custom.maxPaceSec)}/km`,
+        };
+      }
+      return z;
+    });
+  }
+
+  return defaultZones;
 }
 
 // --------------------------------------------------------------------------

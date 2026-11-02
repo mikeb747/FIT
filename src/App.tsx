@@ -770,21 +770,21 @@ export default function App() {
       >
         <div className="max-w-5xl xl:max-w-6xl mx-auto flex items-center justify-between gap-2 overflow-x-auto scrollbar-none whitespace-nowrap">
           {/* Navigation Switcher */}
-          <div className="flex items-center gap-1 p-0.5 overflow-x-auto scrollbar-none whitespace-nowrap">
+          <div className="flex items-center rounded-xl border border-slate-700/60 dark:border-slate-800 bg-slate-900/40 overflow-hidden">
             <button
               type="button"
               onClick={() => setActiveMainTab('activities')}
-              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer ${
+              className={`px-3.5 py-1.5 text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer border-r border-slate-700 dark:border-slate-800 ${
                 activeMainTab === 'activities'
                   ? theme === 'light'
-                    ? 'bg-white text-slate-900 shadow-xs border-[1.2px] border-[#90a1b9]'
-                    : 'bg-slate-800 text-white shadow-sm border-[1.2px] border-[#90a1b9]'
+                    ? 'bg-white text-slate-900 shadow-xs'
+                    : 'bg-slate-800 text-white'
                   : theme === 'light'
-                  ? 'bg-[#f0f0f0] hover:bg-slate-200 text-slate-700 hover:text-slate-900 border border-slate-200/60'
-                  : 'bg-slate-900 hover:bg-slate-800 text-slate-400 hover:text-slate-200 border border-slate-800'
+                  ? 'bg-[#f0f0f0] hover:bg-slate-200 text-slate-700 hover:text-slate-900'
+                  : 'bg-slate-900 hover:bg-slate-800 text-slate-400 hover:text-slate-200'
               }`}
             >
-              <Activity className="w-3.5 h-3.5 text-orange-400" />
+              <Activity className="w-3.5 h-3.5 text-orange-400 hidden sm:inline" />
               <span>Activities</span>
               {stravaActivities.length > 0 && (
                 <span
@@ -802,17 +802,17 @@ export default function App() {
             <button
               type="button"
               onClick={() => setActiveMainTab('recovery')}
-              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer ${
+              className={`px-3.5 py-1.5 text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer border-r border-slate-700 dark:border-slate-800 ${
                 activeMainTab === 'recovery'
                   ? theme === 'light'
-                    ? 'bg-white text-slate-900 shadow-xs border-[1.2px] border-[#90a1b9]'
-                    : 'bg-slate-800 text-white shadow-sm border-[1.2px] border-[#90a1b9]'
+                    ? 'bg-white text-slate-900 shadow-xs'
+                    : 'bg-slate-800 text-white'
                   : theme === 'light'
-                  ? 'bg-[#f0f0f0] hover:bg-slate-200 text-slate-700 hover:text-slate-900 border border-slate-200/60'
-                  : 'bg-slate-900 hover:bg-slate-800 text-slate-400 hover:text-slate-200 border border-slate-800'
+                  ? 'bg-[#f0f0f0] hover:bg-slate-200 text-slate-700 hover:text-slate-900'
+                  : 'bg-slate-900 hover:bg-slate-800 text-slate-400 hover:text-slate-200'
               }`}
             >
-              <Heart className="w-3.5 h-3.5 text-rose-500" />
+              <Heart className="w-3.5 h-3.5 text-rose-500 hidden sm:inline" />
               <span>Readiness</span>
               {headerReadiness && Number.isFinite(headerReadiness.score) && (
                 <span
@@ -826,17 +826,17 @@ export default function App() {
             <button
               type="button"
               onClick={() => setActiveMainTab('fitness')}
-              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer ${
+              className={`px-3.5 py-1.5 text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer ${
                 activeMainTab === 'fitness'
                   ? theme === 'light'
-                    ? 'bg-white text-slate-900 shadow-xs border-[1.2px] border-[#90a1b9]'
-                    : 'bg-slate-800 text-white shadow-sm border-[1.2px] border-[#90a1b9]'
+                    ? 'bg-white text-slate-900 shadow-xs'
+                    : 'bg-slate-800 text-white'
                   : theme === 'light'
-                  ? 'bg-[#f0f0f0] hover:bg-slate-200 text-slate-700 hover:text-slate-900 border border-slate-200/60'
-                  : 'bg-slate-900 hover:bg-slate-800 text-slate-400 hover:text-slate-200 border border-slate-800'
+                  ? 'bg-[#f0f0f0] hover:bg-slate-200 text-slate-700 hover:text-slate-900'
+                  : 'bg-slate-900 hover:bg-slate-800 text-slate-400 hover:text-slate-200'
               }`}
             >
-              <Zap className="w-3.5 h-3.5 text-indigo-500" />
+              <Zap className="w-3.5 h-3.5 text-indigo-500 hidden sm:inline" />
               <span>Fitness</span>
               <span
                 className={`text-[10px] px-1.5 py-0.5 rounded-md font-extrabold ${
@@ -852,7 +852,7 @@ export default function App() {
           </div>
 
           {/* Action cluster: Settings, Strava Sync */}
-          <div className="flex items-center gap-2">
+          <div className="flex items-center rounded-xl border border-slate-700/60 dark:border-slate-800 bg-slate-900/40 overflow-hidden">
             {/* Settings & Athlete Profile Button */}
             <button
               type="button"
@@ -861,10 +861,10 @@ export default function App() {
                 setIsAthleteProfileOpen(true);
               }}
               title="Settings & Athlete Profile"
-              className={`h-8 px-2.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all active:scale-95 cursor-pointer border shadow-sm shrink-0 ${
+              className={`px-3.5 py-1.5 text-xs font-bold flex items-center gap-1.5 transition-all active:scale-95 cursor-pointer border-r border-slate-700 dark:border-slate-800 shrink-0 ${
                 theme === 'light'
-                  ? 'bg-[#f0f0f0] hover:bg-slate-200 text-slate-700 hover:text-slate-900 border-slate-200/60'
-                  : 'bg-slate-900 hover:bg-slate-800 text-slate-300 hover:text-white border-slate-800'
+                  ? 'bg-[#f0f0f0] hover:bg-slate-200 text-slate-700 hover:text-slate-900'
+                  : 'bg-slate-900 hover:bg-slate-800 text-slate-300 hover:text-white'
               }`}
             >
               <Settings className="w-4 h-4 text-amber-400" />
@@ -883,10 +883,10 @@ export default function App() {
               }}
               disabled={isLoadingStravaActivities}
               title={stravaToken ? 'Sync Strava activities (smart delta sync)' : 'Connect Strava'}
-              className={`h-8 px-2.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all active:scale-95 cursor-pointer border shadow-sm disabled:opacity-50 shrink-0 ${
+              className={`px-3.5 py-1.5 text-xs font-bold flex items-center gap-1.5 transition-all active:scale-95 cursor-pointer disabled:opacity-50 shrink-0 ${
                 theme === 'light'
-                  ? 'bg-[#f0f0f0] hover:bg-slate-200 text-slate-700 hover:text-slate-900 border-slate-200/60'
-                  : 'bg-slate-900 hover:bg-slate-800 text-slate-300 hover:text-white border-slate-800'
+                  ? 'bg-[#f0f0f0] hover:bg-slate-200 text-slate-700 hover:text-slate-900'
+                  : 'bg-slate-900 hover:bg-slate-800 text-slate-300 hover:text-white'
               }`}
             >
               <RotateCw

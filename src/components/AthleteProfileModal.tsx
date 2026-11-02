@@ -287,7 +287,9 @@ export const AthleteProfileModal: React.FC<AthleteProfileModalProps> = ({
   const [showSwimTssInfo, setShowSwimTssInfo] = useState(false);
 
   // Running Pace Zones (Editable per zone + Reset to default threshold model)
-  const [paceZonesState, setPaceZonesState] = useState<Array<{
+  const [runPaceZoneTab, setRunPaceZoneTab] = useState<'outside' | 'treadmill'>('outside');
+
+  const [paceZonesOutsideState, setPaceZonesOutsideState] = useState<Array<{
     zone: number;
     name: string;
     minPaceStr: string;
@@ -295,7 +297,7 @@ export const AthleteProfileModal: React.FC<AthleteProfileModalProps> = ({
     color: string;
     description: string;
   }>>(() => {
-    const base = getAthletePaceZones(profile);
+    const base = getAthletePaceZones(profile, false);
     return base.map((z) => {
       const custom = profile.customPaceZones?.[z.zone];
       return {
@@ -309,19 +311,70 @@ export const AthleteProfileModal: React.FC<AthleteProfileModalProps> = ({
     });
   });
 
-  const handleResetPaceZones = () => {
-    const base = getAthletePaceZones({
-      ...profile,
-      thresholdPaceRunOutdoorSec: parseMinSecToSeconds(paceOutdoorStr, 232),
+  const [paceZonesTreadmillState, setPaceZonesTreadmillState] = useState<Array<{
+    zone: number;
+    name: string;
+    minPaceStr: string;
+    maxPaceStr: string;
+    color: string;
+    description: string;
+  }>>(() => {
+    const base = getAthletePaceZones(profile, true);
+    return base.map((z) => {
+      const custom = profile.customPaceZonesTreadmill?.[z.zone];
+      return {
+        zone: z.zone,
+        name: z.name,
+        minPaceStr: custom ? formatSecondsToMinSec(custom.minPaceSec) : formatSecondsToMinSec(z.minPaceSec),
+        maxPaceStr: custom ? formatSecondsToMinSec(custom.maxPaceSec) : formatSecondsToMinSec(z.maxPaceSec),
+        color: z.color,
+        description: z.description,
+      };
     });
-    setPaceZonesState(base.map((z) => ({
-      zone: z.zone,
-      name: z.name,
-      minPaceStr: formatSecondsToMinSec(z.minPaceSec),
-      maxPaceStr: formatSecondsToMinSec(z.maxPaceSec),
-      color: z.color,
-      description: z.description,
-    })));
+  });
+
+  const activePaceZonesState = runPaceZoneTab === 'outside' ? paceZonesOutsideState : paceZonesTreadmillState;
+
+  const handleResetPaceZones = () => {
+    if (runPaceZoneTab === 'outside') {
+      const base = getAthletePaceZones({
+        ...profile,
+        thresholdPaceRunOutdoorSec: parseMinSecToSeconds(paceOutdoorStr, 232),
+      }, false);
+      setPaceZonesOutsideState(base.map((z) => ({
+        zone: z.zone,
+        name: z.name,
+        minPaceStr: formatSecondsToMinSec(z.minPaceSec),
+        maxPaceStr: formatSecondsToMinSec(z.maxPaceSec),
+        color: z.color,
+        description: z.description,
+      })));
+    } else {
+      const base = getAthletePaceZones({
+        ...profile,
+        thresholdPaceRunTreadmillSec: parseMinSecToSeconds(paceTreadmillStr, 228),
+      }, true);
+      setPaceZonesTreadmillState(base.map((z) => ({
+        zone: z.zone,
+        name: z.name,
+        minPaceStr: formatSecondsToMinSec(z.minPaceSec),
+        maxPaceStr: formatSecondsToMinSec(z.maxPaceSec),
+        color: z.color,
+        description: z.description,
+      })));
+    }
+  };
+
+  const handleUpdatePaceZone = (zoneNumber: number, field: 'minPaceStr' | 'maxPaceStr', value: string) => {
+    if (runPaceZoneTab === 'outside') {
+      setPaceZonesOutsideState((prev) =>
+        prev.map((z) => (z.zone === zoneNumber ? { ...z, [field]: value } : z))
+      );
+    } else {
+      setPaceZonesTreadmillState((prev) =>
+        prev.map((z) => (z.zone === zoneNumber ? { ...z, [field]: value } : z))
+      );
+    }
   };
 
   // Running HR Zones state
@@ -442,11 +495,6 @@ export const AthleteProfileModal: React.FC<AthleteProfileModalProps> = ({
     });
   }, [powerZonesState, profile, bikeFtp]);
 
-  const handleUpdatePaceZone = (zoneNumber: number, field: 'minPaceStr' | 'maxPaceStr', value: string) => {
-    setPaceZonesState((prev) =>
-      prev.map((z) => (z.zone === zoneNumber ? { ...z, [field]: value } : z))
-    );
-  };
 
   // Active Injuries & Physical Limitations
   const [injuries, setInjuries] = useState<AthleteInjury[]>(
@@ -607,9 +655,22 @@ export const AthleteProfileModal: React.FC<AthleteProfileModalProps> = ({
       setSwimOpenWaterPaceStr(formatSecondsToMinSec(profile.swimOpenWaterPace100mSec));
       setSwimTssMode(profile.swimTssMode || 'sTSS');
 
-      const base = getAthletePaceZones(profile);
-      setPaceZonesState(base.map((z) => {
+      const baseOutside = getAthletePaceZones(profile, false);
+      setPaceZonesOutsideState(baseOutside.map((z) => {
         const custom = profile.customPaceZones?.[z.zone];
+        return {
+          zone: z.zone,
+          name: z.name,
+          minPaceStr: custom ? formatSecondsToMinSec(custom.minPaceSec) : formatSecondsToMinSec(z.minPaceSec),
+          maxPaceStr: custom ? formatSecondsToMinSec(custom.maxPaceSec) : formatSecondsToMinSec(z.maxPaceSec),
+          color: z.color,
+          description: z.description,
+        };
+      }));
+
+      const baseTreadmill = getAthletePaceZones(profile, true);
+      setPaceZonesTreadmillState(baseTreadmill.map((z) => {
+        const custom = profile.customPaceZonesTreadmill?.[z.zone];
         return {
           zone: z.zone,
           name: z.name,
@@ -856,19 +917,35 @@ export const AthleteProfileModal: React.FC<AthleteProfileModalProps> = ({
       swimOpenWaterPaceStr !== initialOpenWaterPaceStr ||
       swimTssMode !== (profile.swimTssMode || 'sTSS');
 
-    const arePaceZonesDirty = JSON.stringify(paceZonesState) !== JSON.stringify(
-      getAthletePaceZones(profile).map((z) => {
-        const custom = profile.customPaceZones?.[z.zone];
-        return {
-          zone: z.zone,
-          name: z.name,
-          minPaceStr: custom ? formatSecondsToMinSec(custom.minPaceSec) : formatSecondsToMinSec(z.minPaceSec),
-          maxPaceStr: custom ? formatSecondsToMinSec(custom.maxPaceSec) : formatSecondsToMinSec(z.maxPaceSec),
-          color: z.color,
-          description: z.description,
-        };
-      })
-    );
+    const arePaceZonesDirty =
+      JSON.stringify(paceZonesOutsideState) !==
+        JSON.stringify(
+          getAthletePaceZones(profile, false).map((z) => {
+            const custom = profile.customPaceZones?.[z.zone];
+            return {
+              zone: z.zone,
+              name: z.name,
+              minPaceStr: custom ? formatSecondsToMinSec(custom.minPaceSec) : formatSecondsToMinSec(z.minPaceSec),
+              maxPaceStr: custom ? formatSecondsToMinSec(custom.maxPaceSec) : formatSecondsToMinSec(z.maxPaceSec),
+              color: z.color,
+              description: z.description,
+            };
+          })
+        ) ||
+      JSON.stringify(paceZonesTreadmillState) !==
+        JSON.stringify(
+          getAthletePaceZones(profile, true).map((z) => {
+            const custom = profile.customPaceZonesTreadmill?.[z.zone];
+            return {
+              zone: z.zone,
+              name: z.name,
+              minPaceStr: custom ? formatSecondsToMinSec(custom.minPaceSec) : formatSecondsToMinSec(z.minPaceSec),
+              maxPaceStr: custom ? formatSecondsToMinSec(custom.maxPaceSec) : formatSecondsToMinSec(z.maxPaceSec),
+              color: z.color,
+              description: z.description,
+            };
+          })
+        );
 
     const areInjuriesDirty =
       JSON.stringify(injuries) !== JSON.stringify(profile.injuries || DEFAULT_INJURIES);
@@ -899,7 +976,8 @@ export const AthleteProfileModal: React.FC<AthleteProfileModalProps> = ({
     swimPoolPaceStr,
     swimOpenWaterPaceStr,
     swimTssMode,
-    paceZonesState,
+    paceZonesOutsideState,
+    paceZonesTreadmillState,
     injuries,
     weeklyAvailability,
     goals,
@@ -964,10 +1042,21 @@ export const AthleteProfileModal: React.FC<AthleteProfileModalProps> = ({
 
   const handleSave = () => {
     const customPaceZonesToSave: Record<number, { minPaceSec: number; maxPaceSec: number; rangeFormatted: string }> = {};
-    paceZonesState.forEach((pz) => {
+    paceZonesOutsideState.forEach((pz) => {
       const minSec = parseMinSecToSeconds(pz.minPaceStr, 200);
       const maxSec = parseMinSecToSeconds(pz.maxPaceStr, 250);
       customPaceZonesToSave[pz.zone] = {
+        minPaceSec: minSec,
+        maxPaceSec: maxSec,
+        rangeFormatted: `${pz.minPaceStr} - ${pz.maxPaceStr}/km`,
+      };
+    });
+
+    const customPaceZonesTreadmillToSave: Record<number, { minPaceSec: number; maxPaceSec: number; rangeFormatted: string }> = {};
+    paceZonesTreadmillState.forEach((pz) => {
+      const minSec = parseMinSecToSeconds(pz.minPaceStr, 200);
+      const maxSec = parseMinSecToSeconds(pz.maxPaceStr, 250);
+      customPaceZonesTreadmillToSave[pz.zone] = {
         minPaceSec: minSec,
         maxPaceSec: maxSec,
         rangeFormatted: `${pz.minPaceStr} - ${pz.maxPaceStr}/km`,
@@ -998,6 +1087,7 @@ export const AthleteProfileModal: React.FC<AthleteProfileModalProps> = ({
       swimOpenWaterPace100mSec: parseMinSecToSeconds(swimOpenWaterPaceStr, 98),
       swimTssMode,
       customPaceZones: customPaceZonesToSave,
+      customPaceZonesTreadmill: customPaceZonesTreadmillToSave,
       customHrZonesRun: customHrZonesRunToSave,
       customPowerZones: customPowerZonesToSave,
 
@@ -3433,37 +3523,66 @@ export const AthleteProfileModal: React.FC<AthleteProfileModalProps> = ({
                 </div>
               </div>
 
-              {/* Running Pace Zones (Editable per zone + Reset button) */}
+              {/* Running Pace Zones (Editable per zone + Outside/Treadmill sub-tabs + Reset button) */}
               <div className="p-3.5 rounded-2xl bg-slate-950 border border-slate-800 space-y-2.5">
-                <div className="flex items-center justify-between">
+                <div className="flex items-center justify-between flex-wrap gap-2">
                   <div className="flex items-center gap-2">
                     <Footprints className="w-4 h-4 text-emerald-400" />
                     <div>
                       <span className="text-xs font-bold text-white uppercase tracking-wider block">
-                        Running Pace Zones
+                        Running Pace Zones ({runPaceZoneTab === 'outside' ? 'Outside' : 'Treadmill'})
                       </span>
                       <span className="text-[10px] text-slate-400 font-mono">
-                        Threshold: {paceOutdoorStr}/km
+                        Threshold: {runPaceZoneTab === 'outside' ? paceOutdoorStr : paceTreadmillStr}/km
                       </span>
                     </div>
                   </div>
-                  <button
-                    type="button"
-                    onClick={handleResetPaceZones}
-                    className="px-2.5 py-1 rounded-xl text-[11px] font-bold bg-slate-800 hover:bg-slate-700 active:scale-95 text-slate-300 hover:text-white border border-slate-700 transition-all flex items-center gap-1.5 cursor-pointer shadow-xs"
-                    title="Reset Running Pace Zones to default model"
-                  >
-                    <RotateCcw className="w-3 h-3 text-amber-400" />
-                    <span>Reset Model</span>
-                  </button>
+
+                  <div className="flex items-center gap-2">
+                    {/* Outside vs Treadmill Sub-Tab Switcher */}
+                    <div className="flex items-center bg-slate-900 rounded-xl p-1 border border-slate-800">
+                      <button
+                        type="button"
+                        onClick={() => setRunPaceZoneTab('outside')}
+                        className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition-all cursor-pointer ${
+                          runPaceZoneTab === 'outside'
+                            ? 'bg-amber-500 text-slate-950 shadow-xs'
+                            : 'text-slate-400 hover:text-white'
+                        }`}
+                      >
+                        Outside
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setRunPaceZoneTab('treadmill')}
+                        className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition-all cursor-pointer ${
+                          runPaceZoneTab === 'treadmill'
+                            ? 'bg-amber-500 text-slate-950 shadow-xs'
+                            : 'text-slate-400 hover:text-white'
+                        }`}
+                      >
+                        Treadmill
+                      </button>
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={handleResetPaceZones}
+                      className="px-2.5 py-1 rounded-xl text-[11px] font-bold bg-slate-800 hover:bg-slate-700 active:scale-95 text-slate-300 hover:text-white border border-slate-700 transition-all flex items-center gap-1.5 cursor-pointer shadow-xs"
+                      title="Reset Running Pace Zones to default model"
+                    >
+                      <RotateCcw className="w-3 h-3 text-amber-400" />
+                      <span>Reset Model</span>
+                    </button>
+                  </div>
                 </div>
 
                 <p className="text-[11px] text-slate-400 leading-relaxed">
-                  Customize the pace range for each zone. Click &apos;Reset Model&apos; anytime to restore default percentage-based paces derived from your outdoor threshold.
+                  Customize the pace range for each zone for {runPaceZoneTab === 'outside' ? 'outdoor running' : 'treadmill running'}. Click &apos;Reset Model&apos; anytime to restore default percentage-based paces.
                 </p>
 
                 <div className="space-y-1.5 pt-1">
-                  {paceZonesState.map((z) => (
+                  {activePaceZonesState.map((z) => (
                     <div
                       key={z.zone}
                       className="p-2.5 rounded-xl bg-slate-900/80 border border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs"
