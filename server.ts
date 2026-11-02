@@ -2,6 +2,12 @@ import express from 'express';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import dotenv from 'dotenv';
+import {
+  handleCoachStatus,
+  handleRecommendWorkout,
+  handleGeneratePlan,
+  handleCoachChat,
+} from './serverCoach';
 
 dotenv.config();
 
@@ -1097,6 +1103,13 @@ app.post('/api/garmin/sync-multiweek', async (req, res) => {
   }
 });
 
+// =========================================================
+// AI Coach & Adaptive Training Planner (Gemini 3.8 Flash)
+// =========================================================
+app.get('/api/coach/status', handleCoachStatus);
+app.post('/api/coach/recommend-workout', handleRecommendWorkout);
+app.post('/api/coach/generate-plan', handleGeneratePlan);
+app.post('/api/coach/chat', handleCoachChat);
 
 // Setup Vite middleware in dev or static files in production
 async function startServer() {

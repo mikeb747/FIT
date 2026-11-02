@@ -59,9 +59,10 @@ import {
   getStreamDownloaderStatus,
   StreamDownloaderProgress,
 } from './utils/activityStreamDownloader';
-import { Settings, Activity, Moon, Heart, Zap, RotateCw, FileSpreadsheet, Loader2, CloudCheck, CheckCircle2 } from 'lucide-react';
+import { Settings, Activity, Moon, Heart, Zap, Sparkles, RotateCw, FileSpreadsheet, Loader2, CloudCheck, CheckCircle2 } from 'lucide-react';
 import { RecoveryView } from './components/RecoveryView';
 import { FitnessTab } from './components/FitnessTab';
+import { CoachTab } from './components/CoachTab';
 import { computeFitnessTimeline, calculateTriathlonFitnessIndex } from './utils/fitnessEngine';
 import type { DailyRecoveryLog } from './types/recovery';
 import {
@@ -165,7 +166,7 @@ export default function App() {
   // -------------------------------------------------------------
   // Navigation & Recovery Tracking State
   // -------------------------------------------------------------
-  const [activeMainTab, setActiveMainTab] = useState<'activities' | 'recovery' | 'fitness'>('activities');
+  const [activeMainTab, setActiveMainTab] = useState<'activities' | 'recovery' | 'fitness' | 'coach'>('activities');
   
   // Garmin Connect state
   const [isGarminSyncOpen, setIsGarminSyncOpen] = useState(false);
@@ -731,11 +732,11 @@ export default function App() {
       if (!container) return;
       const width = Math.min(container.clientWidth, typeof window !== 'undefined' ? window.innerWidth : container.clientWidth);
       let targetLevel = 0;
-      if (width < 480) {
+      if (width < 540) {
         targetLevel = 3;
-      } else if (width < 580) {
+      } else if (width < 640) {
         targetLevel = 2;
-      } else if (width < 700) {
+      } else if (width < 760) {
         targetLevel = 1;
       }
 
@@ -903,7 +904,7 @@ export default function App() {
               type="button"
               onClick={() => setActiveMainTab('fitness')}
               style={{ flexGrow: 1, flexShrink: 0 }}
-              className={`${buttonPaddingClass} grow shrink-0 text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+              className={`${buttonPaddingClass} grow shrink-0 text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer border-r border-slate-700 dark:border-slate-800 ${
                 activeMainTab === 'fitness'
                   ? theme === 'light'
                     ? 'bg-white text-slate-900 shadow-xs'
@@ -924,6 +925,33 @@ export default function App() {
                 title="Triathlon Fitness Index"
               >
                 {headerFitnessIndex}
+              </span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setActiveMainTab('coach')}
+              style={{ flexGrow: 1, flexShrink: 0 }}
+              className={`${buttonPaddingClass} grow shrink-0 text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+                activeMainTab === 'coach'
+                  ? theme === 'light'
+                    ? 'bg-white text-slate-900 shadow-xs'
+                    : 'bg-slate-800 text-white'
+                  : theme === 'light'
+                  ? 'bg-[#f0f0f0] hover:bg-slate-200 text-slate-700 hover:text-slate-900'
+                  : 'bg-slate-900 hover:bg-slate-800 text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              {showTabIcons && <Sparkles className="w-3.5 h-3.5 text-emerald-400 shrink-0" />}
+              <span>Coach</span>
+              <span
+                className={`text-[9px] uppercase tracking-wider font-extrabold px-1.5 py-0.2 rounded-md ${
+                  theme === 'light'
+                    ? 'bg-emerald-100 text-emerald-700'
+                    : 'bg-emerald-950/70 text-emerald-300 border border-emerald-700/40'
+                }`}
+              >
+                AI
               </span>
             </button>
           </div>
@@ -1120,7 +1148,7 @@ export default function App() {
               setIsAthleteProfileOpen(true);
             }}
           />
-        ) : (
+        ) : activeMainTab === 'fitness' ? (
           <FitnessTab
             activities={stravaActivities}
             activityDetails={stravaActivityDetails}
@@ -1134,6 +1162,19 @@ export default function App() {
               setIsAthleteProfileOpen(true);
             }}
             onDeleteActivity={handleDeleteActivity}
+          />
+        ) : (
+          <CoachTab
+            theme={theme}
+            athleteProfile={athleteProfile}
+            athleteGoals={athleteGoals}
+            stravaActivities={stravaActivities}
+            stravaActivityDetails={stravaActivityDetails}
+            recoveryLogs={recoveryLogs}
+            onOpenSettings={(tab) => {
+              setProfileModalTab(tab || 'physiology');
+              setIsAthleteProfileOpen(true);
+            }}
           />
         )}
       </main>
