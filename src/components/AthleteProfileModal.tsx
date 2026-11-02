@@ -51,6 +51,7 @@ import {
   parseMinSecToSeconds,
   calculateCss,
   getAthleteHeartRateZones,
+  getAthletePowerZones,
   getAthletePaceZones,
   calculateAgeFromBirthDate,
   DEFAULT_INJURIES,
@@ -88,7 +89,6 @@ export type ProfileTab =
   | 'swimming'
   | 'cycling'
   | 'running'
-  | 'zones'
   | 'goals'
   | 'garmin_health';
 
@@ -324,6 +324,124 @@ export const AthleteProfileModal: React.FC<AthleteProfileModalProps> = ({
     })));
   };
 
+  // Running HR Zones state
+  const [hrZonesRunState, setHrZonesRunState] = useState<Array<{
+    zone: number;
+    name: string;
+    minHrStr: string;
+    maxHrStr: string;
+    color: string;
+    description: string;
+  }>>(() => {
+    const base = getAthleteHeartRateZones(profile, 'run');
+    return base.map((z) => {
+      const custom = profile.customHrZonesRun?.[z.zone];
+      return {
+        zone: z.zone,
+        name: z.name,
+        minHrStr: String(custom ? custom.minHr : z.minHr),
+        maxHrStr: String(custom ? custom.maxHr : z.maxHr),
+        color: z.color,
+        description: z.description,
+      };
+    });
+  });
+
+  const handleResetHrZonesRun = () => {
+    const tempProf: AthleteProfile = {
+      ...profile,
+      maxHeartRate,
+      restingHeartRate,
+      thresholdHeartRateRun,
+    };
+    const base = getAthleteHeartRateZones(tempProf, 'run');
+    setHrZonesRunState(base.map((z) => ({
+      zone: z.zone,
+      name: z.name,
+      minHrStr: String(z.minHr),
+      maxHrStr: String(z.maxHr),
+      color: z.color,
+      description: z.description,
+    })));
+  };
+
+  const handleUpdateHrZoneRun = (zoneNumber: number, field: 'minHrStr' | 'maxHrStr', value: string) => {
+    setHrZonesRunState((prev) =>
+      prev.map((z) => (z.zone === zoneNumber ? { ...z, [field]: value } : z))
+    );
+  };
+
+  const isRunHrCustom = useMemo(() => {
+    const tempProf: AthleteProfile = {
+      ...profile,
+      maxHeartRate,
+      restingHeartRate,
+      thresholdHeartRateRun,
+    };
+    const defaultZones = getAthleteHeartRateZones(tempProf, 'run');
+    return hrZonesRunState.some((z, idx) => {
+      const def = defaultZones[idx];
+      return Number(z.minHrStr) !== def.minHr || Number(z.maxHrStr) !== def.maxHr;
+    });
+  }, [hrZonesRunState, profile, maxHeartRate, restingHeartRate, thresholdHeartRateRun]);
+
+  // Cycling Power Zones state
+  const [powerZonesState, setPowerZonesState] = useState<Array<{
+    zone: number;
+    name: string;
+    minWattsStr: string;
+    maxWattsStr: string;
+    color: string;
+    description: string;
+  }>>(() => {
+    const base = getAthletePowerZones(profile);
+    return base.map((z) => {
+      const custom = profile.customPowerZones?.[z.zone];
+      return {
+        zone: z.zone,
+        name: z.name,
+        minWattsStr: String(custom ? custom.minWatts : z.minWatts),
+        maxWattsStr: String(custom ? custom.maxWatts : z.maxWatts),
+        color: z.color,
+        description: z.description,
+      };
+    });
+  });
+
+  const handleResetPowerZones = () => {
+    const tempProf: AthleteProfile = {
+      ...profile,
+      bikeFtp,
+    };
+    const base = getAthletePowerZones(tempProf);
+    setPowerZonesState(base.map((z) => ({
+      zone: z.zone,
+      name: z.name,
+      minWattsStr: String(z.minWatts),
+      maxWattsStr: String(z.maxWatts),
+      color: z.color,
+      description: z.description,
+    })));
+  };
+
+  const handleUpdatePowerZone = (zoneNumber: number, field: 'minWattsStr' | 'maxWattsStr', value: string) => {
+    setPowerZonesState((prev) =>
+      prev.map((z) => (z.zone === zoneNumber ? { ...z, [field]: value } : z))
+    );
+  };
+
+  const isPowerCustom = useMemo(() => {
+    const tempProf: AthleteProfile = {
+      ...profile,
+      bikeFtp,
+    };
+    const defaultZones = getAthletePowerZones(tempProf);
+    return powerZonesState.some((z, idx) => {
+      const def = defaultZones[idx];
+      return Number(z.minWattsStr) !== def.minWatts || Number(z.maxWattsStr) !== def.maxWatts;
+    });
+  }, [powerZonesState, profile, bikeFtp]);
+
   const handleUpdatePaceZone = (zoneNumber: number, field: 'minPaceStr' | 'maxPaceStr', value: string) => {
     setPaceZonesState((prev) =>
       prev.map((z) => (z.zone === zoneNumber ? { ...z, [field]: value } : z))
@@ -367,7 +485,6 @@ export const AthleteProfileModal: React.FC<AthleteProfileModalProps> = ({
     swimming: null,
     cycling: null,
     running: null,
-    zones: null,
     goals: null,
     garmin_health: null,
   });
@@ -789,6 +906,26 @@ export const AthleteProfileModal: React.FC<AthleteProfileModalProps> = ({
     initialGoalsSnapshot,
   ]);
 
+  const customHrZonesRunToSave = useMemo(() => {
+    const res: Record<number, { minHr: number; maxHr: number; rangeFormatted: string }> = {};
+    hrZonesRunState.forEach((z) => {
+      const min = Number(z.minHrStr) || 0;
+      const max = Number(z.maxHrStr) || 0;
+      res[z.zone] = { minHr: min, maxHr: max, rangeFormatted: `${min} - ${max} bpm` };
+    });
+    return res;
+  }, [hrZonesRunState]);
+
+  const customPowerZonesToSave = useMemo(() => {
+    const res: Record<number, { minWatts: number; maxWatts: number; rangeFormatted: string }> = {};
+    powerZonesState.forEach((z) => {
+      const min = Number(z.minWattsStr) || 0;
+      const max = Number(z.maxWattsStr) || 0;
+      res[z.zone] = { minWatts: min, maxWatts: max, rangeFormatted: `${min} - ${max}W` };
+    });
+    return res;
+  }, [powerZonesState]);
+
   if (!isOpen) return null;
 
   // Live CSS calculation
@@ -817,6 +954,8 @@ export const AthleteProfileModal: React.FC<AthleteProfileModalProps> = ({
     swimPoolPace100mSec: parseMinSecToSeconds(swimPoolPaceStr, 90),
     swimOpenWaterPace100mSec: parseMinSecToSeconds(swimOpenWaterPaceStr, 98),
     swimTssMode,
+    customHrZonesRun: customHrZonesRunToSave,
+    customPowerZones: customPowerZonesToSave,
     injuries,
     weeklyAvailability,
   };
@@ -859,6 +998,8 @@ export const AthleteProfileModal: React.FC<AthleteProfileModalProps> = ({
       swimOpenWaterPace100mSec: parseMinSecToSeconds(swimOpenWaterPaceStr, 98),
       swimTssMode,
       customPaceZones: customPaceZonesToSave,
+      customHrZonesRun: customHrZonesRunToSave,
+      customPowerZones: customPowerZonesToSave,
 
       injuries,
       weeklyAvailability,
@@ -895,6 +1036,8 @@ export const AthleteProfileModal: React.FC<AthleteProfileModalProps> = ({
     setSwimOpenWaterPaceStr('1:38');
     setSwimTssMode('sTSS');
     handleResetPaceZones();
+    handleResetHrZonesRun();
+    handleResetPowerZones();
     setInjuries(DEFAULT_INJURIES);
     setWeeklyAvailability(DEFAULT_WEEKLY_AVAILABILITY);
     onResetDefaults();
@@ -1078,24 +1221,7 @@ export const AthleteProfileModal: React.FC<AthleteProfileModalProps> = ({
               <span>Run</span>
             </button>
 
-            {/* Tab 5: Zones */}
-            <button
-              ref={(el) => {
-                tabButtonRefs.current.zones = el;
-              }}
-              type="button"
-              onClick={() => handleSelectTab('zones')}
-              className={`px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer whitespace-nowrap shrink-0 ${
-                activeTab === 'zones'
-                  ? 'bg-amber-500 text-slate-950 font-black shadow-sm border-2 border-slate-400 dark:border-slate-500'
-                  : theme === 'light'
-                  ? 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
-                  : 'text-slate-400 hover:text-white hover:bg-slate-800'
-              }`}
-            >
-              <Activity className="w-3.5 h-3.5 text-emerald-400" />
-              <span>Zones</span>
-            </button>
+
 
             {/* Tab 6: Goals */}
             <button
@@ -3093,43 +3219,72 @@ export const AthleteProfileModal: React.FC<AthleteProfileModalProps> = ({
                 </div>
               </div>
 
-              {/* Cycling Power Zones (Coggan 7-Zone) */}
+              {/* Cycling Power Zones */}
               <div className="p-3.5 rounded-2xl bg-slate-950 border border-slate-800 space-y-2.5">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
                     <Bike className="w-4 h-4 text-orange-400" />
-                    <span className="text-xs font-bold text-white uppercase tracking-wider">
-                      Cycling Power Zones (FTP {bikeFtp}W)
-                    </span>
+                    <div>
+                      <span className="text-xs font-bold text-white uppercase tracking-wider block">
+                        Cycling Power Zones ({isPowerCustom ? 'Custom Model' : `Coggan Model (FTP ${bikeFtp}W)`})
+                      </span>
+                      <span className="text-[10px] text-slate-400 font-mono">
+                        FTP: {bikeFtp}W
+                      </span>
+                    </div>
                   </div>
-                  <span className="text-[10px] text-slate-500 font-mono">Coggan Model</span>
+                  <button
+                    type="button"
+                    onClick={handleResetPowerZones}
+                    className="px-2.5 py-1 rounded-xl text-[11px] font-bold bg-slate-800 hover:bg-slate-700 active:scale-95 text-slate-300 hover:text-white border border-slate-700 transition-all flex items-center gap-1.5 cursor-pointer shadow-xs"
+                    title="Reset Cycling Power Zones to default Coggan model"
+                  >
+                    <RotateCcw className="w-3 h-3 text-orange-400" />
+                    <span>Reset Model</span>
+                  </button>
                 </div>
 
-                <div className="grid grid-cols-2 gap-2 text-xs">
-                  <div className="p-2 rounded-xl bg-slate-900/60 border border-slate-800">
-                    <span className="text-[10px] text-slate-500 block">Z1 Active Recovery</span>
-                    <span className="font-bold font-mono text-slate-200">&lt; {Math.round(bikeFtp * 0.55)}W</span>
-                  </div>
-                  <div className="p-2 rounded-xl bg-slate-900/60 border border-slate-800">
-                    <span className="text-[10px] text-slate-500 block">Z2 Endurance</span>
-                    <span className="font-bold font-mono text-slate-200">{Math.round(bikeFtp * 0.55)} - {Math.round(bikeFtp * 0.75)}W</span>
-                  </div>
-                  <div className="p-2 rounded-xl bg-slate-900/60 border border-slate-800">
-                    <span className="text-[10px] text-slate-500 block">Z3 Tempo</span>
-                    <span className="font-bold font-mono text-slate-200">{Math.round(bikeFtp * 0.76)} - {Math.round(bikeFtp * 0.90)}W</span>
-                  </div>
-                  <div className="p-2 rounded-xl bg-slate-900/60 border border-slate-800">
-                    <span className="text-[10px] text-slate-500 block">Z4 Threshold (FTP)</span>
-                    <span className="font-bold font-mono text-amber-400">{Math.round(bikeFtp * 0.91)} - {Math.round(bikeFtp * 1.05)}W</span>
-                  </div>
-                  <div className="p-2 rounded-xl bg-slate-900/60 border border-slate-800">
-                    <span className="text-[10px] text-slate-500 block">Z5 VO2 Max</span>
-                    <span className="font-bold font-mono text-orange-400">{Math.round(bikeFtp * 1.06)} - {Math.round(bikeFtp * 1.20)}W</span>
-                  </div>
-                  <div className="p-2 rounded-xl bg-slate-900/60 border border-slate-800">
-                    <span className="text-[10px] text-slate-500 block">Z6 Anaerobic</span>
-                    <span className="font-bold font-mono text-rose-400">&gt; {Math.round(bikeFtp * 1.20)}W</span>
-                  </div>
+                <div className="space-y-1.5 pt-1">
+                  {powerZonesState.map((z) => (
+                    <div
+                      key={z.zone}
+                      className="p-2.5 rounded-xl bg-slate-900/80 border border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs"
+                    >
+                      <div className="flex items-center gap-2.5 min-w-0">
+                        <span
+                          style={{ backgroundColor: z.color }}
+                          className="w-6 h-6 rounded-lg text-slate-950 font-black text-xs flex items-center justify-center shrink-0"
+                        >
+                          Z{z.zone}
+                        </span>
+                        <div className="min-w-0">
+                          <span className="font-bold text-white mr-1.5">{z.name}</span>
+                          <span className="text-[10px] text-slate-400 font-mono block sm:inline truncate">
+                            {z.description}
+                          </span>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-1.5 shrink-0 self-end sm:self-auto font-mono">
+                        <span className="text-[10px] text-slate-500 uppercase">Min:</span>
+                        <input
+                          type="number"
+                          value={z.minWattsStr}
+                          onChange={(e) => handleUpdatePowerZone(z.zone, 'minWattsStr', e.target.value)}
+                          className="w-16 bg-slate-950 border border-slate-700 rounded-lg px-1.5 py-1 text-xs font-bold text-white text-center focus:outline-none focus:border-orange-400"
+                        />
+                        <span className="text-slate-500 text-xs">to</span>
+                        <span className="text-[10px] text-slate-500 uppercase">Max:</span>
+                        <input
+                          type="number"
+                          value={z.maxWattsStr}
+                          onChange={(e) => handleUpdatePowerZone(z.zone, 'maxWattsStr', e.target.value)}
+                          className="w-16 bg-slate-950 border border-slate-700 rounded-lg px-1.5 py-1 text-xs font-bold text-white text-center focus:outline-none focus:border-orange-400"
+                        />
+                        <span className="text-slate-400 text-xs font-mono ml-0.5">W</span>
+                      </div>
+                    </div>
+                  ))}
                 </div>
               </div>
             </div>
@@ -3209,39 +3364,69 @@ export const AthleteProfileModal: React.FC<AthleteProfileModalProps> = ({
                 </span>
               </div>
 
-              {/* Running HR Zones (Karvonen) */}
+              {/* Running HR Zones (Joe Friel LTHR) */}
               <div className="p-3.5 rounded-2xl bg-slate-950 border border-slate-800 space-y-2.5">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
                     <Footprints className="w-4 h-4 text-amber-400" />
-                    <span className="text-xs font-bold text-white uppercase tracking-wider">
-                      Running HR Zones (Karvonen)
-                    </span>
+                    <div>
+                      <span className="text-xs font-bold text-white uppercase tracking-wider block">
+                        Running HR Zones ({isRunHrCustom ? 'Custom Model' : 'Joe Friel Model'})
+                      </span>
+                      <span className="text-[10px] text-slate-400 font-mono">
+                        LTHR: {thresholdHeartRateRun} bpm
+                      </span>
+                    </div>
                   </div>
-                  <span className="text-[10px] text-slate-500 font-mono">Max {maxHeartRate} bpm</span>
+                  <button
+                    type="button"
+                    onClick={handleResetHrZonesRun}
+                    className="px-2.5 py-1 rounded-xl text-[11px] font-bold bg-slate-800 hover:bg-slate-700 active:scale-95 text-slate-300 hover:text-white border border-slate-700 transition-all flex items-center gap-1.5 cursor-pointer shadow-xs"
+                    title="Reset Running HR Zones to default Joe Friel model"
+                  >
+                    <RotateCcw className="w-3 h-3 text-amber-400" />
+                    <span>Reset Model</span>
+                  </button>
                 </div>
 
-                <div className="space-y-1.5">
-                  {previewRunZones.map((z) => (
+                <div className="space-y-1.5 pt-1">
+                  {hrZonesRunState.map((z) => (
                     <div
                       key={z.zone}
-                      className="p-2 rounded-xl bg-slate-900/80 border border-slate-800 flex items-center justify-between text-xs"
+                      className="p-2.5 rounded-xl bg-slate-900/80 border border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs"
                     >
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-2.5 min-w-0">
                         <span
                           style={{ backgroundColor: z.color }}
                           className="w-6 h-6 rounded-lg text-slate-950 font-black text-xs flex items-center justify-center shrink-0"
                         >
                           Z{z.zone}
                         </span>
-                        <div>
+                        <div className="min-w-0">
                           <span className="font-bold text-white mr-1.5">{z.name}</span>
-                          <span className="text-[10px] text-slate-400 font-mono">{z.description}</span>
+                          <span className="text-[10px] text-slate-400 font-mono block sm:inline truncate">
+                            {z.description}
+                          </span>
                         </div>
                       </div>
 
-                      <div className="text-right font-mono font-bold text-slate-200">
-                        <span>{z.minHr} - {z.maxHr} bpm</span>
+                      <div className="flex items-center gap-1.5 shrink-0 self-end sm:self-auto font-mono">
+                        <span className="text-[10px] text-slate-500 uppercase">Min:</span>
+                        <input
+                          type="number"
+                          value={z.minHrStr}
+                          onChange={(e) => handleUpdateHrZoneRun(z.zone, 'minHrStr', e.target.value)}
+                          className="w-16 bg-slate-950 border border-slate-700 rounded-lg px-1.5 py-1 text-xs font-bold text-white text-center focus:outline-none focus:border-amber-400"
+                        />
+                        <span className="text-slate-500 text-xs">to</span>
+                        <span className="text-[10px] text-slate-500 uppercase">Max:</span>
+                        <input
+                          type="number"
+                          value={z.maxHrStr}
+                          onChange={(e) => handleUpdateHrZoneRun(z.zone, 'maxHrStr', e.target.value)}
+                          className="w-16 bg-slate-950 border border-slate-700 rounded-lg px-1.5 py-1 text-xs font-bold text-white text-center focus:outline-none focus:border-amber-400"
+                        />
+                        <span className="text-slate-400 text-xs font-mono ml-0.5">bpm</span>
                       </div>
                     </div>
                   ))}
@@ -3325,95 +3510,7 @@ export const AthleteProfileModal: React.FC<AthleteProfileModalProps> = ({
             </div>
           )}
 
-          {/* TAB 5: ZONES OVERVIEW */}
-          {activeTab === 'zones' && (
-            <div className="space-y-4">
-              <div className="p-3 rounded-2xl bg-slate-950/80 border border-slate-800 text-xs text-slate-300 flex items-start gap-2.5">
-                <Sparkles className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
-                <p>
-                  Cross-discipline training zone matrix. Dynamic heart rate zones are calculated using the <strong>Karvonen Formula</strong> based on your Max HR ({maxHeartRate} bpm) and Resting HR ({restingHeartRate} bpm).
-                </p>
-              </div>
 
-              {/* Heart Rate Reserve Summary */}
-              <div className="p-3.5 rounded-2xl bg-slate-950 border border-slate-800 space-y-2">
-                <div className="flex items-center justify-between">
-                  <span className="text-xs font-bold text-emerald-400 uppercase tracking-wider">
-                    Heart Rate Reserve (HRR)
-                  </span>
-                  <span className="text-xs font-mono font-bold text-white">
-                    {maxHeartRate - restingHeartRate} bpm Reserve
-                  </span>
-                </div>
-                <div className="grid grid-cols-3 gap-2 text-center text-xs">
-                  <div className="p-2 rounded-xl bg-slate-900/60 border border-slate-800">
-                    <span className="text-[10px] text-slate-500 block">Resting HR</span>
-                    <span className="font-bold font-mono text-emerald-400">{restingHeartRate} bpm</span>
-                  </div>
-                  <div className="p-2 rounded-xl bg-slate-900/60 border border-slate-800">
-                    <span className="text-[10px] text-slate-500 block">Max HR</span>
-                    <span className="font-bold font-mono text-rose-400">{maxHeartRate} bpm</span>
-                  </div>
-                  <div className="p-2 rounded-xl bg-slate-900/60 border border-slate-800">
-                    <span className="text-[10px] text-slate-500 block">Run LTHR</span>
-                    <span className="font-bold font-mono text-amber-400">{thresholdHeartRateRun} bpm</span>
-                  </div>
-                </div>
-              </div>
-
-              {/* Navigation Callout */}
-              <div className="p-3.5 rounded-2xl bg-slate-900/60 border border-slate-800 text-xs text-slate-300 space-y-2">
-                <div className="flex items-center gap-2 text-amber-400 font-bold">
-                  <Info className="w-4 h-4" />
-                  <span>Sport-Specific Zone Editors</span>
-                </div>
-                <p className="text-[11px] text-slate-400 leading-relaxed">
-                  To view and customize individual sport zones:
-                </p>
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 pt-1">
-                  <button
-                    type="button"
-                    onClick={() => setActiveTab('running')}
-                    className="p-2.5 rounded-xl bg-slate-950 border border-slate-800 hover:border-amber-500/50 text-left transition-colors cursor-pointer"
-                  >
-                    <div className="flex items-center gap-1.5 text-amber-400 font-bold text-xs">
-                      <Footprints className="w-3.5 h-3.5" />
-                      <span>Run Tab</span>
-                    </div>
-                    <span className="text-[10px] text-slate-500 block mt-1">
-                      Running HR Zones &amp; Pace Zones
-                    </span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setActiveTab('cycling')}
-                    className="p-2.5 rounded-xl bg-slate-950 border border-slate-800 hover:border-orange-500/50 text-left transition-colors cursor-pointer"
-                  >
-                    <div className="flex items-center gap-1.5 text-orange-400 font-bold text-xs">
-                      <Bike className="w-3.5 h-3.5" />
-                      <span>Bike Tab</span>
-                    </div>
-                    <span className="text-[10px] text-slate-500 block mt-1">
-                      Coggan Power Zones (FTP {bikeFtp}W)
-                    </span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setActiveTab('swimming')}
-                    className="p-2.5 rounded-xl bg-slate-950 border border-slate-800 hover:border-sky-500/50 text-left transition-colors cursor-pointer"
-                  >
-                    <div className="flex items-center gap-1.5 text-sky-400 font-bold text-xs">
-                      <Waves className="w-3.5 h-3.5" />
-                      <span>Swim Tab</span>
-                    </div>
-                    <span className="text-[10px] text-slate-500 block mt-1">
-                      Pool &amp; Open Water CSS Paces
-                    </span>
-                  </button>
-                </div>
-              </div>
-            </div>
-          )}
 
           {/* ========================================================= */}
           {/* TAB 6: GOALS */}

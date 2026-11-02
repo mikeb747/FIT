@@ -39,6 +39,8 @@ export interface AthleteProfile {
 
   // Running Pace Zones (Customized or Derived from Threshold)
   customPaceZones?: Record<number, { minPaceSec: number; maxPaceSec: number; rangeFormatted?: string }>;
+  customHrZonesRun?: Record<number, { minHr: number; maxHr: number; rangeFormatted?: string }>;
+  customPowerZones?: Record<number, { minWatts: number; maxWatts: number; rangeFormatted?: string }>;
 
   // Active Injuries & Physical Limitations
   injuries?: AthleteInjury[];
@@ -372,7 +374,7 @@ export function getAthleteHeartRateZones(profile: AthleteProfile, sport: 'run' |
     : profile.thresholdHeartRateRun || Math.round(maxHr * 0.90);
 
   // Friel / Coggan 5-Zone model anchored on Lactate Threshold Heart Rate
-  return [
+  const defaultZones: HeartRateZone[] = [
     {
       zone: 1,
       name: 'Recovery',
@@ -414,6 +416,22 @@ export function getAthleteHeartRateZones(profile: AthleteProfile, sport: 'run' |
       description: 'Above threshold, anaerobic capacity and neuromuscular power',
     },
   ];
+
+  if (sport === 'run' && profile.customHrZonesRun) {
+    return defaultZones.map((z) => {
+      const custom = profile.customHrZonesRun?.[z.zone];
+      if (custom) {
+        return {
+          ...z,
+          minHr: custom.minHr,
+          maxHr: custom.maxHr,
+        };
+      }
+      return z;
+    });
+  }
+
+  return defaultZones;
 }
 
 // --------------------------------------------------------------------------
@@ -532,7 +550,7 @@ export function getAthletePowerZones(profile: AthleteProfile): PowerZone[] {
   const z5Max = Math.round(ftp * 1.20);
   const z6Max = Math.round(ftp * 1.50);
 
-  return [
+  const defaultZones: PowerZone[] = [
     {
       zone: 1,
       name: 'Active Recovery',
@@ -597,6 +615,23 @@ export function getAthletePowerZones(profile: AthleteProfile): PowerZone[] {
       description: 'Maximal sprint surges < 30s',
     },
   ];
+
+  if (profile.customPowerZones) {
+    return defaultZones.map((z) => {
+      const custom = profile.customPowerZones?.[z.zone];
+      if (custom) {
+        return {
+          ...z,
+          minWatts: custom.minWatts,
+          maxWatts: custom.maxWatts,
+          rangeFormatted: z.zone === 7 ? `>${custom.minWatts}W` : z.zone === 1 ? `<${custom.maxWatts}W` : `${custom.minWatts} - ${custom.maxWatts}W`,
+        };
+      }
+      return z;
+    });
+  }
+
+  return defaultZones;
 }
 
 // --------------------------------------------------------------------------

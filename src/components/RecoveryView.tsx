@@ -50,7 +50,7 @@ interface RecoveryViewProps {
   onDeleteLog: (id: string) => void;
   onImportLogs: (logs: DailyRecoveryLog[]) => void;
   onResetDefaults: () => void;
-  onOpenAthleteSettings?: (tab?: 'settings' | 'physiology' | 'swimming' | 'cycling' | 'running' | 'zones' | 'goals' | 'garmin_health') => void;
+  onOpenAthleteSettings?: (tab?: 'settings' | 'physiology' | 'swimming' | 'cycling' | 'running' | 'goals' | 'garmin_health') => void;
   theme?: 'light' | 'dark';
   isGarminConnected?: boolean;
   garminEmail?: string | null;
