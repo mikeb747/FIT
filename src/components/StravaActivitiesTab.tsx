@@ -36,6 +36,7 @@ import type { AthleteProfile } from '../types/athlete';
 import { StravaActivityModal } from './StravaActivityModal';
 import { PWAInstallButton } from './PWAInstallButton';
 import { batchBackupActivitiesToGoogleSheet } from '../utils/googleSheets';
+import { isDemoModeActive } from '../utils/demoData';
 
 interface StravaActivitiesTabProps {
   stravaToken: string | null;
@@ -153,7 +154,7 @@ export const StravaActivitiesTab: React.FC<StravaActivitiesTabProps> = ({
     return counts;
   }, [activities]);
 
-  if (!stravaToken) {
+  if (!stravaToken && !isDemoModeActive() && activities.length === 0) {
     return (
       <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 sm:p-8 text-center flex flex-col items-center max-w-lg mx-auto shadow-xl my-4">
         <div className="w-16 h-16 rounded-3xl bg-[#FC5200]/15 border border-[#FC5200]/30 flex items-center justify-center mb-4 shadow-inner">
@@ -198,7 +199,7 @@ export const StravaActivitiesTab: React.FC<StravaActivitiesTabProps> = ({
       {/* CATEGORY FILTER TABS: All, Swim, Bike, Run, Gym (EXACT ORDER) */}
       {/* ========================================================= */}
       <div className="w-full">
-        <div className="w-full flex items-center gap-1.5 sm:gap-2 overflow-x-auto scrollbar-none py-0.5">
+        <div className="w-full flex items-center gap-1 overflow-x-auto scrollbar-none py-0.5">
           {(['All', 'Swim', 'Bike', 'Run', 'Gym'] as const).map((cat) => {
             const count = categoryCounts[cat] || 0;
             const isActive = selectedCategory === cat;
@@ -207,13 +208,13 @@ export const StravaActivitiesTab: React.FC<StravaActivitiesTabProps> = ({
                 key={cat}
                 type="button"
                 onClick={() => setSelectedCategory(cat)}
-                className={`flex-1 min-w-[65px] sm:min-w-0 px-2 sm:px-4 py-2 text-xs font-bold whitespace-nowrap flex items-center justify-center gap-1 sm:gap-1.5 rounded-xl transition-all cursor-pointer ${
+                className={`flex-1 min-w-[60px] sm:min-w-0 px-1.5 sm:px-3 py-1.5 text-xs font-bold whitespace-nowrap flex items-center justify-center gap-1 rounded-xl transition-all cursor-pointer ${
                   isActive
                     ? isLight
-                      ? 'bg-amber-500 text-white font-black border-2 border-slate-400 shadow-sm'
-                      : 'bg-amber-500 text-slate-950 font-black border-2 border-slate-400 shadow-sm'
+                      ? 'bg-amber-500 text-white font-black border-[1.2px] border-[#90a1b9] shadow-sm'
+                      : 'bg-amber-500 text-slate-950 font-black border-[1.2px] border-[#90a1b9] shadow-sm'
                     : isLight
-                    ? 'bg-white hover:bg-slate-50 text-slate-700 hover:text-slate-900 border border-slate-200 shadow-xs'
+                    ? 'bg-[#f0f0f0] hover:bg-slate-200 text-slate-700 hover:text-slate-900 border border-slate-200/60 shadow-xs'
                     : 'bg-slate-900 hover:bg-slate-850 text-slate-300 hover:text-white border border-slate-800'
                 }`}
               >

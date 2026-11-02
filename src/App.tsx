@@ -752,26 +752,26 @@ export default function App() {
       {/* Top Application Bar */}
       {/* ========================================================= */}
       <header
-        className={`sticky top-0 z-40 backdrop-blur-md border-b px-4 py-2.5 transition-colors ${
+        className={`sticky top-0 z-40 backdrop-blur-md border-b px-[3px] sm:px-4 py-2 transition-colors overflow-x-auto scrollbar-none ${
           theme === 'light'
             ? 'bg-white/90 border-slate-200/80 shadow-xs'
             : 'bg-[#090A0F]/90 border-slate-800/80'
         }`}
       >
-        <div className="max-w-5xl xl:max-w-6xl mx-auto flex items-center justify-between gap-3">
+        <div className="max-w-5xl xl:max-w-6xl mx-auto flex items-center justify-between gap-2 overflow-x-auto scrollbar-none whitespace-nowrap">
           {/* Navigation Switcher */}
-          <div className="flex items-center gap-1.5 p-0.5">
+          <div className="flex items-center gap-1 p-0.5 overflow-x-auto scrollbar-none whitespace-nowrap">
             <button
               type="button"
               onClick={() => setActiveMainTab('activities')}
               className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer ${
                 activeMainTab === 'activities'
                   ? theme === 'light'
-                    ? 'bg-white text-slate-900 shadow-xs border-2 border-slate-400'
-                    : 'bg-slate-800 text-white shadow-sm border-2 border-slate-500'
+                    ? 'bg-white text-slate-900 shadow-xs border-[1.2px] border-[#90a1b9]'
+                    : 'bg-slate-800 text-white shadow-sm border-[1.2px] border-[#90a1b9]'
                   : theme === 'light'
-                  ? 'text-slate-600 hover:text-slate-900 hover:bg-slate-100/70 border border-transparent'
-                  : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/50 border border-transparent'
+                  ? 'bg-[#f0f0f0] hover:bg-slate-200 text-slate-700 hover:text-slate-900 border border-slate-200/60'
+                  : 'bg-slate-900 hover:bg-slate-800 text-slate-400 hover:text-slate-200 border border-slate-800'
               }`}
             >
               <Activity className="w-3.5 h-3.5 text-orange-400" />
@@ -795,11 +795,11 @@ export default function App() {
               className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer ${
                 activeMainTab === 'recovery'
                   ? theme === 'light'
-                    ? 'bg-white text-slate-900 shadow-xs border-2 border-slate-400'
-                    : 'bg-slate-800 text-white shadow-sm border-2 border-slate-500'
+                    ? 'bg-white text-slate-900 shadow-xs border-[1.2px] border-[#90a1b9]'
+                    : 'bg-slate-800 text-white shadow-sm border-[1.2px] border-[#90a1b9]'
                   : theme === 'light'
-                  ? 'text-slate-600 hover:text-slate-900 hover:bg-slate-100/70 border border-transparent'
-                  : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/50 border border-transparent'
+                  ? 'bg-[#f0f0f0] hover:bg-slate-200 text-slate-700 hover:text-slate-900 border border-slate-200/60'
+                  : 'bg-slate-900 hover:bg-slate-800 text-slate-400 hover:text-slate-200 border border-slate-800'
               }`}
             >
               <Heart className="w-3.5 h-3.5 text-rose-500" />
@@ -819,11 +819,11 @@ export default function App() {
               className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer ${
                 activeMainTab === 'fitness'
                   ? theme === 'light'
-                    ? 'bg-white text-slate-900 shadow-xs border-2 border-slate-400'
-                    : 'bg-slate-800 text-white shadow-sm border-2 border-slate-500'
+                    ? 'bg-white text-slate-900 shadow-xs border-[1.2px] border-[#90a1b9]'
+                    : 'bg-slate-800 text-white shadow-sm border-[1.2px] border-[#90a1b9]'
                   : theme === 'light'
-                  ? 'text-slate-600 hover:text-slate-900 hover:bg-slate-100/70 border border-transparent'
-                  : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/50 border border-transparent'
+                  ? 'bg-[#f0f0f0] hover:bg-slate-200 text-slate-700 hover:text-slate-900 border border-slate-200/60'
+                  : 'bg-slate-900 hover:bg-slate-800 text-slate-400 hover:text-slate-200 border border-slate-800'
               }`}
             >
               <Zap className="w-3.5 h-3.5 text-indigo-500" />
@@ -851,9 +851,9 @@ export default function App() {
                 setIsAthleteProfileOpen(true);
               }}
               title="Settings & Athlete Profile"
-              className={`h-8 px-2.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all active:scale-95 cursor-pointer border shadow-sm ${
+              className={`h-8 px-2.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all active:scale-95 cursor-pointer border shadow-sm shrink-0 ${
                 theme === 'light'
-                  ? 'bg-white hover:bg-slate-100 text-slate-700 hover:text-slate-900 border-slate-200'
+                  ? 'bg-[#f0f0f0] hover:bg-slate-200 text-slate-700 hover:text-slate-900 border-slate-200/60'
                   : 'bg-slate-900 hover:bg-slate-800 text-slate-300 hover:text-white border-slate-800'
               }`}
             >
@@ -873,9 +873,9 @@ export default function App() {
               }}
               disabled={isLoadingStravaActivities}
               title={stravaToken ? 'Sync Strava activities (smart delta sync)' : 'Connect Strava'}
-              className={`h-8 px-2.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all active:scale-95 cursor-pointer border shadow-sm disabled:opacity-50 ${
+              className={`h-8 px-2.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all active:scale-95 cursor-pointer border shadow-sm disabled:opacity-50 shrink-0 ${
                 theme === 'light'
-                  ? 'bg-white hover:bg-slate-100 text-slate-700 hover:text-slate-900 border-slate-200'
+                  ? 'bg-[#f0f0f0] hover:bg-slate-200 text-slate-700 hover:text-slate-900 border-slate-200/60'
                   : 'bg-slate-900 hover:bg-slate-800 text-slate-300 hover:text-white border-slate-800'
               }`}
             >
@@ -888,21 +888,6 @@ export default function App() {
                 {isLoadingStravaActivities ? 'Syncing...' : 'Sync'}
               </span>
             </button>
-
-            {/* Google Sheets Sync Status */}
-            {isGoogleConnected && (
-              <div
-                className={`hidden md:flex items-center gap-1.5 px-2.5 py-1 rounded-xl text-xs font-semibold border transition-all ${
-                  isSheetsSyncing
-                    ? 'bg-amber-500/10 border-amber-500/30 text-amber-300'
-                    : 'bg-emerald-500/10 border-emerald-500/25 text-emerald-400'
-                }`}
-                title="Google Sheets Sync Status"
-              >
-                <FileSpreadsheet className={`w-3.5 h-3.5 ${isSheetsSyncing ? 'animate-pulse' : ''}`} />
-                <span>{isSheetsSyncing ? 'Syncing Sheets...' : `Sheets: ${formatTimeAgo(sheetsLastSynced)}`}</span>
-              </div>
-            )}
           </div>
         </div>
       </header>
