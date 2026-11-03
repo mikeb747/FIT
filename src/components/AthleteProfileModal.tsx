@@ -35,6 +35,7 @@ import {
   FileSpreadsheet,
   Loader2,
   ExternalLink,
+  RefreshCw,
 } from 'lucide-react';
 import { batchBackupActivitiesToGoogleSheet, getCachedSpreadsheetId } from '../utils/googleSheets';
 import { getGoogleAccessToken, signInWithGoogle, initGoogleAuth } from '../utils/googleAuth';
@@ -729,28 +730,64 @@ export const AthleteProfileModal: React.FC<AthleteProfileModalProps> = ({
   const [isResolvingBikeNames, setIsResolvingBikeNames] = useState(false);
   const [editingBikeId, setEditingBikeId] = useState<string | null>(null);
   const [editingBikeName, setEditingBikeName] = useState('');
+  const [bikeResolveStatus, setBikeResolveStatus] = useState<string | null>(null);
 
-  // Strictly get bike names ONLY when user opens bike settings (activeTab === 'cycling') AND the name is missing
-  useEffect(() => {
-    if (!isOpen || activeTab !== 'cycling') return;
+  // In-component ref to track attempted gear IDs so missing/unresolvable IDs never cause an infinite flicker loop
+  const attemptedBikesRef = useRef<Set<string>>(new Set());
 
+  // Stringified list of gear IDs for stable dependency comparison
+  const gearIdsKey = useMemo(() => {
+    return detectedBikes.map((b) => b.gearId).sort().join(',');
+  }, [detectedBikes]);
+
+  const handleResolveBikes = useCallback(async (force = false) => {
     const gearIds = detectedBikes.map((b) => b.gearId);
     if (gearIds.length === 0) return;
 
     const currentCache = getCachedBikeNames();
-    const hasMissing = gearIds.some((id) => !currentCache[id] || currentCache[id].trim() === '');
+    const toResolve = force
+      ? gearIds
+      : gearIds.filter(
+          (id) =>
+            (!currentCache[id] || currentCache[id].trim() === '') &&
+            !attemptedBikesRef.current.has(id)
+        );
 
-    if (hasMissing && !isResolvingBikeNames) {
-      setIsResolvingBikeNames(true);
-      resolveMissingBikeNames(gearIds)
-        .then((resolved) => {
-          setCachedBikeNamesState({ ...resolved });
-        })
-        .finally(() => {
-          setIsResolvingBikeNames(false);
-        });
+    if (toResolve.length === 0) return;
+
+    // Immediately mark as attempted to block re-entrancy and prevent infinite loops
+    toResolve.forEach((id) => attemptedBikesRef.current.add(id));
+
+    setIsResolvingBikeNames(true);
+    try {
+      const updated = await resolveMissingBikeNames(toResolve, stravaToken, force);
+      setCachedBikeNamesState({ ...updated });
+
+      const newlyFound = toResolve.filter((id) => updated[id] && updated[id].trim() !== '');
+      if (force) {
+        if (newlyFound.length > 0) {
+          setBikeResolveStatus(`Synced ${newlyFound.length} bike ${newlyFound.length === 1 ? 'name' : 'names'} from Strava.`);
+        } else {
+          setBikeResolveStatus('No new bike names found on Strava.');
+        }
+        setTimeout(() => setBikeResolveStatus(null), 3500);
+      }
+    } catch (err) {
+      console.warn('Failed to resolve bike names from Strava:', err);
+      if (force) {
+        setBikeResolveStatus('Could not reach Strava to resolve bike names.');
+        setTimeout(() => setBikeResolveStatus(null), 3500);
+      }
+    } finally {
+      setIsResolvingBikeNames(false);
     }
-  }, [isOpen, activeTab, detectedBikes, isResolvingBikeNames]);
+  }, [detectedBikes, stravaToken]);
+
+  // Strictly attempt resolving ONCE when user opens cycling tab if there are unattempted missing bike names
+  useEffect(() => {
+    if (!isOpen || activeTab !== 'cycling') return;
+    handleResolveBikes(false);
+  }, [isOpen, activeTab, gearIdsKey, handleResolveBikes]);
 
   const numericDensity = typeof displayDensity === 'number'
     ? displayDensity
@@ -3095,18 +3132,40 @@ export const AthleteProfileModal: React.FC<AthleteProfileModalProps> = ({
 
                 {/* Per-Bike (Gear ID) Crank Lengths */}
                 <div className="space-y-2 pt-1">
-                  <div className="flex items-center justify-between">
-                    <span className="text-[11px] font-bold text-slate-300 uppercase flex items-center gap-2">
-                      <span>Individual Bikes (Gear IDs)</span>
+                  <div className="flex items-center justify-between flex-wrap gap-2">
+                    <div className="flex items-center gap-2">
+                      <span className="text-[11px] font-bold text-slate-300 uppercase">
+                        Individual Bikes (Gear IDs)
+                      </span>
                       {isResolvingBikeNames && (
-                        <span className="text-[10px] text-orange-400 font-normal lowercase animate-pulse">
-                          (resolving bike name from Strava...)
+                        <span className="text-[10px] text-orange-400 font-normal lowercase flex items-center gap-1">
+                          <RefreshCw className="w-2.5 h-2.5 animate-spin" />
+                          <span>resolving names from Strava...</span>
                         </span>
                       )}
-                    </span>
-                    <span className="text-[10px] text-slate-500">
-                      {detectedBikes.length} {detectedBikes.length === 1 ? 'bike' : 'bikes'} found
-                    </span>
+                      {bikeResolveStatus && !isResolvingBikeNames && (
+                        <span className="text-[10px] text-amber-300 font-medium">
+                          {bikeResolveStatus}
+                        </span>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-[10px] text-slate-500">
+                        {detectedBikes.length} {detectedBikes.length === 1 ? 'bike' : 'bikes'} found
+                      </span>
+                      {detectedBikes.length > 0 && (
+                        <button
+                          type="button"
+                          onClick={() => handleResolveBikes(true)}
+                          disabled={isResolvingBikeNames}
+                          className="px-2 py-0.5 rounded-lg bg-slate-800 hover:bg-slate-700 disabled:opacity-50 text-[10px] font-semibold text-orange-400 hover:text-orange-300 flex items-center gap-1 transition-all cursor-pointer border border-slate-700/80 active:scale-95"
+                          title="Query and update bike names from Strava"
+                        >
+                          <RefreshCw className={`w-2.5 h-2.5 ${isResolvingBikeNames ? 'animate-spin' : ''}`} />
+                          <span>{isResolvingBikeNames ? 'Syncing...' : 'Sync Names'}</span>
+                        </button>
+                      )}
+                    </div>
                   </div>
 
                   {detectedBikes.length === 0 ? (
@@ -3117,7 +3176,12 @@ export const AthleteProfileModal: React.FC<AthleteProfileModalProps> = ({
                     <div className="space-y-1.5">
                       {detectedBikes.map((bike) => {
                         const currentLen = bikeCrankLengths[bike.gearId] ?? bikeCrankLengthMm ?? 172.5;
-                        const bikeName = cachedBikeNames[bike.gearId] || (isResolvingBikeNames ? 'Resolving name...' : bike.gearId);
+                        const rawCached = cachedBikeNames[bike.gearId];
+                        const bikeName = rawCached && rawCached.trim() !== ''
+                          ? rawCached
+                          : isResolvingBikeNames
+                          ? 'Resolving name...'
+                          : `Bike (${bike.gearId})`;
                         const isEditingThis = editingBikeId === bike.gearId;
 
                         return (

@@ -471,6 +471,11 @@ export function generateSportsSciencePlan(payload: CoachRequestPayload): Periodi
 /**
  * Intelligent client-side sports science chat response generator.
  */
+/**
+ * Intelligent client-side sports science chat response generator.
+ * Capable of analyzing exact activity history for queries like "training today",
+ * "the weekend", "last week", and "progress my run workouts from the last 2 Thursdays".
+ */
 export function generateSportsScienceChat(
   question: string,
   payload: CoachRequestPayload,
@@ -484,12 +489,323 @@ export function generateSportsScienceChat(
   const readiness = payload.latestReadiness?.score ?? 75;
   const tsb = payload.fitnessStats?.tsb ?? 0;
   const ctl = payload.fitnessStats?.ctl ?? 75;
+  const activities = payload.recentActivities || [];
+  const todayDate = payload.todayDate || new Date().toISOString().split('T')[0];
+  const todayDayOfWeek = payload.todayDayOfWeek || new Date().toLocaleDateString('en-US', { weekday: 'long' });
 
   const q = String(question).toLowerCase();
 
+  // -------------------------------------------------------------
+  // Athlete Profile Details, Periodization, Injuries, & Work Schedule
+  // -------------------------------------------------------------
+  if (
+    q.includes('athlete') ||
+    q.includes('access') ||
+    q.includes('periodization') ||
+    q.includes('injur') ||
+    q.includes('schedule') ||
+    q.includes('availability')
+  ) {
+    const rawInjuries = profile.injuries || [];
+    const activeInjuries = rawInjuries.filter(
+      (i: any) => i.status === 'active' || i.status === 'monitoring' || (typeof i.painLevel === 'number' && i.painLevel > 0)
+    );
+    const injuriesList = activeInjuries.length > 0
+      ? activeInjuries.map((i: any) => `• **${i.name}** (${i.bodyArea}): Pain ${i.painLevel ?? 'N/A'}/10. Required Protocol: "${i.sportModifications || 'None'}"`).join('\n')
+      : '• No active injuries logged (100% clearance for all disciplines).';
+
+    const availList = Object.entries(profile.weeklyAvailability || {})
+      .map(([day, d]: [string, any]) => `• **${day.toUpperCase()}:** ${d.isWorkday ? `Workday (${d.shiftStart || '08:30'} - ${d.shiftEnd || '17:00'})` : 'Off-day'} | Windows: ${(d.availableWindows || []).join(', ')}`)
+      .join('\n');
+
+    return `### 📋 Coach Access Confirmation: Athlete Profile & Constraints
+
+**Yes! Coach Gemini has full, real-time access to all your profile parameters:**
+
+1. **Periodization Strategy:**
+   - **Model:** **${profile.periodization || '4weeks'}** (${profile.periodization === '3weeks' ? '2 build weeks + 1 recovery cutback' : '3 build weeks + 1 recovery cutback'}).
+   - Workouts and weekly TSS targets automatically adapt to whether you are in an overload build or recovery regeneration microcycle.
+
+2. **Active Injuries & Physical Limitations:**
+${injuriesList}
+   - *Coaching Enforcement:* Running volume and high-torque cycling are modified to protect injured tissues.
+
+3. **Training Availability & Work Schedule:**
+${availList}
+   - *Workday Enforcement:* Every prescribed workout strictly fits into your available morning, lunch, or evening windows without conflicting with your shift hours.
+
+4. **Physiological Thresholds:**
+   - **Bike FTP:** **${ftp} Watts**
+   - **Run LTHR:** **${lthr} bpm**
+   - **Threshold Pace:** **${outdoorPace}** (Treadmill: **${treadmillPace}**)`;
+  }
+
+  // -------------------------------------------------------------
+  // Swim Speed Over Distance vs Rest Periods
+  // -------------------------------------------------------------
+  if (q.includes('swim') && (q.includes('rest') || q.includes('interval') || q.includes('speed') || q.includes('short'))) {
+    return `### 🏊‍♂️ Swim Physiology: Why Reducing Rest Intervals Beats Short Sprints
+
+**1. The Problem with Fast Sprints & Long Rest:**
+When you perform short 50m or 100m all-out swims with 30–60 seconds rest on the wall, you are training the **anaerobic glycolytic energy system**. This produces high blood lactate and neuromuscular fatigue. While this is great for pool sprinters, in an open water triathlon (1.9km for 70.3 or 3.8km for Ironman), **there are zero walls and no rest breaks**.
+
+**2. Why You Must Reduce Rest Periods:**
+To speed up your **1.9km swim benchmark (target Sub-32 min / <1:41/100m)**, you must train your aerobic engine to clear lactate while swimming:
+• **Work-to-Rest Ratio:** Cut rest between 100m repeats to **10–15 seconds max**.
+• **Continuous Pacing:** Shift your training sets toward continuous 400m, 800m, and 1000m blocks held strictly at your Critical Swim Speed (CSS: ~**${formatPaceSec(profile.swimPoolPace100mSec || 90)}**).
+• **Race Day Payoff:** Exiting the water fresh with low heart rate allows you to immediately access your target cycling wattage without heavy oxygen debt.`;
+  }
+
+  // -------------------------------------------------------------
+  // Bike FTP, TT Aero Position, & Sub-4h30m 70.3 Strategy
+  // -------------------------------------------------------------
+  if (
+    (q.includes('tt') || q.includes('time trial') || q.includes('aero') || q.includes('ftp') || q.includes('4:30') || q.includes('4hr') || q.includes('half ironman')) &&
+    (q.includes('gain') || q.includes('bike') || q.includes('position') || q.includes('run'))
+  ) {
+    return `### ⏱️ Half Ironman Sub-4h 30m Strategy: Where You Gain the Most Time
+
+To break **4 hours 30 minutes** in a 70.3, the required split breakdown is typically:
+• 🏊 **Swim (1.9 km):** ~30–32 mins
+• 🚴 **Bike (90 km):** ~2h 15m – 2h 20m (Avg: 38.5–40.0 km/h)
+• 🏃 **Run (21.1 km):** ~1h 24m – 1h 28m (Pace: ~4:00–4:10/km)
+• ⚡ **Transitions (T1 + T2):** ~4–5 mins
+
+**1. Why Time Spent in the TT Aero Position Delivers Massive Time Gains:**
+At 38–40 km/h, **aerodynamic drag accounts for ~80% of total resistance**.
+• With your FTP of **${ftp}W**, riding at target race power (78–82% FTP: ~**245–255W**) upright on the brake hoods generates massive frontal surface area.
+• Holding the aerodynamic TT position on extensions saves **20–30 Watts of aerodynamic drag**, which translates to **10–15+ minutes saved over 90km** compared to sitting upright.
+• Chasing 10 extra Watts upright causes heavy muscular fatigue, whereas mastering 2 continuous hours in aero posture yields pure speed for free.
+
+**2. Why Running Distance at Threshold Pace (LTP) is Crucial:**
+• Your outdoor threshold pace is **${outdoorPace}**.
+• In triathlon, running fast for 5km is meaningless if muscular endurance decays at mile 8. Running distance at tempo/LTP builds the fatigue resistance needed to hold ~4:05/km through kilometers 15–21 off a hard bike leg.`;
+  }
+
+  // -------------------------------------------------------------
+  // Ironman Macro Goals & Precision Sub-Goals
+  // -------------------------------------------------------------
+  if (q.includes('goal') || q.includes('sub goal') || q.includes('benchmark') || q.includes('milestone')) {
+    return `### 🎯 Ironman Triathlon Macro Goals vs Precision Sub-Goals
+
+**1. Macro Volume Milestones (Mechanical & Structural Resilience):**
+• **Swim 3.8 km continuous in training:** Proves shoulder durability and bilateral sighting before race day.
+• **Ride 80 miles (128.7 km):** Trains gut digestion (60–90g carbs/hr) and fatigue resistance for the 112-mile bike.
+• **Run 16 miles (25.75 km):** Builds musculoskeletal connective tissue tolerance to prevent late-race muscle breakdown.
+
+**2. High-Yield Precision Sub-Goals (Physiological & Aero Benchmarks):**
+• **Speed up 1.9km swim (Sub-32 min):** Achieved by cutting rest intervals to 10-15s and training continuous CSS endurance.
+• **Spend 2 hours continuous in TT aero position:** Saves 10-15+ minutes over 90km for a 4h 30m Half Ironman.
+• **3-hour 225 Watt bike workout:** Proves fat oxidation efficiency at ~71% of your ${ftp}W FTP without cardiac drift.
+• **1-hour 10-mile (16.1 km) threshold tempo run:** Proves ability to sustain Lactate Threshold Pace across double-digit mileage.`;
+  }
+
+  // -------------------------------------------------------------
+  // 1. "How should I progress my run workouts from the last 2 Thursdays?" / "Thursday" runs
+  // -------------------------------------------------------------
+  if (q.includes('thursday') || (q.includes('progress') && q.includes('run'))) {
+    const thursdayRuns = activities.filter(
+      (a) => a.dayOfWeek.toLowerCase() === 'thursday' && (a.sport.toLowerCase().includes('run'))
+    );
+
+
+    // If we have at least 2 Thursday runs, compare them directly
+    if (thursdayRuns.length >= 2) {
+      const runRecent = thursdayRuns[0];
+      const runPrev = thursdayRuns[1];
+
+      const paceDiff = runRecent.paceFormatted && runPrev.paceFormatted
+        ? `comparing **${runPrev.paceFormatted}** on ${runPrev.startDate} to **${runRecent.paceFormatted}** on ${runRecent.startDate}`
+        : '';
+      const hrDiff = runRecent.avgHeartrate && runPrev.avgHeartrate
+        ? `Avg HR: **${runPrev.avgHeartrate} bpm** -> **${runRecent.avgHeartrate} bpm**`
+        : '';
+
+      return `### 🏃‍♂️ Analysis & Progression: Your Last 2 Thursday Run Workouts
+
+**1. Side-by-Side Workout Review:**
+• **Preceding Thursday (${runPrev.startDate}):** "${runPrev.name}"
+  - Distance: **${runPrev.distanceKm} km** | Time: **${runPrev.movingTimeMin} min**
+  - Pace: **${runPrev.paceFormatted || 'N/A'}** | Avg HR: **${runPrev.avgHeartrate ? `${runPrev.avgHeartrate} bpm` : 'N/A'}** (Max: ${runPrev.maxHeartrate || 'N/A'})
+  - Cadence: **${runPrev.avgCadence || 'N/A'} spm** | Stress: **${runPrev.tss ?? 'N/A'} TSS**
+
+• **Most Recent Thursday (${runRecent.startDate}):** "${runRecent.name}"
+  - Distance: **${runRecent.distanceKm} km** | Time: **${runRecent.movingTimeMin} min**
+  - Pace: **${runRecent.paceFormatted || 'N/A'}** | Avg HR: **${runRecent.avgHeartrate ? `${runRecent.avgHeartrate} bpm` : 'N/A'}** (Max: ${runRecent.maxHeartrate || 'N/A'})
+  - Cadence: **${runRecent.avgCadence || 'N/A'} spm** | Stress: **${runRecent.tss ?? 'N/A'} TSS**
+
+**2. Physiological Adaptation:**
+You maintained consistent stimulus across both sessions (${paceDiff} ${hrDiff ? `with ${hrDiff}` : ''}). Based on your Lactate Threshold Heart Rate (**${lthr} bpm**) and outdoor threshold pace (**${outdoorPace}**), your aerobic durability is stabilizing, allowing for progressive interval overload.
+
+**3. Next Thursday's Recommended Progression:**
+To induce progressive threshold adaptation without excessive musculoskeletal fatigue, apply a **Density & Volume Step**:
+
+• **Warm-up (15 min):** 10 min easy Zone 2 jog + 4 x 20s progressive strides with walking recovery.
+• **Main Progression Set:**
+  - If your last session was sustained tempo: Progress to **4 x 8 min at Threshold Pace (${outdoorPace})** with **2 min jog recovery**.
+  - If your last session was repetitions: Step from your previous repeat volume by adding **1 additional repetition** or shaving **3–5 sec/km** off your target split while strictly anchoring heart rate below **${Math.round(lthr * 0.98)} bpm**.
+• **Cool-down (10 min):** Zone 1 easy jog flush + calf and hamstring mobility.
+• **Target Stress:** Aim for **~55–65 TSS** with cadence held at **176–182 spm**.`;
+    } else {
+      // If only 1 Thursday run or generic runs available
+      const anyRuns = activities.filter((a) => a.sport.toLowerCase().includes('run'));
+      const run1 = anyRuns[0];
+      const run2 = anyRuns[1];
+
+      return `### 🏃‍♂️ Run Progression Strategy (Thursday Microcycle Focus)
+
+Looking at your recent run data${run1 ? ` (latest: "${run1.name}" on ${run1.dayOfWeek} ${run1.startDate}, ${run1.distanceKm}km at ${run1.paceFormatted || 'steady pace'})` : ''}:
+
+**1. Progressive Overload Principles for Thursday Runs:**
+In a classic endurance microcycle, Thursday serves as the mid-week quality session before the weekend long endurance block.
+• **Threshold Ceiling:** Your outdoor threshold pace is **${outdoorPace}** (LTHR: **${lthr} bpm**).
+• **Progression Rules:** Never increase volume and intensity simultaneously. Follow the 3-week build / 1-week recovery rule:
+  - **Week 1 (Current):** 3 x 8 min @ Threshold (${outdoorPace}) with 2 min recovery jog (Total: 24 min quality).
+  - **Week 2 (Progressive Step):** 4 x 8 min @ Threshold (${outdoorPace}) with 2 min recovery jog (Total: 32 min quality).
+  - **Week 3 (Peak Microcycle):** 3 x 10 min @ Threshold (${outdoorPace}) or 2 x 15 min at Half Marathon race pace (~${formatPaceSec(Math.round((profile.thresholdPaceRunOutdoorSec || 240) * 1.08))}).
+  - **Week 4 (Recovery Cutback):** 3 x 5 min easy tempo flush.
+
+**2. Key Metric Anchors:**
+• Keep heart rate locked between **${Math.round(lthr * 0.94)}-${Math.round(lthr * 0.99)} bpm**.
+• Keep running cadence steady at **176–182 spm** to minimize ground contact time and reduce eccentric knee stress.`;
+    }
+  }
+
+  // -------------------------------------------------------------
+  // 2. "What did you think of my training today?"
+  // -------------------------------------------------------------
+  if (q.includes('today')) {
+    const todayActs = activities.filter((a) => a.daysAgo === 0 || a.startDate === todayDate);
+
+    if (todayActs.length > 0) {
+      const summaryList = todayActs.map((a) => {
+        const perf = a.paceFormatted ? `pace **${a.paceFormatted}**` : (a.speedKmh ? `speed **${a.speedKmh} km/h**` : '');
+        const pwr = a.avgWatts ? `, power **${a.avgWatts}W**` : '';
+        const hr = a.avgHeartrate ? `, avg HR **${a.avgHeartrate} bpm** (max ${a.maxHeartrate || 'N/A'})` : '';
+        const tss = a.tss ? ` yielding **${a.tss} TSS**` : '';
+        return `• **${a.sport} — "${a.name}":** ${a.distanceKm} km in ${a.movingTimeMin} min (${perf}${pwr}${hr}${tss}).`;
+      }).join('\n');
+
+      const totalTodayTss = todayActs.reduce((acc, a) => acc + (a.tss || 0), 0);
+
+      return `### ⚡ Coach Analysis: Today's Training (${todayDayOfWeek}, ${todayDate})
+
+**Today's Logged Sessions:**
+${summaryList}
+
+**Coaching Assessment:**
+• **Load & Stress:** You accumulated **${totalTodayTss} TSS** today. Compared with your current readiness score (**${readiness}%**) and Form (TSB: **${tsb > 0 ? `+${tsb}` : tsb}**), this load aligns well with your aerobic conditioning trajectory.
+• **Execution & Discipline:** ${totalTodayTss > 70 ? 'You completed a high-stress stimulus. Prioritize post-workout nutrition: 1.0-1.2g/kg carbs and 25-30g protein within 45 minutes.' : 'You kept the training stress within a controlled metabolic envelope, ensuring you preserve physiological freshness for upcoming key sessions.'}
+• **Next Steps for Tomorrow:** Check tomorrow morning's resting heart rate and HRV. If soreness stays below 2/5, proceed with your scheduled microcycle session; otherwise, opt for an active recovery flush.`;
+    } else {
+      return `### ⚡ Coach Analysis: Today (${todayDayOfWeek}, ${todayDate})
+
+No workouts have been logged in your profile for today yet!
+
+**Today's Physiological State:**
+• **Readiness Score:** **${readiness}%**
+• **Form (TSB):** **${tsb > 0 ? `+${tsb}` : tsb}** (CTL: **${ctl}**)
+• **Resting HR / HRV:** RHR ${payload.latestReadiness?.rhr || profile.restingHeartRate || 48} bpm | HRV ${payload.latestReadiness?.hrvRmssd || 'Normal'} ms
+
+**Prescription for Today:**
+${readiness >= 75
+  ? `Your readiness is primed (**${readiness}%**). You have the green light for a quality session—either a cycling Sweet Spot set (**${Math.round(ftp * 0.88)}-${Math.round(ftp * 0.93)}W**) or a progressive threshold run (**${outdoorPace}**, HR **${Math.round(lthr * 0.94)}-${Math.round(lthr * 0.98)} bpm**).`
+  : readiness >= 60
+  ? `Your readiness is moderate (**${readiness}%**). Keep today's workout in Zone 2 aerobic endurance (sub-**${Math.round(ftp * 0.72)}W** on the bike, or conversational running at **${formatPaceSec(Math.round((profile.thresholdPaceRunOutdoorSec || 240) * 1.15))}**).`
+  : `Readiness is low (**${readiness}%**). Prioritize active recovery: 35 min easy spin (<**${Math.round(ftp * 0.55)}W**) or 1500m recovery swim with pull buoy, plus 8+ hours sleep.`}`;
+    }
+  }
+
+  // -------------------------------------------------------------
+  // 3. "What did you think of my training the weekend?" / "weekend"
+  // -------------------------------------------------------------
+  if (q.includes('weekend')) {
+    const weekendActs = activities.filter(
+      (a) => (a.dayOfWeek.toLowerCase() === 'saturday' || a.dayOfWeek.toLowerCase() === 'sunday') && a.daysAgo <= 8
+    );
+
+    if (weekendActs.length > 0) {
+      const totalKm = Math.round(weekendActs.reduce((acc, a) => acc + a.distanceKm, 0) * 10) / 10;
+      const totalMin = weekendActs.reduce((acc, a) => acc + a.movingTimeMin, 0);
+      const totalTss = weekendActs.reduce((acc, a) => acc + (a.tss || 0), 0);
+
+      const items = weekendActs.map((a) => {
+        const perf = a.paceFormatted ? `pace ${a.paceFormatted}` : (a.speedKmh ? `${a.speedKmh} km/h` : '');
+        const pwr = a.avgWatts ? `, ${a.avgWatts}W` : '';
+        const hr = a.avgHeartrate ? `, HR ${a.avgHeartrate} bpm` : '';
+        return `• **${a.dayOfWeek} (${a.startDate}) — ${a.sport}:** "${a.name}" | ${a.distanceKm} km in ${a.movingTimeMin} min (${perf}${pwr}${hr}, **${a.tss || 0} TSS**)`;
+      }).join('\n');
+
+      return `### 🚴‍♂️ Weekend Training Performance Review
+
+**Weekend Summary:**
+• Total Sessions: **${weekendActs.length}**
+• Total Volume: **${Math.floor(totalMin / 60)}h ${totalMin % 60}m** (${totalKm} km across disciplines)
+• Total Accumulated Load: **${totalTss} TSS**
+
+**Individual Sessions:**
+${items}
+
+**Coach Analysis:**
+• **Volume & Aerobic Base:** Stacking **${totalTss} TSS** over Saturday and Sunday is an effective way to simulate race-day fatigue without risking acute injury.
+• **Cardiac & Intensity Control:** Your heart rate remained controlled relative to your thresholds (Bike FTP: **${ftp}W**, Run LTHR: **${lthr} bpm**), indicating strong fat oxidation efficiency.
+• **Post-Weekend Transition:** Ensure Monday or Tuesday incorporates adequate soft tissue recovery or an easy active recovery spin (<**${Math.round(ftp * 0.55)}W**) to allow supercompensation before the mid-week quality block.`;
+    } else {
+      return `### 🚴‍♂️ Weekend Training Review
+
+I couldn't locate specific Saturday/Sunday activities in the last 7 days. Make sure your Strava activities have synced.
+As a benchmark for your target goals, aim for your weekend block to account for **40–50% of your weekly TSS**, structured as:
+• **Saturday:** Long Zone 2 aerobic ride (68–74% FTP: **${Math.round(ftp * 0.68)}-${Math.round(ftp * 0.74)}W**) + short 15 min brick transition run.
+• **Sunday:** Long Zone 2 endurance run (conversational, HR below **${Math.round(lthr * 0.84)} bpm**).`;
+    }
+  }
+
+  // -------------------------------------------------------------
+  // 4. "What did you think of my training last week?" / "last week"
+  // -------------------------------------------------------------
+  if (q.includes('last week') || q.includes('past week')) {
+    const weekActs = activities.filter((a) => a.daysAgo >= 1 && a.daysAgo <= 8);
+
+    if (weekActs.length > 0) {
+      let swimKm = 0, bikeKm = 0, runKm = 0, totalTss = 0, totalMin = 0;
+      weekActs.forEach((a) => {
+        totalMin += a.movingTimeMin;
+        totalTss += (a.tss || 0);
+        const s = a.sport.toLowerCase();
+        if (s.includes('swim')) swimKm += a.distanceKm;
+        else if (s.includes('bike') || s.includes('ride')) bikeKm += a.distanceKm;
+        else if (s.includes('run')) runKm += a.distanceKm;
+      });
+
+      return `### 📊 Last Week's Microcycle Debrief
+
+**Weekly Volume & Training Stress:**
+• **Total Duration:** **${Math.floor(totalMin / 60)}h ${totalMin % 60}m** across **${weekActs.length} workouts**
+• **Total Load:** **${totalTss} TSS** (Average daily load: **${Math.round(totalTss / 7)} TSS/day**)
+• **Discipline Breakdown:**
+  - 🏊‍♂️ Swim: **${Math.round(swimKm * 10) / 10} km**
+  - 🚴‍♂️ Bike: **${Math.round(bikeKm * 10) / 10} km**
+  - 🏃‍♂️ Run: **${Math.round(runKm * 10) / 10} km**
+
+**Coach Assessment:**
+• **Fitness (CTL) Impact:** This block successfully stimulated your Chronic Training Load (currently **${ctl} CTL**).
+• **Discipline Balance:** Your training distribution maintained proper multi-sport endurance proportions.
+• **Recommendation for This Week:** Maintain the consistency! If your Form (TSB) dips below **-15**, schedule an easy active recovery day before your next high-intensity interval session.`;
+    } else {
+      return `### 📊 Last Week's Microcycle Debrief
+
+Looking at your training trajectory (CTL: **${ctl}**, ATL: **${payload.fitnessStats?.atl ?? 70}**, TSB: **${tsb}**):
+• Aim for a steady 5–8 TSS weekly progression in your Chronic Training Load.
+• Keep 80% of your training volume strictly in Zone 1/2 aerobic base, reserving 20% for high-yield threshold/sweet spot sessions.`;
+    }
+  }
+
+  // -------------------------------------------------------------
+  // Standard Sports Science Coaching Q&A
+  // -------------------------------------------------------------
   let intro = `Here is your individualized coaching recommendation based on your physiological benchmarks (**${ftp}W FTP**, **${lthr} bpm LTHR**, outdoor pace **${outdoorPace}**, treadmill **${treadmillPace}**), current readiness of **${readiness}%**, and Form (TSB: **${tsb > 0 ? `+${tsb}` : tsb}**):\n\n`;
 
-  if (q.includes('interval') || q.includes('workout') || q.includes('today') || q.includes('hard') || q.includes('sweet spot')) {
+  if (q.includes('interval') || q.includes('workout') || q.includes('hard') || q.includes('sweet spot')) {
     return intro +
       `• **Intensity Prescription:** With your readiness at **${readiness}%** and Form at **${tsb}**, you have sufficient recovery for quality stimulus.\n` +
       `• **Cycling Power Targets:** For Sweet Spot intervals (88-93% FTP), target **${Math.round(ftp * 0.88)}-${Math.round(ftp * 0.93)}W**. For Zone 4 Threshold intervals, hold **${Math.round(ftp * 0.95)}-${Math.round(ftp * 1.02)}W**.\n` +

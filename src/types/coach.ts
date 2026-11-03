@@ -77,10 +77,120 @@ export interface CoachChatMessage {
   timestamp: string;
 }
 
+export interface CoachActivityRecord {
+  id: string | number;
+  name: string;
+  sport: string; // e.g. "Run", "Ride", "Swim", "WeightTraining", etc.
+  startDate: string; // YYYY-MM-DD
+  startTime?: string; // HH:MM
+  dayOfWeek: string; // e.g. "Thursday", "Saturday"
+  daysAgo: number; // 0 = today, 1 = yesterday, etc.
+  distanceKm: number;
+  movingTimeMin: number;
+  paceFormatted?: string; // e.g. "4:38/km" for runs
+  speedKmh?: number; // e.g. 31.4 km/h for bike
+  avgWatts?: number;
+  avgHeartrate?: number;
+  maxHeartrate?: number;
+  avgCadence?: number;
+  elevationGainM?: number;
+  tss?: number;
+  isIndoor?: boolean;
+  notes?: string;
+  rpe?: number;
+}
+
+export type WorkoutAssessmentType = 'optimal' | 'too_hard' | 'too_short' | 'not_hard_enough';
+
+export interface WorkoutReviewStreamInsights {
+  hasStreams: boolean;
+  cardiacDriftPct?: number; // Aerobic decoupling (Pw:HR or Pace:HR drift from 1st to 2nd half)
+  timeInZone2Pct?: number;
+  timeInZone45Pct?: number;
+  swimIntervalSummary?: string; // e.g. "Work-to-rest ratio 1:1.5 - high rest sprints vs continuous endurance"
+  bikeTtAeroSummary?: string; // e.g. "Cadence & speed stability indicative of sustained TT aero bars"
+  runLtpPaceSummary?: string; // e.g. "LTP threshold pace endurance sustained across distance"
+}
+
+export interface WorkoutReviewItem {
+  id: string | number;
+  activityId: string | number;
+  name: string;
+  sport: string; // "Swim", "Bike", "Run", "Gym", etc.
+  startDate: string;
+  dayOfWeek: string;
+  daysAgo: number;
+  distanceKm: number;
+  movingTimeMin: number;
+  paceFormatted?: string;
+  speedKmh?: number;
+  avgWatts?: number;
+  avgHeartrate?: number;
+  maxHeartrate?: number;
+  avgCadence?: number;
+  elevationGainM?: number;
+  tss?: number;
+  assessment: WorkoutAssessmentType;
+  assessmentBadge: {
+    label: string;
+    bgClass: string;
+    textClass: string;
+    borderClass: string;
+  };
+  periodizationContext: string; // e.g. "Build Week 2 (Aerobic Overload)" or "Recovery Cutback"
+  periodizationFit: string; // "Appropriate load for build phase", "Too intense for recovery week", etc.
+  goalContribution: string; // "Contributes to 80-mile ride benchmark (current max: 74km)"
+  subGoalContribution?: string; // "Reinforces 2-hour aero TT posture sub-goal"
+  streamInsights: WorkoutReviewStreamInsights;
+  coachTakeaway: string;
+  suggestedAdjustment: string;
+}
+
+export type BenchmarkCategory = 'macro_goal' | 'sub_goal';
+
+export interface BenchmarkMilestone {
+  id: string;
+  category: BenchmarkCategory;
+  discipline: 'swim' | 'bike' | 'run' | 'triathlon';
+  title: string;
+  targetMetric: string;
+  targetValue: number;
+  currentValue: number;
+  unit: string;
+  progressPct: number; // 0 to 100
+  status: 'achieved' | 'in_progress' | 'planned';
+  description: string;
+  whyItMatters: string; // Sports science rationale (e.g. 70.3 4h30m time gain)
+  bestEffortActivity?: {
+    name: string;
+    date: string;
+    metricValue: string;
+  };
+}
+
 export interface CoachRequestPayload {
   athleteProfile: any;
   latestReadiness?: any;
   latestRecoveryLog?: any;
+  recentActivities?: CoachActivityRecord[];
+  todayDate?: string;
+  todayDayOfWeek?: string;
+  todayAvailability?: {
+    isWorkday: boolean;
+    shiftStart?: string;
+    shiftEnd?: string;
+    availableWindows: string[];
+    preferredActivities?: string[];
+    suggestedDurationMin?: number;
+  };
+  activeInjuries?: any[];
+  periodizationInfo?: {
+    model: '0' | '3weeks' | '4weeks';
+    phaseName: string;
+    currentWeekInCycle: number;
+    isRecoveryWeek: boolean;
+  };
+  benchmarks?: BenchmarkMilestone[];
   recentActivitiesSummary?: {
     totalLast14Days: number;
     swimKm: number;
@@ -101,3 +211,5 @@ export interface CoachRequestPayload {
   targetDurationMin?: number;
   customNotes?: string;
 }
+
+

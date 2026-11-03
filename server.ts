@@ -7,7 +7,9 @@ import {
   handleRecommendWorkout,
   handleGeneratePlan,
   handleCoachChat,
+  handleReviewWorkouts,
 } from './serverCoach';
+
 
 dotenv.config();
 
@@ -1110,6 +1112,8 @@ app.get('/api/coach/status', handleCoachStatus);
 app.post('/api/coach/recommend-workout', handleRecommendWorkout);
 app.post('/api/coach/generate-plan', handleGeneratePlan);
 app.post('/api/coach/chat', handleCoachChat);
+app.post('/api/coach/review-workouts', handleReviewWorkouts);
+
 
 // Setup Vite middleware in dev or static files in production
 async function startServer() {

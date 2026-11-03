@@ -1,12 +1,20 @@
-import type { AthleteProfile } from '../types/athlete';
+import type { AthleteProfile, DayOfWeek } from '../types/athlete';
 import type { TrainingGoal } from '../types/goals';
 import type { DailyRecoveryLog } from '../types/recovery';
-import type { StravaActivity, StravaActivityDetailsRecord } from './stravaActivities';
+import {
+  StravaActivity,
+  StravaActivityDetailsRecord,
+  calculateActivityTSS,
+  classifyActivity,
+} from './stravaActivities';
 import type {
   RecommendedWorkout,
   PeriodizedPlan,
   CoachSport,
   CoachRequestPayload,
+  CoachActivityRecord,
+  WorkoutReviewItem,
+  BenchmarkMilestone,
 } from '../types/coach';
 import { computeFitnessTimeline, calculateTriathlonFitnessIndex } from './fitnessEngine';
 import { computeDailyReadiness } from './readinessEngine';
@@ -15,10 +23,22 @@ import {
   generateSportsSciencePlan,
   generateSportsScienceChat,
 } from './sportsScienceEngine';
+import {
+  getPeriodizationPhaseInfo,
+  evaluateBenchmarkMilestones,
+  generateWorkoutReviews,
+} from './workoutReviewEngine';
 
 const isGitHubPages =
   typeof window !== 'undefined' &&
   (window.location.hostname.includes('github.io') || window.location.protocol === 'file:');
+
+function formatPaceSec(seconds?: number): string {
+  if (!seconds || seconds <= 0 || !isFinite(seconds)) return '';
+  const mins = Math.floor(seconds / 60);
+  const remSec = Math.round(seconds % 60);
+  return `${mins}:${remSec.toString().padStart(2, '0')}/km`;
+}
 
 export async function fetchCoachStatus(): Promise<{
   available: boolean;
@@ -63,6 +83,10 @@ export function prepareCoachPayload(
   targetDurationMin?: number,
   customNotes?: string
 ): CoachRequestPayload {
+  const today = new Date();
+  const todayDate = today.toISOString().split('T')[0];
+  const todayDayOfWeek = today.toLocaleDateString('en-US', { weekday: 'long' });
+
   // 1. Latest Readiness
   const latestRecoveryLog = recoveryLogs.length > 0 ? recoveryLogs[recoveryLogs.length - 1] : null;
   const latestReadiness = latestRecoveryLog
@@ -108,10 +132,152 @@ export function prepareCoachPayload(
     .slice(0, 3)
     .map((a) => `${a.name} (${Math.round((a.distance || 0) / 1000)}km, ${Math.round((a.moving_time || 0) / 60)}m)`);
 
+  // 4. Detailed Chronological Activity Log for LLM & Coach analysis
+  const sortedActivities = [...activities]
+    .filter((a) => !a.isDeleted && a.start_date)
+    .sort((a, b) => new Date(b.start_date).getTime() - new Date(a.start_date).getTime());
+
+  const recentDetailedActivities: CoachActivityRecord[] = sortedActivities.slice(0, 45).map((act) => {
+    const details = activityDetails[String(act.id)];
+    const dateObj = new Date(act.start_date_local || act.start_date);
+    const dateStr = !isNaN(dateObj.getTime()) ? dateObj.toISOString().split('T')[0] : act.start_date.split('T')[0];
+    const dayOfWeek = !isNaN(dateObj.getTime())
+      ? dateObj.toLocaleDateString('en-US', { weekday: 'long' })
+      : 'Unknown';
+    const timeStr = !isNaN(dateObj.getTime())
+      ? dateObj.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false })
+      : undefined;
+
+    // Days ago calculation
+    const diffMs = today.getTime() - dateObj.getTime();
+    const daysAgo = Math.max(0, Math.floor(diffMs / (24 * 3600 * 1000)));
+
+    // Distance & Duration (taking calibration overrides into account)
+    const distM = details?.calibration?.calibratedDistanceM ?? act.distance ?? 0;
+    const movingSec = details?.calibration?.calibratedMovingTimeSec ?? act.moving_time ?? 0;
+    const distanceKm = Math.round((distM / 1000) * 100) / 100;
+    const movingTimeMin = Math.round(movingSec / 60);
+
+    const { category } = classifyActivity(act);
+    const sport = category || act.sport_type || act.type || 'Other';
+
+    // Pace / Speed
+    let paceFormatted: string | undefined;
+    let speedKmh: number | undefined;
+    if (category === 'Run' || (sport as string) === 'Walk') {
+      if (distM > 100 && movingSec > 30) {
+        const secPerKm = movingSec / (distM / 1000);
+        paceFormatted = formatPaceSec(secPerKm);
+      }
+    } else if (category === 'Swim') {
+      if (distM > 50 && movingSec > 20) {
+        const secPer100m = (movingSec / distM) * 100;
+        const m = Math.floor(secPer100m / 60);
+        const s = Math.round(secPer100m % 60);
+        paceFormatted = `${m}:${s.toString().padStart(2, '0')}/100m`;
+      }
+    } else if (sport === 'Bike') {
+      if (distM > 500 && movingSec > 60) {
+        speedKmh = Math.round(((distM / 1000) / (movingSec / 3600)) * 10) / 10;
+      }
+    }
+
+    // TSS
+    let tss = details?.calibration?.manualTss;
+    if (tss === undefined || tss < 0) {
+      const tssRes = calculateActivityTSS(act, details, athleteProfile);
+      tss = tssRes?.tss ?? act.suffer_score;
+    }
+
+    const isIndoor = Boolean(act.trainer || details?.calibration?.calibratedRunSections?.length);
+
+    return {
+      id: act.id,
+      name: act.name,
+      sport,
+      startDate: dateStr,
+      startTime: timeStr,
+      dayOfWeek,
+      daysAgo,
+      distanceKm,
+      movingTimeMin,
+      paceFormatted,
+      speedKmh,
+      avgWatts: details?.calibration?.calibratedAvgWatts ?? act.average_watts,
+      avgHeartrate: (details?.calibration?.calibratedAvgHeartRate ?? act.average_heartrate) ? Math.round(details?.calibration?.calibratedAvgHeartRate ?? act.average_heartrate!) : undefined,
+      maxHeartrate: (details?.calibration?.calibratedMaxHeartRate ?? act.max_heartrate) ? Math.round(details?.calibration?.calibratedMaxHeartRate ?? act.max_heartrate!) : undefined,
+      avgCadence: act.average_cadence ? Math.round(act.average_cadence) : undefined,
+      elevationGainM: act.total_elevation_gain ? Math.round(act.total_elevation_gain) : undefined,
+      tss: typeof tss === 'number' ? Math.round(tss) : undefined,
+      isIndoor,
+      notes: details?.effortFeedback?.feedbackNotes || details?.calibration?.calibrationNotes,
+      rpe: details?.effortFeedback?.rpe,
+    };
+  });
+
+  // 5. Work Schedule & Daily Availability Matrix
+  const dayKeyMap: Record<string, DayOfWeek> = {
+    monday: 'mon',
+    tuesday: 'tue',
+    wednesday: 'wed',
+    thursday: 'thu',
+    friday: 'fri',
+    saturday: 'sat',
+    sunday: 'sun',
+  };
+  const currentDayKey = dayKeyMap[todayDayOfWeek.toLowerCase()] || 'mon';
+  const todayDayAvail = athleteProfile.weeklyAvailability?.[currentDayKey];
+
+  let suggestedDurationMin = 60;
+  if (todayDayAvail) {
+    if (todayDayAvail.isWorkday) {
+      // Workday availability window constraints
+      if (todayDayAvail.availableWindows.includes('lunch') && todayDayAvail.availableWindows.length === 1) {
+        suggestedDurationMin = 45; // tight lunch window
+      } else if (todayDayAvail.availableWindows.includes('evening')) {
+        suggestedDurationMin = 55; // post-work evening window
+      } else if (todayDayAvail.availableWindows.includes('morning')) {
+        suggestedDurationMin = 45; // pre-work morning window
+      } else {
+        suggestedDurationMin = 50;
+      }
+    } else {
+      // Weekend / non-workday: time for long endurance rides or runs
+      suggestedDurationMin = 120;
+    }
+  }
+
+  const finalDurationMin = targetDurationMin || suggestedDurationMin;
+
+  // 6. Active Injuries & Periodization Phase
+  const rawInjuries = athleteProfile.injuries || [];
+  const activeInjuries = rawInjuries.filter(
+    (i) => i.status === 'active' || i.status === 'monitoring' || (typeof i.painLevel === 'number' && i.painLevel > 0)
+  );
+
+  const periodizationInfo = getPeriodizationPhaseInfo(athleteProfile);
+  const benchmarks = evaluateBenchmarkMilestones(activities, athleteProfile);
+
   return {
     athleteProfile,
     latestReadiness,
     latestRecoveryLog,
+    recentActivities: recentDetailedActivities,
+    todayDate,
+    todayDayOfWeek,
+    todayAvailability: todayDayAvail
+      ? {
+          isWorkday: todayDayAvail.isWorkday,
+          shiftStart: todayDayAvail.shiftStart,
+          shiftEnd: todayDayAvail.shiftEnd,
+          availableWindows: todayDayAvail.availableWindows,
+          preferredActivities: todayDayAvail.preferredActivities,
+          suggestedDurationMin,
+        }
+      : undefined,
+    activeInjuries,
+    periodizationInfo,
+    benchmarks,
     recentActivitiesSummary: {
       totalLast14Days: recentActs.length,
       swimKm: Math.round(swimKm * 10) / 10,
@@ -129,10 +295,52 @@ export function prepareCoachPayload(
     },
     goals,
     preferredSport,
-    targetDurationMin,
+    targetDurationMin: finalDurationMin,
     customNotes,
   };
 }
+
+export async function requestWorkoutReviews(
+  payload: CoachRequestPayload,
+  activities: StravaActivity[],
+  activityDetails: Record<string, StravaActivityDetailsRecord>,
+  athleteProfile: AthleteProfile,
+  goals: TrainingGoal[]
+): Promise<{ reviews: WorkoutReviewItem[]; source: string }> {
+  // If static or fallback needed, use workoutReviewEngine directly
+  if (isGitHubPages) {
+    return {
+      reviews: generateWorkoutReviews(activities, activityDetails, athleteProfile, goals),
+      source: 'sports-science-engine',
+    };
+  }
+
+  try {
+    const response = await fetch('/api/coach/review-workouts', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+
+    if (response.ok) {
+      const data = await response.json();
+      if (data && Array.isArray(data.reviews) && data.reviews.length > 0) {
+        return {
+          reviews: data.reviews,
+          source: data.source || 'gemini-3.8-flash',
+        };
+      }
+    }
+  } catch (err) {
+    console.info('[Coach API] Review workouts request failed, using sports science engine:', err);
+  }
+
+  return {
+    reviews: generateWorkoutReviews(activities, activityDetails, athleteProfile, goals),
+    source: 'sports-science-engine',
+  };
+}
+
 
 export async function requestRecommendedWorkout(
   payload: CoachRequestPayload
@@ -241,6 +449,10 @@ export async function sendCoachChatMessage(
         latestReadiness: payload.latestReadiness,
         goals: payload.goals,
         history,
+        activities: payload.recentActivities,
+        todayDate: payload.todayDate,
+        todayDayOfWeek: payload.todayDayOfWeek,
+        recentActivitiesSummary: payload.recentActivitiesSummary,
       }),
     });
 
