@@ -843,21 +843,21 @@ export default function App() {
         >
           {/* Navigation Switcher */}
           <div
-            className="flex items-center rounded-xl border border-slate-700/60 dark:border-slate-800 bg-slate-900/40 overflow-hidden grow shrink-0"
+            className="flex items-center rounded-xl border-2 border-slate-600 dark:border-slate-500 bg-slate-900/40 p-0.5 overflow-hidden grow shrink-0"
             style={{ flexGrow: 1, flexShrink: 0 }}
           >
             <button
               type="button"
               onClick={() => setActiveMainTab('activities')}
               style={{ flexGrow: 1, flexShrink: 0 }}
-              className={`${buttonPaddingClass} grow shrink-0 text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer border-r border-slate-700 dark:border-slate-800 ${
+              className={`${buttonPaddingClass} grow shrink-0 text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
                 activeMainTab === 'activities'
-                  ? theme === 'light'
-                    ? 'bg-white text-slate-900 shadow-xs'
-                    : 'bg-slate-800 text-white'
-                  : theme === 'light'
-                  ? 'bg-[#f0f0f0] hover:bg-slate-200 text-slate-700 hover:text-slate-900'
-                  : 'bg-slate-900 hover:bg-slate-800 text-slate-400 hover:text-slate-200'
+                  ? 'bg-white text-slate-900 font-extrabold shadow-sm rounded-lg relative z-10 border-[1.5px] border-slate-400 dark:border-slate-500 ring-2 ring-sky-400 dark:ring-sky-400'
+                  : `rounded-none border-r border-slate-700 dark:border-slate-800 ${
+                      theme === 'light'
+                        ? 'bg-[#f0f0f0] hover:bg-slate-200 text-slate-700 hover:text-slate-900'
+                        : 'bg-slate-900 hover:bg-slate-800 text-slate-400 hover:text-slate-200'
+                    }`
               }`}
             >
               {showTabIcons && <Activity className="w-3.5 h-3.5 text-orange-400 shrink-0" />}
@@ -865,7 +865,9 @@ export default function App() {
               {showActivityCount && stravaActivities.length > 0 && (
                 <span
                   className={`text-[10px] px-1.5 py-0.2 rounded-md ${
-                    theme === 'light'
+                    activeMainTab === 'activities'
+                      ? 'bg-slate-200 text-slate-800 font-bold'
+                      : theme === 'light'
                       ? 'bg-slate-200 text-slate-600'
                       : 'bg-slate-900 text-slate-400'
                   }`}
@@ -879,14 +881,14 @@ export default function App() {
               type="button"
               onClick={() => setActiveMainTab('recovery')}
               style={{ flexGrow: 1, flexShrink: 0 }}
-              className={`${buttonPaddingClass} grow shrink-0 text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer border-r border-slate-700 dark:border-slate-800 ${
+              className={`${buttonPaddingClass} grow shrink-0 text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
                 activeMainTab === 'recovery'
-                  ? theme === 'light'
-                    ? 'bg-white text-slate-900 shadow-xs'
-                    : 'bg-slate-800 text-white'
-                  : theme === 'light'
-                  ? 'bg-[#f0f0f0] hover:bg-slate-200 text-slate-700 hover:text-slate-900'
-                  : 'bg-slate-900 hover:bg-slate-800 text-slate-400 hover:text-slate-200'
+                  ? 'bg-white text-slate-900 font-extrabold shadow-sm rounded-lg relative z-10 border-[1.5px] border-slate-400 dark:border-slate-500 ring-2 ring-sky-400 dark:ring-sky-400'
+                  : `rounded-none border-r border-slate-700 dark:border-slate-800 ${
+                      theme === 'light'
+                        ? 'bg-[#f0f0f0] hover:bg-slate-200 text-slate-700 hover:text-slate-900'
+                        : 'bg-slate-900 hover:bg-slate-800 text-slate-400 hover:text-slate-200'
+                    }`
               }`}
             >
               {showTabIcons && <Heart className="w-3.5 h-3.5 text-rose-500 shrink-0" />}
@@ -904,21 +906,23 @@ export default function App() {
               type="button"
               onClick={() => setActiveMainTab('fitness')}
               style={{ flexGrow: 1, flexShrink: 0 }}
-              className={`${buttonPaddingClass} grow shrink-0 text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer border-r border-slate-700 dark:border-slate-800 ${
+              className={`${buttonPaddingClass} grow shrink-0 text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
                 activeMainTab === 'fitness'
-                  ? theme === 'light'
-                    ? 'bg-white text-slate-900 shadow-xs'
-                    : 'bg-slate-800 text-white'
-                  : theme === 'light'
-                  ? 'bg-[#f0f0f0] hover:bg-slate-200 text-slate-700 hover:text-slate-900'
-                  : 'bg-slate-900 hover:bg-slate-800 text-slate-400 hover:text-slate-200'
+                  ? 'bg-white text-slate-900 font-extrabold shadow-sm rounded-lg relative z-10 border-[1.5px] border-slate-400 dark:border-slate-500 ring-2 ring-sky-400 dark:ring-sky-400'
+                  : `rounded-none border-r border-slate-700 dark:border-slate-800 ${
+                      theme === 'light'
+                        ? 'bg-[#f0f0f0] hover:bg-slate-200 text-slate-700 hover:text-slate-900'
+                        : 'bg-slate-900 hover:bg-slate-800 text-slate-400 hover:text-slate-200'
+                    }`
               }`}
             >
               {showTabIcons && <Zap className="w-3.5 h-3.5 text-indigo-500 shrink-0" />}
               <span>Fitness</span>
               <span
                 className={`text-[10px] px-1.5 py-0.5 rounded-md font-extrabold ${
-                  theme === 'light'
+                  activeMainTab === 'fitness'
+                    ? 'bg-indigo-100 text-indigo-800'
+                    : theme === 'light'
                     ? 'bg-indigo-100 text-indigo-700'
                     : 'bg-indigo-950/70 text-indigo-300 border border-indigo-700/40'
                 }`}
@@ -934,19 +938,21 @@ export default function App() {
               style={{ flexGrow: 1, flexShrink: 0 }}
               className={`${buttonPaddingClass} grow shrink-0 text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
                 activeMainTab === 'coach'
-                  ? theme === 'light'
-                    ? 'bg-white text-slate-900 shadow-xs'
-                    : 'bg-slate-800 text-white'
-                  : theme === 'light'
-                  ? 'bg-[#f0f0f0] hover:bg-slate-200 text-slate-700 hover:text-slate-900'
-                  : 'bg-slate-900 hover:bg-slate-800 text-slate-400 hover:text-slate-200'
+                  ? 'bg-white text-slate-900 font-extrabold shadow-sm rounded-lg relative z-10 border-[1.5px] border-slate-400 dark:border-slate-500 ring-2 ring-sky-400 dark:ring-sky-400'
+                  : `rounded-none ${
+                      theme === 'light'
+                        ? 'bg-[#f0f0f0] hover:bg-slate-200 text-slate-700 hover:text-slate-900'
+                        : 'bg-slate-900 hover:bg-slate-800 text-slate-400 hover:text-slate-200'
+                    }`
               }`}
             >
               {showTabIcons && <Sparkles className="w-3.5 h-3.5 text-emerald-400 shrink-0" />}
               <span>Coach</span>
               <span
                 className={`text-[9px] uppercase tracking-wider font-extrabold px-1.5 py-0.2 rounded-md ${
-                  theme === 'light'
+                  activeMainTab === 'coach'
+                    ? 'bg-emerald-100 text-emerald-800'
+                    : theme === 'light'
                     ? 'bg-emerald-100 text-emerald-700'
                     : 'bg-emerald-950/70 text-emerald-300 border border-emerald-700/40'
                 }`}
@@ -1175,6 +1181,8 @@ export default function App() {
               setProfileModalTab(tab || 'physiology');
               setIsAthleteProfileOpen(true);
             }}
+            onGoalsUpdated={handleSaveAthleteGoals}
+            onProfileUpdated={handleSaveAthleteProfile}
           />
         )}
       </main>

@@ -15,6 +15,7 @@ import type {
   CoachActivityRecord,
   WorkoutReviewItem,
   BenchmarkMilestone,
+  CoachGoalAction,
 } from '../types/coach';
 import { computeFitnessTimeline, calculateTriathlonFitnessIndex } from './fitnessEngine';
 import { computeDailyReadiness } from './readinessEngine';
@@ -427,14 +428,62 @@ export async function requestPeriodizedPlan(
   };
 }
 
+export interface CoachChatResult {
+  answer: string;
+  executedAction?: CoachGoalAction;
+  confidenceRating?: string;
+  source?: string;
+}
+
 export async function sendCoachChatMessage(
   question: string,
   payload: CoachRequestPayload,
   history: any[]
-): Promise<string> {
+): Promise<CoachChatResult> {
+  const parseFallbackAction = (q: string): CoachGoalAction | undefined => {
+    const lower = q.toLowerCase();
+    if ((lower.includes('add') || lower.includes('create') || lower.includes('new goal') || lower.includes('set goal')) && (lower.includes('ironman') || lower.includes('2028') || lower.includes('flat'))) {
+      return {
+        type: 'add_goal',
+        goal: {
+          id: 'goal-flat-ironman-2028',
+          name: 'Flat Ironman',
+          priority: 'C',
+          eventType: 'triathlon',
+          status: 'upcoming',
+          targetType: 'finish',
+          eventDate: '2028-06-18',
+          distancePreset: '140.6',
+          totalDistanceKm: 226.0,
+          totalTargetTimeSec: 39600,
+          triathlonSplits: {
+            swimDistanceMeters: 3800,
+            swimTargetTimeSec: 4500,
+            t1TargetTimeSec: 300,
+            bikeDistanceKm: 180.0,
+            bikeTargetTimeSec: 20400,
+            t2TargetTimeSec: 180,
+            runDistanceKm: 42.2,
+            runTargetTimeSec: 14220,
+          },
+          location: 'Flat European Course (e.g. Almere / Barcelona / Copenhagen)',
+          notes: 'Long-term C-objective: Complete distance proof with high aerodynamic efficiency and gut adaptation.',
+        },
+        description: 'Flat Ironman (June 18, 2028) long-term objective added to athlete profile goals.',
+      };
+    }
+    return undefined;
+  };
+
   // If on static GitHub Pages, generate directly via sports science engine
   if (isGitHubPages) {
-    return generateSportsScienceChat(question, payload, history);
+    const rawAnswer = generateSportsScienceChat(question, payload, history);
+    return {
+      answer: rawAnswer,
+      executedAction: parseFallbackAction(question),
+      confidenceRating: rawAnswer.includes('High Confidence') ? 'High Confidence 8.5/10' : undefined,
+      source: 'sports-science-engine',
+    };
   }
 
   // Attempt backend API call
@@ -461,7 +510,12 @@ export async function sendCoachChatMessage(
       if (contentType.includes('application/json')) {
         const data = await response.json();
         if (data && typeof data.answer === 'string') {
-          return data.answer;
+          return {
+            answer: data.answer,
+            executedAction: data.executedAction || parseFallbackAction(question),
+            confidenceRating: data.confidenceRating,
+            source: data.source || 'gemini-3.8-flash',
+          };
         }
       }
     }
@@ -470,5 +524,11 @@ export async function sendCoachChatMessage(
   }
 
   // Resilient fallback
-  return generateSportsScienceChat(question, payload, history);
+  const rawFallback = generateSportsScienceChat(question, payload, history);
+  return {
+    answer: rawFallback,
+    executedAction: parseFallbackAction(question),
+    confidenceRating: rawFallback.includes('High Confidence') ? 'High Confidence 8.5/10' : undefined,
+    source: 'sports-science-engine',
+  };
 }

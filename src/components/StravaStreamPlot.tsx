@@ -284,18 +284,41 @@ export const StravaStreamPlot: React.FC<StravaStreamPlotProps> = ({
   const effectiveMax = chartData.maxVal + yPadding;
   const effectiveRange = effectiveMax - effectiveMin || 1;
 
-  // Convert points to SVG coordinates
-  const svgPoints = chartData.points.map((p, i) => {
-    const xFraction = i / (chartData.points.length - 1);
-    const x = padding.left + xFraction * plotWidth;
-    const yFraction = (p.value - effectiveMin) / effectiveRange;
-    const y = padding.top + plotHeight - yFraction * plotHeight;
-    return { ...p, x, y };
-  });
+  // Convert points to SVG coordinates with true distance / time mapping
+  const svgPoints = useMemo(() => {
+    if (!chartData || chartData.points.length === 0) return [];
+    const totalDist = chartData.totalDist > 0 ? chartData.totalDist : 0;
+    const totalTime = chartData.totalTime > 0 ? chartData.totalTime : 0;
+
+    return chartData.points.map((p, i) => {
+      let xFraction: number;
+      if (axisMode === 'distance' && totalDist > 0) {
+        xFraction = Math.max(0, Math.min(1, p.distMeters / totalDist));
+      } else if (axisMode === 'time' && totalTime > 0) {
+        xFraction = Math.max(0, Math.min(1, p.timeSec / totalTime));
+      } else {
+        xFraction = i / (chartData.points.length - 1);
+      }
+
+      const x = padding.left + xFraction * plotWidth;
+      const yFraction = (p.value - effectiveMin) / effectiveRange;
+      const y = padding.top + plotHeight - yFraction * plotHeight;
+      return { ...p, x, y };
+    });
+  }, [chartData, axisMode, effectiveMin, effectiveRange, plotWidth, plotHeight, padding.left, padding.top]);
 
   // Construct SVG Path
-  const linePath = svgPoints.reduce((acc, p, i) => `${acc} ${i === 0 ? 'M' : 'L'} ${p.x.toFixed(1)},${p.y.toFixed(1)}`, '');
-  const areaPath = `${linePath} L ${svgPoints[svgPoints.length - 1].x.toFixed(1)},${(padding.top + plotHeight).toFixed(1)} L ${padding.left.toFixed(1)},${(padding.top + plotHeight).toFixed(1)} Z`;
+  const linePath = useMemo(() => {
+    return svgPoints.reduce((acc, p, i) => `${acc} ${i === 0 ? 'M' : 'L'} ${p.x.toFixed(1)},${p.y.toFixed(1)}`, '');
+  }, [svgPoints]);
+
+  const areaPath = useMemo(() => {
+    if (svgPoints.length === 0) return '';
+    const firstX = svgPoints[0].x.toFixed(1);
+    const lastX = svgPoints[svgPoints.length - 1].x.toFixed(1);
+    const bottomY = (padding.top + plotHeight).toFixed(1);
+    return `${linePath} L ${lastX},${bottomY} L ${firstX},${bottomY} Z`;
+  }, [linePath, svgPoints, padding.top, plotHeight]);
 
   // Total Elevation Gain calculation
   const totalElevationGain = useMemo(() => {
@@ -343,13 +366,22 @@ export const StravaStreamPlot: React.FC<StravaStreamPlotProps> = ({
   const pointerDownRef = useRef<{ startX: number; hasMoved: boolean } | null>(null);
 
   const getIdxFromClientX = (clientX: number, target: SVGSVGElement) => {
+    if (svgPoints.length === 0) return null;
     const rect = target.getBoundingClientRect();
     const mouseX = clientX - rect.left;
     const svgX = (mouseX / rect.width) * width;
     if (svgX < padding.left || svgX > width - padding.right) return null;
-    const relX = (svgX - padding.left) / plotWidth;
-    const targetIdx = Math.round(relX * (svgPoints.length - 1));
-    return Math.max(0, Math.min(svgPoints.length - 1, targetIdx));
+
+    let closestIdx = 0;
+    let minDiff = Infinity;
+    for (let i = 0; i < svgPoints.length; i++) {
+      const diff = Math.abs(svgPoints[i].x - svgX);
+      if (diff < minDiff) {
+        minDiff = diff;
+        closestIdx = i;
+      }
+    }
+    return closestIdx;
   };
 
   const handlePointerDown = (e: React.PointerEvent<SVGSVGElement>) => {
@@ -824,37 +856,33 @@ export const StravaStreamPlot: React.FC<StravaStreamPlotProps> = ({
               {/* Top pointer notch */}
               <polygon
                 points={`${selectedPoint.x - 5},${padding.top} ${selectedPoint.x + 5},${padding.top} ${selectedPoint.x},${padding.top + 7}`}
-                fill="#000000"
-                stroke="#ffffff"
-                strokeWidth="1"
+                fill="#ffffff"
+                stroke="#64748b"
+                strokeWidth="1.5"
               />
               {/* Bottom pointer notch */}
               <polygon
                 points={`${selectedPoint.x - 5},${padding.top + plotHeight} ${selectedPoint.x + 5},${padding.top + plotHeight} ${selectedPoint.x},${padding.top + plotHeight - 7}`}
-                fill="#000000"
-                stroke="#ffffff"
-                strokeWidth="1"
+                fill="#ffffff"
+                stroke="#64748b"
+                strokeWidth="1.5"
               />
             </g>
           )}
         </svg>
 
-        {/* Selected or Hover Floating Details Card */}
+        {/* Selected or Hover Floating Details Card (White background & grey border) */}
         {activeInspectPoint && (
           <div
-            className={`absolute top-2 pointer-events-none transform -translate-x-1/2 border rounded-xl px-3 py-1.5 shadow-xl backdrop-blur-md z-10 flex items-center gap-3 ${
-              selectedPoint && (!hoveredPoint || hoveredPoint.index === selectedPoint.index)
-                ? 'bg-black/95 border-amber-400 text-white ring-2 ring-black/40'
-                : 'bg-slate-900/95 border-slate-700/80'
-            }`}
+            className="absolute top-2 pointer-events-none transform -translate-x-1/2 border border-slate-300 rounded-xl px-3 py-1.5 shadow-xl bg-white/95 text-slate-900 z-10 flex items-center gap-3 backdrop-blur-md"
             style={{
               left: `${Math.max(12, Math.min(88, (activeInspectPoint.x / width) * 100))}%`,
             }}
           >
             <div className="flex flex-col">
-              <span className="text-[10px] text-slate-400 font-mono flex items-center gap-1.5">
+              <span className="text-[10px] text-slate-500 font-mono flex items-center gap-1.5">
                 {selectedPoint && (!hoveredPoint || hoveredPoint.index === selectedPoint.index) && (
-                  <span className="w-1.5 h-1.5 rounded-full bg-amber-400 inline-block" />
+                  <span className="w-1.5 h-1.5 rounded-full bg-slate-500 inline-block" />
                 )}
                 <span>
                   {axisMode === 'distance'
@@ -865,11 +893,11 @@ export const StravaStreamPlot: React.FC<StravaStreamPlotProps> = ({
                 </span>
               </span>
               <div className="flex items-center gap-1.5">
-                <span className="text-xs font-black font-mono text-white">
+                <span className="text-xs font-black font-mono text-slate-900">
                   {activeConfig.formatValue(activeInspectPoint.value, classification.category)}
                 </span>
                 {hoveredHrZone && (
-                  <span className="text-[10px] font-bold text-amber-300 font-sans">
+                  <span className="text-[10px] font-bold text-amber-600 font-sans">
                     ({hoveredHrZone})
                   </span>
                 )}

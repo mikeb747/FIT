@@ -46,6 +46,7 @@ import {
   SWIMMING_MODEL_PROFILES,
 } from '../utils/fitnessEngine';
 import { WeeklyMileageChart } from './WeeklyMileageChart';
+import { WeeklyTrainingVolumeChart } from './WeeklyTrainingVolumeChart';
 import { StravaActivityModal } from './StravaActivityModal';
 
 interface FitnessTabProps {
@@ -920,6 +921,15 @@ export const FitnessTab: React.FC<FitnessTabProps> = ({
         </div>
       )}
 
+      {/* ========================================================= */}
+      {/* 5. WEEKLY TRAINING VOLUME (RECHARTS - TOTAL HOURS/KM)     */}
+      {/* ========================================================= */}
+      <WeeklyTrainingVolumeChart
+        activities={activities}
+        activityDetails={activityDetails}
+        athleteProfile={athleteProfile}
+        theme={theme}
+      />
 
       {/* ========================================================= */}
       {/* 6. TIMELINE CHART: FITNESS, FATIGUE & FORM               */}

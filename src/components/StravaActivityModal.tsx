@@ -402,32 +402,6 @@ export const StravaActivityModal: React.FC<StravaActivityModalProps> = ({
           <div className="flex items-center gap-2 shrink-0">
             <button
               type="button"
-              onClick={() => setIsCalibrationOpen(true)}
-              className={`p-2 rounded-xl transition-colors cursor-pointer border ${
-                isLight
-                  ? 'bg-slate-100 hover:bg-slate-200 text-amber-600 border-slate-200'
-                  : 'bg-slate-800 hover:bg-slate-700 text-amber-400 border-slate-700'
-              }`}
-              title="Calibrate / Fix Inaccurate Data"
-            >
-              <Wrench className="w-4 h-4" />
-            </button>
-
-            <button
-              type="button"
-              onClick={() => setShowDeleteConfirm(true)}
-              className={`p-2 rounded-xl transition-colors cursor-pointer border ${
-                isLight
-                  ? 'bg-slate-100 hover:bg-rose-50 text-slate-400 hover:text-rose-500 border-slate-200'
-                  : 'bg-slate-800 hover:bg-rose-950/50 text-slate-400 hover:text-rose-400 border-slate-700 hover:border-rose-500/30'
-              }`}
-              title="Delete Activity"
-            >
-              <Trash2 className="w-4 h-4" />
-            </button>
-
-            <button
-              type="button"
               onClick={onClose}
               className={`p-2 rounded-xl transition-colors cursor-pointer ${
                 isLight
@@ -477,36 +451,60 @@ export const StravaActivityModal: React.FC<StravaActivityModalProps> = ({
               </span>
             ) : null}
 
-            {/* "New" badge stays for 24 hours even if published */}
-            {isNew && (
-              <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-xl bg-emerald-500/10 border border-emerald-500/25 text-emerald-300 text-[11px] font-black uppercase tracking-wide">
-                <Sparkles className="w-3.5 h-3.5" />
-                New (last 24h)
-              </span>
-            )}
-
-            {/* "Unpublished" badge until sent to Google Sheets */}
-            {isUnpublished ? (
-              <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-xl bg-amber-500/10 border border-amber-500/25 text-amber-300 text-[11px] font-black uppercase tracking-wide">
-                <UploadCloud className="w-3.5 h-3.5" />
-                Unpublished
-              </span>
-            ) : (
+            {/* Saved to Google Sheets badge (shown only when published, Unpublished badge removed per user request) */}
+            {!isUnpublished && (
               <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-xl bg-emerald-500/10 border border-emerald-500/25 text-emerald-400 text-[11px] font-bold">
                 <Check className="w-3.5 h-3.5 stroke-[3]" />
                 Saved to Google Sheets
               </span>
             )}
 
-            {/* Calibrate Data quick link button */}
+            {/* Calibrate / Fix Data quick button with border */}
             <button
               type="button"
               onClick={() => setIsCalibrationOpen(true)}
-              className="inline-flex items-center gap-1 text-xs text-amber-400 hover:text-amber-300 font-bold hover:underline cursor-pointer"
+              className={`inline-flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-xl border-2 transition-all cursor-pointer font-bold ${
+                isLight
+                  ? 'bg-amber-50 hover:bg-amber-100 text-amber-700 border-amber-500/50 hover:border-amber-600 shadow-xs'
+                  : 'bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 border-amber-500/50 hover:border-amber-400 shadow-xs'
+              }`}
             >
-              <Wrench className="w-3 h-3" />
+              <Wrench className="w-3.5 h-3.5" />
               <span>{hasCalibration ? 'Edit Calibration' : 'Fix Data'}</span>
             </button>
+
+            {/* Delete button placed next to Fix Data */}
+            <button
+              type="button"
+              onClick={() => setShowDeleteConfirm(true)}
+              className={`inline-flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-xl border-2 transition-all cursor-pointer font-bold ${
+                isLight
+                  ? 'bg-rose-50 hover:bg-rose-100 text-rose-700 border-rose-300 hover:border-rose-400 shadow-xs'
+                  : 'bg-rose-500/10 hover:bg-rose-500/20 text-rose-300 border-rose-500/50 hover:border-rose-400 shadow-xs'
+              }`}
+              title="Delete Activity"
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+              <span>Delete</span>
+            </button>
+
+            {/* Quick Export to Google Sheets when Google is connected */}
+            {isGoogleConnected && (
+              <button
+                type="button"
+                onClick={handleExportToSheets}
+                disabled={isExportingToSheets}
+                className="inline-flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-xl border transition-all cursor-pointer font-bold bg-emerald-500 hover:bg-emerald-400 text-slate-950 border-emerald-400 shadow-xs disabled:opacity-50"
+                title={detailsRecord?.googleDrivePublishedAt ? 'Re-export to Google Sheets' : 'Send to Google Sheets'}
+              >
+                {isExportingToSheets ? (
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                ) : (
+                  <FileSpreadsheet className="w-3.5 h-3.5" />
+                )}
+                <span>Sheet</span>
+              </button>
+            )}
 
             <a
               href={`https://www.strava.com/activities/${activity.id}`}
@@ -1522,56 +1520,6 @@ export const StravaActivityModal: React.FC<StravaActivityModalProps> = ({
               </a>
             </div>
           )}
-        </div>
-
-        {/* Modal Footer / Action CTA */}
-        <div className="p-4 sm:p-5 border-t border-slate-800 bg-slate-950/80 flex items-center justify-between gap-3 shrink-0">
-          <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={onClose}
-              className="px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white text-xs font-bold transition-colors cursor-pointer"
-            >
-              Close
-            </button>
-
-            <button
-              type="button"
-              onClick={() => setIsCalibrationOpen(true)}
-              className="px-3.5 py-2.5 rounded-xl bg-slate-800/80 hover:bg-slate-700 text-amber-400 hover:text-amber-300 text-xs font-bold transition-colors cursor-pointer border border-slate-700 flex items-center gap-1.5"
-            >
-              <Wrench className="w-3.5 h-3.5" />
-              <span>{hasCalibration ? 'Edit Calibration' : 'Fix Inaccurate Data'}</span>
-            </button>
-          </div>
-
-          <button
-            type="button"
-            onClick={handleExportToSheets}
-            disabled={isExportingToSheets}
-            className={`px-5 py-2.5 rounded-xl font-black text-xs flex items-center gap-2 shadow-lg transition-all cursor-pointer active:scale-95 disabled:opacity-50 ${
-              isGoogleConnected
-                ? 'bg-emerald-500 hover:bg-emerald-400 text-slate-950 shadow-emerald-500/20'
-                : 'bg-blue-600 hover:bg-blue-500 text-white shadow-blue-500/20'
-            }`}
-          >
-            {isExportingToSheets ? (
-              <>
-                <Loader2 className="w-4 h-4 animate-spin" />
-                <span>Exporting to Sheet...</span>
-              </>
-            ) : isGoogleConnected ? (
-              <>
-                <FileSpreadsheet className="w-4 h-4 stroke-[2.5]" />
-                <span>{detailsRecord?.googleDrivePublishedAt ? 'Re-export to Google Sheets' : 'Send to Google Sheets'}</span>
-              </>
-            ) : (
-              <>
-                <FileSpreadsheet className="w-4 h-4 stroke-[2.5]" />
-                <span>Connect Google to Export</span>
-              </>
-            )}
-          </button>
         </div>
       </div>
 

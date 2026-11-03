@@ -124,15 +124,11 @@ export const ActivityZoneChart: React.FC<ActivityZoneChartProps> = ({
             >
               {title || 'Time in Training Zones'}
             </h4>
-            <span
-              className={`text-[10px] font-mono px-2 py-0.5 rounded-full border ${
-                analysis.hasStreams
-                  ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20'
-                  : 'bg-slate-500/10 text-slate-500 border-slate-500/20'
-              }`}
-            >
-              {analysis.hasStreams ? '1-sec streams' : 'Session average'}
-            </span>
+            {analysis.hasStreams && (
+              <span className="text-[10px] font-mono px-2 py-0.5 rounded-full border bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20">
+                1-sec streams
+              </span>
+            )}
           </div>
           <p className={`text-xs mt-0.5 ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>
             Duration and percentage of moving time spent in each physiological zone

@@ -70,11 +70,23 @@ export interface PeriodizedPlan {
   createdAt: string;
 }
 
+import type { TrainingGoal } from './goals';
+
+export interface CoachGoalAction {
+  type: 'add_goal' | 'update_goal' | 'delete_goal' | 'update_benchmark';
+  goal?: Partial<TrainingGoal>;
+  benchmark?: Record<string, unknown>;
+  description: string;
+}
+
 export interface CoachChatMessage {
   id: string;
   role: 'user' | 'model';
   content: string;
   timestamp: string;
+  feedback?: 'like' | 'dislike' | null;
+  executedAction?: CoachGoalAction;
+  confidenceRating?: string;
 }
 
 export interface CoachActivityRecord {

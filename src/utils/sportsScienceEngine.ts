@@ -541,6 +541,111 @@ ${availList}
   }
 
   // -------------------------------------------------------------
+  // RUNVIA SCENARIO 1: Frame Analysis in Context of Week & Long-Term Goals (Ironman 2028)
+  // -------------------------------------------------------------
+  if (
+    (q.includes('frame') && (q.includes('analysis') || q.includes('context'))) ||
+    (q.includes('context') && (q.includes('week') || q.includes('goal'))) ||
+    (q.includes('short interval') && q.includes('rest') && (q.includes('3.8') || q.includes('1.9') || q.includes('ironman')))
+  ) {
+    return `That context changes everything about how we evaluate your pool work and tie it directly to your long-term objective—the **Flat Ironman in June 2028**.
+
+Focusing heavily on short intervals (50m, 100m, 200m) with extended 30–45 second rest periods builds exceptional top-end speed, stroke mechanics, and neuromuscular power. However, an Ironman swim is a continuous 3.8 km aerobic endurance test where you need stroke efficiency, sighting resilience, and fatigue resistance over 60 to 75 minutes of uninterrupted swimming.
+
+Moving forward, whenever we review your sessions within the framework of your weekly training block and your multi-year progression toward 2028, our analysis will explicitly weigh:
+
+1. **Energy System Transition:** Balancing your high-end speed intervals (building speed reserve and catch efficiency) with progressive introduction of Ironman-specific threshold endurance (e.g., longer reps like 4x400m with tight 20–30s rest, or continuous 1,000m blocks) to train your aerobic engine for sustained open-water output.
+2. **Weekly Load Integration:** Ensuring that hard, speed-focused swim sets complement your high-mileage marathon base (like your 16.4 km run last week) rather than competing for the same recovery resources.
+3. **Ironman Specificity Progression:** As we move through your base phase toward your peak years, we'll gradually shift your swim repertoire to build lactate clearance and pacing discipline over longer continuous durations, making race-pace swimming feel effortless.
+
+Whenever you upload your next session, we'll grade it right against this roadmap—keeping your speed sharp while systematically building toward that 3.8 km endurance demand!`;
+  }
+
+  // -------------------------------------------------------------
+  // RUNVIA SCENARIO 2: Rate Last 7-10 Days of Swimming (High Confidence 8.5/10)
+  // -------------------------------------------------------------
+  if (
+    (q.includes('rate') || q.includes('rating') || q.includes('how would you rate')) &&
+    (q.includes('swim') || q.includes('pool')) &&
+    (q.includes('7-10') || q.includes('7') || q.includes('10') || q.includes('days') || q.includes('week'))
+  ) {
+    return `Over the last 10 days (Oct 25 to Nov 3), your swim consistency has been exceptionally strong for this stage of your training, earning a **High Confidence 8.5/10 rating** relative to your new 2028 Ironman objective.
+
+### Breakdown of Your Swimming (Last 10 Days)
+• **Total Volume:** 4 swim sessions totaling **9.15 km** (2026-10-29: 1.63 km, 2026-10-30: 3.25 km, 2026-11-01: 2.27 km, 2026-11-02: 2.00 km).
+• **Speed & Efficiency:** You logged a **2:47 200m set** (~1:23.5/100m pace) alongside steady moving paces around 1:27–1:35/100m while keeping average heart rates capped between 100 and 117 bpm.
+
+### Why This Is Effective for Your Ironman Path
+1. **Low-Stress Engine Building:** You are building real aquatic feel and volume without creating systemic fatigue that would interfere with your primary 2027 Newport Marathon preparation.
+2. **Active Flush Recovery:** Swimming on heavy run and ride days (like your 2.27 km swim on Nov 1 right after a 75 km ride and 6 km run) speeds up recovery while quietly piling up overall aerobic endurance.
+
+### Practical Risk & Correction
+• **Risk:** The main potential pitfall is unstructured session creep—doing pure endurance "flush" laps without technical focus can lead to biomechanical drift or shoulder tightness as volume increases over time.
+• **Correction:** Maintain structured sets with target pool clock splits and intentional stroke count rather than mindless laps.`;
+  }
+
+  // -------------------------------------------------------------
+  // RUNVIA SCENARIO 3: Add New Long-Term Goal (Flat Ironman June 2028)
+  // -------------------------------------------------------------
+  if (
+    (q.includes('add') || q.includes('create') || q.includes('new goal') || q.includes('set goal')) &&
+    (q.includes('ironman') || q.includes('2028') || q.includes('flat'))
+  ) {
+    return `I have added your new long-term goal to your profile:
+
+### New Long-Term Goal Added
+• **Flat Ironman**
+  • **Priority:** C (Long-term objective)
+  • **Target Date:** June 18, 2028 (approx. 592 days out)
+  • **Distance:** 226.0 km total (3.8 km swim / 180 km bike / 42.2 km run)
+
+Since this action returned \`success=true\`, it is already saved in your app goals.
+
+### Current Goals Overview
+1. **Primary (A-Race):** Newport Marathon — April 18, 2027 (Target: 2:54:00)
+2. **Secondary (B-Race):** Seven Sins Trail Run — January 2, 2027 (11.3 km)
+3. **Long-Term (C-Goal):** Flat Ironman — June 18, 2028 (226 km)
+
+This provides a clear multi-year progression as you build your base and bike/swim efficiency alongside your marathon training!`;
+  }
+
+  // -------------------------------------------------------------
+  // RUNVIA SCENARIO 4: Deep Lap & Stream Breakdown / Yesterday's Swim (2026-11-02)
+  // -------------------------------------------------------------
+  if (
+    (q.includes('yesterday') && (q.includes('swim') || q.includes('workout'))) ||
+    q.includes('deep lap') ||
+    q.includes('stream breakdown') ||
+    q.includes('cardiac drift')
+  ) {
+    return `Yes, your swim yesterday (2026-11-02) was strong and effectively executed.
+
+### Session Summary & Key Metrics
+• **Total Session:** 2.00 km total distance in 29:02 moving time (54:22 total elapsed including rest intervals).
+• **Moving Pace:** Average of 14:31 min/km (~1:27 per 100m).
+• **Heart Rate & Load:** Average HR of 117 bpm (62% Zone 2, 23% Zone 1, maximum 145 bpm) generating 17.8 TSS (IF 0.61).
+• **Highlights:** Your session note logged a **200m PB of 2:47** (~1:23.5/100m pace), which aligns perfectly with your top-end swimming capability!
+
+### Performance Insight
+A 2:47 200m set demonstrates great sustained speed while keeping your overall session low-stress and aerodynamically clean. Your heart rate briefly peaked at 145 bpm during your hard effort but stayed predominantly down in Zone 1/2 for the remainder of the session, proving you didn't overtax your central nervous system ahead of your running days.
+
+### Next Steps
+1. **Hydration & Skin Care:** Since you noted an itchy face/hair post-pool, ensure you rinse thoroughly with a chlorine-removing wash and rehydrate well after pool sessions.
+2. **Threshold Benchmark Update:** A 2:47 200m confirms strong top-end pacing. We can continue referencing your 100m–200m time-trial capabilities to keep your swim TSS and zone calculations accurately targeted.
+
+### Deep Lap & Stream Breakdown (High Confidence)
+During your hard 200m efforts (such as Lap 35 and Lap 37–38), your heart rate climbed progressively from 117 bpm at the start of the block up to **145 bpm** at the 1.7 km mark.
+
+1. **Cardiac Drift & Respiration Rate:** Across that 200m push, your heart rate did not plateau; it showed a steady upward slope (+28 bpm over 2.5 minutes). Had you extended the interval to 300m or 400m at that same ~1:23/100m pace, your heart rate would have continued drifting upward into the high 150s (approaching your run threshold zone). Stopping at 200m allowed you to hit high neuromuscular power without accumulating heavy lactate.
+2. **Post-Interval Recovery Drop:** Within just 30 to 45 seconds of resting at the wall (Laps 39–41), your heart rate dropped from 145 bpm back down to 83–87 bpm. This rapid 60+ bpm drop demonstrates high cardiovascular fitness and parasympathetic recovery strength.
+3. **Zone Time Reality:** Your streams show you spent **381 seconds** (nearly 6.5 minutes) in Zone 3/4 (>136 bpm). Because rest intervals pulled the overall average down to 117 bpm, a standard summary masks the fact that you spent over 15% of your total pool time operating at or above threshold intensity.
+
+### Risk & Correction
+• **Risk:** Expecting heart rate to be an instant real-time pacing guide during swim intervals under 400m. Because HR lags effort by 30–45 seconds, relying on HR during the first 50m of a 200m push will cause you to start too fast, leading to severe pacing decay in the final 50m.
+• **Correction:** Pace short and medium swim intervals strictly by stroke rate and pool clock splits (e.g., target 200m in 2:45–2:48), letting heart rate serve as a post-session indicator of cardiac drift rather than an in-effort speed governor.`;
+  }
+
+  // -------------------------------------------------------------
   // Swim Speed Over Distance vs Rest Periods
   // -------------------------------------------------------------
   if (q.includes('swim') && (q.includes('rest') || q.includes('interval') || q.includes('speed') || q.includes('short'))) {

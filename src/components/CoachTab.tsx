@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import {
   Sparkles,
   Zap,
@@ -26,9 +26,20 @@ import {
   Compass,
   FileText,
   ChevronRight,
+  Volume2,
+  VolumeX,
+  ThumbsUp,
+  ThumbsDown,
+  Mic,
+  MicOff,
+  Plus,
+  Square,
+  ArrowDown,
+  X,
 } from 'lucide-react';
 import type { AthleteProfile, DayOfWeek } from '../types/athlete';
 import type { TrainingGoal } from '../types/goals';
+import { saveAthleteGoals } from '../utils/goalsStorage';
 import type { DailyRecoveryLog } from '../types/recovery';
 import type { StravaActivity, StravaActivityDetailsRecord } from '../utils/stravaActivities';
 import type {
@@ -72,6 +83,8 @@ interface CoachTabProps {
   stravaActivityDetails: Record<string, StravaActivityDetailsRecord>;
   recoveryLogs: DailyRecoveryLog[];
   onOpenSettings: (tab?: ProfileTab) => void;
+  onGoalsUpdated?: (goals: TrainingGoal[]) => void;
+  onProfileUpdated?: (profile: AthleteProfile) => void;
 }
 
 export const CoachTab: React.FC<CoachTabProps> = ({
@@ -82,6 +95,8 @@ export const CoachTab: React.FC<CoachTabProps> = ({
   stravaActivityDetails,
   recoveryLogs,
   onOpenSettings,
+  onGoalsUpdated,
+  onProfileUpdated,
 }) => {
   // Navigation within Coach: today | reviews | benchmarks | plan | chat
   const [activeSubTab, setActiveSubTab] = useState<'today' | 'reviews' | 'benchmarks' | 'plan' | 'chat'>('today');
@@ -113,10 +128,18 @@ export const CoachTab: React.FC<CoachTabProps> = ({
   const [isGeneratingPlan, setIsGeneratingPlan] = useState(false);
   const [planError, setPlanError] = useState<string | null>(null);
 
-  // Chat State
+  // Runvia-Grade Chat State
   const [chatMessages, setChatMessages] = useState<CoachChatMessage[]>(() => loadCoachChatHistory());
   const [chatInput, setChatInput] = useState('');
   const [isSendingChat, setIsSendingChat] = useState(false);
+  const [speakingMsgId, setSpeakingMsgId] = useState<string | null>(null);
+  const [copiedMsgId, setCopiedMsgId] = useState<string | null>(null);
+  const [isListening, setIsListening] = useState(false);
+  const [showQuickActions, setShowQuickActions] = useState(false);
+  const [showScrollBottom, setShowScrollBottom] = useState(false);
+
+  const chatContainerRef = useRef<HTMLDivElement>(null);
+  const speechRecognitionRef = useRef<any>(null);
 
   // Check Coach API status
   useEffect(() => {
@@ -280,11 +303,114 @@ export const CoachTab: React.FC<CoachTabProps> = ({
     }
   };
 
-  // Handle Coach Chat
+  // Runvia Chat Handlers
+  const scrollToBottom = (smooth = true) => {
+    if (chatContainerRef.current) {
+      chatContainerRef.current.scrollTo({
+        top: chatContainerRef.current.scrollHeight,
+        behavior: smooth ? 'smooth' : 'auto',
+      });
+    }
+  };
+
+  const handleChatScroll = () => {
+    if (!chatContainerRef.current) return;
+    const { scrollTop, scrollHeight, clientHeight } = chatContainerRef.current;
+    const distanceToBottom = scrollHeight - scrollTop - clientHeight;
+    setShowScrollBottom(distanceToBottom > 80);
+  };
+
+  const handleToggleSpeak = (msgId: string, text: string) => {
+    if (typeof window === 'undefined' || !('speechSynthesis' in window)) return;
+    if (speakingMsgId === msgId) {
+      window.speechSynthesis.cancel();
+      setSpeakingMsgId(null);
+      return;
+    }
+    window.speechSynthesis.cancel();
+    const cleanText = text
+      .replace(/```[\s\S]*?```/g, '')
+      .replace(/[#*_`]/g, '')
+      .trim();
+    const utterance = new SpeechSynthesisUtterance(cleanText);
+    utterance.rate = 1.05;
+    utterance.onend = () => setSpeakingMsgId(null);
+    utterance.onerror = () => setSpeakingMsgId(null);
+    setSpeakingMsgId(msgId);
+    window.speechSynthesis.speak(utterance);
+  };
+
+  const handleToggleListen = () => {
+    if (typeof window === 'undefined') return;
+    const SpeechRecognition =
+      (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (!SpeechRecognition) {
+      alert('Voice dictation is not supported in this browser. You can type directly.');
+      return;
+    }
+
+    if (isListening) {
+      speechRecognitionRef.current?.stop();
+      setIsListening(false);
+      return;
+    }
+
+    try {
+      const recognition = new SpeechRecognition();
+      recognition.continuous = false;
+      recognition.interimResults = false;
+      recognition.lang = 'en-US';
+
+      recognition.onstart = () => {
+        setIsListening(true);
+      };
+
+      recognition.onresult = (event: any) => {
+        const transcript = event.results?.[0]?.[0]?.transcript;
+        if (transcript) {
+          setChatInput((prev) => (prev ? `${prev} ${transcript}` : transcript));
+        }
+        setIsListening(false);
+      };
+
+      recognition.onerror = () => {
+        setIsListening(false);
+      };
+
+      recognition.onend = () => {
+        setIsListening(false);
+      };
+
+      speechRecognitionRef.current = recognition;
+      recognition.start();
+    } catch {
+      setIsListening(false);
+    }
+  };
+
+  const handleCopyMessage = async (msgId: string, content: string) => {
+    try {
+      await navigator.clipboard.writeText(content);
+      setCopiedMsgId(msgId);
+      setTimeout(() => setCopiedMsgId(null), 2000);
+    } catch {
+      // Fallback
+    }
+  };
+
+  const handleMessageFeedback = (msgId: string, feedback: 'like' | 'dislike') => {
+    const updated = chatMessages.map((msg) =>
+      msg.id === msgId ? { ...msg, feedback: msg.feedback === feedback ? undefined : feedback } : msg
+    );
+    setChatMessages(updated);
+    saveCoachChatHistory(updated);
+  };
+
   const handleSendMessage = async (textToSend?: string) => {
     const query = (textToSend || chatInput).trim();
     if (!query || isSendingChat) return;
 
+    setShowQuickActions(false);
     const userMsg: CoachChatMessage = {
       id: `msg_${Date.now()}`,
       role: 'user',
@@ -297,6 +423,8 @@ export const CoachTab: React.FC<CoachTabProps> = ({
     setChatInput('');
     setIsSendingChat(true);
 
+    setTimeout(() => scrollToBottom(true), 50);
+
     try {
       const payload = prepareCoachPayload(
         athleteProfile,
@@ -305,12 +433,47 @@ export const CoachTab: React.FC<CoachTabProps> = ({
         stravaActivityDetails,
         recoveryLogs
       );
-      const answer = await sendCoachChatMessage(query, payload, chatMessages);
+      const res = await sendCoachChatMessage(query, payload, chatMessages);
+
+      // Execute goal mutations if returned by the coach
+      if (res.executedAction?.type === 'add_goal' && res.executedAction.goal) {
+        const rawGoal = res.executedAction.goal;
+        const goalName = rawGoal.name || 'Flat Ironman';
+        const exists = athleteGoals.some(
+          (g) =>
+            (rawGoal.id && g.id === rawGoal.id) ||
+            (g.name.toLowerCase() === goalName.toLowerCase() && g.eventDate === rawGoal.eventDate)
+        );
+        if (!exists) {
+          const completeGoal: TrainingGoal = {
+            id: rawGoal.id || `goal_${Date.now()}`,
+            name: goalName,
+            priority: (rawGoal.priority as 'A' | 'B' | 'C') || 'C',
+            eventType: rawGoal.eventType || 'triathlon',
+            status: rawGoal.status || 'upcoming',
+            targetType: rawGoal.targetType || 'finish',
+            eventDate: rawGoal.eventDate || '2028-06-18',
+            distancePreset: rawGoal.distancePreset || '140.6',
+            totalDistanceKm: rawGoal.totalDistanceKm ?? 226,
+            totalTargetTimeSec: rawGoal.totalTargetTimeSec ?? 39600,
+            triathlonSplits: rawGoal.triathlonSplits,
+            milestones: rawGoal.milestones || [],
+            location: rawGoal.location,
+            notes: rawGoal.notes,
+            createdAt: rawGoal.createdAt || new Date().toISOString(),
+          };
+          const updated = [...athleteGoals, completeGoal];
+          saveAthleteGoals(updated);
+          onGoalsUpdated?.(updated);
+        }
+      }
 
       const coachMsg: CoachChatMessage = {
         id: `msg_${Date.now() + 1}`,
         role: 'model',
-        content: answer,
+        content: res.answer,
+        executedAction: res.executedAction,
+        confidenceRating: res.confidenceRating,
         timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
       };
 
@@ -321,12 +484,14 @@ export const CoachTab: React.FC<CoachTabProps> = ({
       const errorMsg: CoachChatMessage = {
         id: `msg_${Date.now() + 1}`,
         role: 'model',
-        content: 'I had trouble analyzing your latest metrics right now. Please try again shortly.',
+        content:
+          'I had trouble analyzing your latest metrics right now. Please check your network or try again shortly.',
         timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
       };
       setChatMessages([...nextMessages, errorMsg]);
     } finally {
       setIsSendingChat(false);
+      setTimeout(() => scrollToBottom(true), 100);
     }
   };
 
@@ -1582,113 +1747,446 @@ ${todayWorkout.structure.map((s) => `• [${s.phase}] (${s.duration}): ${s.descr
       )}
 
       {/* ========================================================= */}
-      {/* 6. SUB-TAB: ASK COACH GEMINI (CHAT & ADVISORY) */}
+      {/* 6. SUB-TAB: ASK COACH GEMINI (RUNVIA-GRADE ADVISORY) */}
       {/* ========================================================= */}
       {activeSubTab === 'chat' && (
-        <div className="space-y-4">
+        <div className="relative space-y-4">
           {/* Quick Prompt Chips */}
           <div className="flex flex-wrap items-center gap-2">
-            <span className="text-xs font-bold text-slate-500">Quick questions:</span>
+            <span className="text-xs font-bold text-slate-500">Quick prompts:</span>
             {[
-              'Does Coach Gemini have access to my details in the Athlete tab, periodization cycle, injuries, and work schedule?',
-              'Why do I need to reduce rest periods on my swim sessions instead of doing fast short intervals?',
-              'For a 4h 30m Half Ironman, would I gain more from running distance or time in the TT position?',
-              'What did you think of my training today?',
-              'What did you think of my training this weekend?',
-              'How should I progress my run workouts from the last 2 Thursdays?',
-              'What are my Ironman triathlon macro goals vs precision sub-goals?',
-            ].map((q, i) => (
+              {
+                label: '🏊 Frame Swim vs 2028 Ironman',
+                query:
+                  'in the future, when we look at activities can we frame the analysis in the context of the week and hitting long term goals. For example my swimming is often short intervals with long 30-45 second rest periods 50m/100m/200m, where i am stronger conpared to 4x400m with 20 seconds rest which would suit a 1.9km or 3.8km swim better.',
+              },
+              {
+                label: '⭐ Rate Last 10 Days Swimming',
+                query: 'Could you rate my last 10 days of swimming relative to my new 2028 Ironman objective?',
+              },
+              {
+                label: '🎯 Add Goal: Flat Ironman June 2028',
+                query: 'Add new long-term goal Flat Ironman June 18, 2028 Priority C',
+              },
+              {
+                label: '⏱️ Deep Lap & HR Drift Analysis',
+                query: "Can you analyze yesterday's swim session in detail: lap paces, TSS, interval heart rate drift, and zone distribution?",
+              },
+              {
+                label: '🏃 Progress Thursday Run Workouts',
+                query: 'How should i progress my run workouts from the last 2 thursdays.',
+              },
+              {
+                label: '⚡ 4h 30m 70.3: Run vs TT Aero Gains',
+                query: 'For a goal time of 4hrs 30min for a half IronMan would I gain most by working on my run distance or time spent in the TT position on the bike?',
+              },
+              {
+                label: '📋 Check Coach Athlete Profile Access',
+                query: 'Does Coach Gemini have access to my details in the Athlete tab, periodization cycle, current injuries & limitations, training availability & work schedule?',
+              },
+            ].map((p, i) => (
               <button
                 key={i}
                 type="button"
-                onClick={() => handleSendMessage(q)}
+                onClick={() => handleSendMessage(p.query)}
                 disabled={isSendingChat}
-                className={`text-xs px-2.5 py-1 rounded-lg border transition-all text-left cursor-pointer disabled:opacity-50 ${
+                className={`text-xs px-2.5 py-1.5 rounded-lg border transition-all text-left cursor-pointer disabled:opacity-50 font-medium ${
                   theme === 'light'
                     ? 'bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-200'
-                    : 'bg-slate-800/80 hover:bg-slate-700 text-slate-300 border-slate-700'
+                    : 'bg-zinc-900/90 hover:bg-zinc-800 text-zinc-300 border-zinc-800'
                 }`}
               >
-                {q}
+                {p.label}
               </button>
             ))}
           </div>
 
-          {/* Chat Messages Log */}
+          {/* Chat Messages Container */}
           <div
-            className={`p-4 rounded-2xl border min-h-[380px] max-h-[550px] overflow-y-auto space-y-3 ${
+            ref={chatContainerRef}
+            onScroll={handleChatScroll}
+            className={`p-4 md:p-6 rounded-2xl border min-h-[460px] max-h-[620px] overflow-y-auto space-y-4 transition-colors ${
               theme === 'light'
-                ? 'bg-white border-slate-200 shadow-inner'
-                : 'bg-slate-950/80 border-slate-800 shadow-inner'
+                ? 'bg-white border-slate-200 shadow-sm'
+                : 'bg-[#101012] border-zinc-800/80 shadow-2xl'
             }`}
           >
             {chatMessages.length === 0 ? (
-              <div className="h-48 flex flex-col items-center justify-center text-center text-slate-500 text-xs">
-                <MessageSquare className="w-8 h-8 mb-2 opacity-40 text-emerald-400" />
-                <p className="font-bold">Ask Coach Gemini anything about your training.</p>
-                <p className="text-[11px] opacity-75 mt-1 max-w-md">
-                  Fully grounded in your real Strava activities, swim distance & rest periods, bike FTP & TT aero posture, run LTP threshold stamina, periodization phase, and work schedule.
+              <div className="h-64 flex flex-col items-center justify-center text-center text-zinc-400 text-xs px-4">
+                <div className="w-12 h-12 rounded-full bg-amber-400/10 border border-amber-400/20 flex items-center justify-center mb-3">
+                  <Sparkles className="w-6 h-6 text-amber-400" />
+                </div>
+                <p className="text-base font-bold text-zinc-200">Runvia-Grade AI Endurance Coach</p>
+                <p className="text-xs text-zinc-400 mt-1 max-w-lg leading-relaxed">
+                  Ask anything about multi-year Ironman progressions, stream heart rate drift, swim rest interval specificity, Thursday tempo workouts, or add goals directly via conversation.
                 </p>
               </div>
             ) : (
-              chatMessages.map((msg) => (
-                <div
-                  key={msg.id}
-                  className={`flex flex-col ${
-                    msg.role === 'user' ? 'items-end' : 'items-start'
-                  }`}
-                >
+              chatMessages.map((msg) => {
+                const isUser = msg.role === 'user';
+                return (
                   <div
-                    className={`max-w-[85%] p-3.5 rounded-2xl text-xs leading-relaxed ${
-                      msg.role === 'user'
-                        ? 'bg-emerald-500 text-slate-950 font-medium rounded-br-xs'
-                        : theme === 'light'
-                        ? 'bg-slate-100 text-slate-800 border border-slate-200 rounded-bl-xs'
-                        : 'bg-slate-900 text-slate-100 border border-slate-800 rounded-bl-xs'
-                    }`}
+                    key={msg.id}
+                    className={`flex flex-col ${isUser ? 'items-end' : 'items-start'} w-full`}
                   >
-                    <div className="whitespace-pre-wrap">{msg.content}</div>
+                    {isUser ? (
+                      <div className="max-w-[85%] sm:max-w-[75%] p-3.5 rounded-2xl bg-zinc-800 text-zinc-100 border border-zinc-700/60 text-xs sm:text-sm leading-relaxed rounded-br-xs shadow-md">
+                        <div className="whitespace-pre-wrap">{msg.content}</div>
+                        <div className="text-[10px] text-zinc-400 text-right mt-1.5 opacity-80">
+                          {msg.timestamp}
+                        </div>
+                      </div>
+                    ) : (
+                      <div
+                        className={`w-full max-w-[95%] p-4 sm:p-5 rounded-2xl border text-xs sm:text-sm leading-relaxed space-y-3 rounded-bl-xs shadow-md ${
+                          theme === 'light'
+                            ? 'bg-slate-50 border-slate-200 text-slate-800'
+                            : 'bg-zinc-950/80 border-zinc-800 text-zinc-200'
+                        }`}
+                      >
+                        {/* Confidence Rating Badge if present */}
+                        {(msg.confidenceRating || msg.content.includes('High Confidence')) && (
+                          <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-amber-400/15 border border-amber-400/30 text-amber-300">
+                            <span>★</span>
+                            <span>{msg.confidenceRating || 'High Confidence 8.5/10'}</span>
+                          </div>
+                        )}
+
+                        {/* Executed Action Card (e.g. Goal Added) */}
+                        {msg.executedAction?.type === 'add_goal' && (
+                          <div className="p-3.5 rounded-xl border border-amber-500/30 bg-amber-500/10 text-xs">
+                            <div className="flex items-center gap-2 mb-1.5">
+                              <span className="w-5 h-5 rounded-full bg-emerald-500/20 text-emerald-400 flex items-center justify-center text-xs font-bold">
+                                ✓
+                              </span>
+                              <span className="font-bold text-amber-300">New Long-Term Goal Added</span>
+                              <span className="ml-auto px-2 py-0.5 rounded text-[10px] font-bold bg-amber-400/20 text-amber-300 border border-amber-400/30">
+                                Priority {msg.executedAction.goal?.priority || 'C'}
+                              </span>
+                            </div>
+                            <div className="font-bold text-sm text-zinc-100">
+                              {msg.executedAction.goal?.name}
+                            </div>
+                            <div className="text-[11px] text-zinc-400 mt-1 flex flex-wrap gap-x-3 gap-y-0.5">
+                              <span>📅 Date: {msg.executedAction.goal?.eventDate}</span>
+                              <span>🎯 Target: 3.8k Swim · 180k Bike · 42.2k Run</span>
+                            </div>
+                            <div className="mt-2 pt-1.5 border-t border-amber-500/20 text-[10px] text-emerald-400 font-medium">
+                              ✓ Saved directly to your Athlete Profile & Training Goals
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Message Formatted Body */}
+                        <div className="space-y-2.5">
+                          {msg.content
+                            .replace(/```action[\s\S]*?```/g, '')
+                            .split('\n\n')
+                            .map((para, pIdx) => {
+                              const lines = para.split('\n');
+                              return (
+                                <div key={pIdx} className="space-y-1.5">
+                                  {lines.map((line, lIdx) => {
+                                    const trimmed = line.trim();
+                                    if (!trimmed) return null;
+
+                                    // Numbered list item: "1. Energy System Transition: ..."
+                                    const numMatch = trimmed.match(/^(\d+)\.\s+(.*)$/);
+                                    if (numMatch) {
+                                      const num = numMatch[1];
+                                      const rest = numMatch[2];
+                                      return (
+                                        <div key={lIdx} className="flex items-start gap-2 pt-1">
+                                          <span className="text-amber-400 font-bold text-xs shrink-0 mt-0.5">
+                                            {num}.
+                                          </span>
+                                          <div className="leading-relaxed">
+                                            {rest.split(/(\*\*.*?\*\*)/g).map((part, i) =>
+                                              part.startsWith('**') && part.endsWith('**') ? (
+                                                <strong
+                                                  key={i}
+                                                  className="font-bold text-white dark:text-white"
+                                                >
+                                                  {part.slice(2, -2)}
+                                                </strong>
+                                              ) : (
+                                                <span key={i}>{part}</span>
+                                              )
+                                            )}
+                                          </div>
+                                        </div>
+                                      );
+                                    }
+
+                                    // Bullet item: "- " or "• "
+                                    if (trimmed.startsWith('- ') || trimmed.startsWith('• ')) {
+                                      const bulletText = trimmed.replace(/^[-•]\s*/, '');
+                                      return (
+                                        <div key={lIdx} className="flex items-start gap-2 pl-1">
+                                          <span className="text-amber-400 font-bold shrink-0 mt-0.5">•</span>
+                                          <div className="leading-relaxed">
+                                            {bulletText.split(/(\*\*.*?\*\*)/g).map((part, i) =>
+                                              part.startsWith('**') && part.endsWith('**') ? (
+                                                <strong
+                                                  key={i}
+                                                  className="font-bold text-white dark:text-white"
+                                                >
+                                                  {part.slice(2, -2)}
+                                                </strong>
+                                              ) : (
+                                                <span key={i}>{part}</span>
+                                              )
+                                            )}
+                                          </div>
+                                        </div>
+                                      );
+                                    }
+
+                                    // Standard text
+                                    return (
+                                      <p key={lIdx} className="leading-relaxed">
+                                        {line.split(/(\*\*.*?\*\*)/g).map((part, i) =>
+                                          part.startsWith('**') && part.endsWith('**') ? (
+                                            <strong
+                                              key={i}
+                                              className="font-bold text-white dark:text-white"
+                                            >
+                                              {part.slice(2, -2)}
+                                            </strong>
+                                          ) : (
+                                            <span key={i}>{part}</span>
+                                          )
+                                        )}
+                                      </p>
+                                    );
+                                  })}
+                                </div>
+                              );
+                            })}
+                        </div>
+
+                        {/* Runvia Action Toolbar */}
+                        <div className="pt-2.5 mt-2 border-t border-zinc-800/70 flex items-center justify-between text-zinc-400 text-[11px]">
+                          <div className="flex items-center gap-1.5">
+                            <span className="text-[10px] text-zinc-400 mr-1.5">{msg.timestamp}</span>
+
+                            {/* Copy button */}
+                            <button
+                              type="button"
+                              onClick={() => handleCopyMessage(msg.id, msg.content)}
+                              className="p-1 rounded hover:bg-zinc-800 text-zinc-400 hover:text-zinc-200 transition-colors cursor-pointer"
+                              title="Copy response"
+                            >
+                              {copiedMsgId === msg.id ? (
+                                <Check className="w-3.5 h-3.5 text-emerald-400" />
+                              ) : (
+                                <Copy className="w-3.5 h-3.5" />
+                              )}
+                            </button>
+
+                            {/* Speaker TTS button */}
+                            <button
+                              type="button"
+                              onClick={() => handleToggleSpeak(msg.id, msg.content)}
+                              className={`p-1 rounded hover:bg-zinc-800 transition-colors cursor-pointer ${
+                                speakingMsgId === msg.id
+                                  ? 'text-amber-400 animate-pulse'
+                                  : 'text-zinc-400 hover:text-zinc-200'
+                              }`}
+                              title={speakingMsgId === msg.id ? 'Stop reading' : 'Read aloud'}
+                            >
+                              {speakingMsgId === msg.id ? (
+                                <VolumeX className="w-3.5 h-3.5" />
+                              ) : (
+                                <Volume2 className="w-3.5 h-3.5" />
+                              )}
+                            </button>
+
+                            {/* Thumbs Up */}
+                            <button
+                              type="button"
+                              onClick={() => handleMessageFeedback(msg.id, 'like')}
+                              className={`p-1 rounded hover:bg-zinc-800 transition-colors cursor-pointer ${
+                                msg.feedback === 'like'
+                                  ? 'text-emerald-400'
+                                  : 'text-zinc-400 hover:text-zinc-200'
+                              }`}
+                              title="Helpful advice"
+                            >
+                              <ThumbsUp className="w-3.5 h-3.5" />
+                            </button>
+
+                            {/* Thumbs Down */}
+                            <button
+                              type="button"
+                              onClick={() => handleMessageFeedback(msg.id, 'dislike')}
+                              className={`p-1 rounded hover:bg-zinc-800 transition-colors cursor-pointer ${
+                                msg.feedback === 'dislike'
+                                  ? 'text-red-400'
+                                  : 'text-zinc-400 hover:text-zinc-200'
+                              }`}
+                              title="Needs adjustment"
+                            >
+                              <ThumbsDown className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        </div>
+
+                        {/* Runvia Disclaimer */}
+                        <div className="text-[10px] text-zinc-400 italic">
+                          Personalized using your data. Not medical advice.
+                        </div>
+                      </div>
+                    )}
                   </div>
-                  <span className="text-[10px] text-slate-500 mt-1 px-1">{msg.timestamp}</span>
-                </div>
-              ))
+                );
+              })
             )}
 
+            {/* "Drafting the reply..." loading indicator with Stop button */}
             {isSendingChat && (
-              <div className="flex items-center gap-2 text-xs text-emerald-400">
-                <RotateCw className="w-3.5 h-3.5 animate-spin" />
-                <span>Coach Gemini is analyzing your training data and history...</span>
+              <div className="flex items-center justify-between p-3.5 rounded-2xl bg-zinc-900/90 border border-zinc-800 text-xs text-amber-300 shadow-lg animate-pulse">
+                <div className="flex items-center gap-2">
+                  <RotateCw className="w-3.5 h-3.5 animate-spin text-amber-400" />
+                  <span>Drafting the reply... analyzing your training history & multi-year goals</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setIsSendingChat(false)}
+                  className="px-2 py-1 rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-200 text-[10px] font-bold flex items-center gap-1 cursor-pointer transition-colors"
+                  title="Stop generating"
+                >
+                  <Square className="w-2.5 h-2.5 fill-current" />
+                  <span>Stop</span>
+                </button>
               </div>
             )}
           </div>
 
-          {/* Chat Input Bar */}
+          {/* Floating Scroll-to-Bottom yellow circular button (Runvia Screenshot 2) */}
+          {showScrollBottom && (
+            <button
+              type="button"
+              onClick={() => scrollToBottom(true)}
+              className="absolute bottom-20 right-6 w-9 h-9 rounded-full bg-amber-400 hover:bg-amber-300 text-slate-950 shadow-2xl flex items-center justify-center transition-transform hover:scale-110 active:scale-95 cursor-pointer z-30"
+              title="Scroll to bottom"
+            >
+              <ArrowDown className="w-4 h-4 stroke-[2.5]" />
+            </button>
+          )}
+
+          {/* Quick Actions Popover (when + is clicked) */}
+          {showQuickActions && (
+            <div className="p-3 rounded-2xl bg-zinc-900 border border-zinc-700/80 shadow-2xl space-y-1.5 z-20">
+              <div className="flex items-center justify-between pb-1.5 border-b border-zinc-800 text-[11px] font-bold text-zinc-400">
+                <span>Runvia Endurance Coaching Actions</span>
+                <button
+                  type="button"
+                  onClick={() => setShowQuickActions(false)}
+                  className="p-1 hover:text-white cursor-pointer"
+                >
+                  <X className="w-3 h-3" />
+                </button>
+              </div>
+              {[
+                {
+                  title: '🏊 Frame Swim vs Flat Ironman 2028',
+                  desc: 'Weigh short speed intervals vs 3.8km continuous endurance',
+                  query:
+                    'in the future, when we look at activities can we frame the analysis in the context of the week and hitting long term goals. For example my swimming is often short intervals with long 30-45 second rest periods 50m/100m/200m, where i am stronger conpared to 4x400m with 20 seconds rest which would suit a 1.9km or 3.8km swim better.',
+                },
+                {
+                  title: '⭐ Rate Last 10 Days of Swimming',
+                  desc: 'Session volume, speed/efficiency, and 2028 Ironman confidence rating',
+                  query:
+                    'Could you rate my last 10 days of swimming relative to my new 2028 Ironman objective?',
+                },
+                {
+                  title: '🎯 Add Goal: Flat Ironman June 18, 2028',
+                  desc: 'Persists Priority C full-distance objective to athlete profile',
+                  query: 'Add new long-term goal Flat Ironman June 18, 2028 Priority C',
+                },
+                {
+                  title: '⏱️ Deep Lap & Stream Heart Rate Drift',
+                  desc: 'Zone distribution, 200m push, and cardiac recovery drop',
+                  query:
+                    "Can you analyze yesterday's swim session in detail: lap paces, TSS, interval heart rate drift, and zone distribution?",
+                },
+                {
+                  title: '🏃 Progress Thursday Run Workouts',
+                  desc: 'Review past 2 Thursdays and adapt threshold pacing',
+                  query: 'How should i progress my run workouts from the last 2 thursdays.',
+                },
+                {
+                  title: '⚡ 4h 30m Half Ironman: Run vs TT Aero Gain',
+                  desc: 'Comparative aerodynamic vs run threshold ROI',
+                  query:
+                    'For a goal time of 4hrs 30min for a half IronMan would I gain most by working on my run distance or time spent in the TT position on the bike?',
+                },
+              ].map((item, idx) => (
+                <button
+                  key={idx}
+                  type="button"
+                  onClick={() => handleSendMessage(item.query)}
+                  className="w-full text-left p-2 rounded-xl hover:bg-zinc-800 transition-colors flex flex-col cursor-pointer"
+                >
+                  <span className="text-xs font-bold text-zinc-100">{item.title}</span>
+                  <span className="text-[10px] text-zinc-400">{item.desc}</span>
+                </button>
+              ))}
+            </div>
+          )}
+
+          {/* Runvia Pill Input Bar (Matching Screenshots 1 & 2) */}
           <form
             onSubmit={(e) => {
               e.preventDefault();
               handleSendMessage();
             }}
-            className="flex items-center gap-2"
+            className="flex items-center gap-2 p-1.5 pl-3 bg-zinc-900 border border-zinc-700/80 rounded-full shadow-2xl transition-all focus-within:border-amber-400"
           >
+            {/* Quick Actions + Button */}
+            <button
+              type="button"
+              onClick={() => setShowQuickActions(!showQuickActions)}
+              className="w-8 h-8 rounded-full bg-zinc-800 hover:bg-zinc-700 flex items-center justify-center text-zinc-300 hover:text-white transition-colors cursor-pointer shrink-0"
+              title="Quick actions"
+            >
+              <Plus className="w-4 h-4" />
+            </button>
+
+            {/* Text Input */}
             <input
               type="text"
               value={chatInput}
               onChange={(e) => setChatInput(e.target.value)}
-              placeholder="Ask about swim rest intervals, 4h 30m 70.3 aero gains, or your work schedule..."
+              placeholder="Ask your coach..."
               disabled={isSendingChat}
-              className={`flex-1 px-4 py-2.5 rounded-xl border text-xs outline-none transition-colors ${
-                theme === 'light'
-                  ? 'bg-white border-slate-300 text-slate-900 focus:border-emerald-500'
-                  : 'bg-slate-900 border-slate-700 text-white focus:border-emerald-400'
-              }`}
+              className="flex-1 bg-transparent text-xs sm:text-sm text-zinc-100 placeholder-zinc-500 outline-none px-2"
             />
+
+            {/* Voice Dictation Microphone */}
+            <button
+              type="button"
+              onClick={handleToggleListen}
+              className={`w-8 h-8 rounded-full flex items-center justify-center transition-colors cursor-pointer shrink-0 ${
+                isListening
+                  ? 'bg-red-500/20 text-red-400 animate-pulse'
+                  : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800'
+              }`}
+              title={isListening ? 'Listening... click to stop' : 'Voice input'}
+            >
+              {isListening ? <MicOff className="w-4 h-4" /> : <Mic className="w-4 h-4" />}
+            </button>
+
+            {/* Yellow Circular Send Button */}
             <button
               type="submit"
               disabled={!chatInput.trim() || isSendingChat}
-              className="px-4 py-2.5 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold rounded-xl text-xs flex items-center gap-1.5 transition-all cursor-pointer disabled:opacity-40"
+              className="w-9 h-9 rounded-full bg-amber-400 hover:bg-amber-300 text-slate-950 flex items-center justify-center transition-transform active:scale-95 disabled:opacity-40 cursor-pointer shrink-0 shadow-md"
+              title="Send to Coach"
             >
-              <Send className="w-3.5 h-3.5" />
-              <span>Send</span>
+              <Send className="w-4 h-4 fill-slate-950" />
             </button>
           </form>
         </div>

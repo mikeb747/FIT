@@ -199,7 +199,7 @@ export const StravaActivitiesTab: React.FC<StravaActivitiesTabProps> = ({
       {/* CATEGORY FILTER TABS: All, Swim, Bike, Run, Gym (EXACT ORDER) */}
       {/* ========================================================= */}
       <div className="w-full">
-        <div className="w-full flex items-center gap-1 overflow-x-auto scrollbar-none py-0.5">
+        <div className="w-full flex items-center rounded-xl border-2 border-slate-600 dark:border-slate-500 bg-slate-900/40 p-0.5 overflow-hidden">
           {(['All', 'Swim', 'Bike', 'Run', 'Gym'] as const).map((cat) => {
             const count = categoryCounts[cat] || 0;
             const isActive = selectedCategory === cat;
@@ -208,37 +208,35 @@ export const StravaActivitiesTab: React.FC<StravaActivitiesTabProps> = ({
                 key={cat}
                 type="button"
                 onClick={() => setSelectedCategory(cat)}
-                className={`flex-1 min-w-[60px] sm:min-w-0 px-1.5 sm:px-3 py-1.5 text-xs font-bold whitespace-nowrap flex items-center justify-center gap-1 rounded-xl transition-all cursor-pointer ${
+                className={`flex-1 min-w-[60px] sm:min-w-0 px-1.5 sm:px-3 py-2 text-xs font-bold whitespace-nowrap flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
                   isActive
-                    ? isLight
-                      ? 'bg-amber-500 text-white font-black border-[1.2px] border-[#90a1b9] shadow-sm'
-                      : 'bg-amber-500 text-slate-950 font-black border-[1.2px] border-[#90a1b9] shadow-sm'
-                    : isLight
-                    ? 'bg-[#f0f0f0] hover:bg-slate-200 text-slate-700 hover:text-slate-900 border border-slate-200/60 shadow-xs'
-                    : 'bg-slate-900 hover:bg-slate-850 text-slate-300 hover:text-white border border-slate-800'
+                    ? 'bg-white text-slate-900 font-extrabold shadow-sm rounded-lg relative z-10 border-[1.5px] border-slate-400 dark:border-slate-500 ring-2 ring-sky-400 dark:ring-sky-400'
+                    : `rounded-none border-r border-slate-700 dark:border-slate-800 last:border-r-0 ${
+                        isLight
+                          ? 'bg-[#f0f0f0] hover:bg-slate-200 text-slate-700 hover:text-slate-900'
+                          : 'bg-slate-900 hover:bg-slate-800 text-slate-400 hover:text-slate-200'
+                      }`
                 }`}
               >
                 {cat === 'Swim' && (
-                  <Waves className={`w-3.5 h-3.5 ${isLight && !isActive ? 'text-sky-600' : 'text-sky-400'}`} />
+                  <Waves className={`w-3.5 h-3.5 shrink-0 ${isActive ? 'text-sky-600' : isLight ? 'text-sky-600' : 'text-sky-400'}`} />
                 )}
                 {cat === 'Bike' && (
-                  <Bike className={`w-3.5 h-3.5 ${isLight && !isActive ? 'text-amber-600' : 'text-orange-400'}`} />
+                  <Bike className={`w-3.5 h-3.5 shrink-0 ${isActive ? 'text-amber-600' : isLight ? 'text-amber-600' : 'text-orange-400'}`} />
                 )}
                 {cat === 'Run' && (
-                  <Footprints className={`w-3.5 h-3.5 ${isLight && !isActive ? 'text-amber-700' : 'text-amber-400'}`} />
+                  <Footprints className={`w-3.5 h-3.5 shrink-0 ${isActive ? 'text-emerald-600' : isLight ? 'text-emerald-700' : 'text-emerald-400'}`} />
                 )}
                 {cat === 'Gym' && (
-                  <Dumbbell className={`w-3.5 h-3.5 ${isLight && !isActive ? 'text-emerald-600' : 'text-emerald-400'}`} />
+                  <Dumbbell className={`w-3.5 h-3.5 shrink-0 ${isActive ? 'text-indigo-600' : isLight ? 'text-indigo-600' : 'text-indigo-400'}`} />
                 )}
                 <span>{cat}</span>
                 <span
-                  className={`text-[10px] px-1.5 py-0.2 rounded-full font-mono ${
+                  className={`text-[10px] px-1.5 py-0.2 rounded-md font-mono ${
                     isActive
-                      ? isLight
-                        ? 'bg-white/20 text-white font-black'
-                        : 'bg-slate-950/20 text-slate-950 font-black'
+                      ? 'bg-slate-200 text-slate-800 font-bold'
                       : isLight
-                      ? 'bg-slate-100 text-slate-700 border border-slate-200'
+                      ? 'bg-slate-200 text-slate-600'
                       : 'bg-slate-800 text-slate-400'
                   }`}
                 >
