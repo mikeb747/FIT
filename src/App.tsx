@@ -843,34 +843,24 @@ export default function App() {
         >
           {/* Navigation Switcher */}
           <div
-            className="flex items-center rounded-xl border-2 border-slate-600 dark:border-slate-500 bg-slate-900/40 p-0.5 overflow-hidden grow shrink-0"
+            className="flex items-center h-[34px] rounded-[12px] border-[0.8px] border-[#324158] overflow-hidden grow shrink-0"
             style={{ flexGrow: 1, flexShrink: 0 }}
           >
             <button
               type="button"
               onClick={() => setActiveMainTab('activities')}
               style={{ flexGrow: 1, flexShrink: 0 }}
-              className={`${buttonPaddingClass} grow shrink-0 text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+              className={`split-pill-item ${buttonPaddingClass} h-full grow shrink-0 text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer rounded-none outline-none focus:outline-none focus:ring-0 ${
                 activeMainTab === 'activities'
-                  ? 'bg-white text-slate-900 font-extrabold shadow-sm rounded-lg relative z-10 border-[1.5px] border-slate-400 dark:border-slate-500 ring-2 ring-sky-400 dark:ring-sky-400'
-                  : `rounded-none border-r border-slate-700 dark:border-slate-800 ${
-                      theme === 'light'
-                        ? 'bg-[#f0f0f0] hover:bg-slate-200 text-slate-700 hover:text-slate-900'
-                        : 'bg-slate-900 hover:bg-slate-800 text-slate-400 hover:text-slate-200'
-                    }`
+                  ? 'bg-[#eeeeee] text-slate-900 font-extrabold shadow-[inset_0_2px_4px_rgba(0,0,0,0.18)]'
+                  : 'bg-white hover:bg-slate-50 text-slate-700 hover:text-slate-900 font-bold'
               }`}
             >
               {showTabIcons && <Activity className="w-3.5 h-3.5 text-orange-400 shrink-0" />}
-              <span>Activities</span>
+              <span className="-ml-px">Activities</span>
               {showActivityCount && stravaActivities.length > 0 && (
                 <span
-                  className={`text-[10px] px-1.5 py-0.2 rounded-md ${
-                    activeMainTab === 'activities'
-                      ? 'bg-slate-200 text-slate-800 font-bold'
-                      : theme === 'light'
-                      ? 'bg-slate-200 text-slate-600'
-                      : 'bg-slate-900 text-slate-400'
-                  }`}
+                  className="inline-flex items-center justify-center text-[10px] h-[18px] min-w-[30px] px-1 pt-[2px] pb-[4px] -mx-px rounded-[8px] border-[0.8px] border-[#8b8c97] bg-slate-100 text-slate-700 font-bold leading-[12px]"
                 >
                   {stravaActivities.length}
                 </span>
@@ -881,21 +871,17 @@ export default function App() {
               type="button"
               onClick={() => setActiveMainTab('recovery')}
               style={{ flexGrow: 1, flexShrink: 0 }}
-              className={`${buttonPaddingClass} grow shrink-0 text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+              className={`split-pill-item ${buttonPaddingClass} h-full grow shrink-0 text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer rounded-none outline-none focus:outline-none focus:ring-0 ${
                 activeMainTab === 'recovery'
-                  ? 'bg-white text-slate-900 font-extrabold shadow-sm rounded-lg relative z-10 border-[1.5px] border-slate-400 dark:border-slate-500 ring-2 ring-sky-400 dark:ring-sky-400'
-                  : `rounded-none border-r border-slate-700 dark:border-slate-800 ${
-                      theme === 'light'
-                        ? 'bg-[#f0f0f0] hover:bg-slate-200 text-slate-700 hover:text-slate-900'
-                        : 'bg-slate-900 hover:bg-slate-800 text-slate-400 hover:text-slate-200'
-                    }`
+                  ? 'bg-[#eeeeee] text-slate-900 font-extrabold shadow-[inset_0_2px_4px_rgba(0,0,0,0.18)]'
+                  : 'bg-white hover:bg-slate-50 text-slate-700 hover:text-slate-900 font-bold'
               }`}
             >
               {showTabIcons && <Heart className="w-3.5 h-3.5 text-rose-500 shrink-0" />}
-              <span>Readiness</span>
+              <span className="-mx-px">Readiness</span>
               {headerReadiness && Number.isFinite(headerReadiness.score) && (
                 <span
-                  className={`text-[10px] px-1.5 py-0.5 rounded-md font-extrabold ${headerReadiness.badgeBg} ${headerReadiness.badgeText}`}
+                  className="inline-flex items-center justify-center text-[10px] h-[18px] min-w-[34px] px-1 pt-[2px] pb-[4px] -mx-px rounded-[8px] border-[0.8px] border-[#9d5454] bg-[#ffcfc3] text-[#492929] font-extrabold leading-[12px]"
                 >
                   {headerReadiness.score}%
                 </span>
@@ -906,26 +892,16 @@ export default function App() {
               type="button"
               onClick={() => setActiveMainTab('fitness')}
               style={{ flexGrow: 1, flexShrink: 0 }}
-              className={`${buttonPaddingClass} grow shrink-0 text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+              className={`split-pill-item ${buttonPaddingClass} h-full grow shrink-0 text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer rounded-none outline-none focus:outline-none focus:ring-0 ${
                 activeMainTab === 'fitness'
-                  ? 'bg-white text-slate-900 font-extrabold shadow-sm rounded-lg relative z-10 border-[1.5px] border-slate-400 dark:border-slate-500 ring-2 ring-sky-400 dark:ring-sky-400'
-                  : `rounded-none border-r border-slate-700 dark:border-slate-800 ${
-                      theme === 'light'
-                        ? 'bg-[#f0f0f0] hover:bg-slate-200 text-slate-700 hover:text-slate-900'
-                        : 'bg-slate-900 hover:bg-slate-800 text-slate-400 hover:text-slate-200'
-                    }`
+                  ? 'bg-[#eeeeee] text-slate-900 font-extrabold shadow-[inset_0_2px_4px_rgba(0,0,0,0.18)]'
+                  : 'bg-white hover:bg-slate-50 text-slate-700 hover:text-slate-900 font-bold'
               }`}
             >
               {showTabIcons && <Zap className="w-3.5 h-3.5 text-indigo-500 shrink-0" />}
-              <span>Fitness</span>
+              <span className="-mx-px">Fitness</span>
               <span
-                className={`text-[10px] px-1.5 py-0.5 rounded-md font-extrabold ${
-                  activeMainTab === 'fitness'
-                    ? 'bg-indigo-100 text-indigo-800'
-                    : theme === 'light'
-                    ? 'bg-indigo-100 text-indigo-700'
-                    : 'bg-indigo-950/70 text-indigo-300 border border-indigo-700/40'
-                }`}
+                className="inline-flex items-center justify-center text-[10px] h-[18px] min-w-[30px] px-1 pt-[2px] pb-[4px] -mx-px rounded-[8px] border-[0.8px] border-[#1a7ec1] bg-[#00cfff] text-[#051e98] font-extrabold leading-[12px]"
                 title="Triathlon Fitness Index"
               >
                 {headerFitnessIndex}
@@ -936,26 +912,16 @@ export default function App() {
               type="button"
               onClick={() => setActiveMainTab('coach')}
               style={{ flexGrow: 1, flexShrink: 0 }}
-              className={`${buttonPaddingClass} grow shrink-0 text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+              className={`split-pill-item-last ${buttonPaddingClass} h-full grow shrink-0 text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer rounded-none outline-none focus:outline-none focus:ring-0 ${
                 activeMainTab === 'coach'
-                  ? 'bg-white text-slate-900 font-extrabold shadow-sm rounded-lg relative z-10 border-[1.5px] border-slate-400 dark:border-slate-500 ring-2 ring-sky-400 dark:ring-sky-400'
-                  : `rounded-none ${
-                      theme === 'light'
-                        ? 'bg-[#f0f0f0] hover:bg-slate-200 text-slate-700 hover:text-slate-900'
-                        : 'bg-slate-900 hover:bg-slate-800 text-slate-400 hover:text-slate-200'
-                    }`
+                  ? 'bg-[#eeeeee] text-slate-900 font-extrabold shadow-[inset_0_2px_4px_rgba(0,0,0,0.18)]'
+                  : 'bg-white hover:bg-slate-50 text-slate-700 hover:text-slate-900 font-bold'
               }`}
             >
               {showTabIcons && <Sparkles className="w-3.5 h-3.5 text-emerald-400 shrink-0" />}
               <span>Coach</span>
               <span
-                className={`text-[9px] uppercase tracking-wider font-extrabold px-1.5 py-0.2 rounded-md ${
-                  activeMainTab === 'coach'
-                    ? 'bg-emerald-100 text-emerald-800'
-                    : theme === 'light'
-                    ? 'bg-emerald-100 text-emerald-700'
-                    : 'bg-emerald-950/70 text-emerald-300 border border-emerald-700/40'
-                }`}
+                className="inline-flex items-center justify-center text-[10px] h-[18px] min-w-[30px] px-1 pt-[2px] pb-[4px] -mx-px rounded-[8px] border-[0.8px] border-[#1a6a53] bg-[#55ecc4] text-[#135838] font-bold leading-[12px]"
               >
                 AI
               </span>
@@ -963,7 +929,7 @@ export default function App() {
           </div>
 
           {/* Action cluster: Settings, Strava Sync */}
-          <div className="flex items-center rounded-xl border border-slate-700/60 dark:border-slate-800 bg-slate-900/40 overflow-hidden shrink-0">
+          <div className="flex items-center h-[34px] rounded-[12px] border-[0.8px] border-[#324158] overflow-hidden shrink-0">
             {/* Settings & Athlete Profile Button */}
             <button
               type="button"
@@ -972,14 +938,10 @@ export default function App() {
                 setIsAthleteProfileOpen(true);
               }}
               title="Settings & Athlete Profile"
-              className={`${buttonPaddingClass} text-xs font-bold flex items-center justify-center gap-1.5 transition-all active:scale-95 cursor-pointer border-r border-slate-700 dark:border-slate-800 shrink-0 ${
-                theme === 'light'
-                  ? 'bg-[#f0f0f0] hover:bg-slate-200 text-slate-700 hover:text-slate-900'
-                  : 'bg-slate-900 hover:bg-slate-800 text-slate-300 hover:text-white'
-              }`}
+              className={`split-pill-item ${buttonPaddingClass} h-full text-xs font-bold flex items-center justify-center gap-1.5 transition-all active:scale-95 cursor-pointer outline-none focus:outline-none focus:ring-0 shrink-0 bg-white hover:bg-slate-50 text-slate-700 hover:text-slate-900`}
             >
               <Settings className="w-4 h-4 text-amber-400 shrink-0" />
-              {showSettingsSyncText && <span>Settings</span>}
+              {showSettingsSyncText && <span className="-ml-px">Settings</span>}
             </button>
 
             {/* Strava Sync Button */}
@@ -994,11 +956,7 @@ export default function App() {
               }}
               disabled={isLoadingStravaActivities}
               title={stravaToken ? 'Sync Strava activities (smart delta sync)' : 'Connect Strava'}
-              className={`${buttonPaddingClass} text-xs font-bold flex items-center justify-center gap-1.5 transition-all active:scale-95 cursor-pointer disabled:opacity-50 shrink-0 ${
-                theme === 'light'
-                  ? 'bg-[#f0f0f0] hover:bg-slate-200 text-slate-700 hover:text-slate-900'
-                  : 'bg-slate-900 hover:bg-slate-800 text-slate-300 hover:text-white'
-              }`}
+              className={`split-pill-item-last ${buttonPaddingClass} h-full text-xs font-bold flex items-center justify-center gap-1.5 transition-all active:scale-95 cursor-pointer disabled:opacity-50 shrink-0 outline-none focus:outline-none focus:ring-0 bg-white hover:bg-slate-50 text-slate-700 hover:text-slate-900`}
             >
               <RotateCw
                 className={`w-3.5 h-3.5 shrink-0 ${
@@ -1006,7 +964,7 @@ export default function App() {
                 }`}
               />
               {showSettingsSyncText && (
-                <span>
+                <span className="-ml-px">
                   {isLoadingStravaActivities ? 'Syncing...' : 'Sync'}
                 </span>
               )}

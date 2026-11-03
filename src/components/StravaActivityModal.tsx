@@ -25,6 +25,7 @@ import {
   Flame,
   HeartHandshake,
   Trash2,
+  Watch,
 } from 'lucide-react';
 import type {
   StravaActivity,
@@ -261,6 +262,7 @@ export const StravaActivityModal: React.FC<StravaActivityModalProps> = ({
 
   const calories = (detailsRecord?.activity?.calories as number) || activity.calories;
   const description = (detailsRecord?.activity?.description as string) || '';
+  const deviceName = ((detailsRecord?.activity?.device_name as string) || ((activity as unknown as Record<string, unknown>)?.device_name as string) || '').trim();
 
   const streams = detailsRecord?.streams as Record<string, { data?: any[] }> | undefined;
   const availableStreamsList = streams ? Object.keys(streams).filter((k) => streams[k]?.data?.length) : [];
@@ -429,6 +431,21 @@ export const StravaActivityModal: React.FC<StravaActivityModalProps> = ({
               {getCategoryIcon(classification.category, 'w-3.5 h-3.5', isLight)}
               <span>{classification.subType}</span>
             </span>
+
+            {/* Device Model Badge (e.g. Garmin Forerunner 255) */}
+            {deviceName && (
+              <span
+                className={`px-2.5 py-1 rounded-xl text-xs font-bold flex items-center gap-1.5 border ${
+                  isLight
+                    ? 'bg-slate-100 text-slate-700 border-slate-200'
+                    : 'bg-slate-800 text-slate-300 border-slate-700'
+                }`}
+                title={`Recorded with ${deviceName}`}
+              >
+                <Watch className="w-3.5 h-3.5 text-slate-400" />
+                <span>{deviceName}</span>
+              </span>
+            )}
 
             {/* Deleted Badge */}
             {(activity.isDeleted || isDeletedLocally) && (

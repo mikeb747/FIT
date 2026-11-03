@@ -229,3 +229,34 @@ html[data-theme="light"] ::-webkit-scrollbar-thumb {
 html[data-theme="light"] ::-webkit-scrollbar-thumb:hover {
   background: rgba(100, 116, 139, 0.8);
 }
+
+/* Split-pill buttons: eliminate double borders and browser focus boxes */
+.split-pill-item {
+  border-top: 0 !important;
+  border-bottom: 0 !important;
+  border-left: 0 !important;
+  border-right: 0.8px solid #0f172b !important;
+  outline: none !important;
+}
+
+.split-pill-item:last-child {
+  border-right: 0 !important;
+}
+
+.split-pill-item:focus,
+.split-pill-item:focus-visible,
+.split-pill-item:active {
+  outline: none !important;
+}
+
+.split-pill-item-last {
+  border: 0 !important;
+  outline: none !important;
+}
+
+.split-pill-item-last:focus,
+.split-pill-item-last:focus-visible,
+.split-pill-item-last:active {
+  outline: none !important;
+}
+

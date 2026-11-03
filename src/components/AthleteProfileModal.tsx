@@ -1562,30 +1562,18 @@ export const AthleteProfileModal: React.FC<AthleteProfileModalProps> = ({
 
                   <div className="pt-0.5 flex items-center gap-2">
                     {garminConnected || garminEmail ? (
-                      <>
-                        <button
-                          type="button"
-                          onClick={onOpenGarminSync}
-                          className={`flex-1 py-2 px-3 rounded-xl text-xs font-bold border flex items-center justify-center gap-1.5 transition-colors cursor-pointer ${
-                            theme === 'light'
-                              ? 'bg-white hover:bg-slate-100 text-slate-700 border-slate-200 shadow-xs'
-                              : 'bg-slate-900 hover:bg-slate-800 text-slate-200 border-slate-800'
-                          }`}
-                        >
-                          <Zap className="w-3.5 h-3.5 text-sky-400" />
-                          <span>Sync / Manage Garmin</span>
-                        </button>
-                        {onDisconnectGarmin && (
-                          <button
-                            type="button"
-                            onClick={onDisconnectGarmin}
-                            className="py-2 px-3 rounded-xl bg-rose-950/40 hover:bg-rose-900/50 text-rose-300 text-xs font-bold border border-rose-800/60 flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
-                            title="Disconnect Garmin account"
-                          >
-                            <span>Disconnect</span>
-                          </button>
-                        )}
-                      </>
+                      <button
+                        type="button"
+                        onClick={onOpenGarminSync}
+                        className={`w-full py-2 px-3 rounded-xl text-xs font-bold border flex items-center justify-center gap-1.5 transition-colors cursor-pointer ${
+                          theme === 'light'
+                            ? 'bg-white hover:bg-slate-100 text-slate-700 border-slate-200 shadow-xs'
+                            : 'bg-slate-900 hover:bg-slate-800 text-slate-200 border-slate-800'
+                        }`}
+                      >
+                        <Zap className="w-3.5 h-3.5 text-sky-400" />
+                        <span>Sync / Manage Garmin</span>
+                      </button>
                     ) : (
                       <button
                         type="button"
@@ -1598,88 +1586,92 @@ export const AthleteProfileModal: React.FC<AthleteProfileModalProps> = ({
                     )}
                   </div>
                 </div>
-              </div>
 
-              {/* Google Sheets Training Log & Streams Backup */}
-              <div
-                className={`p-3.5 rounded-2xl border space-y-2.5 ${
-                  theme === 'light'
-                    ? 'bg-slate-50 border-slate-200'
-                    : 'bg-slate-950 border-slate-800'
-                }`}
-              >
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <div className="w-7 h-7 rounded-lg bg-emerald-500/15 border border-emerald-500/30 flex items-center justify-center">
-                      <FileSpreadsheet className="w-4 h-4 text-emerald-400" />
-                    </div>
-                    <div>
-                      <h3
-                        className={`text-xs uppercase font-extrabold tracking-wider ${
-                          theme === 'light' ? 'text-slate-800' : 'text-slate-300'
-                        }`}
-                      >
-                        Google Sheets Cloud Backup
-                      </h3>
-                      <p className="text-[11px] text-slate-400 mt-0.5">
-                        Back up workouts, biometric recovery, and telemetry streams to your Google Sheet
-                      </p>
-                    </div>
-                  </div>
-                  {getGoogleAccessToken() && (
-                    <span className="text-[10px] font-bold text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-2 py-0.5 rounded-md flex items-center gap-1 font-mono">
-                      <Check className="w-3 h-3 stroke-[3]" /> Connected
-                    </span>
-                  )}
-                </div>
+                {/* Divider between Garmin and Google Sheets */}
+                <div
+                  className={`border-t ${
+                    theme === 'light' ? 'border-slate-200' : 'border-slate-800/80'
+                  }`}
+                />
 
-                <div className="pt-0.5 flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={handleBackupToSheetsFromSettings}
-                    disabled={isBackingUpSheets || (!stravaActivities || stravaActivities.length === 0)}
-                    className={`flex-1 py-2.5 px-3 rounded-xl border text-xs font-bold flex items-center justify-center gap-2 transition-all shadow-xs cursor-pointer ${
-                      backupFeedback
-                        ? 'bg-emerald-500/20 border-emerald-500/40 text-emerald-300'
-                        : theme === 'light'
-                        ? 'bg-emerald-50 hover:bg-emerald-100 border-emerald-200 text-emerald-900 shadow-xs'
-                        : 'bg-emerald-500/15 hover:bg-emerald-500/25 border-emerald-500/30 text-emerald-300'
-                    } disabled:opacity-50 disabled:cursor-not-allowed active:scale-98`}
-                  >
-                    {isBackingUpSheets ? (
-                      <>
-                        <Loader2 className="w-4 h-4 animate-spin text-emerald-400" />
-                        <span>{backupProgressMsg || 'Backing up to Google Sheets...'}</span>
-                      </>
-                    ) : backupFeedback ? (
-                      <>
-                        <Check className="w-4 h-4 text-emerald-400 stroke-[3]" />
-                        <span>{backupFeedback}</span>
-                      </>
-                    ) : (
-                      <>
-                        <FileSpreadsheet className="w-4 h-4 text-emerald-400" />
-                        <span>Backup to Sheets</span>
-                      </>
+                {/* Section C: Google Sheets Training Log & Streams Backup */}
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2.5">
+                      <div className="w-6 h-6 rounded-full bg-emerald-500/15 border border-emerald-500/30 flex items-center justify-center shrink-0">
+                        <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-400" />
+                      </div>
+                      <div>
+                        <div className="flex items-center gap-1.5">
+                          <span
+                            className={`text-xs font-bold ${
+                              theme === 'light' ? 'text-slate-800' : 'text-slate-200'
+                            }`}
+                          >
+                            Google Sheets Cloud Backup
+                          </span>
+                          <span className="text-[10px] text-emerald-500 font-medium">Workouts &amp; Streams</span>
+                        </div>
+                        <p className="text-[11px] text-slate-400 mt-0.5">
+                          Back up workouts, biometric recovery, and telemetry streams to your Google Sheet
+                        </p>
+                      </div>
+                    </div>
+                    {getGoogleAccessToken() && (
+                      <span className="text-[10px] font-bold text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-2 py-0.5 rounded-md flex items-center gap-1 font-mono">
+                        <Check className="w-3 h-3 stroke-[3]" /> Connected
+                      </span>
                     )}
-                  </button>
+                  </div>
 
-                  {getCachedSpreadsheetId() && (
-                    <a
-                      href={`https://docs.google.com/spreadsheets/d/${getCachedSpreadsheetId()}`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className={`px-3 py-2 rounded-xl border text-xs font-bold flex items-center justify-center gap-1.5 transition-colors ${
-                        theme === 'light'
-                          ? 'bg-white hover:bg-slate-100 text-slate-700 border-slate-200 shadow-xs'
-                          : 'bg-slate-900 hover:bg-slate-800 text-slate-300 border-slate-800'
-                      }`}
-                      title="Open Google Sheet in new tab"
+                  <div className="pt-0.5 flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={handleBackupToSheetsFromSettings}
+                      disabled={isBackingUpSheets || (!stravaActivities || stravaActivities.length === 0)}
+                      className={`flex-1 py-2 px-3 rounded-xl border text-xs font-bold flex items-center justify-center gap-2 transition-all shadow-xs cursor-pointer ${
+                        backupFeedback
+                          ? 'bg-emerald-500/20 border-emerald-500/40 text-emerald-300'
+                          : theme === 'light'
+                          ? 'bg-emerald-50 hover:bg-emerald-100 border-emerald-200 text-emerald-900 shadow-xs'
+                          : 'bg-emerald-500/15 hover:bg-emerald-500/25 border-emerald-500/30 text-emerald-300'
+                      } disabled:opacity-50 disabled:cursor-not-allowed active:scale-98`}
                     >
-                      <ExternalLink className="w-3.5 h-3.5" />
-                      <span>Open Sheet</span>
-                    </a>
-                  )}
+                      {isBackingUpSheets ? (
+                        <>
+                          <Loader2 className="w-4 h-4 animate-spin text-emerald-400" />
+                          <span>{backupProgressMsg || 'Backing up to Google Sheets...'}</span>
+                        </>
+                      ) : backupFeedback ? (
+                        <>
+                          <Check className="w-4 h-4 text-emerald-400 stroke-[3]" />
+                          <span>{backupFeedback}</span>
+                        </>
+                      ) : (
+                        <>
+                          <FileSpreadsheet className="w-4 h-4 text-emerald-400" />
+                          <span>Backup to Sheets</span>
+                        </>
+                      )}
+                    </button>
+
+                    {getCachedSpreadsheetId() && (
+                      <a
+                        href={`https://docs.google.com/spreadsheets/d/${getCachedSpreadsheetId()}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className={`px-3 py-2 rounded-xl border text-xs font-bold flex items-center justify-center gap-1.5 transition-colors ${
+                          theme === 'light'
+                            ? 'bg-white hover:bg-slate-100 text-slate-700 border-slate-200 shadow-xs'
+                            : 'bg-slate-900 hover:bg-slate-800 text-slate-300 border-slate-800'
+                        }`}
+                        title="Open Google Sheet in new tab"
+                      >
+                        <ExternalLink className="w-3.5 h-3.5" />
+                        <span>Open Sheet</span>
+                      </a>
+                    )}
+                  </div>
                 </div>
               </div>
 
