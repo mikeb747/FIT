@@ -894,7 +894,7 @@ export default function App() {
               {showTabIcons && <Zap className="w-3.5 h-3.5 text-indigo-500 shrink-0" />}
               <span className="leading-none">Fitness</span>
               <span
-                className="inline-flex items-center justify-center h-[22px] px-2 rounded-[6px] border-[0.8px] border-[#1a7ec1] bg-[#00cfff] text-[#051e98] text-xs font-extrabold leading-none"
+                className="inline-flex items-center justify-center h-[22px] px-2 rounded-[6px] border-[0.8px] border-[#1a7ec1] bg-[#defffc] text-[#051e98] text-xs font-extrabold leading-none"
                 title="Triathlon Fitness Index"
               >
                 {headerFitnessIndex}
