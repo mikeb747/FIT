@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useRef, useEffect } from 'react';
 import {
   RotateCw,
   Dumbbell,
@@ -18,6 +18,15 @@ import {
   Zap,
   FileSpreadsheet,
   Infinity as InfinityIcon,
+  Search,
+  Filter,
+  ArrowUpDown,
+  ArrowDown,
+  ArrowUp,
+  X,
+  Gauge,
+  TrendingUp,
+  RotateCcw,
 } from 'lucide-react';
 import { StravaIcon } from './StravaIcon';
 import type {
@@ -31,6 +40,7 @@ import {
   formatSportMetrics,
   isActivityNew,
   calculateActivityTSS,
+  calculateNormalizedPower,
 } from '../utils/stravaActivities';
 import { applyRenameRulesToName } from '../utils/activityRenameRules';
 import type { AthleteProfile } from '../types/athlete';
@@ -38,6 +48,146 @@ import { StravaActivityModal } from './StravaActivityModal';
 import { PWAInstallButton } from './PWAInstallButton';
 import { batchBackupActivitiesToGoogleSheet } from '../utils/googleSheets';
 import { isDemoModeActive } from '../utils/demoData';
+
+export type ActivitySortMetric =
+  | 'date'
+  | 'duration'
+  | 'distance'
+  | 'tss'
+  | 'pace'
+  | 'elevation'
+  | 'avg_hr'
+  | 'max_hr'
+  | 'avg_power'
+  | 'normalized_power'
+  | 'max_power';
+
+export type ActivitySortDirection = 'asc' | 'desc';
+
+interface SortOptionDef {
+  id: ActivitySortMetric;
+  label: string;
+  icon: (className?: string) => React.ReactNode;
+  descHelper: string;
+  ascHelper: string;
+}
+
+const SORT_OPTIONS: SortOptionDef[] = [
+  {
+    id: 'duration',
+    label: 'Duration',
+    icon: (c = 'w-4 h-4 text-sky-400') => <Clock className={c} />,
+    descHelper: 'Longest first',
+    ascHelper: 'Shortest first',
+  },
+  {
+    id: 'distance',
+    label: 'Distance',
+    icon: (c = 'w-4 h-4 text-emerald-400') => <MapPin className={c} />,
+    descHelper: 'Furthest first',
+    ascHelper: 'Shortest distance first',
+  },
+  {
+    id: 'tss',
+    label: 'TSS (Training Stress)',
+    icon: (c = 'w-4 h-4 text-amber-400') => <Zap className={c} />,
+    descHelper: 'Highest TSS first',
+    ascHelper: 'Lowest TSS first',
+  },
+  {
+    id: 'pace',
+    label: 'Pace / Speed',
+    icon: (c = 'w-4 h-4 text-teal-400') => <Gauge className={c} />,
+    descHelper: 'Fastest pace first',
+    ascHelper: 'Slowest pace first',
+  },
+  {
+    id: 'elevation',
+    label: 'Elevation Gain',
+    icon: (c = 'w-4 h-4 text-indigo-400') => <TrendingUp className={c} />,
+    descHelper: 'Most elevation first',
+    ascHelper: 'Least elevation first',
+  },
+  {
+    id: 'avg_hr',
+    label: 'Average HR',
+    icon: (c = 'w-4 h-4 text-rose-400') => <Heart className={c} />,
+    descHelper: 'Highest HR first',
+    ascHelper: 'Lowest HR first',
+  },
+  {
+    id: 'max_hr',
+    label: 'Max HR',
+    icon: (c = 'w-4 h-4 text-red-500') => <Heart className={c} />,
+    descHelper: 'Highest max HR first',
+    ascHelper: 'Lowest max HR first',
+  },
+  {
+    id: 'avg_power',
+    label: 'Average Power',
+    icon: (c = 'w-4 h-4 text-purple-400') => <Zap className={c} />,
+    descHelper: 'Highest average watts',
+    ascHelper: 'Lowest average watts',
+  },
+  {
+    id: 'normalized_power',
+    label: 'Normalized Power (NP)',
+    icon: (c = 'w-4 h-4 text-violet-400') => <Zap className={c} />,
+    descHelper: 'Highest NP first',
+    ascHelper: 'Lowest NP first',
+  },
+  {
+    id: 'max_power',
+    label: 'Max Power',
+    icon: (c = 'w-4 h-4 text-amber-500') => <Zap className={c} />,
+    descHelper: 'Highest max watts',
+    ascHelper: 'Lowest max watts',
+  },
+];
+
+function getActivitySortValue(
+  act: StravaActivity,
+  details: StravaActivityDetailsRecord | undefined,
+  metric: ActivitySortMetric,
+  athleteProfile: AthleteProfile
+): number {
+  switch (metric) {
+    case 'duration':
+      return details?.calibration?.calibratedMovingTimeSec ?? act.moving_time ?? act.elapsed_time ?? 0;
+    case 'distance':
+      return details?.calibration?.calibratedDistanceM ?? act.distance ?? 0;
+    case 'tss':
+      return details?.calibration?.manualTss ?? calculateActivityTSS(act, details, athleteProfile)?.tss ?? 0;
+    case 'pace': {
+      if (act.average_speed && act.average_speed > 0) return act.average_speed;
+      const dur = details?.calibration?.calibratedMovingTimeSec ?? act.moving_time ?? act.elapsed_time ?? 0;
+      const dist = details?.calibration?.calibratedDistanceM ?? act.distance ?? 0;
+      if (dist > 0 && dur > 0) return dist / dur;
+      return 0;
+    }
+    case 'elevation':
+      return act.total_elevation_gain ?? (details?.activity as any)?.total_elevation_gain ?? 0;
+    case 'avg_hr':
+      return details?.calibration?.calibratedAvgHeartRate ?? act.average_heartrate ?? (details?.activity as any)?.average_heartrate ?? 0;
+    case 'max_hr':
+      return details?.calibration?.calibratedMaxHeartRate ?? act.max_heartrate ?? (details?.activity as any)?.max_heartrate ?? 0;
+    case 'avg_power':
+      return details?.calibration?.calibratedAvgWatts ?? act.average_watts ?? (details?.activity as any)?.average_watts ?? 0;
+    case 'normalized_power':
+      return (
+        details?.calibration?.calibratedNormalizedPower ??
+        calculateNormalizedPower(act, details) ??
+        act.weighted_average_watts ??
+        (details?.activity as any)?.weighted_average_watts ??
+        (act.average_watts ? Math.round(act.average_watts * 1.05) : 0)
+      );
+    case 'max_power':
+      return act.max_watts ?? (details?.activity as any)?.max_watts ?? 0;
+    case 'date':
+    default:
+      return new Date(act.start_date).getTime();
+  }
+}
 
 interface StravaActivitiesTabProps {
   stravaToken: string | null;
@@ -131,11 +281,107 @@ export const StravaActivitiesTab: React.FC<StravaActivitiesTabProps> = ({
   const [selectedCategory, setSelectedCategory] = useState<ActivityFilterCategory>('All');
   const [activeModalActivity, setActiveModalActivity] = useState<StravaActivity | null>(null);
 
-  // Filter activities by selected category: All, Swim, Bike, Run, Gym
-  const filteredActivities = useMemo(() => {
-    if (selectedCategory === 'All') return activities;
-    return activities.filter((act) => classifyActivity(act).category === selectedCategory);
-  }, [activities, selectedCategory]);
+  // Floating Search & Filter / Sort States
+  const [searchQuery, setSearchQuery] = useState('');
+  const [isSearchOpen, setIsSearchOpen] = useState(false);
+  const [sortMetric, setSortMetric] = useState<ActivitySortMetric>('date');
+  const [sortDirection, setSortDirection] = useState<ActivitySortDirection>('desc');
+  const [isFilterOpen, setIsFilterOpen] = useState(false);
+
+  const searchContainerRef = useRef<HTMLDivElement>(null);
+  const filterContainerRef = useRef<HTMLDivElement>(null);
+  const searchInputRef = useRef<HTMLInputElement>(null);
+
+  // Focus search input when popover opens
+  useEffect(() => {
+    if (isSearchOpen && searchInputRef.current) {
+      searchInputRef.current.focus();
+    }
+  }, [isSearchOpen]);
+
+  // Click outside and Escape key handler for floating popovers
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      const target = e.target as Node;
+      if (isSearchOpen && searchContainerRef.current && !searchContainerRef.current.contains(target)) {
+        setIsSearchOpen(false);
+      }
+      if (isFilterOpen && filterContainerRef.current && !filterContainerRef.current.contains(target)) {
+        setIsFilterOpen(false);
+      }
+    };
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setIsSearchOpen(false);
+        setIsFilterOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    document.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [isSearchOpen, isFilterOpen]);
+
+  const searchQueryTrimmed = searchQuery.trim().toLowerCase();
+
+  // Filter activities by selected category, search query, and sort metric
+  const filteredAndSortedActivities = useMemo(() => {
+    let list = activities;
+
+    // 1. Filter by selected category: All, Swim, Bike, Run, Gym
+    if (selectedCategory !== 'All') {
+      list = list.filter((act) => classifyActivity(act).category === selectedCategory);
+    }
+
+    // 2. Filter by search query (activity name or description)
+    if (searchQueryTrimmed) {
+      list = list.filter((act) => {
+        const details = activityDetails[String(act.id)];
+        const rawName = (act.name || '').toLowerCase();
+        const renamedName = applyRenameRulesToName(act.name).newName.toLowerCase();
+        const desc = (
+          act.description ||
+          (details?.activity?.description as string) ||
+          (details?.activity?.notes as string) ||
+          ''
+        ).toLowerCase();
+        const subType = classifyActivity(act).subType.toLowerCase();
+
+        return (
+          rawName.includes(searchQueryTrimmed) ||
+          renamedName.includes(searchQueryTrimmed) ||
+          desc.includes(searchQueryTrimmed) ||
+          subType.includes(searchQueryTrimmed)
+        );
+      });
+    }
+
+    // 3. Sort by requested metric
+    if (sortMetric === 'date') {
+      if (sortDirection === 'asc') {
+        return [...list].sort((a, b) => new Date(a.start_date).getTime() - new Date(b.start_date).getTime());
+      }
+      return [...list].sort((a, b) => new Date(b.start_date).getTime() - new Date(a.start_date).getTime());
+    }
+
+    return [...list].sort((a, b) => {
+      const valA = getActivitySortValue(a, activityDetails[String(a.id)], sortMetric, athleteProfile);
+      const valB = getActivitySortValue(b, activityDetails[String(b.id)], sortMetric, athleteProfile);
+      const diff = sortDirection === 'desc' ? valB - valA : valA - valB;
+      if (diff !== 0) return diff;
+      return new Date(b.start_date).getTime() - new Date(a.start_date).getTime();
+    });
+  }, [
+    activities,
+    selectedCategory,
+    searchQueryTrimmed,
+    sortMetric,
+    sortDirection,
+    activityDetails,
+    athleteProfile,
+  ]);
 
   // Category counts strictly for All, Swim, Bike, Run, Gym
   const categoryCounts = useMemo(() => {
@@ -178,7 +424,7 @@ export const StravaActivitiesTab: React.FC<StravaActivitiesTabProps> = ({
   }
 
   return (
-    <div className="space-y-4 animate-fade-in">
+    <div className="space-y-4 animate-fade-in relative pb-24">
       {/* Error state */}
       {error && (
         <div className="p-3.5 rounded-2xl bg-rose-500/10 border border-rose-500/25 text-rose-300 text-xs flex items-center justify-between gap-3">
@@ -242,6 +488,75 @@ export const StravaActivitiesTab: React.FC<StravaActivitiesTabProps> = ({
         </div>
       </div>
 
+      {/* Active Search / Sort Indicator Banner */}
+      {(searchQueryTrimmed || sortMetric !== 'date') && (
+        <div
+          className={`flex items-center justify-between flex-wrap gap-2 px-3 py-2 rounded-xl text-xs border backdrop-blur-md ${
+            isLight
+              ? 'bg-amber-50/80 border-amber-200 text-amber-900'
+              : 'bg-amber-500/10 border-amber-500/25 text-amber-200'
+          }`}
+        >
+          <div className="flex items-center flex-wrap gap-2">
+            {searchQueryTrimmed && (
+              <span
+                className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-lg border text-[11px] font-medium ${
+                  isLight
+                    ? 'bg-amber-100 border-amber-300 text-amber-950'
+                    : 'bg-amber-500/20 border-amber-500/35 text-amber-300'
+                }`}
+              >
+                <Search className="w-3 h-3 text-amber-500 shrink-0" />
+                <span>
+                  Search: <strong>&ldquo;{searchQuery}&rdquo;</strong>
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setSearchQuery('')}
+                  className="hover:opacity-75 transition-opacity cursor-pointer ml-0.5"
+                  title="Clear search"
+                >
+                  <X className="w-3 h-3" />
+                </button>
+              </span>
+            )}
+            {sortMetric !== 'date' && (
+              <span
+                className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-lg border text-[11px] font-medium ${
+                  isLight
+                    ? 'bg-amber-100 border-amber-300 text-amber-950'
+                    : 'bg-amber-500/20 border-amber-500/35 text-amber-300'
+                }`}
+              >
+                <ArrowUpDown className="w-3 h-3 text-amber-500 shrink-0" />
+                <span>
+                  Sorted by{' '}
+                  <strong>
+                    {SORT_OPTIONS.find((o) => o.id === sortMetric)?.label || sortMetric}
+                  </strong>{' '}
+                  ({sortDirection === 'desc' ? 'High → Low' : 'Low → High'})
+                </span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSortMetric('date');
+                    setSortDirection('desc');
+                  }}
+                  className="hover:opacity-75 transition-opacity cursor-pointer ml-0.5"
+                  title="Reset to default date order"
+                >
+                  <X className="w-3 h-3" />
+                </button>
+              </span>
+            )}
+          </div>
+          <span className="text-[11px] opacity-80 font-mono">
+            {filteredAndSortedActivities.length}{' '}
+            {filteredAndSortedActivities.length === 1 ? 'activity' : 'activities'}
+          </span>
+        </div>
+      )}
+
       {/* Loading Skeletons */}
       {loading && activities.length === 0 && (
         <div className="space-y-3">
@@ -267,7 +582,7 @@ export const StravaActivitiesTab: React.FC<StravaActivitiesTabProps> = ({
       )}
 
       {/* Empty State */}
-      {!loading && filteredActivities.length === 0 && !error && (
+      {!loading && filteredAndSortedActivities.length === 0 && !error && (
         <div
           className={`py-16 text-center rounded-2xl border flex flex-col items-center ${
             isLight
@@ -275,26 +590,48 @@ export const StravaActivitiesTab: React.FC<StravaActivitiesTabProps> = ({
               : 'bg-slate-950/50 border-slate-800 text-slate-500'
           }`}
         >
-          <Activity className={`w-8 h-8 mb-2 ${isLight ? 'text-slate-400' : 'text-slate-600'}`} />
+          {searchQueryTrimmed ? (
+            <Search className={`w-8 h-8 mb-2 ${isLight ? 'text-amber-500' : 'text-amber-400'}`} />
+          ) : (
+            <Activity className={`w-8 h-8 mb-2 ${isLight ? 'text-slate-400' : 'text-slate-600'}`} />
+          )}
           <p className={`text-sm font-bold ${isLight ? 'text-slate-800' : 'text-slate-300'}`}>
-            No {selectedCategory !== 'All' ? selectedCategory : ''} activities found
+            {searchQueryTrimmed
+              ? `No activities matching "${searchQuery}"`
+              : `No ${selectedCategory !== 'All' ? selectedCategory : ''} activities found`}
           </p>
           <p className={`text-xs mt-1 max-w-sm ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>
-            {selectedCategory !== 'All'
+            {searchQueryTrimmed
+              ? 'Try searching with another keyword or name, or check your category filter.'
+              : selectedCategory !== 'All'
               ? `No activities classified as ${selectedCategory} found in current cache.`
               : 'Completed workouts uploaded from FIT Track or Strava will appear here.'}
           </p>
-          <button
-            type="button"
-            onClick={onRefresh}
-            className={`mt-4 px-4 py-2 rounded-xl text-xs font-bold transition-colors cursor-pointer border ${
-              isLight
-                ? 'bg-slate-100 hover:bg-slate-200 text-slate-800 border-slate-200'
-                : 'bg-slate-800 hover:bg-slate-700 text-white border-slate-700'
-            }`}
-          >
-            Sync from Strava
-          </button>
+          {searchQueryTrimmed ? (
+            <button
+              type="button"
+              onClick={() => setSearchQuery('')}
+              className={`mt-4 px-4 py-2 rounded-xl text-xs font-bold transition-colors cursor-pointer border ${
+                isLight
+                  ? 'bg-slate-100 hover:bg-slate-200 text-slate-800 border-slate-200'
+                  : 'bg-slate-800 hover:bg-slate-700 text-white border-slate-700'
+              }`}
+            >
+              Clear Search Filter
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={onRefresh}
+              className={`mt-4 px-4 py-2 rounded-xl text-xs font-bold transition-colors cursor-pointer border ${
+                isLight
+                  ? 'bg-slate-100 hover:bg-slate-200 text-slate-800 border-slate-200'
+                  : 'bg-slate-800 hover:bg-slate-700 text-white border-slate-700'
+              }`}
+            >
+              Sync from Strava
+            </button>
+          )}
         </div>
       )}
 
@@ -302,9 +639,9 @@ export const StravaActivitiesTab: React.FC<StravaActivitiesTabProps> = ({
       <PWAInstallButton />
 
       {/* Activities Feed */}
-      {filteredActivities.length > 0 && (
+      {filteredAndSortedActivities.length > 0 && (
         <div className="grid grid-cols-1 gap-2.5">
-          {filteredActivities.map((act) => {
+          {filteredAndSortedActivities.map((act) => {
             const activityId = String(act.id);
             const classification = classifyActivity(act);
             const details = activityDetails[activityId];
@@ -559,6 +896,303 @@ export const StravaActivitiesTab: React.FC<StravaActivitiesTabProps> = ({
           setActiveModalActivity(null);
         }}
       />
+
+      {/* ========================================================= */}
+      {/* FLOATING FILTER / SORT BUTTON (BOTTOM LEFT) */}
+      {/* ========================================================= */}
+      <div ref={filterContainerRef} className="fixed bottom-6 left-4 sm:left-6 md:left-8 z-30">
+        <button
+          type="button"
+          onClick={() => {
+            setIsFilterOpen((prev) => !prev);
+            setIsSearchOpen(false);
+          }}
+          title="Sort activities by metrics (duration, distance, TSS, pace, elevation, HR, power)"
+          className={`relative w-12 h-12 rounded-full border shadow-xl flex items-center justify-center transition-all cursor-pointer hover:scale-105 active:scale-95 ${
+            sortMetric !== 'date' || isFilterOpen
+              ? 'bg-amber-500 text-slate-950 border-amber-400 ring-2 ring-amber-400/50 shadow-amber-500/30 font-black'
+              : isLight
+              ? 'bg-white/95 text-slate-700 border-slate-300 shadow-slate-900/15 hover:bg-slate-50'
+              : 'bg-slate-900/95 text-slate-200 border-[#324158] shadow-black/60 hover:bg-slate-800'
+          }`}
+          aria-label="Filter and Sort Activities"
+        >
+          <Filter className="w-5 h-5" />
+          {sortMetric !== 'date' && (
+            <span className="absolute -top-1 -right-1 w-3.5 h-3.5 bg-amber-400 rounded-full border-2 border-slate-900 ring-1 ring-amber-300" />
+          )}
+        </button>
+
+        {/* Floating Sort Modal / Popover */}
+        {isFilterOpen && (
+          <div
+            className={`fixed bottom-20 left-4 sm:left-6 md:left-8 z-40 w-84 sm:w-96 max-w-[calc(100vw-2rem)] max-h-[75vh] flex flex-col p-4 rounded-2xl border shadow-2xl backdrop-blur-md animate-in fade-in zoom-in-95 duration-150 ${
+              isLight
+                ? 'bg-white/95 border-slate-300 text-slate-900 shadow-slate-900/20'
+                : 'bg-slate-900/95 border-[#324158] text-white shadow-black/80'
+            }`}
+          >
+            {/* Popover Header */}
+            <div
+              className={`flex items-center justify-between pb-3 border-b ${
+                isLight ? 'border-slate-200' : 'border-slate-800'
+              }`}
+            >
+              <div className="flex items-center gap-2">
+                <Filter className="w-4 h-4 text-amber-500" />
+                <h3 className="text-sm font-black">Sort Activities</h3>
+              </div>
+              <div className="flex items-center gap-1.5">
+                {sortMetric !== 'date' && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSortMetric('date');
+                      setSortDirection('desc');
+                    }}
+                    className={`text-[11px] font-bold text-amber-500 hover:text-amber-400 px-2 py-0.5 rounded transition-colors cursor-pointer flex items-center gap-1 ${
+                      isLight ? 'hover:bg-amber-50' : 'hover:bg-amber-500/10'
+                    }`}
+                  >
+                    <RotateCcw className="w-3 h-3" />
+                    <span>Reset</span>
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={() => setIsFilterOpen(false)}
+                  className={`p-1 rounded-lg transition-colors cursor-pointer ${
+                    isLight ? 'hover:bg-slate-100 text-slate-500' : 'hover:bg-slate-800 text-slate-400'
+                  }`}
+                  aria-label="Close sort panel"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+
+            {/* Sort Direction Toggle */}
+            <div className="py-2.5">
+              <div className="text-[10px] font-bold text-slate-400 mb-1.5 uppercase tracking-wider">
+                Direction
+              </div>
+              <div
+                className={`grid grid-cols-2 gap-1.5 p-1 rounded-xl border ${
+                  isLight
+                    ? 'bg-slate-100 border-slate-200'
+                    : 'bg-slate-800/80 border-slate-700/60'
+                }`}
+              >
+                <button
+                  type="button"
+                  onClick={() => setSortDirection('desc')}
+                  className={`py-1.5 px-2 rounded-lg text-xs font-bold flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
+                    sortDirection === 'desc'
+                      ? 'bg-amber-500 text-slate-950 font-black shadow-xs'
+                      : isLight
+                      ? 'text-slate-600 hover:text-slate-900'
+                      : 'text-slate-300 hover:text-white'
+                  }`}
+                >
+                  <ArrowDown className="w-3.5 h-3.5" />
+                  <span>High to Low (Desc)</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setSortDirection('asc')}
+                  className={`py-1.5 px-2 rounded-lg text-xs font-bold flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
+                    sortDirection === 'asc'
+                      ? 'bg-amber-500 text-slate-950 font-black shadow-xs'
+                      : isLight
+                      ? 'text-slate-600 hover:text-slate-900'
+                      : 'text-slate-300 hover:text-white'
+                  }`}
+                >
+                  <ArrowUp className="w-3.5 h-3.5" />
+                  <span>Low to High (Asc)</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Sort Metric Options List */}
+            <div className="text-[10px] font-bold text-slate-400 mb-1 uppercase tracking-wider">
+              Sort By Metric
+            </div>
+            <div className="flex-1 overflow-y-auto space-y-1 pr-1 py-1 max-h-64 custom-scrollbar">
+              {/* Default Date option */}
+              <button
+                type="button"
+                onClick={() => {
+                  setSortMetric('date');
+                  setIsFilterOpen(false);
+                }}
+                className={`w-full px-3 py-2 rounded-xl text-left text-xs font-bold flex items-center justify-between transition-all cursor-pointer ${
+                  sortMetric === 'date'
+                    ? isLight
+                      ? 'bg-amber-100 border border-amber-300 text-amber-950'
+                      : 'bg-amber-500/15 border border-amber-500/40 text-amber-300'
+                    : isLight
+                    ? 'hover:bg-slate-100 text-slate-700'
+                    : 'hover:bg-slate-800 text-slate-300'
+                }`}
+              >
+                <div className="flex items-center gap-2.5">
+                  <Activity className="w-4 h-4 text-slate-400 shrink-0" />
+                  <div>
+                    <div className="font-bold">Date (Default)</div>
+                    <div className="text-[10px] text-slate-400 font-normal">
+                      {sortDirection === 'desc' ? 'Newest first' : 'Oldest first'}
+                    </div>
+                  </div>
+                </div>
+                {sortMetric === 'date' && <Check className="w-4 h-4 text-amber-500 shrink-0" />}
+              </button>
+
+              {/* The 10 Metrics */}
+              {SORT_OPTIONS.map((opt) => {
+                const isSelected = sortMetric === opt.id;
+                return (
+                  <button
+                    key={opt.id}
+                    type="button"
+                    onClick={() => {
+                      setSortMetric(opt.id);
+                      setIsFilterOpen(false);
+                    }}
+                    className={`w-full px-3 py-2 rounded-xl text-left text-xs font-bold flex items-center justify-between transition-all cursor-pointer ${
+                      isSelected
+                        ? isLight
+                          ? 'bg-amber-100 border border-amber-300 text-amber-950'
+                          : 'bg-amber-500/15 border border-amber-500/40 text-amber-300'
+                        : isLight
+                        ? 'hover:bg-slate-100 text-slate-700'
+                        : 'hover:bg-slate-800 text-slate-300'
+                    }`}
+                  >
+                    <div className="flex items-center gap-2.5">
+                      <span className="shrink-0">{opt.icon()}</span>
+                      <div>
+                        <div className="font-bold">{opt.label}</div>
+                        <div className="text-[10px] text-slate-400 font-normal">
+                          {sortDirection === 'desc' ? opt.descHelper : opt.ascHelper}
+                        </div>
+                      </div>
+                    </div>
+                    {isSelected && <Check className="w-4 h-4 text-amber-500 shrink-0" />}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* ========================================================= */}
+      {/* FLOATING SEARCH BUTTON (BOTTOM RIGHT) */}
+      {/* ========================================================= */}
+      <div ref={searchContainerRef} className="fixed bottom-6 right-4 sm:right-6 md:right-8 z-30">
+        <button
+          type="button"
+          onClick={() => {
+            setIsSearchOpen((prev) => !prev);
+            setIsFilterOpen(false);
+          }}
+          title="Search activities by name or description"
+          className={`relative w-12 h-12 rounded-full border shadow-xl flex items-center justify-center transition-all cursor-pointer hover:scale-105 active:scale-95 ${
+            searchQueryTrimmed || isSearchOpen
+              ? 'bg-amber-500 text-slate-950 border-amber-400 ring-2 ring-amber-400/50 shadow-amber-500/30 font-black'
+              : isLight
+              ? 'bg-white/95 text-slate-700 border-slate-300 shadow-slate-900/15 hover:bg-slate-50'
+              : 'bg-slate-900/95 text-slate-200 border-[#324158] shadow-black/60 hover:bg-slate-800'
+          }`}
+          aria-label="Search Activities"
+        >
+          <Search className="w-5 h-5" />
+          {searchQueryTrimmed && (
+            <span className="absolute -top-1 -right-1 w-3.5 h-3.5 bg-amber-400 rounded-full border-2 border-slate-900 ring-1 ring-amber-300" />
+          )}
+        </button>
+
+        {/* Floating Search Popover */}
+        {isSearchOpen && (
+          <div
+            className={`fixed bottom-20 right-4 sm:right-6 md:right-8 z-40 w-80 sm:w-96 max-w-[calc(100vw-2rem)] p-4 rounded-2xl border shadow-2xl backdrop-blur-md animate-in fade-in zoom-in-95 duration-150 ${
+              isLight
+                ? 'bg-white/95 border-slate-300 text-slate-900 shadow-slate-900/20'
+                : 'bg-slate-900/95 border-[#324158] text-white shadow-black/80'
+            }`}
+          >
+            {/* Search Header */}
+            <div
+              className={`flex items-center justify-between pb-2 mb-2.5 border-b ${
+                isLight ? 'border-slate-200' : 'border-slate-800'
+              }`}
+            >
+              <div className="flex items-center gap-2">
+                <Search className="w-4 h-4 text-amber-500" />
+                <h3 className="text-sm font-black">Search Activities</h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsSearchOpen(false)}
+                className={`p-1 rounded-lg transition-colors cursor-pointer ${
+                  isLight ? 'hover:bg-slate-100 text-slate-500' : 'hover:bg-slate-800 text-slate-400'
+                }`}
+                aria-label="Close search"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Search Input */}
+            <div className="relative flex items-center">
+              <input
+                ref={searchInputRef}
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Search by name or description..."
+                className={`w-full pl-9 pr-8 py-2.5 rounded-xl text-xs font-medium border outline-none transition-all ${
+                  isLight
+                    ? 'bg-slate-100 border-slate-200 text-slate-900 focus:border-amber-500 focus:bg-white'
+                    : 'bg-slate-800/90 border-slate-700 text-white focus:border-amber-400 focus:bg-slate-950'
+                }`}
+              />
+              <Search className="absolute left-3 w-3.5 h-3.5 text-slate-400 pointer-events-none" />
+              {searchQuery && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSearchQuery('');
+                    searchInputRef.current?.focus();
+                  }}
+                  className="absolute right-2.5 p-0.5 rounded text-slate-400 hover:text-white transition-colors cursor-pointer"
+                  title="Clear text"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              )}
+            </div>
+
+            {/* Search Meta Status */}
+            <div className="mt-2.5 flex items-center justify-between text-[11px] text-slate-400 font-mono">
+              <span>
+                {filteredAndSortedActivities.length}{' '}
+                {filteredAndSortedActivities.length === 1 ? 'match' : 'matches'} found
+              </span>
+              {searchQuery && (
+                <button
+                  type="button"
+                  onClick={() => setSearchQuery('')}
+                  className="text-amber-500 hover:underline cursor-pointer font-sans font-bold"
+                >
+                  Clear search
+                </button>
+              )}
+            </div>
+          </div>
+        )}
+      </div>
     </div>
   );
 };

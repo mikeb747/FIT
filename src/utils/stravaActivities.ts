@@ -3,6 +3,7 @@ import { processActivitiesWithRenameRules, applyRenameRulesToActivities } from '
 export interface StravaActivity {
   id: number | string;
   name: string;
+  description?: string;
   distance: number; // in meters
   moving_time: number; // in seconds
   elapsed_time: number; // in seconds
@@ -22,6 +23,8 @@ export interface StravaActivity {
   average_heartrate?: number;
   max_heartrate?: number;
   average_watts?: number;
+  weighted_average_watts?: number;
+  max_watts?: number;
   average_cadence?: number;
   calories?: number;
   suffer_score?: number;

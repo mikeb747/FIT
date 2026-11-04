@@ -858,13 +858,6 @@ export default function App() {
             >
               {showTabIcons && <Activity className="w-3.5 h-3.5 text-orange-400 shrink-0" />}
               <span className="-ml-px">Activities</span>
-              {showActivityCount && stravaActivities.length > 0 && (
-                <span
-                  className="inline-flex items-center justify-center text-[10px] h-[18px] min-w-[30px] px-1 pt-[2px] pb-[4px] -mx-px rounded-[8px] border-[0.8px] border-[#8b8c97] bg-slate-100 text-slate-700 font-bold leading-[12px]"
-                >
-                  {stravaActivities.length}
-                </span>
-              )}
             </button>
 
             <button
@@ -920,11 +913,6 @@ export default function App() {
             >
               {showTabIcons && <Sparkles className="w-3.5 h-3.5 text-emerald-400 shrink-0" />}
               <span>Coach</span>
-              <span
-                className="inline-flex items-center justify-center text-[10px] h-[18px] min-w-[30px] px-1 pt-[2px] pb-[4px] -mx-px rounded-[8px] border-[0.8px] border-[#1a6a53] bg-[#55ecc4] text-[#135838] font-bold leading-[12px]"
-              >
-                AI
-              </span>
             </button>
           </div>
 

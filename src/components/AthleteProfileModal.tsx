@@ -797,6 +797,19 @@ export const AthleteProfileModal: React.FC<AthleteProfileModalProps> = ({
     ? 115
     : 100;
 
+  const [sliderDensity, setSliderDensity] = useState<number>(numericDensity);
+
+  useEffect(() => {
+    setSliderDensity(numericDensity);
+  }, [numericDensity]);
+
+  const handleCommitDensity = (val?: number) => {
+    const targetVal = typeof val === 'number' ? val : sliderDensity;
+    if (targetVal !== numericDensity) {
+      onDensityChanged?.(targetVal);
+    }
+  };
+
   // Injury Handlers
   const handleAddInjury = () => {
     if (!newInjuryName.trim()) return;
@@ -1797,7 +1810,7 @@ export const AthleteProfileModal: React.FC<AthleteProfileModalProps> = ({
                   <div className="flex items-center justify-between">
                     <span className="text-xs font-semibold text-slate-400">Current Scale</span>
                     <span className="text-xs font-mono font-bold text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded-md border border-amber-500/20">
-                      {numericDensity}%
+                      {sliderDensity}%
                     </span>
                   </div>
 
@@ -1806,8 +1819,12 @@ export const AthleteProfileModal: React.FC<AthleteProfileModalProps> = ({
                     min="70"
                     max="130"
                     step="5"
-                    value={numericDensity}
-                    onChange={(e) => onDensityChanged?.(Number(e.target.value))}
+                    value={sliderDensity}
+                    onChange={(e) => setSliderDensity(Number(e.target.value))}
+                    onPointerUp={() => handleCommitDensity(sliderDensity)}
+                    onMouseUp={() => handleCommitDensity(sliderDensity)}
+                    onTouchEnd={() => handleCommitDensity(sliderDensity)}
+                    onKeyUp={() => handleCommitDensity(sliderDensity)}
                     className="w-full h-2 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-amber-500"
                   />
 
@@ -1815,9 +1832,12 @@ export const AthleteProfileModal: React.FC<AthleteProfileModalProps> = ({
                   <div className="grid grid-cols-3 gap-2 pt-1 text-center">
                     <button
                       type="button"
-                      onClick={() => onDensityChanged?.(85)}
+                      onClick={() => {
+                        setSliderDensity(85);
+                        handleCommitDensity(85);
+                      }}
                       className={`py-1.5 px-2 rounded-xl border text-xs transition-all cursor-pointer ${
-                        numericDensity === 85
+                        sliderDensity === 85
                           ? 'bg-amber-500/20 text-amber-300 border-amber-500 font-bold shadow-sm'
                           : 'bg-slate-900 text-slate-400 border-slate-800 hover:bg-slate-800 hover:text-slate-200'
                       }`}
@@ -1828,9 +1848,12 @@ export const AthleteProfileModal: React.FC<AthleteProfileModalProps> = ({
 
                     <button
                       type="button"
-                      onClick={() => onDensityChanged?.(100)}
+                      onClick={() => {
+                        setSliderDensity(100);
+                        handleCommitDensity(100);
+                      }}
                       className={`py-1.5 px-2 rounded-xl border text-xs transition-all cursor-pointer ${
-                        numericDensity === 100
+                        sliderDensity === 100
                           ? 'bg-amber-500/20 text-amber-300 border-amber-500 font-bold shadow-sm'
                           : 'bg-slate-900 text-slate-400 border-slate-800 hover:bg-slate-800 hover:text-slate-200'
                       }`}
@@ -1841,9 +1864,12 @@ export const AthleteProfileModal: React.FC<AthleteProfileModalProps> = ({
 
                     <button
                       type="button"
-                      onClick={() => onDensityChanged?.(115)}
+                      onClick={() => {
+                        setSliderDensity(115);
+                        handleCommitDensity(115);
+                      }}
                       className={`py-1.5 px-2 rounded-xl border text-xs transition-all cursor-pointer ${
-                        numericDensity === 115
+                        sliderDensity === 115
                           ? 'bg-amber-500/20 text-amber-300 border-amber-500 font-bold shadow-sm'
                           : 'bg-slate-900 text-slate-400 border-slate-800 hover:bg-slate-800 hover:text-slate-200'
                       }`}
