@@ -58,6 +58,7 @@ import { ActivityZoneChart } from './ActivityZoneChart';
 import { ActivityCalibrationModal } from './ActivityCalibrationModal';
 import { appendActivityToTrainingLog } from '../utils/googleSheets';
 import { applyRenameRulesToName } from '../utils/activityRenameRules';
+import { ErrorBoundary } from './ErrorBoundary';
 
 interface StravaActivityModalProps {
   isOpen: boolean;
@@ -288,26 +289,23 @@ export const StravaActivityModal: React.FC<StravaActivityModalProps> = ({
   const outdoorMaxSpeedKph = activity.max_speed ? (activity.max_speed * 3.6).toFixed(1) : null;
 
   // Live in-progress TSS calculation incorporating immediate edit inputs (selectedTssModel and manualTssInput)
-  const effectiveDetailsRecordForTss = useMemo<StravaActivityDetailsRecord | undefined>(() => {
-    if (!isEditingTss) return detailsRecord || undefined;
-
-    const numTss = manualTssInput.trim() !== '' ? Number(manualTssInput) : undefined;
-    const existingCalib = detailsRecord?.calibration || {};
-    const liveCalibration = {
-      ...existingCalib,
-      manualTss: numTss !== undefined && !isNaN(numTss) ? Math.max(0, Math.round(numTss)) : undefined,
-      preferredTssModel: selectedTssModel,
-    };
-
-    return {
-      id: detailsRecord?.id || String(activity.id),
-      activity: (detailsRecord?.activity || (activity as unknown as Record<string, unknown>)),
-      streams: detailsRecord?.streams,
-      calibration: liveCalibration,
-      effortFeedback: detailsRecord?.effortFeedback,
-      googleDrivePublishedAt: detailsRecord?.googleDrivePublishedAt,
-    };
-  }, [isEditingTss, detailsRecord, manualTssInput, selectedTssModel, activity]);
+  const effectiveDetailsRecordForTss: StravaActivityDetailsRecord | undefined = isEditingTss
+    ? {
+        id: detailsRecord?.id || String(activity.id),
+        activity: detailsRecord?.activity || (activity as unknown as Record<string, unknown>),
+        streams: detailsRecord?.streams,
+        calibration: {
+          ...(detailsRecord?.calibration || {}),
+          manualTss:
+            manualTssInput.trim() !== '' && !isNaN(Number(manualTssInput))
+              ? Math.max(0, Math.round(Number(manualTssInput)))
+              : undefined,
+          preferredTssModel: selectedTssModel,
+        },
+        effortFeedback: detailsRecord?.effortFeedback,
+        googleDrivePublishedAt: detailsRecord?.googleDrivePublishedAt,
+      }
+    : detailsRecord || undefined;
 
   // Calculate TSS customized with athlete physiological profile & calibration
   const tssResult = calculateActivityTSS(activity, effectiveDetailsRecordForTss, athleteProfile);
@@ -441,6 +439,7 @@ export const StravaActivityModal: React.FC<StravaActivityModalProps> = ({
 
         {/* Modal Body */}
         <div className="p-4 sm:p-5 overflow-y-auto space-y-4">
+          <ErrorBoundary fallbackTitle="Unable to display this workout's details" onReset={onClose}>
           {/* Badges strip */}
           <div className="flex flex-wrap items-center gap-2">
             <span
@@ -1596,6 +1595,7 @@ export const StravaActivityModal: React.FC<StravaActivityModalProps> = ({
               </a>
             </div>
           )}
+          </ErrorBoundary>
         </div>
       </div>
 

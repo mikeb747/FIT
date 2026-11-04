@@ -6,6 +6,7 @@ import type { ProfileTab } from './components/AthleteProfileModal';
 import { PWAInstallButton } from './components/PWAInstallButton';
 import { StravaIcon } from './components/StravaIcon';
 import { StravaActivitiesTab } from './components/StravaActivitiesTab';
+import { ErrorBoundary } from './components/ErrorBoundary';
 import type { AthleteProfile } from './types/athlete';
 import {
   loadAthleteProfile,
@@ -1051,6 +1052,7 @@ export default function App() {
       {/* MAIN VIEW: STRAVA ACTIVITIES, READINESS, OR FITNESS */}
       {/* ========================================================= */}
       <main className="flex-1 max-w-5xl xl:max-w-6xl 2xl:max-w-7xl w-full mx-auto p-4 sm:p-6 space-y-6">
+        <ErrorBoundary fallbackTitle="Error loading view">
         {activeMainTab === 'activities' ? (
           <StravaActivitiesTab
             theme={theme}
@@ -1131,6 +1133,7 @@ export default function App() {
             onProfileUpdated={handleSaveAthleteProfile}
           />
         )}
+        </ErrorBoundary>
       </main>
 
 

@@ -571,7 +571,7 @@ export const StravaActivitiesTab: React.FC<StravaActivitiesTabProps> = ({
                 }`}
               >
                 {cat === 'All' && (
-                  <img src="/assets/aistudio/icons8-all-48_63bf8f8c.png" alt="All" className="w-3.5 h-3.5 shrink-0 object-contain" />
+                  <InfinityIcon className="w-3.5 h-3.5 shrink-0 text-amber-500" strokeWidth={2.5} />
                 )}
                 {cat === 'Swim' && (
                   <Waves className="w-3.5 h-3.5 shrink-0 text-sky-400" />

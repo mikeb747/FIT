@@ -598,7 +598,7 @@ export const StravaStreamPlot: React.FC<StravaStreamPlotProps> = ({
       {
         label: 'Average HR',
         value: `${Math.round(chartData.avgVal)} bpm`,
-        sub: `${Math.round((chartData.avgVal / athleteProfile.maxHeartRate) * 100)}% Max HR`,
+        sub: `${Math.round((chartData.avgVal / (athleteProfile?.maxHeartRate || 190)) * 100)}% Max HR`,
         color: 'text-rose-400 font-bold',
       },
       {
