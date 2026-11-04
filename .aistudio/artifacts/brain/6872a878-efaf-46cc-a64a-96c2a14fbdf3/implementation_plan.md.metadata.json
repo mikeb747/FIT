@@ -1,6 +1,6 @@
 {
-  "summary": "Updated activity streams and modal UI: fixed Distance vs Time projection in Interactive Streams & Plot so stopped time does not advance distance, updated pinned card to white background and grey border, removed Session average badge from Time in Training Zones, removed Fix and Delete icons from top header (retaining only Close), removed Connect Google to Export from bottom, and moved Delete button to bottom footer action group.",
-  "updatedAt": "2026-11-03T20:01:56.868587460Z",
+  "summary": "Updated implementation plan with top tab badge alignment, font size match, and equal spacing around border.",
+  "updatedAt": "2026-11-04T09:21:57.314217242Z",
   "requestFeedback": true,
   "userFacing": true
 }

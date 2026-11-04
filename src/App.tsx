@@ -857,7 +857,7 @@ export default function App() {
               }`}
             >
               {showTabIcons && <Activity className="w-3.5 h-3.5 text-orange-400 shrink-0" />}
-              <span className="-ml-px">Activities</span>
+              <span className="leading-none">Activities</span>
             </button>
 
             <button
@@ -871,10 +871,10 @@ export default function App() {
               }`}
             >
               {showTabIcons && <Heart className="w-3.5 h-3.5 text-rose-500 shrink-0" />}
-              <span className="-mx-px">Readiness</span>
+              <span className="leading-none">Readiness</span>
               {headerReadiness && Number.isFinite(headerReadiness.score) && (
                 <span
-                  className="inline-flex items-center justify-center text-[10px] h-[18px] min-w-[34px] px-1 pt-[2px] pb-[4px] -mx-px rounded-[8px] border-[0.8px] border-[#9d5454] bg-[#ffcfc3] text-[#492929] font-extrabold leading-[12px]"
+                  className="inline-flex items-center justify-center h-[22px] px-2 rounded-[6px] border-[0.8px] border-[#9d5454] bg-[#ffcfc3] text-[#492929] text-xs font-extrabold leading-none"
                 >
                   {headerReadiness.score}%
                 </span>
@@ -892,9 +892,9 @@ export default function App() {
               }`}
             >
               {showTabIcons && <Zap className="w-3.5 h-3.5 text-indigo-500 shrink-0" />}
-              <span className="-mx-px">Fitness</span>
+              <span className="leading-none">Fitness</span>
               <span
-                className="inline-flex items-center justify-center text-[10px] h-[18px] min-w-[30px] px-1 pt-[2px] pb-[4px] -mx-px rounded-[8px] border-[0.8px] border-[#1a7ec1] bg-[#00cfff] text-[#051e98] font-extrabold leading-[12px]"
+                className="inline-flex items-center justify-center h-[22px] px-2 rounded-[6px] border-[0.8px] border-[#1a7ec1] bg-[#00cfff] text-[#051e98] text-xs font-extrabold leading-none"
                 title="Triathlon Fitness Index"
               >
                 {headerFitnessIndex}
@@ -912,7 +912,7 @@ export default function App() {
               }`}
             >
               {showTabIcons && <Sparkles className="w-3.5 h-3.5 text-emerald-400 shrink-0" />}
-              <span>Coach</span>
+              <span className="leading-none">Coach</span>
             </button>
           </div>
 

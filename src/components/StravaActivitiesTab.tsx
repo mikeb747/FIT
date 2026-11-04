@@ -554,7 +554,7 @@ export const StravaActivitiesTab: React.FC<StravaActivitiesTabProps> = ({
       {/* ========================================================= */}
       <div className="w-full">
         <div className="w-full flex items-center h-[34px] rounded-[12px] border-[0.8px] border-[#324158] overflow-hidden">
-          {(['All', 'Swim', 'Bike', 'Run', 'Gym'] as const).map((cat) => {
+          {(['All', 'Swim', 'Bike', 'Run', 'Gym'] as const).map((cat, idx) => {
             const count = categoryCounts[cat] || 0;
             const isActive = selectedCategory === cat;
             return (
@@ -563,13 +563,15 @@ export const StravaActivitiesTab: React.FC<StravaActivitiesTabProps> = ({
                 type="button"
                 onClick={() => setSelectedCategory(cat)}
                 className={`split-pill-item flex-1 min-w-[60px] sm:min-w-0 h-full px-1.5 sm:px-3 text-xs font-bold whitespace-nowrap flex items-center justify-center gap-1.5 transition-all cursor-pointer rounded-none outline-none focus:outline-none focus:ring-0 ${
+                  idx > 0 ? 'border-l-[0.8px] border-l-[#0f172b]' : ''
+                } ${
                   isActive
                     ? 'bg-[#eeeeee] text-slate-900 font-extrabold shadow-[inset_0_2px_4px_rgba(0,0,0,0.18)]'
                     : 'bg-white hover:bg-slate-50 text-slate-700 hover:text-slate-900'
                 }`}
               >
                 {cat === 'All' && (
-                  <InfinityIcon className="w-3.5 h-3.5 shrink-0 text-amber-500" />
+                  <img src="/assets/aistudio/icons8-all-48_63bf8f8c.png" alt="All" className="w-3.5 h-3.5 shrink-0 object-contain" />
                 )}
                 {cat === 'Swim' && (
                   <Waves className="w-3.5 h-3.5 shrink-0 text-sky-400" />
@@ -1170,32 +1172,38 @@ export const StravaActivitiesTab: React.FC<StravaActivitiesTabProps> = ({
       />
 
       {/* ========================================================= */}
-      {/* FLOATING SORT & FILTER BUTTON (BOTTOM LEFT) */}
+      {/* FLOATING ACTION BAR: SYMMETRICAL FILTER & SEARCH BUTTONS  */}
+      {/* Unified flex row guarantees identical vertical distance to bottom and baseline */}
       {/* ========================================================= */}
-      <div ref={filterContainerRef} className="fixed bottom-6 left-4 sm:left-6 md:left-8 z-30">
-        <button
-          type="button"
-          onClick={() => {
-            setIsFilterOpen((prev) => !prev);
-            setIsSearchOpen(false);
-          }}
-          title="Sort & Filter activities (sport, distance, power, elevation, TSS, speed)"
-          className={`relative w-12 h-12 rounded-full border shadow-xl flex items-center justify-center transition-all cursor-pointer hover:scale-105 active:scale-95 ${
-            totalActiveFilterAndSortCount > 0 || isFilterOpen
-              ? 'bg-amber-500 text-slate-950 border-amber-400 ring-2 ring-amber-400/50 shadow-amber-500/30 font-black'
-              : isLight
-              ? 'bg-white/95 text-slate-700 border-slate-300 shadow-slate-900/15 hover:bg-slate-50'
-              : 'bg-slate-900/95 text-slate-200 border-[#324158] shadow-black/60 hover:bg-slate-800'
-          }`}
-          aria-label="Filter and Sort Activities"
-        >
-          <SlidersHorizontal className="w-5 h-5" />
-          {totalActiveFilterAndSortCount > 0 && (
-            <span className="absolute -top-1 -right-1 px-1.5 py-0.2 min-w-4.5 h-4.5 bg-amber-400 text-slate-950 font-black text-[10px] rounded-full border-2 border-slate-900 ring-1 ring-amber-300 flex items-center justify-center">
-              {totalActiveFilterAndSortCount}
-            </span>
-          )}
-        </button>
+      <div
+        className="fixed bottom-5 left-0 right-0 z-30 pointer-events-none flex items-center justify-between px-4 sm:px-6 md:px-8"
+        style={{ bottom: '20px' }}
+      >
+        {/* Floating Sort & Filter Button (Bottom Left) */}
+        <div ref={filterContainerRef} className="pointer-events-auto relative">
+          <button
+            type="button"
+            onClick={() => {
+              setIsFilterOpen((prev) => !prev);
+              setIsSearchOpen(false);
+            }}
+            title="Sort & Filter activities (sport, distance, power, elevation, TSS, speed)"
+            className={`relative w-12 h-12 rounded-full border shadow-xl flex items-center justify-center transition-all cursor-pointer hover:scale-105 active:scale-95 ${
+              totalActiveFilterAndSortCount > 0 || isFilterOpen
+                ? 'bg-amber-500 text-slate-950 border-amber-400 ring-2 ring-amber-400/50 shadow-amber-500/30 font-black'
+                : isLight
+                ? 'bg-white/95 text-slate-700 border-slate-300 shadow-slate-900/15 hover:bg-slate-50'
+                : 'bg-slate-900/95 text-slate-200 border-[#324158] shadow-black/60 hover:bg-slate-800'
+            }`}
+            aria-label="Filter and Sort Activities"
+          >
+            <SlidersHorizontal className="w-5 h-5" />
+            {totalActiveFilterAndSortCount > 0 && (
+              <span className="absolute -top-1 -right-1 px-1.5 py-0.5 min-w-[18px] h-[18px] bg-amber-400 text-slate-950 font-black text-[10px] rounded-full border-2 border-slate-900 ring-1 ring-amber-300 flex items-center justify-center">
+                {totalActiveFilterAndSortCount}
+              </span>
+            )}
+          </button>
 
         {/* Floating Sort & Filter Modal / Popover */}
         {isFilterOpen && (
@@ -1840,11 +1848,9 @@ export const StravaActivitiesTab: React.FC<StravaActivitiesTabProps> = ({
         )}
       </div>
 
-      {/* ========================================================= */}
-      {/* FLOATING SEARCH BUTTON (BOTTOM RIGHT) */}
-      {/* ========================================================= */}
-      <div ref={searchContainerRef} className="fixed bottom-6 right-4 sm:right-6 md:right-8 z-30">
-        <button
+      {/* Floating Search Button (Bottom Right) */}
+      <div ref={searchContainerRef} className="pointer-events-auto relative">
+          <button
           type="button"
           onClick={() => {
             setIsSearchOpen((prev) => !prev);
@@ -1947,5 +1953,6 @@ export const StravaActivitiesTab: React.FC<StravaActivitiesTabProps> = ({
         )}
       </div>
     </div>
-  );
+  </div>
+);
 };

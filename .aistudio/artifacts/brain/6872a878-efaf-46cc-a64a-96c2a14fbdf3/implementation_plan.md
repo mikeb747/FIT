@@ -20,3 +20,14 @@
    - **Bottom Div:**
      - Moved the **Delete** button to the bottom action group next to "Close" and "Fix Inaccurate Data".
      - Removed the `"Connect Google to Export"` button from the bottom; the export button now renders only when Google is connected.
+
+5. **Top Tab Badge Centering & Spacing (`src/App.tsx`)**
+   - Matched font size (`text-xs font-extrabold`) of the Readiness (`87%`) and Fitness score badges directly to the main tab text.
+   - Unified vertical alignment with `leading-none` and flex centering so the label ("Readiness") and badge numbers ("87%") share the exact same vertical center line.
+   - Removed artificial minimum width constraints (`min-w-[34px]`) and uneven vertical padding (`pt-[2px] pb-[4px]`), applying balanced padding (`px-[5px] py-[3px]`) for visually equal spacing around the numbers to the border on all sides.
+   - Applied identical alignment and symmetrical spacing to the Fitness tab badge.
+
+6. **Floating Filter & Search Buttons Symmetrical Alignment (`src/components/StravaActivitiesTab.tsx`)**
+   - Grouped the floating Sort & Filter button (bottom-left) and Search button (bottom-right) into a unified, shared floating action bar (`fixed bottom-5 left-0 right-0 z-30 pointer-events-none flex items-center justify-between px-4 sm:px-6 md:px-8` with explicit inline `style={{ bottom: '20px' }}`).
+   - Aligned both buttons on the identical vertical baseline and bottom distance (`20px`), ensuring pixel-perfect vertical symmetry and identical responsive horizontal edge insets across all viewport widths.
+   - Cleaned up badge dimension styling and preserved full outside-click handling for both popovers.
