@@ -27,6 +27,7 @@ import {
   Gauge,
   TrendingUp,
   RotateCcw,
+  SlidersHorizontal,
 } from 'lucide-react';
 import { StravaIcon } from './StravaIcon';
 import type {
@@ -96,10 +97,10 @@ const SORT_OPTIONS: SortOptionDef[] = [
   },
   {
     id: 'pace',
-    label: 'Pace / Speed',
+    label: 'Speed / Pace (Fastest)',
     icon: (c = 'w-4 h-4 text-teal-400') => <Gauge className={c} />,
-    descHelper: 'Fastest pace first',
-    ascHelper: 'Slowest pace first',
+    descHelper: 'Fastest speed / pace first',
+    ascHelper: 'Slowest speed / pace first',
   },
   {
     id: 'elevation',
@@ -287,6 +288,15 @@ export const StravaActivitiesTab: React.FC<StravaActivitiesTabProps> = ({
   const [sortMetric, setSortMetric] = useState<ActivitySortMetric>('date');
   const [sortDirection, setSortDirection] = useState<ActivitySortDirection>('desc');
   const [isFilterOpen, setIsFilterOpen] = useState(false);
+  const [filterModalTab, setFilterModalTab] = useState<'filter' | 'sort'>('filter');
+
+  // Multi-Metric Filter States
+  const [minDistanceKm, setMinDistanceKm] = useState<number | null>(null);
+  const [maxDistanceKm, setMaxDistanceKm] = useState<number | null>(null);
+  const [minAvgWatts, setMinAvgWatts] = useState<number | null>(null);
+  const [minElevationM, setMinElevationM] = useState<number | null>(null);
+  const [minDurationMinutes, setMinDurationMinutes] = useState<number | null>(null);
+  const [minTss, setMinTss] = useState<number | null>(null);
 
   const searchContainerRef = useRef<HTMLDivElement>(null);
   const filterContainerRef = useRef<HTMLDivElement>(null);
@@ -326,7 +336,7 @@ export const StravaActivitiesTab: React.FC<StravaActivitiesTabProps> = ({
 
   const searchQueryTrimmed = searchQuery.trim().toLowerCase();
 
-  // Filter activities by selected category, search query, and sort metric
+  // Multi-Metric Filter & Sort
   const filteredAndSortedActivities = useMemo(() => {
     let list = activities;
 
@@ -358,7 +368,62 @@ export const StravaActivitiesTab: React.FC<StravaActivitiesTabProps> = ({
       });
     }
 
-    // 3. Sort by requested metric
+    // 3. Filter by minimum distance (km)
+    if (minDistanceKm !== null && minDistanceKm > 0) {
+      const minMeters = minDistanceKm * 1000;
+      list = list.filter((act) => {
+        const dist = activityDetails[String(act.id)]?.calibration?.calibratedDistanceM ?? act.distance ?? 0;
+        return dist >= minMeters;
+      });
+    }
+
+    // 4. Filter by maximum distance (km)
+    if (maxDistanceKm !== null && maxDistanceKm > 0) {
+      const maxMeters = maxDistanceKm * 1000;
+      list = list.filter((act) => {
+        const dist = activityDetails[String(act.id)]?.calibration?.calibratedDistanceM ?? act.distance ?? 0;
+        return dist <= maxMeters;
+      });
+    }
+
+    // 5. Filter by minimum average power (Watts)
+    if (minAvgWatts !== null && minAvgWatts > 0) {
+      list = list.filter((act) => {
+        const details = activityDetails[String(act.id)];
+        const watts = details?.calibration?.calibratedAvgWatts ?? act.average_watts ?? (details?.activity as any)?.average_watts ?? 0;
+        return watts >= minAvgWatts;
+      });
+    }
+
+    // 6. Filter by minimum elevation gain (meters)
+    if (minElevationM !== null && minElevationM > 0) {
+      list = list.filter((act) => {
+        const details = activityDetails[String(act.id)];
+        const elev = act.total_elevation_gain ?? (details?.activity as any)?.total_elevation_gain ?? 0;
+        return elev >= minElevationM;
+      });
+    }
+
+    // 7. Filter by minimum duration (minutes)
+    if (minDurationMinutes !== null && minDurationMinutes > 0) {
+      const minSec = minDurationMinutes * 60;
+      list = list.filter((act) => {
+        const details = activityDetails[String(act.id)];
+        const dur = details?.calibration?.calibratedMovingTimeSec ?? act.moving_time ?? act.elapsed_time ?? 0;
+        return dur >= minSec;
+      });
+    }
+
+    // 8. Filter by minimum TSS
+    if (minTss !== null && minTss > 0) {
+      list = list.filter((act) => {
+        const details = activityDetails[String(act.id)];
+        const tss = details?.calibration?.manualTss ?? calculateActivityTSS(act, details, athleteProfile)?.tss ?? 0;
+        return tss >= minTss;
+      });
+    }
+
+    // 9. Sort by requested metric
     if (sortMetric === 'date') {
       if (sortDirection === 'asc') {
         return [...list].sort((a, b) => new Date(a.start_date).getTime() - new Date(b.start_date).getTime());
@@ -377,11 +442,53 @@ export const StravaActivitiesTab: React.FC<StravaActivitiesTabProps> = ({
     activities,
     selectedCategory,
     searchQueryTrimmed,
+    minDistanceKm,
+    maxDistanceKm,
+    minAvgWatts,
+    minElevationM,
+    minDurationMinutes,
+    minTss,
     sortMetric,
     sortDirection,
     activityDetails,
     athleteProfile,
   ]);
+
+  // Active filter counters & helpers
+  const activeFilterCount = useMemo(() => {
+    let count = 0;
+    if (selectedCategory !== 'All') count++;
+    if (minDistanceKm !== null && minDistanceKm > 0) count++;
+    if (maxDistanceKm !== null && maxDistanceKm > 0) count++;
+    if (minAvgWatts !== null && minAvgWatts > 0) count++;
+    if (minElevationM !== null && minElevationM > 0) count++;
+    if (minDurationMinutes !== null && minDurationMinutes > 0) count++;
+    if (minTss !== null && minTss > 0) count++;
+    return count;
+  }, [
+    selectedCategory,
+    minDistanceKm,
+    maxDistanceKm,
+    minAvgWatts,
+    minElevationM,
+    minDurationMinutes,
+    minTss,
+  ]);
+
+  const hasActiveSort = sortMetric !== 'date' || sortDirection !== 'desc';
+  const totalActiveFilterAndSortCount = activeFilterCount + (hasActiveSort ? 1 : 0);
+
+  const resetAllFiltersAndSort = () => {
+    setSelectedCategory('All');
+    setMinDistanceKm(null);
+    setMaxDistanceKm(null);
+    setMinAvgWatts(null);
+    setMinElevationM(null);
+    setMinDurationMinutes(null);
+    setMinTss(null);
+    setSortMetric('date');
+    setSortDirection('desc');
+  };
 
   // Category counts strictly for All, Swim, Bike, Run, Gym
   const categoryCounts = useMemo(() => {
@@ -488,8 +595,8 @@ export const StravaActivitiesTab: React.FC<StravaActivitiesTabProps> = ({
         </div>
       </div>
 
-      {/* Active Search / Sort Indicator Banner */}
-      {(searchQueryTrimmed || sortMetric !== 'date') && (
+      {/* Active Search / Sort / Multi-Metric Filter Indicator Banner */}
+      {(searchQueryTrimmed || sortMetric !== 'date' || activeFilterCount > 0) && (
         <div
           className={`flex items-center justify-between flex-wrap gap-2 px-3 py-2 rounded-xl text-xs border backdrop-blur-md ${
             isLight
@@ -515,6 +622,160 @@ export const StravaActivitiesTab: React.FC<StravaActivitiesTabProps> = ({
                   onClick={() => setSearchQuery('')}
                   className="hover:opacity-75 transition-opacity cursor-pointer ml-0.5"
                   title="Clear search"
+                >
+                  <X className="w-3 h-3" />
+                </button>
+              </span>
+            )}
+            {selectedCategory !== 'All' && (
+              <span
+                className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-lg border text-[11px] font-medium ${
+                  isLight
+                    ? 'bg-amber-100 border-amber-300 text-amber-950'
+                    : 'bg-amber-500/20 border-amber-500/35 text-amber-300'
+                }`}
+              >
+                <Filter className="w-3 h-3 text-amber-500 shrink-0" />
+                <span>
+                  Sport: <strong>{selectedCategory}</strong>
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setSelectedCategory('All')}
+                  className="hover:opacity-75 transition-opacity cursor-pointer ml-0.5"
+                  title="Reset sport to All"
+                >
+                  <X className="w-3 h-3" />
+                </button>
+              </span>
+            )}
+            {minDistanceKm !== null && minDistanceKm > 0 && (
+              <span
+                className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-lg border text-[11px] font-medium ${
+                  isLight
+                    ? 'bg-amber-100 border-amber-300 text-amber-950'
+                    : 'bg-amber-500/20 border-amber-500/35 text-amber-300'
+                }`}
+              >
+                <MapPin className="w-3 h-3 text-amber-500 shrink-0" />
+                <span>
+                  Distance: <strong>&ge; {minDistanceKm} km</strong>
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setMinDistanceKm(null)}
+                  className="hover:opacity-75 transition-opacity cursor-pointer ml-0.5"
+                  title="Clear min distance filter"
+                >
+                  <X className="w-3 h-3" />
+                </button>
+              </span>
+            )}
+            {maxDistanceKm !== null && maxDistanceKm > 0 && (
+              <span
+                className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-lg border text-[11px] font-medium ${
+                  isLight
+                    ? 'bg-amber-100 border-amber-300 text-amber-950'
+                    : 'bg-amber-500/20 border-amber-500/35 text-amber-300'
+                }`}
+              >
+                <MapPin className="w-3 h-3 text-amber-500 shrink-0" />
+                <span>
+                  Distance: <strong>&le; {maxDistanceKm} km</strong>
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setMaxDistanceKm(null)}
+                  className="hover:opacity-75 transition-opacity cursor-pointer ml-0.5"
+                  title="Clear max distance filter"
+                >
+                  <X className="w-3 h-3" />
+                </button>
+              </span>
+            )}
+            {minAvgWatts !== null && minAvgWatts > 0 && (
+              <span
+                className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-lg border text-[11px] font-medium ${
+                  isLight
+                    ? 'bg-amber-100 border-amber-300 text-amber-950'
+                    : 'bg-amber-500/20 border-amber-500/35 text-amber-300'
+                }`}
+              >
+                <Zap className="w-3 h-3 text-amber-500 shrink-0" />
+                <span>
+                  Power: <strong>&ge; {minAvgWatts} W</strong>
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setMinAvgWatts(null)}
+                  className="hover:opacity-75 transition-opacity cursor-pointer ml-0.5"
+                  title="Clear min power filter"
+                >
+                  <X className="w-3 h-3" />
+                </button>
+              </span>
+            )}
+            {minElevationM !== null && minElevationM > 0 && (
+              <span
+                className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-lg border text-[11px] font-medium ${
+                  isLight
+                    ? 'bg-amber-100 border-amber-300 text-amber-950'
+                    : 'bg-amber-500/20 border-amber-500/35 text-amber-300'
+                }`}
+              >
+                <TrendingUp className="w-3 h-3 text-amber-500 shrink-0" />
+                <span>
+                  Elevation: <strong>&ge; {minElevationM} m</strong>
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setMinElevationM(null)}
+                  className="hover:opacity-75 transition-opacity cursor-pointer ml-0.5"
+                  title="Clear min elevation filter"
+                >
+                  <X className="w-3 h-3" />
+                </button>
+              </span>
+            )}
+            {minDurationMinutes !== null && minDurationMinutes > 0 && (
+              <span
+                className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-lg border text-[11px] font-medium ${
+                  isLight
+                    ? 'bg-amber-100 border-amber-300 text-amber-950'
+                    : 'bg-amber-500/20 border-amber-500/35 text-amber-300'
+                }`}
+              >
+                <Clock className="w-3 h-3 text-amber-500 shrink-0" />
+                <span>
+                  Duration: <strong>&ge; {minDurationMinutes >= 60 ? `${Math.floor(minDurationMinutes / 60)}h ${minDurationMinutes % 60 > 0 ? `${minDurationMinutes % 60}m` : ''}`.trim() : `${minDurationMinutes}m`}</strong>
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setMinDurationMinutes(null)}
+                  className="hover:opacity-75 transition-opacity cursor-pointer ml-0.5"
+                  title="Clear min duration filter"
+                >
+                  <X className="w-3 h-3" />
+                </button>
+              </span>
+            )}
+            {minTss !== null && minTss > 0 && (
+              <span
+                className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-lg border text-[11px] font-medium ${
+                  isLight
+                    ? 'bg-amber-100 border-amber-300 text-amber-950'
+                    : 'bg-amber-500/20 border-amber-500/35 text-amber-300'
+                }`}
+              >
+                <Zap className="w-3 h-3 text-amber-500 shrink-0" />
+                <span>
+                  TSS: <strong>&ge; {minTss}</strong>
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setMinTss(null)}
+                  className="hover:opacity-75 transition-opacity cursor-pointer ml-0.5"
+                  title="Clear min TSS filter"
                 >
                   <X className="w-3 h-3" />
                 </button>
@@ -550,10 +811,21 @@ export const StravaActivitiesTab: React.FC<StravaActivitiesTabProps> = ({
               </span>
             )}
           </div>
-          <span className="text-[11px] opacity-80 font-mono">
-            {filteredAndSortedActivities.length}{' '}
-            {filteredAndSortedActivities.length === 1 ? 'activity' : 'activities'}
-          </span>
+          <div className="flex items-center gap-2">
+            {(activeFilterCount > 0 || sortMetric !== 'date') && (
+              <button
+                type="button"
+                onClick={resetAllFiltersAndSort}
+                className="text-[11px] font-bold text-amber-500 hover:underline cursor-pointer"
+              >
+                Reset All
+              </button>
+            )}
+            <span className="text-[11px] opacity-80 font-mono">
+              {filteredAndSortedActivities.length}{' '}
+              {filteredAndSortedActivities.length === 1 ? 'activity' : 'activities'}
+            </span>
+          </div>
         </div>
       )}
 
@@ -898,7 +1170,7 @@ export const StravaActivitiesTab: React.FC<StravaActivitiesTabProps> = ({
       />
 
       {/* ========================================================= */}
-      {/* FLOATING FILTER / SORT BUTTON (BOTTOM LEFT) */}
+      {/* FLOATING SORT & FILTER BUTTON (BOTTOM LEFT) */}
       {/* ========================================================= */}
       <div ref={filterContainerRef} className="fixed bottom-6 left-4 sm:left-6 md:left-8 z-30">
         <button
@@ -907,9 +1179,9 @@ export const StravaActivitiesTab: React.FC<StravaActivitiesTabProps> = ({
             setIsFilterOpen((prev) => !prev);
             setIsSearchOpen(false);
           }}
-          title="Sort activities by metrics (duration, distance, TSS, pace, elevation, HR, power)"
+          title="Sort & Filter activities (sport, distance, power, elevation, TSS, speed)"
           className={`relative w-12 h-12 rounded-full border shadow-xl flex items-center justify-center transition-all cursor-pointer hover:scale-105 active:scale-95 ${
-            sortMetric !== 'date' || isFilterOpen
+            totalActiveFilterAndSortCount > 0 || isFilterOpen
               ? 'bg-amber-500 text-slate-950 border-amber-400 ring-2 ring-amber-400/50 shadow-amber-500/30 font-black'
               : isLight
               ? 'bg-white/95 text-slate-700 border-slate-300 shadow-slate-900/15 hover:bg-slate-50'
@@ -917,16 +1189,18 @@ export const StravaActivitiesTab: React.FC<StravaActivitiesTabProps> = ({
           }`}
           aria-label="Filter and Sort Activities"
         >
-          <Filter className="w-5 h-5" />
-          {sortMetric !== 'date' && (
-            <span className="absolute -top-1 -right-1 w-3.5 h-3.5 bg-amber-400 rounded-full border-2 border-slate-900 ring-1 ring-amber-300" />
+          <SlidersHorizontal className="w-5 h-5" />
+          {totalActiveFilterAndSortCount > 0 && (
+            <span className="absolute -top-1 -right-1 px-1.5 py-0.2 min-w-4.5 h-4.5 bg-amber-400 text-slate-950 font-black text-[10px] rounded-full border-2 border-slate-900 ring-1 ring-amber-300 flex items-center justify-center">
+              {totalActiveFilterAndSortCount}
+            </span>
           )}
         </button>
 
-        {/* Floating Sort Modal / Popover */}
+        {/* Floating Sort & Filter Modal / Popover */}
         {isFilterOpen && (
           <div
-            className={`fixed bottom-20 left-4 sm:left-6 md:left-8 z-40 w-84 sm:w-96 max-w-[calc(100vw-2rem)] max-h-[75vh] flex flex-col p-4 rounded-2xl border shadow-2xl backdrop-blur-md animate-in fade-in zoom-in-95 duration-150 ${
+            className={`fixed bottom-20 left-4 sm:left-6 md:left-8 z-40 w-84 sm:w-[420px] max-w-[calc(100vw-2rem)] max-h-[82vh] flex flex-col p-4 rounded-2xl border shadow-2xl backdrop-blur-md animate-in fade-in zoom-in-95 duration-150 ${
               isLight
                 ? 'bg-white/95 border-slate-300 text-slate-900 shadow-slate-900/20'
                 : 'bg-slate-900/95 border-[#324158] text-white shadow-black/80'
@@ -939,17 +1213,19 @@ export const StravaActivitiesTab: React.FC<StravaActivitiesTabProps> = ({
               }`}
             >
               <div className="flex items-center gap-2">
-                <Filter className="w-4 h-4 text-amber-500" />
-                <h3 className="text-sm font-black">Sort Activities</h3>
+                <SlidersHorizontal className="w-4 h-4 text-amber-500" />
+                <div>
+                  <h3 className="text-sm font-black leading-tight">Sort & Filter</h3>
+                  <div className="text-[10px] text-slate-400 font-medium">
+                    {filteredAndSortedActivities.length} of {activities.length} matching
+                  </div>
+                </div>
               </div>
               <div className="flex items-center gap-1.5">
-                {sortMetric !== 'date' && (
+                {totalActiveFilterAndSortCount > 0 && (
                   <button
                     type="button"
-                    onClick={() => {
-                      setSortMetric('date');
-                      setSortDirection('desc');
-                    }}
+                    onClick={resetAllFiltersAndSort}
                     className={`text-[11px] font-bold text-amber-500 hover:text-amber-400 px-2 py-0.5 rounded transition-colors cursor-pointer flex items-center gap-1 ${
                       isLight ? 'hover:bg-amber-50' : 'hover:bg-amber-500/10'
                     }`}
@@ -964,124 +1240,601 @@ export const StravaActivitiesTab: React.FC<StravaActivitiesTabProps> = ({
                   className={`p-1 rounded-lg transition-colors cursor-pointer ${
                     isLight ? 'hover:bg-slate-100 text-slate-500' : 'hover:bg-slate-800 text-slate-400'
                   }`}
-                  aria-label="Close sort panel"
+                  aria-label="Close sort and filter panel"
                 >
                   <X className="w-4 h-4" />
                 </button>
               </div>
             </div>
 
-            {/* Sort Direction Toggle */}
-            <div className="py-2.5">
-              <div className="text-[10px] font-bold text-slate-400 mb-1.5 uppercase tracking-wider">
-                Direction
-              </div>
-              <div
-                className={`grid grid-cols-2 gap-1.5 p-1 rounded-xl border ${
-                  isLight
-                    ? 'bg-slate-100 border-slate-200'
-                    : 'bg-slate-800/80 border-slate-700/60'
-                }`}
-              >
-                <button
-                  type="button"
-                  onClick={() => setSortDirection('desc')}
-                  className={`py-1.5 px-2 rounded-lg text-xs font-bold flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
-                    sortDirection === 'desc'
-                      ? 'bg-amber-500 text-slate-950 font-black shadow-xs'
-                      : isLight
-                      ? 'text-slate-600 hover:text-slate-900'
-                      : 'text-slate-300 hover:text-white'
-                  }`}
-                >
-                  <ArrowDown className="w-3.5 h-3.5" />
-                  <span>High to Low (Desc)</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setSortDirection('asc')}
-                  className={`py-1.5 px-2 rounded-lg text-xs font-bold flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
-                    sortDirection === 'asc'
-                      ? 'bg-amber-500 text-slate-950 font-black shadow-xs'
-                      : isLight
-                      ? 'text-slate-600 hover:text-slate-900'
-                      : 'text-slate-300 hover:text-white'
-                  }`}
-                >
-                  <ArrowUp className="w-3.5 h-3.5" />
-                  <span>Low to High (Asc)</span>
-                </button>
-              </div>
-            </div>
-
-            {/* Sort Metric Options List */}
-            <div className="text-[10px] font-bold text-slate-400 mb-1 uppercase tracking-wider">
-              Sort By Metric
-            </div>
-            <div className="flex-1 overflow-y-auto space-y-1 pr-1 py-1 max-h-64 custom-scrollbar">
-              {/* Default Date option */}
+            {/* Filter vs Sort Tab Switcher */}
+            <div
+              className={`grid grid-cols-2 p-1 rounded-xl border my-2.5 ${
+                isLight
+                  ? 'bg-slate-100 border-slate-200'
+                  : 'bg-slate-800/80 border-slate-700/60'
+              }`}
+            >
               <button
                 type="button"
-                onClick={() => {
-                  setSortMetric('date');
-                  setIsFilterOpen(false);
-                }}
-                className={`w-full px-3 py-2 rounded-xl text-left text-xs font-bold flex items-center justify-between transition-all cursor-pointer ${
-                  sortMetric === 'date'
-                    ? isLight
-                      ? 'bg-amber-100 border border-amber-300 text-amber-950'
-                      : 'bg-amber-500/15 border border-amber-500/40 text-amber-300'
+                onClick={() => setFilterModalTab('filter')}
+                className={`py-1.5 px-3 rounded-lg text-xs font-bold flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
+                  filterModalTab === 'filter'
+                    ? 'bg-amber-500 text-slate-950 font-black shadow-xs'
                     : isLight
-                    ? 'hover:bg-slate-100 text-slate-700'
-                    : 'hover:bg-slate-800 text-slate-300'
+                    ? 'text-slate-600 hover:text-slate-900'
+                    : 'text-slate-300 hover:text-white'
                 }`}
               >
-                <div className="flex items-center gap-2.5">
-                  <Activity className="w-4 h-4 text-slate-400 shrink-0" />
+                <Filter className="w-3.5 h-3.5" />
+                <span>Filter</span>
+                {activeFilterCount > 0 && (
+                  <span className="px-1.5 py-0.2 rounded-full text-[10px] font-black bg-slate-950 text-amber-400">
+                    {activeFilterCount}
+                  </span>
+                )}
+              </button>
+              <button
+                type="button"
+                onClick={() => setFilterModalTab('sort')}
+                className={`py-1.5 px-3 rounded-lg text-xs font-bold flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
+                  filterModalTab === 'sort'
+                    ? 'bg-amber-500 text-slate-950 font-black shadow-xs'
+                    : isLight
+                    ? 'text-slate-600 hover:text-slate-900'
+                    : 'text-slate-300 hover:text-white'
+                }`}
+              >
+                <ArrowUpDown className="w-3.5 h-3.5" />
+                <span>Sort</span>
+                {hasActiveSort && (
+                  <span className="w-2 h-2 rounded-full bg-amber-400" />
+                )}
+              </button>
+            </div>
+
+            {/* Tab Body */}
+            <div className="flex-1 overflow-y-auto space-y-3.5 pr-1 py-1 max-h-[50vh] custom-scrollbar">
+              {/* ===================== FILTER TAB ===================== */}
+              {filterModalTab === 'filter' && (
+                <div className="space-y-3.5">
+                  {/* 1. Sport Category Filter */}
                   <div>
-                    <div className="font-bold">Date (Default)</div>
-                    <div className="text-[10px] text-slate-400 font-normal">
-                      {sortDirection === 'desc' ? 'Newest first' : 'Oldest first'}
+                    <div className="text-[10px] font-bold text-slate-400 mb-1.5 uppercase tracking-wider flex items-center justify-between">
+                      <span>Sport Category</span>
+                      {selectedCategory !== 'All' && (
+                        <button
+                          type="button"
+                          onClick={() => setSelectedCategory('All')}
+                          className="text-[10px] text-amber-500 hover:underline cursor-pointer font-bold lowercase"
+                        >
+                          clear
+                        </button>
+                      )}
+                    </div>
+                    <div className="grid grid-cols-5 gap-1">
+                      {(['All', 'Bike', 'Run', 'Swim', 'Gym'] as const).map((cat) => {
+                        const isActive = selectedCategory === cat;
+                        return (
+                          <button
+                            key={cat}
+                            type="button"
+                            onClick={() => setSelectedCategory(cat)}
+                            className={`py-1.5 px-1 rounded-xl text-xs font-bold flex flex-col items-center justify-center gap-1 transition-all cursor-pointer border ${
+                              isActive
+                                ? 'bg-amber-500 text-slate-950 border-amber-400 font-black shadow-xs'
+                                : isLight
+                                ? 'bg-slate-50 hover:bg-slate-100 text-slate-700 border-slate-200'
+                                : 'bg-slate-800/70 hover:bg-slate-800 text-slate-300 border-slate-700/60'
+                            }`}
+                          >
+                            {cat === 'All' && <InfinityIcon className="w-3.5 h-3.5" />}
+                            {cat === 'Bike' && <Bike className="w-3.5 h-3.5" />}
+                            {cat === 'Run' && <Footprints className="w-3.5 h-3.5" />}
+                            {cat === 'Swim' && <Waves className="w-3.5 h-3.5" />}
+                            {cat === 'Gym' && <Dumbbell className="w-3.5 h-3.5" />}
+                            <span className="text-[11px] leading-tight">{cat}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  {/* 2. Distance Filter */}
+                  <div
+                    className={`p-2.5 rounded-xl border ${
+                      isLight ? 'bg-slate-50 border-slate-200' : 'bg-slate-800/40 border-slate-800'
+                    }`}
+                  >
+                    <div className="text-[10px] font-bold text-slate-400 mb-1.5 uppercase tracking-wider flex items-center justify-between">
+                      <div className="flex items-center gap-1.5">
+                        <MapPin className="w-3 h-3 text-emerald-400" />
+                        <span>Distance (km)</span>
+                      </div>
+                      {(minDistanceKm !== null || maxDistanceKm !== null) && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setMinDistanceKm(null);
+                            setMaxDistanceKm(null);
+                          }}
+                          className="text-[10px] text-amber-500 hover:underline cursor-pointer font-bold lowercase"
+                        >
+                          clear
+                        </button>
+                      )}
+                    </div>
+
+                    {/* Distance Quick Presets */}
+                    <div className="flex flex-wrap gap-1 mb-2">
+                      {[
+                        { label: 'Any', min: null },
+                        { label: '> 10 km', min: 10 },
+                        { label: '> 25 km', min: 25 },
+                        { label: '> 50 km', min: 50 },
+                        { label: '> 100 km', min: 100 },
+                        { label: '> 150 km', min: 150 },
+                      ].map((preset) => {
+                        const isSelected =
+                          preset.min === null
+                            ? minDistanceKm === null && maxDistanceKm === null
+                            : minDistanceKm === preset.min && maxDistanceKm === null;
+                        return (
+                          <button
+                            key={preset.label}
+                            type="button"
+                            onClick={() => {
+                              setMinDistanceKm(preset.min);
+                              setMaxDistanceKm(null);
+                            }}
+                            className={`px-2 py-1 rounded-lg text-[11px] font-bold transition-all cursor-pointer border ${
+                              isSelected
+                                ? 'bg-amber-500 text-slate-950 border-amber-400 shadow-xs'
+                                : isLight
+                                ? 'bg-white hover:bg-slate-100 text-slate-700 border-slate-200'
+                                : 'bg-slate-800 hover:bg-slate-700 text-slate-300 border-slate-700'
+                            }`}
+                          >
+                            {preset.label}
+                          </button>
+                        );
+                      })}
+                    </div>
+
+                    {/* Custom Distance Inputs */}
+                    <div className="grid grid-cols-2 gap-2 text-xs">
+                      <div>
+                        <label className="text-[10px] text-slate-400 block mb-0.5">Min Distance (km)</label>
+                        <input
+                          type="number"
+                          min="0"
+                          step="1"
+                          placeholder="e.g. 100"
+                          value={minDistanceKm ?? ''}
+                          onChange={(e) => {
+                            const val = e.target.value === '' ? null : parseFloat(e.target.value);
+                            setMinDistanceKm(isNaN(val as number) ? null : val);
+                          }}
+                          className={`w-full px-2.5 py-1.5 rounded-lg border text-xs font-mono font-bold outline-none transition-all ${
+                            isLight
+                              ? 'bg-white border-slate-300 text-slate-900 focus:border-amber-500'
+                              : 'bg-slate-900 border-slate-700 text-white focus:border-amber-400'
+                          }`}
+                        />
+                      </div>
+                      <div>
+                        <label className="text-[10px] text-slate-400 block mb-0.5">Max Distance (km)</label>
+                        <input
+                          type="number"
+                          min="0"
+                          step="1"
+                          placeholder="Optional"
+                          value={maxDistanceKm ?? ''}
+                          onChange={(e) => {
+                            const val = e.target.value === '' ? null : parseFloat(e.target.value);
+                            setMaxDistanceKm(isNaN(val as number) ? null : val);
+                          }}
+                          className={`w-full px-2.5 py-1.5 rounded-lg border text-xs font-mono font-bold outline-none transition-all ${
+                            isLight
+                              ? 'bg-white border-slate-300 text-slate-900 focus:border-amber-500'
+                              : 'bg-slate-900 border-slate-700 text-white focus:border-amber-400'
+                          }`}
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* 3. Average Power Filter */}
+                  <div
+                    className={`p-2.5 rounded-xl border ${
+                      isLight ? 'bg-slate-50 border-slate-200' : 'bg-slate-800/40 border-slate-800'
+                    }`}
+                  >
+                    <div className="text-[10px] font-bold text-slate-400 mb-1.5 uppercase tracking-wider flex items-center justify-between">
+                      <div className="flex items-center gap-1.5">
+                        <Zap className="w-3 h-3 text-purple-400" />
+                        <span>Average Power (Watts)</span>
+                      </div>
+                      {minAvgWatts !== null && (
+                        <button
+                          type="button"
+                          onClick={() => setMinAvgWatts(null)}
+                          className="text-[10px] text-amber-500 hover:underline cursor-pointer font-bold lowercase"
+                        >
+                          clear
+                        </button>
+                      )}
+                    </div>
+
+                    <div className="flex flex-wrap gap-1 mb-2">
+                      {[
+                        { label: 'Any', val: null },
+                        { label: '> 150 W', val: 150 },
+                        { label: '> 200 W', val: 200 },
+                        { label: '> 250 W', val: 250 },
+                        { label: '> 300 W', val: 300 },
+                      ].map((preset) => {
+                        const isSelected = minAvgWatts === preset.val;
+                        return (
+                          <button
+                            key={preset.label}
+                            type="button"
+                            onClick={() => setMinAvgWatts(preset.val)}
+                            className={`px-2 py-1 rounded-lg text-[11px] font-bold transition-all cursor-pointer border ${
+                              isSelected
+                                ? 'bg-amber-500 text-slate-950 border-amber-400 shadow-xs'
+                                : isLight
+                                ? 'bg-white hover:bg-slate-100 text-slate-700 border-slate-200'
+                                : 'bg-slate-800 hover:bg-slate-700 text-slate-300 border-slate-700'
+                            }`}
+                          >
+                            {preset.label}
+                          </button>
+                        );
+                      })}
+                    </div>
+
+                    <div>
+                      <label className="text-[10px] text-slate-400 block mb-0.5">Min Average Watts</label>
+                      <input
+                        type="number"
+                        min="0"
+                        step="5"
+                        placeholder="e.g. 200"
+                        value={minAvgWatts ?? ''}
+                        onChange={(e) => {
+                          const val = e.target.value === '' ? null : parseFloat(e.target.value);
+                          setMinAvgWatts(isNaN(val as number) ? null : val);
+                        }}
+                        className={`w-full px-2.5 py-1.5 rounded-lg border text-xs font-mono font-bold outline-none transition-all ${
+                          isLight
+                            ? 'bg-white border-slate-300 text-slate-900 focus:border-amber-500'
+                            : 'bg-slate-900 border-slate-700 text-white focus:border-amber-400'
+                        }`}
+                      />
+                    </div>
+                  </div>
+
+                  {/* 4. Elevation Gain Filter */}
+                  <div
+                    className={`p-2.5 rounded-xl border ${
+                      isLight ? 'bg-slate-50 border-slate-200' : 'bg-slate-800/40 border-slate-800'
+                    }`}
+                  >
+                    <div className="text-[10px] font-bold text-slate-400 mb-1.5 uppercase tracking-wider flex items-center justify-between">
+                      <div className="flex items-center gap-1.5">
+                        <TrendingUp className="w-3 h-3 text-indigo-400" />
+                        <span>Elevation Gain (m)</span>
+                      </div>
+                      {minElevationM !== null && (
+                        <button
+                          type="button"
+                          onClick={() => setMinElevationM(null)}
+                          className="text-[10px] text-amber-500 hover:underline cursor-pointer font-bold lowercase"
+                        >
+                          clear
+                        </button>
+                      )}
+                    </div>
+
+                    <div className="flex flex-wrap gap-1 mb-2">
+                      {[
+                        { label: 'Any', val: null },
+                        { label: '> 250 m', val: 250 },
+                        { label: '> 500 m', val: 500 },
+                        { label: '> 1,000 m', val: 1000 },
+                        { label: '> 1,500 m', val: 1500 },
+                      ].map((preset) => {
+                        const isSelected = minElevationM === preset.val;
+                        return (
+                          <button
+                            key={preset.label}
+                            type="button"
+                            onClick={() => setMinElevationM(preset.val)}
+                            className={`px-2 py-1 rounded-lg text-[11px] font-bold transition-all cursor-pointer border ${
+                              isSelected
+                                ? 'bg-amber-500 text-slate-950 border-amber-400 shadow-xs'
+                                : isLight
+                                ? 'bg-white hover:bg-slate-100 text-slate-700 border-slate-200'
+                                : 'bg-slate-800 hover:bg-slate-700 text-slate-300 border-slate-700'
+                            }`}
+                          >
+                            {preset.label}
+                          </button>
+                        );
+                      })}
+                    </div>
+
+                    <div>
+                      <label className="text-[10px] text-slate-400 block mb-0.5">Min Elevation Gain (m)</label>
+                      <input
+                        type="number"
+                        min="0"
+                        step="50"
+                        placeholder="e.g. 500"
+                        value={minElevationM ?? ''}
+                        onChange={(e) => {
+                          const val = e.target.value === '' ? null : parseFloat(e.target.value);
+                          setMinElevationM(isNaN(val as number) ? null : val);
+                        }}
+                        className={`w-full px-2.5 py-1.5 rounded-lg border text-xs font-mono font-bold outline-none transition-all ${
+                          isLight
+                            ? 'bg-white border-slate-300 text-slate-900 focus:border-amber-500'
+                            : 'bg-slate-900 border-slate-700 text-white focus:border-amber-400'
+                        }`}
+                      />
+                    </div>
+                  </div>
+
+                  {/* 5. Moving Duration Filter */}
+                  <div
+                    className={`p-2.5 rounded-xl border ${
+                      isLight ? 'bg-slate-50 border-slate-200' : 'bg-slate-800/40 border-slate-800'
+                    }`}
+                  >
+                    <div className="text-[10px] font-bold text-slate-400 mb-1.5 uppercase tracking-wider flex items-center justify-between">
+                      <div className="flex items-center gap-1.5">
+                        <Clock className="w-3 h-3 text-sky-400" />
+                        <span>Moving Time</span>
+                      </div>
+                      {minDurationMinutes !== null && (
+                        <button
+                          type="button"
+                          onClick={() => setMinDurationMinutes(null)}
+                          className="text-[10px] text-amber-500 hover:underline cursor-pointer font-bold lowercase"
+                        >
+                          clear
+                        </button>
+                      )}
+                    </div>
+
+                    <div className="flex flex-wrap gap-1">
+                      {[
+                        { label: 'Any', mins: null },
+                        { label: '> 30m', mins: 30 },
+                        { label: '> 1h', mins: 60 },
+                        { label: '> 2h', mins: 120 },
+                        { label: '> 3h', mins: 180 },
+                        { label: '> 4h', mins: 240 },
+                      ].map((preset) => {
+                        const isSelected = minDurationMinutes === preset.mins;
+                        return (
+                          <button
+                            key={preset.label}
+                            type="button"
+                            onClick={() => setMinDurationMinutes(preset.mins)}
+                            className={`px-2 py-1 rounded-lg text-[11px] font-bold transition-all cursor-pointer border ${
+                              isSelected
+                                ? 'bg-amber-500 text-slate-950 border-amber-400 shadow-xs'
+                                : isLight
+                                ? 'bg-white hover:bg-slate-100 text-slate-700 border-slate-200'
+                                : 'bg-slate-800 hover:bg-slate-700 text-slate-300 border-slate-700'
+                            }`}
+                          >
+                            {preset.label}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  {/* 6. TSS Filter */}
+                  <div
+                    className={`p-2.5 rounded-xl border ${
+                      isLight ? 'bg-slate-50 border-slate-200' : 'bg-slate-800/40 border-slate-800'
+                    }`}
+                  >
+                    <div className="text-[10px] font-bold text-slate-400 mb-1.5 uppercase tracking-wider flex items-center justify-between">
+                      <div className="flex items-center gap-1.5">
+                        <Zap className="w-3 h-3 text-amber-400" />
+                        <span>Training Stress Score (TSS)</span>
+                      </div>
+                      {minTss !== null && (
+                        <button
+                          type="button"
+                          onClick={() => setMinTss(null)}
+                          className="text-[10px] text-amber-500 hover:underline cursor-pointer font-bold lowercase"
+                        >
+                          clear
+                        </button>
+                      )}
+                    </div>
+
+                    <div className="flex flex-wrap gap-1">
+                      {[
+                        { label: 'Any', val: null },
+                        { label: '> 50 TSS', val: 50 },
+                        { label: '> 100 TSS', val: 100 },
+                        { label: '> 150 TSS', val: 150 },
+                        { label: '> 200 TSS', val: 200 },
+                      ].map((preset) => {
+                        const isSelected = minTss === preset.val;
+                        return (
+                          <button
+                            key={preset.label}
+                            type="button"
+                            onClick={() => setMinTss(preset.val)}
+                            className={`px-2 py-1 rounded-lg text-[11px] font-bold transition-all cursor-pointer border ${
+                              isSelected
+                                ? 'bg-amber-500 text-slate-950 border-amber-400 shadow-xs'
+                                : isLight
+                                ? 'bg-white hover:bg-slate-100 text-slate-700 border-slate-200'
+                                : 'bg-slate-800 hover:bg-slate-700 text-slate-300 border-slate-700'
+                            }`}
+                          >
+                            {preset.label}
+                          </button>
+                        );
+                      })}
                     </div>
                   </div>
                 </div>
-                {sortMetric === 'date' && <Check className="w-4 h-4 text-amber-500 shrink-0" />}
-              </button>
+              )}
 
-              {/* The 10 Metrics */}
-              {SORT_OPTIONS.map((opt) => {
-                const isSelected = sortMetric === opt.id;
-                return (
+              {/* ===================== SORT TAB ===================== */}
+              {filterModalTab === 'sort' && (
+                <div className="space-y-3">
+                  {/* Sort Direction Toggle */}
+                  <div>
+                    <div className="text-[10px] font-bold text-slate-400 mb-1.5 uppercase tracking-wider">
+                      Sort Direction
+                    </div>
+                    <div
+                      className={`grid grid-cols-2 gap-1.5 p-1 rounded-xl border ${
+                        isLight
+                          ? 'bg-slate-100 border-slate-200'
+                          : 'bg-slate-800/80 border-slate-700/60'
+                      }`}
+                    >
+                      <button
+                        type="button"
+                        onClick={() => setSortDirection('desc')}
+                        className={`py-1.5 px-2 rounded-lg text-xs font-bold flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
+                          sortDirection === 'desc'
+                            ? 'bg-amber-500 text-slate-950 font-black shadow-xs'
+                            : isLight
+                            ? 'text-slate-600 hover:text-slate-900'
+                            : 'text-slate-300 hover:text-white'
+                        }`}
+                      >
+                        <ArrowDown className="w-3.5 h-3.5" />
+                        <span>High to Low (Desc)</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setSortDirection('asc')}
+                        className={`py-1.5 px-2 rounded-lg text-xs font-bold flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
+                          sortDirection === 'asc'
+                            ? 'bg-amber-500 text-slate-950 font-black shadow-xs'
+                            : isLight
+                            ? 'text-slate-600 hover:text-slate-900'
+                            : 'text-slate-300 hover:text-white'
+                        }`}
+                      >
+                        <ArrowUp className="w-3.5 h-3.5" />
+                        <span>Low to High (Asc)</span>
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Sort Metric Options List */}
+                  <div>
+                    <div className="text-[10px] font-bold text-slate-400 mb-1.5 uppercase tracking-wider">
+                      Sort By Metric
+                    </div>
+                    <div className="space-y-1">
+                      {/* Default Date option */}
+                      <button
+                        type="button"
+                        onClick={() => setSortMetric('date')}
+                        className={`w-full px-3 py-2 rounded-xl text-left text-xs font-bold flex items-center justify-between transition-all cursor-pointer ${
+                          sortMetric === 'date'
+                            ? isLight
+                              ? 'bg-amber-100 border border-amber-300 text-amber-950'
+                              : 'bg-amber-500/15 border border-amber-500/40 text-amber-300'
+                            : isLight
+                            ? 'hover:bg-slate-100 text-slate-700'
+                            : 'hover:bg-slate-800 text-slate-300'
+                        }`}
+                      >
+                        <div className="flex items-center gap-2.5">
+                          <Activity className="w-4 h-4 text-slate-400 shrink-0" />
+                          <div>
+                            <div className="font-bold">Date (Default)</div>
+                            <div className="text-[10px] text-slate-400 font-normal">
+                              {sortDirection === 'desc' ? 'Newest first' : 'Oldest first'}
+                            </div>
+                          </div>
+                        </div>
+                        {sortMetric === 'date' && <Check className="w-4 h-4 text-amber-500 shrink-0" />}
+                      </button>
+
+                      {/* The 10 Metrics */}
+                      {SORT_OPTIONS.map((opt) => {
+                        const isSelected = sortMetric === opt.id;
+                        return (
+                          <button
+                            key={opt.id}
+                            type="button"
+                            onClick={() => setSortMetric(opt.id)}
+                            className={`w-full px-3 py-2 rounded-xl text-left text-xs font-bold flex items-center justify-between transition-all cursor-pointer ${
+                              isSelected
+                                ? isLight
+                                  ? 'bg-amber-100 border border-amber-300 text-amber-950'
+                                  : 'bg-amber-500/15 border border-amber-500/40 text-amber-300'
+                                : isLight
+                                ? 'hover:bg-slate-100 text-slate-700'
+                                : 'hover:bg-slate-800 text-slate-300'
+                            }`}
+                          >
+                            <div className="flex items-center gap-2.5">
+                              <span className="shrink-0">{opt.icon()}</span>
+                              <div>
+                                <div className="font-bold">{opt.label}</div>
+                                <div className="text-[10px] text-slate-400 font-normal">
+                                  {sortDirection === 'desc' ? opt.descHelper : opt.ascHelper}
+                                </div>
+                              </div>
+                            </div>
+                            {isSelected && <Check className="w-4 h-4 text-amber-500 shrink-0" />}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Popover Footer */}
+            <div
+              className={`pt-3 mt-2 border-t flex items-center justify-between gap-2 ${
+                isLight ? 'border-slate-200' : 'border-slate-800'
+              }`}
+            >
+              <div className="text-[11px] font-medium text-slate-400 truncate">
+                Showing <strong className="text-amber-500 font-bold">{filteredAndSortedActivities.length}</strong> of {activities.length}
+              </div>
+              <div className="flex items-center gap-2 shrink-0">
+                {totalActiveFilterAndSortCount > 0 && (
                   <button
-                    key={opt.id}
                     type="button"
-                    onClick={() => {
-                      setSortMetric(opt.id);
-                      setIsFilterOpen(false);
-                    }}
-                    className={`w-full px-3 py-2 rounded-xl text-left text-xs font-bold flex items-center justify-between transition-all cursor-pointer ${
-                      isSelected
-                        ? isLight
-                          ? 'bg-amber-100 border border-amber-300 text-amber-950'
-                          : 'bg-amber-500/15 border border-amber-500/40 text-amber-300'
-                        : isLight
-                        ? 'hover:bg-slate-100 text-slate-700'
-                        : 'hover:bg-slate-800 text-slate-300'
+                    onClick={resetAllFiltersAndSort}
+                    className={`px-2.5 py-1.5 rounded-lg text-xs font-semibold transition-colors cursor-pointer ${
+                      isLight ? 'text-slate-600 hover:bg-slate-100' : 'text-slate-300 hover:bg-slate-800'
                     }`}
                   >
-                    <div className="flex items-center gap-2.5">
-                      <span className="shrink-0">{opt.icon()}</span>
-                      <div>
-                        <div className="font-bold">{opt.label}</div>
-                        <div className="text-[10px] text-slate-400 font-normal">
-                          {sortDirection === 'desc' ? opt.descHelper : opt.ascHelper}
-                        </div>
-                      </div>
-                    </div>
-                    {isSelected && <Check className="w-4 h-4 text-amber-500 shrink-0" />}
+                    Reset All
                   </button>
-                );
-              })}
+                )}
+                <button
+                  type="button"
+                  onClick={() => setIsFilterOpen(false)}
+                  className="px-4 py-1.5 rounded-lg text-xs font-black bg-amber-500 hover:bg-amber-400 text-slate-950 transition-colors cursor-pointer shadow-xs"
+                >
+                  Done
+                </button>
+              </div>
             </div>
           </div>
         )}

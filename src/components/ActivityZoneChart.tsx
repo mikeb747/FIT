@@ -254,19 +254,19 @@ export const ActivityZoneChart: React.FC<ActivityZoneChartProps> = ({
           </div>
         </div>
 
-        {/* Intensity Ratio Badges */}
+        {/* Intensity Ratio Badges without dot, percentage cleanly on bottom line */}
         <div className="flex items-center gap-2 text-xs font-mono">
-          <div className="px-2 py-1 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-emerald-600 dark:text-emerald-400 flex items-center gap-1.5">
-            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
-            <span>Low (Z1-2): {analysis.intensityDistribution.lowIntensityPct}%</span>
+          <div className="px-2.5 py-1 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-emerald-600 dark:text-emerald-400 flex flex-col items-center text-center min-w-[70px]">
+            <span className="text-[10px] font-bold leading-tight">Low (Z1-2)</span>
+            <span className="text-xs font-black font-mono mt-0.5">{analysis.intensityDistribution.lowIntensityPct}%</span>
           </div>
-          <div className="px-2 py-1 rounded-lg bg-amber-500/10 border border-amber-500/20 text-amber-600 dark:text-amber-400 flex items-center gap-1.5">
-            <span className="w-1.5 h-1.5 rounded-full bg-amber-400" />
-            <span>Mid (Z3): {analysis.intensityDistribution.tempoPct}%</span>
+          <div className="px-2.5 py-1 rounded-lg bg-amber-500/10 border border-amber-500/20 text-amber-600 dark:text-amber-400 flex flex-col items-center text-center min-w-[70px]">
+            <span className="text-[10px] font-bold leading-tight">Mid (Z3)</span>
+            <span className="text-xs font-black font-mono mt-0.5">{analysis.intensityDistribution.tempoPct}%</span>
           </div>
-          <div className="px-2 py-1 rounded-lg bg-rose-500/10 border border-rose-500/20 text-rose-600 dark:text-rose-400 flex items-center gap-1.5">
-            <span className="w-1.5 h-1.5 rounded-full bg-rose-400" />
-            <span>High (Z4+): {analysis.intensityDistribution.highIntensityPct}%</span>
+          <div className="px-2.5 py-1 rounded-lg bg-rose-500/10 border border-rose-500/20 text-rose-600 dark:text-rose-400 flex flex-col items-center text-center min-w-[70px]">
+            <span className="text-[10px] font-bold leading-tight">High (Z4+)</span>
+            <span className="text-xs font-black font-mono mt-0.5">{analysis.intensityDistribution.highIntensityPct}%</span>
           </div>
         </div>
       </div>

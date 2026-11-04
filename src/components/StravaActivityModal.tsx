@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   X,
   ExternalLink,
@@ -287,8 +287,30 @@ export const StravaActivityModal: React.FC<StravaActivityModalProps> = ({
     : (activity.average_speed ? (activity.average_speed * 3.6).toFixed(1) : null);
   const outdoorMaxSpeedKph = activity.max_speed ? (activity.max_speed * 3.6).toFixed(1) : null;
 
+  // Live in-progress TSS calculation incorporating immediate edit inputs (selectedTssModel and manualTssInput)
+  const effectiveDetailsRecordForTss = useMemo<StravaActivityDetailsRecord | undefined>(() => {
+    if (!isEditingTss) return detailsRecord || undefined;
+
+    const numTss = manualTssInput.trim() !== '' ? Number(manualTssInput) : undefined;
+    const existingCalib = detailsRecord?.calibration || {};
+    const liveCalibration = {
+      ...existingCalib,
+      manualTss: numTss !== undefined && !isNaN(numTss) ? Math.max(0, Math.round(numTss)) : undefined,
+      preferredTssModel: selectedTssModel,
+    };
+
+    return {
+      id: detailsRecord?.id || String(activity.id),
+      activity: (detailsRecord?.activity || (activity as unknown as Record<string, unknown>)),
+      streams: detailsRecord?.streams,
+      calibration: liveCalibration,
+      effortFeedback: detailsRecord?.effortFeedback,
+      googleDrivePublishedAt: detailsRecord?.googleDrivePublishedAt,
+    };
+  }, [isEditingTss, detailsRecord, manualTssInput, selectedTssModel, activity]);
+
   // Calculate TSS customized with athlete physiological profile & calibration
-  const tssResult = calculateActivityTSS(activity, detailsRecord || undefined, athleteProfile);
+  const tssResult = calculateActivityTSS(activity, effectiveDetailsRecordForTss, athleteProfile);
   const recoveryEstimate = tssResult && tssResult.type !== 'Ignored'
     ? calculateRecoveryEstimate(tssResult.tss, athleteProfile)
     : null;
@@ -545,7 +567,13 @@ export const StravaActivityModal: React.FC<StravaActivityModalProps> = ({
           )}
 
           {/* Core Metrics Grid */}
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+          <div
+            className={`grid gap-2.5 ${
+              classification.subType === 'Bike'
+                ? 'grid-cols-2 sm:grid-cols-3'
+                : 'grid-cols-2 sm:grid-cols-4'
+            }`}
+          >
             <div className="p-3 rounded-2xl bg-slate-950 border border-slate-800 flex flex-col">
               <span className="text-[11px] font-medium text-slate-400">Duration</span>
               <span className="text-sm sm:text-base font-bold font-mono text-white mt-1">
@@ -560,12 +588,13 @@ export const StravaActivityModal: React.FC<StravaActivityModalProps> = ({
 
             <div className="p-3 rounded-2xl bg-slate-950 border border-slate-800 flex flex-col">
               <span className="text-[11px] font-medium text-slate-400">
-                {classification.category === 'Swim' ? 'Distance' : 'Distance / Effort'}
+                Distance
               </span>
               <span className="text-sm sm:text-base font-bold font-mono text-white mt-1">
                 {metrics.primaryMetricLabel}
               </span>
-              {metrics.secondaryMetricLabel && (
+              {/* Only show secondary metric if not Bike, omitting speed/watts duplicate */}
+              {metrics.secondaryMetricLabel && classification.category !== 'Bike' && (
                 <span className="text-[10px] text-amber-400 font-mono">
                   {metrics.secondaryMetricLabel}
                 </span>
@@ -598,16 +627,56 @@ export const StravaActivityModal: React.FC<StravaActivityModalProps> = ({
               ) : null}
             </div>
 
+            {/* Average Power & Normalised Power moved up for Outdoor Cycling */}
+            {classification.subType === 'Bike' && (
+              <div className="p-3 rounded-2xl bg-slate-950 border border-slate-800 flex flex-col">
+                <span className="text-[11px] font-medium text-slate-400">Average Power</span>
+                <span className="text-sm sm:text-base font-bold font-mono text-white mt-1">
+                  {effectiveAvgWatts ? `${Math.round(effectiveAvgWatts)}W` : '--'}
+                </span>
+                {athleteProfile.bikeFtp && effectiveAvgWatts ? (
+                  <span className="text-[10px] text-amber-400 font-mono">
+                    {Math.round((effectiveAvgWatts / athleteProfile.bikeFtp) * 100)}% FTP
+                  </span>
+                ) : (
+                  <span className="text-[10px] text-slate-500 font-mono">Watts</span>
+                )}
+              </div>
+            )}
+
+            {classification.subType === 'Bike' && (
+              <div className="p-3 rounded-2xl bg-slate-950 border border-slate-800 flex flex-col">
+                <span className="text-[11px] font-medium text-slate-400">Normalised Power</span>
+                <span className="text-sm sm:text-base font-bold font-mono text-amber-400 mt-1">
+                  {normalizedPower ? `${Math.round(normalizedPower)}W` : effectiveAvgWatts ? `${Math.round(effectiveAvgWatts)}W` : '--'}
+                </span>
+                {athleteProfile.bikeFtp && (normalizedPower || effectiveAvgWatts) ? (
+                  <span className="text-[10px] text-slate-400 font-mono">
+                    IF {(((normalizedPower || effectiveAvgWatts || 0)) / athleteProfile.bikeFtp).toFixed(2)}
+                  </span>
+                ) : (
+                  <span className="text-[10px] text-slate-500 font-mono">NP</span>
+                )}
+              </div>
+            )}
+
+            {/* Energy / Work: kcal bold on top, kJ yellow underneath */}
             <div className="p-3 rounded-2xl bg-slate-950 border border-slate-800 flex flex-col">
               <span className="text-[11px] font-medium text-slate-400">
                 {workResult ? 'Energy / Work' : 'Energy / HR'}
               </span>
-              <span className="text-sm sm:text-base font-bold font-mono text-white mt-1">
-                {workResult ? workResult.formattedKj : calories ? `${Math.round(calories)} kcal` : activity.average_heartrate ? `${Math.round(activity.average_heartrate)} bpm` : '--'}
+              <span className="text-sm sm:text-base font-black font-mono text-white mt-1">
+                {workResult
+                  ? `${workResult.kcal} kcal`
+                  : calories
+                  ? `${Math.round(calories)} kcal`
+                  : activity.average_heartrate
+                  ? `${Math.round(activity.average_heartrate)} bpm`
+                  : '--'}
               </span>
               {workResult ? (
-                <span className="text-[10px] text-amber-400 font-mono">
-                  ~{workResult.kcal} kcal
+                <span className="text-[10px] text-amber-400 font-mono font-bold">
+                  {workResult.formattedKj}
                 </span>
               ) : activity.suffer_score ? (
                 <span className="text-[10px] text-rose-400 font-mono">
@@ -761,37 +830,6 @@ export const StravaActivityModal: React.FC<StravaActivityModalProps> = ({
             </div>
           )}
 
-          {/* Outdoor Ride Speed Telemetry (Average & Max Speed) */}
-          {classification.subType === 'Bike' && (
-            <div className="p-3.5 rounded-2xl bg-slate-950/70 border border-slate-800 flex items-center justify-between gap-3">
-              <div className="flex items-center gap-2.5">
-                <Gauge className="w-4 h-4 text-orange-400 shrink-0" />
-                <div>
-                  <span className="text-xs font-bold text-white block">
-                    Outdoor Cycling Speeds
-                  </span>
-                  <span className="text-[11px] text-slate-400">
-                    GPS-measured outdoor velocity
-                  </span>
-                </div>
-              </div>
-
-              <div className="flex items-center gap-4 text-right">
-                <div>
-                  <span className="text-[10px] text-slate-500 block">Avg Speed</span>
-                  <span className="text-sm font-bold font-mono text-white">
-                    {outdoorAvgSpeedKph || '--'} kph
-                  </span>
-                </div>
-                <div className="border-l border-slate-800 pl-4">
-                  <span className="text-[10px] text-slate-500 block">Max Speed</span>
-                  <span className="text-sm font-bold font-mono text-orange-400">
-                    {outdoorMaxSpeedKph ? `${outdoorMaxSpeedKph} kph` : '--'}
-                  </span>
-                </div>
-              </div>
-            </div>
-          )}
 
           {/* TSS (Training Stress Score) & Recovery Estimation Card */}
           {tssResult && (
@@ -879,7 +917,10 @@ export const StravaActivityModal: React.FC<StravaActivityModalProps> = ({
                     <div className="flex flex-wrap gap-1.5">
                       <button
                         type="button"
-                        onClick={() => setSelectedTssModel('auto')}
+                        onClick={() => {
+                          setSelectedTssModel('auto');
+                          setManualTssInput('');
+                        }}
                         className={`px-2.5 py-1 rounded-lg text-xs font-bold border transition-all cursor-pointer ${
                           selectedTssModel === 'auto'
                             ? 'bg-amber-500/20 text-amber-300 border-amber-500/40 shadow-xs'
@@ -894,7 +935,10 @@ export const StravaActivityModal: React.FC<StravaActivityModalProps> = ({
                         <>
                           <button
                             type="button"
-                            onClick={() => setSelectedTssModel('rTSS')}
+                            onClick={() => {
+                              setSelectedTssModel('rTSS');
+                              setManualTssInput('');
+                            }}
                             className={`px-2.5 py-1 rounded-lg text-xs font-bold border transition-all cursor-pointer ${
                               selectedTssModel === 'rTSS'
                                 ? 'bg-amber-500/20 text-amber-300 border-amber-500/40 shadow-xs'
@@ -905,7 +949,10 @@ export const StravaActivityModal: React.FC<StravaActivityModalProps> = ({
                           </button>
                           <button
                             type="button"
-                            onClick={() => setSelectedTssModel('hrTSS')}
+                            onClick={() => {
+                              setSelectedTssModel('hrTSS');
+                              setManualTssInput('');
+                            }}
                             className={`px-2.5 py-1 rounded-lg text-xs font-bold border transition-all cursor-pointer ${
                               selectedTssModel === 'hrTSS'
                                 ? 'bg-amber-500/20 text-amber-300 border-amber-500/40 shadow-xs'
@@ -921,7 +968,10 @@ export const StravaActivityModal: React.FC<StravaActivityModalProps> = ({
                         <>
                           <button
                             type="button"
-                            onClick={() => setSelectedTssModel('sTSS')}
+                            onClick={() => {
+                              setSelectedTssModel('sTSS');
+                              setManualTssInput('');
+                            }}
                             className={`px-2.5 py-1 rounded-lg text-xs font-bold border transition-all cursor-pointer ${
                               selectedTssModel === 'sTSS'
                                 ? 'bg-amber-500/20 text-amber-300 border-amber-500/40 shadow-xs'
@@ -932,7 +982,10 @@ export const StravaActivityModal: React.FC<StravaActivityModalProps> = ({
                           </button>
                           <button
                             type="button"
-                            onClick={() => setSelectedTssModel('hrTSS')}
+                            onClick={() => {
+                              setSelectedTssModel('hrTSS');
+                              setManualTssInput('');
+                            }}
                             className={`px-2.5 py-1 rounded-lg text-xs font-bold border transition-all cursor-pointer ${
                               selectedTssModel === 'hrTSS'
                                 ? 'bg-amber-500/20 text-amber-300 border-amber-500/40 shadow-xs'
@@ -948,7 +1001,10 @@ export const StravaActivityModal: React.FC<StravaActivityModalProps> = ({
                         <>
                           <button
                             type="button"
-                            onClick={() => setSelectedTssModel('powerTSS')}
+                            onClick={() => {
+                              setSelectedTssModel('powerTSS');
+                              setManualTssInput('');
+                            }}
                             className={`px-2.5 py-1 rounded-lg text-xs font-bold border transition-all cursor-pointer ${
                               selectedTssModel === 'powerTSS'
                                 ? 'bg-amber-500/20 text-amber-300 border-amber-500/40 shadow-xs'
@@ -959,7 +1015,10 @@ export const StravaActivityModal: React.FC<StravaActivityModalProps> = ({
                           </button>
                           <button
                             type="button"
-                            onClick={() => setSelectedTssModel('hrTSS')}
+                            onClick={() => {
+                              setSelectedTssModel('hrTSS');
+                              setManualTssInput('');
+                            }}
                             className={`px-2.5 py-1 rounded-lg text-xs font-bold border transition-all cursor-pointer ${
                               selectedTssModel === 'hrTSS'
                                 ? 'bg-amber-500/20 text-amber-300 border-amber-500/40 shadow-xs'

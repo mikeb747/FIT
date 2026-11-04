@@ -622,7 +622,7 @@ export const StravaStreamPlot: React.FC<StravaStreamPlotProps> = ({
   ]);
 
   return (
-    <div className="flex flex-col gap-3 rounded-2xl bg-slate-950/80 border border-slate-800 p-3 sm:p-4 shadow-inner">
+    <div className="flex flex-col gap-3 pt-1">
       {/* Stream Selector & Controls */}
       <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800/80 pb-3">
         <div className="flex items-center gap-1.5 overflow-x-auto scrollbar-none">
