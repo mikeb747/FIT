@@ -268,7 +268,7 @@ export default function App() {
     const updated = upsertRecoveryLog(log);
     setRecoveryLogs(updated);
     if (isGoogleConnected && getGoogleAccessToken()) {
-      void batchUploadHealthDataToGoogleSheet([log]);
+      void batchUploadHealthDataToGoogleSheet([log], undefined, athleteProfile);
     }
   };
 
@@ -291,7 +291,7 @@ export default function App() {
     saveRecoveryLogs(current);
     setRecoveryLogs(current);
     if (isGoogleConnected && getGoogleAccessToken()) {
-      void batchUploadHealthDataToGoogleSheet(imported);
+      void batchUploadHealthDataToGoogleSheet(imported, undefined, athleteProfile);
     }
   };
 

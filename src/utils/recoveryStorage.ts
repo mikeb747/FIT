@@ -860,6 +860,16 @@ async function syncGarminViaProxy(
       );
     }
 
+    // Step 6: MaxMet / VO2 Max (only if requested)
+    let maxmetRes: any = { ok: false, status: 0, statusText: 'Skipped', payload: null, text: '' };
+    if (reqTypes.vo2MaxRun || reqTypes.vo2MaxBike) {
+      maxmetRes = await fetchWithTrace(
+        `${prefix}6. VO2 Max / MaxMet (GET /metrics-service/metrics/maxmet/daily/${queryDate}/${queryDate})`,
+        `/metrics-service/metrics/maxmet/daily/${encodeURIComponent(queryDate)}/${encodeURIComponent(queryDate)}`,
+        authHeaders
+      );
+    }
+
     // Parse sleep
     const sleepRoot = sleepRes.payload && typeof sleepRes.payload === 'object' ? sleepRes.payload : {};
     const sleepData = sleepRoot.dailySleepDTO || sleepRoot;
@@ -912,12 +922,40 @@ async function syncGarminViaProxy(
          (sleepData.averageSpO2Value !== undefined ? Number(sleepData.averageSpO2Value) : undefined))
       : undefined;
 
+    // Parse VO2 Max from dedicated MaxMet endpoint or summary fallback
+    let maxmetRun: number | undefined;
+    let maxmetBike: number | undefined;
+    if (maxmetRes.payload) {
+      const items = Array.isArray(maxmetRes.payload)
+        ? maxmetRes.payload
+        : Array.isArray(maxmetRes.payload?.data)
+        ? maxmetRes.payload.data
+        : [maxmetRes.payload];
+      if (items.length > 0) {
+        const item = items[0];
+        const runVal =
+          item?.generic?.vo2MaxPreciseValue ??
+          item?.running?.vo2MaxPreciseValue ??
+          item?.generic?.vo2MaxValue ??
+          item?.running?.vo2MaxValue;
+        const bikeVal =
+          item?.cycling?.vo2MaxPreciseValue ??
+          item?.cycling?.vo2MaxValue;
+        if (Number.isFinite(Number(runVal)) && Number(runVal) > 0) {
+          maxmetRun = Math.round(Number(runVal) * 10) / 10;
+        }
+        if (Number.isFinite(Number(bikeVal)) && Number(bikeVal) > 0) {
+          maxmetBike = Math.round(Number(bikeVal) * 10) / 10;
+        }
+      }
+    }
+
     const vo2MaxRun = reqTypes.vo2MaxRun
-      ? readNumber('vo2MaxRunning', 'vo2MaxPreciseValue', 'userVo2Max', 'vo2Max')
+      ? (maxmetRun ?? readNumber('vo2MaxRunning', 'vo2MaxPreciseValue', 'userVo2Max', 'vo2Max'))
       : undefined;
 
     const vo2MaxBike = reqTypes.vo2MaxBike
-      ? readNumber('vo2MaxCycling', 'vo2MaxBike', 'cyclingVo2Max')
+      ? (maxmetBike ?? readNumber('vo2MaxCycling', 'vo2MaxBike', 'cyclingVo2Max'))
       : undefined;
 
     // Parse HRV
@@ -1047,20 +1085,20 @@ async function syncGarminViaProxy(
     if (reqTypes.vo2MaxRun) {
       checks.push({
         metric: 'VO2 Max (Run)',
-        received: summaryRes.ok && vo2MaxRun !== undefined,
-        status: summaryRes.status,
+        received: (summaryRes.ok || maxmetRes.ok) && vo2MaxRun !== undefined,
+        status: maxmetRes.ok ? maxmetRes.status : summaryRes.status,
         value: vo2MaxRun !== undefined ? `${vo2MaxRun} ml/kg/min` : undefined,
-        message: vo2MaxRun !== undefined ? 'Running VO2 Max received' : 'VO2 Max (Run) not found.',
+        message: vo2MaxRun !== undefined ? 'Running VO2 Max received' : 'VO2 Max (Run) not found (requires outdoor run with GPS & HR).',
       });
     }
 
     if (reqTypes.vo2MaxBike) {
       checks.push({
         metric: 'VO2 Max (Bike)',
-        received: summaryRes.ok && vo2MaxBike !== undefined,
-        status: summaryRes.status,
+        received: (summaryRes.ok || maxmetRes.ok) && vo2MaxBike !== undefined,
+        status: maxmetRes.ok ? maxmetRes.status : summaryRes.status,
         value: vo2MaxBike !== undefined ? `${vo2MaxBike} ml/kg/min` : undefined,
-        message: vo2MaxBike !== undefined ? 'Cycling VO2 Max received' : 'VO2 Max (Bike) not found.',
+        message: vo2MaxBike !== undefined ? 'Cycling VO2 Max received' : 'VO2 Max (Bike) not found (requires ride with Power Meter & HR).',
       });
     }
 

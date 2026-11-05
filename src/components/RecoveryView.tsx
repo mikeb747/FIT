@@ -400,7 +400,7 @@ export const RecoveryView: React.FC<RecoveryViewProps> = ({
     setIsSyncingSheets(true);
     setSheetSyncFeedback(null);
     try {
-      const result = await batchUploadHealthDataToGoogleSheet(sortedLogs);
+      const result = await batchUploadHealthDataToGoogleSheet(sortedLogs, undefined, athleteProfile);
       if (result.success) {
         setSheetSyncFeedback(`Backed up ${result.appendedCount + result.updatedCount} days!`);
         setTimeout(() => setSheetSyncFeedback(null), 3500);

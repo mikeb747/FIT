@@ -70,6 +70,12 @@ export const RecoveryLogModal: React.FC<RecoveryLogModalProps> = ({
   const [calories, setCalories] = useState<string>(
     initialLog?.calories !== undefined ? String(initialLog.calories) : ''
   );
+  const [vo2MaxRun, setVo2MaxRun] = useState<string>(
+    initialLog?.vo2MaxRun !== undefined ? String(initialLog.vo2MaxRun) : ''
+  );
+  const [vo2MaxBike, setVo2MaxBike] = useState<string>(
+    initialLog?.vo2MaxBike !== undefined ? String(initialLog.vo2MaxBike) : ''
+  );
 
   if (!isOpen) return null;
 
@@ -96,8 +102,8 @@ export const RecoveryLogModal: React.FC<RecoveryLogModalProps> = ({
       stress: stress && !isNaN(Number(stress)) ? Number(stress) : undefined,
       respiration: respiration && !isNaN(Number(respiration)) ? Number(respiration) : undefined,
       pulseOx: pulseOx && !isNaN(Number(pulseOx)) ? Number(pulseOx) : undefined,
-      vo2MaxRun: initialLog?.vo2MaxRun,
-      vo2MaxBike: initialLog?.vo2MaxBike,
+      vo2MaxRun: vo2MaxRun && !isNaN(Number(vo2MaxRun)) ? Number(vo2MaxRun) : undefined,
+      vo2MaxBike: vo2MaxBike && !isNaN(Number(vo2MaxBike)) ? Number(vo2MaxBike) : undefined,
       steps: steps && !isNaN(Number(steps)) ? Number(steps) : undefined,
       calories: calories && !isNaN(Number(calories)) ? Number(calories) : undefined,
     };
@@ -667,6 +673,42 @@ export const RecoveryLogModal: React.FC<RecoveryLogModalProps> = ({
                   placeholder="e.g. 2350"
                   value={calories}
                   onChange={(e) => setCalories(e.target.value)}
+                  className={`w-full rounded-xl px-2.5 py-1.5 text-xs font-mono font-bold outline-none border ${
+                    isLight ? 'bg-white border-slate-200 text-slate-900' : 'bg-slate-900 border-slate-700 text-white'
+                  }`}
+                />
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-semibold text-emerald-400 mb-1">
+                  VO2 Max Run (ml/kg/min)
+                </label>
+                <input
+                  type="number"
+                  step="0.1"
+                  min="20"
+                  max="90"
+                  placeholder="e.g. 54"
+                  value={vo2MaxRun}
+                  onChange={(e) => setVo2MaxRun(e.target.value)}
+                  className={`w-full rounded-xl px-2.5 py-1.5 text-xs font-mono font-bold outline-none border ${
+                    isLight ? 'bg-white border-slate-200 text-slate-900' : 'bg-slate-900 border-slate-700 text-white'
+                  }`}
+                />
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-semibold text-sky-400 mb-1">
+                  VO2 Max Bike (ml/kg/min)
+                </label>
+                <input
+                  type="number"
+                  step="0.1"
+                  min="20"
+                  max="90"
+                  placeholder="e.g. 56"
+                  value={vo2MaxBike}
+                  onChange={(e) => setVo2MaxBike(e.target.value)}
                   className={`w-full rounded-xl px-2.5 py-1.5 text-xs font-mono font-bold outline-none border ${
                     isLight ? 'bg-white border-slate-200 text-slate-900' : 'bg-slate-900 border-slate-700 text-white'
                   }`}

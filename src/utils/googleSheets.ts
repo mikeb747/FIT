@@ -13,6 +13,8 @@ import {
 } from './stravaActivities';
 import type { AthleteProfile } from '../types/athlete';
 import { calculateWorkKj } from '../types/athlete';
+import { computeDailyReadiness } from './readinessEngine';
+import { loadAthleteProfile } from './athleteStorage';
 
 export const GOOGLE_SHEETS_CONFIG = {
   STORAGE_KEYS: {
@@ -1238,14 +1240,31 @@ export const HEALTH_SHEET_HEADERS = [
   'Synced At',
 ];
 
-export function formatHealthLogRow(log: DailyRecoveryLog): (string | number)[] {
+export function formatHealthLogRow(
+  log: DailyRecoveryLog,
+  allLogs?: DailyRecoveryLog[],
+  profile?: AthleteProfile
+): (string | number)[] {
   const sleepHours = log.sleepDurationMinutes ? (log.sleepDurationMinutes / 60).toFixed(1) : '';
   const notesStr = [log.notes, ...(log.tags || [])].filter(Boolean).join(' · ');
   const nowIso = new Date().toISOString();
 
+  // Compute Readiness Score (0-100%) dynamically if not stored statically
+  let readinessScore: number | string = '';
+  try {
+    const athleteProf = profile || loadAthleteProfile();
+    const logsContext = allLogs && allLogs.length > 0 ? allLogs : [log];
+    const res = computeDailyReadiness(log, logsContext, athleteProf);
+    if (res && Number.isFinite(res.score) && res.score > 0) {
+      readinessScore = Math.round(res.score);
+    }
+  } catch {
+    readinessScore = '';
+  }
+
   return [
     log.date,
-    '', // readiness score (computed dynamically)
+    readinessScore,
     log.sleepScore ?? '',
     sleepHours,
     log.hrvRmssd ?? '',
@@ -1569,7 +1588,8 @@ export interface BatchHealthUploadResult {
  */
 export async function batchUploadHealthDataToGoogleSheet(
   logs: DailyRecoveryLog[],
-  spreadsheetId?: string
+  spreadsheetId?: string,
+  profile?: AthleteProfile
 ): Promise<BatchHealthUploadResult> {
   const token = getGoogleAccessToken();
   if (!token) {
@@ -1631,9 +1651,10 @@ export async function batchUploadHealthDataToGoogleSheet(
 
     // Sort logs chronologically
     const sorted = [...logs].sort((a, b) => a.date.localeCompare(b.date));
+    const athleteProf = profile || loadAthleteProfile();
 
     for (const log of sorted) {
-      const row = formatHealthLogRow(log);
+      const row = formatHealthLogRow(log, sorted, athleteProf);
       const normLogDate = normalizeDateToYyyyMmDd(log.date);
       const existingIndices = dateToRowIndices.get(normLogDate);
 
