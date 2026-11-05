@@ -36,6 +36,8 @@ import {
   Loader2,
   ExternalLink,
   RefreshCw,
+  Gauge,
+  BookOpen,
 } from 'lucide-react';
 import { batchBackupActivitiesToGoogleSheet, getCachedSpreadsheetId } from '../utils/googleSheets';
 import { getGoogleAccessToken, signInWithGoogle, initGoogleAuth } from '../utils/googleAuth';
@@ -54,11 +56,13 @@ import {
   getAthleteHeartRateZones,
   getAthletePowerZones,
   getAthletePaceZones,
+  getAthleteSwimPaceZones,
   calculateAgeFromBirthDate,
   DEFAULT_INJURIES,
   DEFAULT_WEEKLY_AVAILABILITY,
 } from '../types/athlete';
 import type { PaceZone } from '../types/athlete';
+import { SwimHeartRateProtocolsModal, SwimProtocolId } from './SwimHeartRateProtocolsModal';
 import type { TrainingGoal } from '../types/goals';
 import { loadAthleteGoals, saveAthleteGoals } from '../utils/goalsStorage';
 import { GoalsTab } from './GoalsTab';
@@ -286,6 +290,155 @@ export const AthleteProfileModal: React.FC<AthleteProfileModalProps> = ({
     profile.swimTssMode || 'sTSS'
   );
   const [showSwimTssInfo, setShowSwimTssInfo] = useState(false);
+  const [thresholdHeartRateSwim, setThresholdHeartRateSwim] = useState<number>(
+    profile.thresholdHeartRateSwim || (profile.thresholdHeartRateRun ? profile.thresholdHeartRateRun - 12 : 156)
+  );
+  const [preferredSwimProtocol, setPreferredSwimProtocol] = useState<'usms' | 'btf' | 'friel' | 'custom'>(
+    profile.preferredSwimProtocol || 'btf'
+  );
+  const [isSwimProtocolsModalOpen, setIsSwimProtocolsModalOpen] = useState(false);
+
+  // Swim Pace Zones State (Derived from CSS Test)
+  // Z1: CSS +15 to +25s | Z2: CSS +8 to +15s | Z3: CSS +3 to +8s | Z4: CSS -2 to +2s | Z5: CSS -2 to -10s
+  const [paceZonesSwimState, setPaceZonesSwimState] = useState<Array<{
+    zone: number;
+    name: string;
+    offsetFormula: string;
+    minPaceStr: string;
+    maxPaceStr: string;
+    color: string;
+    description: string;
+  }>>(() => {
+    const base = getAthleteSwimPaceZones(profile);
+    const offsets = [
+      'CSS +15 to +25s',
+      'CSS +8 to +15s',
+      'CSS +3 to +8s',
+      'CSS -2 to +2s',
+      'CSS -2 to -10s',
+    ];
+    return base.map((z, i) => {
+      const custom = profile.customPaceZonesSwim?.[z.zone];
+      return {
+        zone: z.zone,
+        name: z.name,
+        offsetFormula: offsets[i] || '',
+        minPaceStr: custom ? formatSecondsToMinSec(custom.minPaceSec) : formatSecondsToMinSec(z.minPaceSec),
+        maxPaceStr: custom ? formatSecondsToMinSec(custom.maxPaceSec) : formatSecondsToMinSec(z.maxPaceSec),
+        color: z.color,
+        description: z.description,
+      };
+    });
+  });
+
+  // Swim HR Zones State
+  const [hrZonesSwimState, setHrZonesSwimState] = useState<Array<{
+    zone: number;
+    name: string;
+    minHrStr: string;
+    maxHrStr: string;
+    color: string;
+    description: string;
+  }>>(() => {
+    const base = getAthleteHeartRateZones(profile, 'swim');
+    return base.map((z) => {
+      const custom = profile.customHrZonesSwim?.[z.zone];
+      return {
+        zone: z.zone,
+        name: z.name,
+        minHrStr: custom ? String(custom.minHr) : String(z.minHr),
+        maxHrStr: custom ? String(custom.maxHr) : String(z.maxHr),
+        color: z.color,
+        description: z.description,
+      };
+    });
+  });
+
+  const handleUpdatePaceZoneSwim = (zoneNumber: number, field: 'minPaceStr' | 'maxPaceStr', value: string) => {
+    setPaceZonesSwimState((prev) =>
+      prev.map((z) => (z.zone === zoneNumber ? { ...z, [field]: value } : z))
+    );
+  };
+
+  const handleResetPaceZonesSwim = () => {
+    const t100 = parseMinSecToSeconds(swim100mStr, 84);
+    const t400 = parseMinSecToSeconds(swim400mStr, 355);
+    const tempProfile: AthleteProfile = {
+      ...profile,
+      swim100mTimeSec: t100,
+      swim400mTimeSec: t400,
+      swimPoolPace100mSec: parseMinSecToSeconds(swimPoolPaceStr, 90),
+      customPaceZonesSwim: undefined,
+    };
+    const defaultPaces = getAthleteSwimPaceZones(tempProfile);
+    const offsets = [
+      'CSS +15 to +25s',
+      'CSS +8 to +15s',
+      'CSS +3 to +8s',
+      'CSS -2 to +2s',
+      'CSS -2 to -10s',
+    ];
+    setPaceZonesSwimState(
+      defaultPaces.map((z, i) => ({
+        zone: z.zone,
+        name: z.name,
+        offsetFormula: offsets[i] || '',
+        minPaceStr: formatSecondsToMinSec(z.minPaceSec),
+        maxPaceStr: formatSecondsToMinSec(z.maxPaceSec),
+        color: z.color,
+        description: z.description,
+      }))
+    );
+  };
+
+  const handleUpdateHrZoneSwim = (zoneNumber: number, field: 'minHrStr' | 'maxHrStr', value: string) => {
+    setHrZonesSwimState((prev) =>
+      prev.map((z) => (z.zone === zoneNumber ? { ...z, [field]: value } : z))
+    );
+  };
+
+  const handleResetHrZonesSwim = () => {
+    const tempProfile: AthleteProfile = {
+      ...profile,
+      maxHeartRate,
+      restingHeartRate,
+      thresholdHeartRateSwim: Number(thresholdHeartRateSwim) || 156,
+      customHrZonesSwim: undefined,
+    };
+    const defaultSwimHr = getAthleteHeartRateZones(tempProfile, 'swim');
+    setHrZonesSwimState(
+      defaultSwimHr.map((z) => ({
+        zone: z.zone,
+        name: z.name,
+        minHrStr: String(z.minHr),
+        maxHrStr: String(z.maxHr),
+        color: z.color,
+        description: z.description,
+      }))
+    );
+  };
+
+  const handleApplySwimProtocolZones = (
+    protocol: SwimProtocolId,
+    zones: Record<number, { minHr: number; maxHr: number; rangeFormatted?: string }>,
+    lthr: number
+  ) => {
+    setPreferredSwimProtocol(protocol);
+    setThresholdHeartRateSwim(lthr);
+    setHrZonesSwimState((prev) =>
+      prev.map((z) => {
+        const pz = zones[z.zone];
+        if (pz) {
+          return {
+            ...z,
+            minHrStr: String(pz.minHr),
+            maxHrStr: String(pz.maxHr),
+          };
+        }
+        return z;
+      })
+    );
+  };
 
   // Running Pace Zones (Editable per zone + Reset to default threshold model)
   const [runPaceZoneTab, setRunPaceZoneTab] = useState<'outside' | 'treadmill'>('outside');
@@ -965,7 +1118,9 @@ export const AthleteProfileModal: React.FC<AthleteProfileModalProps> = ({
       swim400mStr !== initial400mStr ||
       swimPoolPaceStr !== initialPoolPaceStr ||
       swimOpenWaterPaceStr !== initialOpenWaterPaceStr ||
-      swimTssMode !== (profile.swimTssMode || 'sTSS');
+      swimTssMode !== (profile.swimTssMode || 'sTSS') ||
+      thresholdHeartRateSwim !== (profile.thresholdHeartRateSwim || (profile.thresholdHeartRateRun ? profile.thresholdHeartRateRun - 12 : 156)) ||
+      preferredSwimProtocol !== (profile.preferredSwimProtocol || 'btf');
 
     const arePaceZonesDirty =
       JSON.stringify(paceZonesOutsideState) !==
@@ -993,6 +1148,26 @@ export const AthleteProfileModal: React.FC<AthleteProfileModalProps> = ({
               maxPaceStr: custom ? formatSecondsToMinSec(custom.maxPaceSec) : formatSecondsToMinSec(z.maxPaceSec),
               color: z.color,
               description: z.description,
+            };
+          })
+        ) ||
+      JSON.stringify(paceZonesSwimState.map((z) => ({ min: z.minPaceStr, max: z.maxPaceStr }))) !==
+        JSON.stringify(
+          getAthleteSwimPaceZones(profile).map((z) => {
+            const custom = profile.customPaceZonesSwim?.[z.zone];
+            return {
+              min: custom ? formatSecondsToMinSec(custom.minPaceSec) : formatSecondsToMinSec(z.minPaceSec),
+              max: custom ? formatSecondsToMinSec(custom.maxPaceSec) : formatSecondsToMinSec(z.maxPaceSec),
+            };
+          })
+        ) ||
+      JSON.stringify(hrZonesSwimState.map((z) => ({ min: z.minHrStr, max: z.maxHrStr }))) !==
+        JSON.stringify(
+          getAthleteHeartRateZones(profile, 'swim').map((z) => {
+            const custom = profile.customHrZonesSwim?.[z.zone];
+            return {
+              min: custom ? String(custom.minHr) : String(z.minHr),
+              max: custom ? String(custom.maxHr) : String(z.maxHr),
             };
           })
         );
@@ -1026,8 +1201,12 @@ export const AthleteProfileModal: React.FC<AthleteProfileModalProps> = ({
     swimPoolPaceStr,
     swimOpenWaterPaceStr,
     swimTssMode,
+    thresholdHeartRateSwim,
+    preferredSwimProtocol,
     paceZonesOutsideState,
     paceZonesTreadmillState,
+    paceZonesSwimState,
+    hrZonesSwimState,
     injuries,
     weeklyAvailability,
     goals,
@@ -1053,6 +1232,30 @@ export const AthleteProfileModal: React.FC<AthleteProfileModalProps> = ({
     });
     return res;
   }, [powerZonesState]);
+
+  const customHrZonesSwimToSave = useMemo(() => {
+    const res: Record<number, { minHr: number; maxHr: number; rangeFormatted: string }> = {};
+    hrZonesSwimState.forEach((z) => {
+      const min = Number(z.minHrStr) || 0;
+      const max = Number(z.maxHrStr) || 0;
+      res[z.zone] = { minHr: min, maxHr: max, rangeFormatted: `${min} - ${max} bpm` };
+    });
+    return res;
+  }, [hrZonesSwimState]);
+
+  const customPaceZonesSwimToSave = useMemo(() => {
+    const res: Record<number, { minPaceSec: number; maxPaceSec: number; rangeFormatted: string }> = {};
+    paceZonesSwimState.forEach((z) => {
+      const minSec = parseMinSecToSeconds(z.minPaceStr, 90);
+      const maxSec = parseMinSecToSeconds(z.maxPaceStr, 110);
+      res[z.zone] = {
+        minPaceSec: minSec,
+        maxPaceSec: maxSec,
+        rangeFormatted: `${z.minPaceStr} - ${z.maxPaceStr}/100m`,
+      };
+    });
+    return res;
+  }, [paceZonesSwimState]);
 
   if (!isOpen) return null;
 
@@ -1082,7 +1285,11 @@ export const AthleteProfileModal: React.FC<AthleteProfileModalProps> = ({
     swimPoolPace100mSec: parseMinSecToSeconds(swimPoolPaceStr, 90),
     swimOpenWaterPace100mSec: parseMinSecToSeconds(swimOpenWaterPaceStr, 98),
     swimTssMode,
+    thresholdHeartRateSwim: Number(thresholdHeartRateSwim) || 156,
+    preferredSwimProtocol,
     customHrZonesRun: customHrZonesRunToSave,
+    customHrZonesSwim: customHrZonesSwimToSave,
+    customPaceZonesSwim: customPaceZonesSwimToSave,
     customPowerZones: customPowerZonesToSave,
     injuries,
     weeklyAvailability,
@@ -1136,9 +1343,13 @@ export const AthleteProfileModal: React.FC<AthleteProfileModalProps> = ({
       swimPoolPace100mSec: parseMinSecToSeconds(swimPoolPaceStr, 90),
       swimOpenWaterPace100mSec: parseMinSecToSeconds(swimOpenWaterPaceStr, 98),
       swimTssMode,
+      thresholdHeartRateSwim: Math.max(70, Math.min(220, Number(thresholdHeartRateSwim) || 156)),
+      preferredSwimProtocol,
       customPaceZones: customPaceZonesToSave,
       customPaceZonesTreadmill: customPaceZonesTreadmillToSave,
+      customPaceZonesSwim: customPaceZonesSwimToSave,
       customHrZonesRun: customHrZonesRunToSave,
+      customHrZonesSwim: customHrZonesSwimToSave,
       customPowerZones: customPowerZonesToSave,
 
       injuries,
@@ -1175,8 +1386,12 @@ export const AthleteProfileModal: React.FC<AthleteProfileModalProps> = ({
     setSwimPoolPaceStr('1:30');
     setSwimOpenWaterPaceStr('1:38');
     setSwimTssMode('sTSS');
+    setThresholdHeartRateSwim(156);
+    setPreferredSwimProtocol('btf');
     handleResetPaceZones();
+    handleResetPaceZonesSwim();
     handleResetHrZonesRun();
+    handleResetHrZonesSwim();
     handleResetPowerZones();
     setInjuries(DEFAULT_INJURIES);
     setWeeklyAvailability(DEFAULT_WEEKLY_AVAILABILITY);
@@ -3040,6 +3255,232 @@ export const AthleteProfileModal: React.FC<AthleteProfileModalProps> = ({
                   </div>
                 )}
               </div>
+
+              {/* Swim Pace Zones (Derived from CSS Test) */}
+              <div className="p-3.5 rounded-2xl bg-slate-950 border border-slate-800 space-y-3">
+                <div className="flex items-center justify-between flex-wrap gap-2">
+                  <div className="flex items-center gap-2">
+                    <div className="w-7 h-7 rounded-lg bg-sky-500/20 text-sky-400 flex items-center justify-center">
+                      <Gauge className="w-4 h-4" />
+                    </div>
+                    <div>
+                      <span className="text-xs font-bold text-white uppercase tracking-wider block">
+                        Swim Pace Zones (CSS Model)
+                      </span>
+                      <span className="text-[10px] text-slate-400 font-mono">
+                        Base CSS: {liveCss.cssPaceFormatted} ({liveCss.cssMps} m/s)
+                      </span>
+                    </div>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={handleResetPaceZonesSwim}
+                    className="px-2.5 py-1 rounded-xl text-[11px] font-bold bg-slate-800 hover:bg-slate-700 active:scale-95 text-slate-300 hover:text-white border border-slate-700 transition-all flex items-center gap-1.5 cursor-pointer shadow-xs"
+                    title="Recalculate and reset Swim Pace Zones to exact CSS model offsets"
+                  >
+                    <RotateCcw className="w-3 h-3 text-sky-400" />
+                    <span>Reset to CSS</span>
+                  </button>
+                </div>
+
+                <div className="p-2.5 rounded-xl bg-sky-950/40 border border-sky-800/60 text-[11px] text-slate-300 space-y-1">
+                  <span className="font-bold text-sky-300 block">
+                    Critical Swim Speed (CSS) Zone Protocols:
+                  </span>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-1 text-[10px] text-slate-300 font-mono">
+                    <div>• <strong className="text-cyan-300">Z1 Recovery/Easy:</strong> CSS +15 to +25s</div>
+                    <div>• <strong className="text-sky-300">Z2 Endurance/Ironman:</strong> CSS +8 to +15s</div>
+                    <div>• <strong className="text-emerald-300">Z3 Tempo/Steady:</strong> CSS +3 to +8s</div>
+                    <div>• <strong className="text-amber-300">Z4 Threshold/CSS:</strong> CSS -2 to +2s</div>
+                    <div className="sm:col-span-2">• <strong className="text-rose-300">Z5 VO2 Max:</strong> CSS -2 to -10s</div>
+                  </div>
+                </div>
+
+                <div className="space-y-1.5 pt-1">
+                  {paceZonesSwimState.map((z) => (
+                    <div
+                      key={z.zone}
+                      className="p-2.5 rounded-xl bg-slate-900/80 border border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs"
+                    >
+                      <div className="flex items-center gap-2.5 min-w-0">
+                        <span
+                          style={{ backgroundColor: z.color }}
+                          className="w-6 h-6 rounded-lg text-slate-950 font-black text-xs flex items-center justify-center shrink-0"
+                        >
+                          Z{z.zone}
+                        </span>
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <span className="font-bold text-white">{z.name}</span>
+                            {z.offsetFormula && (
+                              <span className="px-1.5 py-0.5 rounded text-[10px] font-mono font-bold bg-sky-950 text-sky-300 border border-sky-800/80">
+                                {z.offsetFormula}
+                              </span>
+                            )}
+                          </div>
+                          <span className="text-[10px] text-slate-400 font-mono block sm:inline truncate mt-0.5">
+                            {z.description}
+                          </span>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-1.5 shrink-0 self-end sm:self-auto font-mono">
+                        <span className="text-[10px] text-slate-500 uppercase">Fast:</span>
+                        <input
+                          type="text"
+                          value={z.minPaceStr}
+                          onChange={(e) => handleUpdatePaceZoneSwim(z.zone, 'minPaceStr', e.target.value)}
+                          className="w-16 bg-slate-950 border border-slate-700 rounded-lg px-1.5 py-1 text-xs font-bold text-white text-center focus:outline-none focus:border-sky-400"
+                        />
+                        <span className="text-slate-500 text-xs">to</span>
+                        <span className="text-[10px] text-slate-500 uppercase">Slow:</span>
+                        <input
+                          type="text"
+                          value={z.maxPaceStr}
+                          onChange={(e) => handleUpdatePaceZoneSwim(z.zone, 'maxPaceStr', e.target.value)}
+                          className="w-16 bg-slate-950 border border-slate-700 rounded-lg px-1.5 py-1 text-xs font-bold text-white text-center focus:outline-none focus:border-sky-400"
+                        />
+                        <span className="text-slate-400 text-xs font-mono ml-0.5">/100m</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Swim Heart Rate Zones */}
+              <div className="p-3.5 rounded-2xl bg-slate-950 border border-slate-800 space-y-3">
+                <div className="flex items-center justify-between flex-wrap gap-2">
+                  <div className="flex items-center gap-2">
+                    <div className="w-7 h-7 rounded-lg bg-rose-500/20 text-rose-400 flex items-center justify-center">
+                      <Heart className="w-4 h-4" />
+                    </div>
+                    <div>
+                      <span className="text-xs font-bold text-white uppercase tracking-wider block">
+                        Swim HR Zones ({preferredSwimProtocol.toUpperCase()} Standard)
+                      </span>
+                      <span className="text-[10px] text-slate-400 font-mono">
+                        Swim LTHR: {thresholdHeartRateSwim} bpm • Max HR: {maxHeartRate} bpm
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setIsSwimProtocolsModalOpen(true)}
+                      className="px-2.5 py-1 rounded-xl text-[11px] font-bold bg-rose-950/70 hover:bg-rose-900 active:scale-95 text-rose-300 hover:text-white border border-rose-800/80 transition-all flex items-center gap-1.5 cursor-pointer shadow-xs"
+                      title="Explore swim heart rate standards (British Triathlon, US Masters Swimming, Joe Friel)"
+                    >
+                      <BookOpen className="w-3.5 h-3.5 text-rose-400" />
+                      <span>Protocols & Guide</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={handleResetHrZonesSwim}
+                      className="px-2.5 py-1 rounded-xl text-[11px] font-bold bg-slate-800 hover:bg-slate-700 active:scale-95 text-slate-300 hover:text-white border border-slate-700 transition-all flex items-center gap-1.5 cursor-pointer shadow-xs"
+                      title="Reset Swim Heart Rate Zones to default model"
+                    >
+                      <RotateCcw className="w-3 h-3 text-rose-400" />
+                      <span>Reset Model</span>
+                    </button>
+                  </div>
+                </div>
+
+                {/* Swim LTHR Input & Offset Helper */}
+                <div className="p-3 rounded-xl bg-slate-900/90 border border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
+                  <div>
+                    <label className="text-xs font-semibold text-rose-300 block">Swim Lactate Threshold HR (Swim LTHR)</label>
+                    <span className="text-[11px] text-slate-400">
+                      Typically 10–13 bpm lower than Run LTHR ({thresholdHeartRateRun ? thresholdHeartRateRun - 12 : 156} bpm) due to horizontal body posture and water immersion.
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-2 shrink-0">
+                    <input
+                      type="number"
+                      min="60"
+                      max="220"
+                      value={thresholdHeartRateSwim}
+                      onChange={(e) => setThresholdHeartRateSwim(Number(e.target.value) || 156)}
+                      className="w-20 bg-slate-950 border border-slate-700 rounded-xl px-2.5 py-1.5 text-sm font-bold font-mono text-white text-center focus:outline-none focus:border-rose-400"
+                    />
+                    <span className="text-xs text-slate-400 font-mono">bpm</span>
+                    {thresholdHeartRateRun && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const autoLthr = Math.max(60, thresholdHeartRateRun - 12);
+                          setThresholdHeartRateSwim(autoLthr);
+                          const tempProf: AthleteProfile = {
+                            ...profile,
+                            thresholdHeartRateSwim: autoLthr,
+                            customHrZonesSwim: undefined,
+                          };
+                          const defaultSwimHr = getAthleteHeartRateZones(tempProf, 'swim');
+                          setHrZonesSwimState(
+                            defaultSwimHr.map((z) => ({
+                              zone: z.zone,
+                              name: z.name,
+                              minHrStr: String(z.minHr),
+                              maxHrStr: String(z.maxHr),
+                              color: z.color,
+                              description: z.description,
+                            }))
+                          );
+                        }}
+                        className="px-2 py-1 rounded-lg text-[10px] font-bold bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white border border-slate-700 cursor-pointer"
+                        title="Set to Run LTHR minus 12 bpm"
+                      >
+                        Auto (-12)
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                <div className="space-y-1.5 pt-1">
+                  {hrZonesSwimState.map((z) => (
+                    <div
+                      key={z.zone}
+                      className="p-2.5 rounded-xl bg-slate-900/80 border border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs"
+                    >
+                      <div className="flex items-center gap-2.5 min-w-0">
+                        <span
+                          style={{ backgroundColor: z.color }}
+                          className="w-6 h-6 rounded-lg text-slate-950 font-black text-xs flex items-center justify-center shrink-0"
+                        >
+                          Z{z.zone}
+                        </span>
+                        <div className="min-w-0">
+                          <span className="font-bold text-white mr-1.5">{z.name}</span>
+                          <span className="text-[10px] text-slate-400 font-mono block sm:inline truncate">
+                            {z.description}
+                          </span>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-1.5 shrink-0 self-end sm:self-auto font-mono">
+                        <span className="text-[10px] text-slate-500 uppercase">Min:</span>
+                        <input
+                          type="number"
+                          value={z.minHrStr}
+                          onChange={(e) => handleUpdateHrZoneSwim(z.zone, 'minHrStr', e.target.value)}
+                          className="w-16 bg-slate-950 border border-slate-700 rounded-lg px-1.5 py-1 text-xs font-bold text-white text-center focus:outline-none focus:border-rose-400"
+                        />
+                        <span className="text-slate-500 text-xs">to</span>
+                        <span className="text-[10px] text-slate-500 uppercase">Max:</span>
+                        <input
+                          type="number"
+                          value={z.maxHrStr}
+                          onChange={(e) => handleUpdateHrZoneSwim(z.zone, 'maxHrStr', e.target.value)}
+                          className="w-16 bg-slate-950 border border-slate-700 rounded-lg px-1.5 py-1 text-xs font-bold text-white text-center focus:outline-none focus:border-rose-400"
+                        />
+                        <span className="text-slate-400 text-xs font-mono ml-0.5">bpm</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
             </div>
           )}
 
@@ -4274,6 +4715,15 @@ export const AthleteProfileModal: React.FC<AthleteProfileModalProps> = ({
             </button>
           </div>
         </div>
+
+        {/* Swim Heart Rate Protocols & Zone Standards Modal */}
+        <SwimHeartRateProtocolsModal
+          isOpen={isSwimProtocolsModalOpen}
+          onClose={() => setIsSwimProtocolsModalOpen(false)}
+          currentSwimLthr={thresholdHeartRateSwim || 156}
+          currentMaxHr={maxHeartRate || 185}
+          onApplyProtocolZones={handleApplySwimProtocolZones}
+        />
       </div>
     </div>
   );

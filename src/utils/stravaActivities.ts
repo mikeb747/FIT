@@ -29,6 +29,8 @@ export interface StravaActivity {
   calories?: number;
   suffer_score?: number;
   isDeleted?: boolean;
+  laps?: any[];
+  splits_metric?: any[];
 }
 
 export interface CalibratedSwimLap {
@@ -640,6 +642,54 @@ export function getSwimPaceDetails(
     totalDistanceM: Math.round(fallbackDist),
     movingTimeSec: Math.round(fallbackTime),
   };
+}
+
+/**
+ * Calculates the longest lap distance in meters for an activity.
+ * Inspects user-calibrated laps, detailed Strava laps, and splits.
+ * If no lap breakdown exists, defaults to the total activity distance (as a single unbroken effort).
+ */
+export function getLongestLapDistanceM(
+  activity: StravaActivity,
+  details?: StravaActivityDetailsRecord
+): number {
+  if (!activity) return 0;
+
+  // 1. User calibrated laps if available
+  const calibratedLaps = details?.calibration?.calibratedLaps;
+  if (Array.isArray(calibratedLaps) && calibratedLaps.length > 0) {
+    const validCalib = calibratedLaps
+      .filter((l) => !l.isIgnored && !l.isRest && typeof l.distanceM === 'number' && l.distanceM > 0)
+      .map((l) => l.distanceM);
+    if (validCalib.length > 0) {
+      return Math.round(Math.max(...validCalib));
+    }
+  }
+
+  // 2. Strava detailed laps from record activity, summary activity, or splits
+  const rawLaps =
+    (details?.activity?.laps as any[]) ||
+    (activity as any).laps ||
+    ((details?.activity as any)?.splits_metric as any[]) ||
+    (activity as any).splits_metric;
+
+  if (Array.isArray(rawLaps) && rawLaps.length > 0) {
+    const validDists = rawLaps
+      .map((l) => (typeof l?.distance === 'number' ? l.distance : Number(l?.distance || 0)))
+      .filter((d) => !isNaN(d) && d > 0);
+    if (validDists.length > 0) {
+      return Math.round(Math.max(...validDists));
+    }
+  }
+
+  // 3. Fallback: If no explicit laps are recorded, the entire activity is 1 single lap
+  const totalDist =
+    details?.calibration?.calibratedDistanceM ??
+    activity.distance ??
+    ((details?.activity as any)?.distance as number) ??
+    0;
+
+  return totalDist > 0 ? Math.round(totalDist) : 0;
 }
 
 export interface RunSplitItem {

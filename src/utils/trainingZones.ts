@@ -1,5 +1,5 @@
 import { StravaActivity } from './stravaActivities';
-import { AthleteProfile, getAthleteHeartRateZones, getAthletePaceZones, getAthletePowerZones, formatSecondsToMinSec } from '../types/athlete';
+import { AthleteProfile, getAthleteHeartRateZones, getAthletePaceZones, getAthleteSwimPaceZones, getAthletePowerZones, formatSecondsToMinSec } from '../types/athlete';
 import { classifyActivity } from './stravaActivities';
 
 export interface CalculatedZoneBucket {
@@ -42,15 +42,19 @@ export function calculateActivityZonesTime(
   athleteProfile: AthleteProfile
 ): ActivityZoneAnalysis {
   const classification = classifyActivity(activity);
-  const isBike = classification.category === 'Bike';
   const isRun = classification.category === 'Run';
+  const isBike = classification.category === 'Bike';
+  const isSwim = classification.category === 'Swim';
   const movingTime = Math.max(1, activity.moving_time || activity.elapsed_time || 0);
 
   // -------------------------------------------------------------
   // 1. Heart Rate Zones
   // -------------------------------------------------------------
   let hrBuckets: CalculatedZoneBucket[] | null = null;
-  const hrZonesConfig = getAthleteHeartRateZones(athleteProfile, isBike ? 'bike' : 'run');
+  const hrZonesConfig = getAthleteHeartRateZones(
+    athleteProfile,
+    isSwim ? 'swim' : isBike ? 'bike' : 'run'
+  );
   const hrStream: number[] = streams?.heartrate?.data || [];
 
   if (hrStream.length >= 10) {
@@ -113,7 +117,7 @@ export function calculateActivityZonesTime(
   }
 
   // -------------------------------------------------------------
-  // 2. Pace Zones (Running only)
+  // 2. Pace Zones (Running & Swimming)
   // -------------------------------------------------------------
   let paceBuckets: CalculatedZoneBucket[] | null = null;
   if (isRun) {
@@ -161,6 +165,105 @@ export function calculateActivityZonesTime(
       else if (secPerKm >= paceZonesConfig[1].minPaceSec) primaryZoneIdx = 1;
       else if (secPerKm >= paceZonesConfig[2].minPaceSec) primaryZoneIdx = 2;
       else if (secPerKm >= paceZonesConfig[3].minPaceSec) primaryZoneIdx = 3;
+      else primaryZoneIdx = 4;
+
+      paceBuckets = paceZonesConfig.map((z, idx) => {
+        const isPrimary = idx === primaryZoneIdx;
+        const pct = isPrimary ? 80 : idx === primaryZoneIdx - 1 || idx === primaryZoneIdx + 1 ? 10 : 0;
+        const durationSec = Math.round((pct / 100) * movingTime);
+        return {
+          zone: z.zone,
+          name: z.name,
+          rangeFormatted: z.rangeFormatted,
+          durationSec,
+          durationFormatted: formatZoneDuration(durationSec),
+          pct,
+          color: z.color,
+          description: z.description,
+          isPrimary,
+        };
+      });
+    }
+  } else if (isSwim) {
+    const paceZonesConfig = getAthleteSwimPaceZones(athleteProfile);
+    const vStream: number[] = streams?.velocity_smooth?.data || [];
+    const laps: any[] = (activity as any).laps || [];
+
+    if (vStream.length >= 10) {
+      const counts = [0, 0, 0, 0, 0];
+      let validCount = 0;
+      for (const v of vStream) {
+        if (typeof v !== 'number' || v < 0.2) continue; // Swimming speed > 0.2 m/s
+        validCount++;
+        const secPer100m = 100 / v;
+        if (secPer100m >= paceZonesConfig[0].minPaceSec) counts[0]++;
+        else if (secPer100m >= paceZonesConfig[1].minPaceSec) counts[1]++;
+        else if (secPer100m >= paceZonesConfig[2].minPaceSec) counts[2]++;
+        else if (secPer100m >= paceZonesConfig[3].minPaceSec) counts[3]++;
+        else counts[4]++;
+      }
+
+      if (validCount > 0) {
+        paceBuckets = paceZonesConfig.map((z, idx) => {
+          const pct = Math.round((counts[idx] / validCount) * 100);
+          const durationSec = Math.round((counts[idx] / validCount) * movingTime);
+          return {
+            zone: z.zone,
+            name: z.name,
+            rangeFormatted: z.rangeFormatted,
+            durationSec,
+            durationFormatted: formatZoneDuration(durationSec),
+            pct,
+            color: z.color,
+            description: z.description,
+          };
+        });
+      }
+    } else if (laps && laps.length > 0) {
+      // Calculate from swim laps if available
+      const counts = [0, 0, 0, 0, 0];
+      let totalLapSec = 0;
+      for (const lap of laps) {
+        const lapDist = lap.distance || 0;
+        const lapTime = lap.moving_time || lap.elapsed_time || 0;
+        if (lapDist > 10 && lapTime > 0) {
+          const secPer100m = (lapTime / lapDist) * 100;
+          let idx = 4;
+          if (secPer100m >= paceZonesConfig[0].minPaceSec) idx = 0;
+          else if (secPer100m >= paceZonesConfig[1].minPaceSec) idx = 1;
+          else if (secPer100m >= paceZonesConfig[2].minPaceSec) idx = 2;
+          else if (secPer100m >= paceZonesConfig[3].minPaceSec) idx = 3;
+          counts[idx] += lapTime;
+          totalLapSec += lapTime;
+        }
+      }
+
+      if (totalLapSec > 0) {
+        paceBuckets = paceZonesConfig.map((z, idx) => {
+          const pct = Math.round((counts[idx] / totalLapSec) * 100);
+          const durationSec = Math.round((counts[idx] / totalLapSec) * movingTime);
+          return {
+            zone: z.zone,
+            name: z.name,
+            rangeFormatted: z.rangeFormatted,
+            durationSec,
+            durationFormatted: formatZoneDuration(durationSec),
+            pct,
+            color: z.color,
+            description: z.description,
+          };
+        });
+      }
+    }
+
+    if (!paceBuckets && activity.average_speed && activity.average_speed > 0.2) {
+      // Pace fallback from average speed (m/s -> sec/100m)
+      const secPer100m = 100 / activity.average_speed;
+      let primaryZoneIdx = 0;
+      if (secPer100m >= paceZonesConfig[0].minPaceSec) primaryZoneIdx = 0;
+      else if (secPer100m >= paceZonesConfig[1].minPaceSec) primaryZoneIdx = 1;
+      else if (secPer100m >= paceZonesConfig[2].minPaceSec) primaryZoneIdx = 2;
+      else if (secPer100m >= paceZonesConfig[3].minPaceSec) primaryZoneIdx = 3;
       else primaryZoneIdx = 4;
 
       paceBuckets = paceZonesConfig.map((z, idx) => {

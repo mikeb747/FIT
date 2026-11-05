@@ -42,6 +42,7 @@ import {
   isActivityNew,
   calculateActivityTSS,
   calculateNormalizedPower,
+  getLongestLapDistanceM,
 } from '../utils/stravaActivities';
 import { applyRenameRulesToName } from '../utils/activityRenameRules';
 import type { AthleteProfile } from '../types/athlete';
@@ -54,6 +55,7 @@ export type ActivitySortMetric =
   | 'date'
   | 'duration'
   | 'distance'
+  | 'longest_lap'
   | 'tss'
   | 'pace'
   | 'elevation'
@@ -87,6 +89,13 @@ const SORT_OPTIONS: SortOptionDef[] = [
     icon: (c = 'w-4 h-4 text-emerald-400') => <MapPin className={c} />,
     descHelper: 'Furthest first',
     ascHelper: 'Shortest distance first',
+  },
+  {
+    id: 'longest_lap',
+    label: 'Longest Lap',
+    icon: (c = 'w-4 h-4 text-cyan-400') => <Waves className={c} />,
+    descHelper: 'Longest single lap first',
+    ascHelper: 'Shortest lap first',
   },
   {
     id: 'tss',
@@ -157,6 +166,8 @@ function getActivitySortValue(
       return details?.calibration?.calibratedMovingTimeSec ?? act.moving_time ?? act.elapsed_time ?? 0;
     case 'distance':
       return details?.calibration?.calibratedDistanceM ?? act.distance ?? 0;
+    case 'longest_lap':
+      return getLongestLapDistanceM(act, details);
     case 'tss':
       return details?.calibration?.manualTss ?? calculateActivityTSS(act, details, athleteProfile)?.tss ?? 0;
     case 'pace': {
@@ -293,6 +304,7 @@ export const StravaActivitiesTab: React.FC<StravaActivitiesTabProps> = ({
   // Multi-Metric Filter States
   const [minDistanceKm, setMinDistanceKm] = useState<number | null>(null);
   const [maxDistanceKm, setMaxDistanceKm] = useState<number | null>(null);
+  const [minLongestLapM, setMinLongestLapM] = useState<number | null>(null);
   const [minAvgWatts, setMinAvgWatts] = useState<number | null>(null);
   const [minElevationM, setMinElevationM] = useState<number | null>(null);
   const [minDurationMinutes, setMinDurationMinutes] = useState<number | null>(null);
@@ -386,6 +398,15 @@ export const StravaActivitiesTab: React.FC<StravaActivitiesTabProps> = ({
       });
     }
 
+    // 4b. Filter by minimum longest lap distance (meters)
+    if (minLongestLapM !== null && minLongestLapM > 0) {
+      list = list.filter((act) => {
+        const details = activityDetails[String(act.id)];
+        const longestLap = getLongestLapDistanceM(act, details);
+        return longestLap >= minLongestLapM;
+      });
+    }
+
     // 5. Filter by minimum average power (Watts)
     if (minAvgWatts !== null && minAvgWatts > 0) {
       list = list.filter((act) => {
@@ -444,6 +465,7 @@ export const StravaActivitiesTab: React.FC<StravaActivitiesTabProps> = ({
     searchQueryTrimmed,
     minDistanceKm,
     maxDistanceKm,
+    minLongestLapM,
     minAvgWatts,
     minElevationM,
     minDurationMinutes,
@@ -460,6 +482,7 @@ export const StravaActivitiesTab: React.FC<StravaActivitiesTabProps> = ({
     if (selectedCategory !== 'All') count++;
     if (minDistanceKm !== null && minDistanceKm > 0) count++;
     if (maxDistanceKm !== null && maxDistanceKm > 0) count++;
+    if (minLongestLapM !== null && minLongestLapM > 0) count++;
     if (minAvgWatts !== null && minAvgWatts > 0) count++;
     if (minElevationM !== null && minElevationM > 0) count++;
     if (minDurationMinutes !== null && minDurationMinutes > 0) count++;
@@ -469,6 +492,7 @@ export const StravaActivitiesTab: React.FC<StravaActivitiesTabProps> = ({
     selectedCategory,
     minDistanceKm,
     maxDistanceKm,
+    minLongestLapM,
     minAvgWatts,
     minElevationM,
     minDurationMinutes,
@@ -482,6 +506,7 @@ export const StravaActivitiesTab: React.FC<StravaActivitiesTabProps> = ({
     setSelectedCategory('All');
     setMinDistanceKm(null);
     setMaxDistanceKm(null);
+    setMinLongestLapM(null);
     setMinAvgWatts(null);
     setMinElevationM(null);
     setMinDurationMinutes(null);
@@ -690,6 +715,28 @@ export const StravaActivitiesTab: React.FC<StravaActivitiesTabProps> = ({
                   onClick={() => setMaxDistanceKm(null)}
                   className="hover:opacity-75 transition-opacity cursor-pointer ml-0.5"
                   title="Clear max distance filter"
+                >
+                  <X className="w-3 h-3" />
+                </button>
+              </span>
+            )}
+            {minLongestLapM !== null && minLongestLapM > 0 && (
+              <span
+                className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-lg border text-[11px] font-medium ${
+                  isLight
+                    ? 'bg-cyan-100 border-cyan-300 text-cyan-950'
+                    : 'bg-cyan-500/20 border-cyan-500/35 text-cyan-300'
+                }`}
+              >
+                <Waves className="w-3 h-3 text-cyan-500 shrink-0" />
+                <span>
+                  Longest Lap: <strong>&ge; {minLongestLapM >= 1000 ? `${(minLongestLapM / 1000).toFixed(minLongestLapM % 1000 === 0 ? 0 : 1)}km (${minLongestLapM.toLocaleString()}m)` : `${minLongestLapM.toLocaleString()}m`}</strong>
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setMinLongestLapM(null)}
+                  className="hover:opacity-75 transition-opacity cursor-pointer ml-0.5"
+                  title="Clear longest lap filter"
                 >
                   <X className="w-3 h-3" />
                 </button>
@@ -927,6 +974,7 @@ export const StravaActivitiesTab: React.FC<StravaActivitiesTabProps> = ({
             const duration = details?.calibration?.calibratedMovingTimeSec ?? act.moving_time ?? act.elapsed_time ?? 0;
             const tssResult = calculateActivityTSS(act, details, athleteProfile);
             const tssValue = tssResult ? tssResult.tss : null;
+            const longestLapM = getLongestLapDistanceM(act, details);
 
             return (
               <div
@@ -1084,6 +1132,25 @@ export const StravaActivitiesTab: React.FC<StravaActivitiesTabProps> = ({
                       >
                         <Clock className={`w-3 h-3 ${isLight ? 'text-slate-500' : 'text-slate-400'}`} />
                         <span>{formatDuration(duration)}</span>
+                      </span>
+                    )}
+
+                    {/* Longest Lap badge (for swims or when lap filter is active) */}
+                    {longestLapM > 0 && (classification.category === 'Swim' || minLongestLapM !== null) && (
+                      <span
+                        className={`flex items-center gap-1 px-2 py-0.5 rounded-lg border ${
+                          minLongestLapM !== null && longestLapM >= minLongestLapM
+                            ? isLight
+                              ? 'bg-cyan-100 border-cyan-300 text-cyan-900 font-bold'
+                              : 'bg-cyan-500/20 border-cyan-500/35 text-cyan-300 font-bold'
+                            : isLight
+                            ? 'bg-slate-100 border-slate-200 text-slate-700'
+                            : 'bg-slate-950/70 border-slate-800 text-slate-300'
+                        }`}
+                        title={`Longest Lap: ${longestLapM >= 1000 ? `${(longestLapM / 1000).toFixed(longestLapM % 1000 === 0 ? 0 : 2)} km (${longestLapM}m)` : `${longestLapM}m`}`}
+                      >
+                        <Waves className={`w-3 h-3 ${isLight ? 'text-cyan-600' : 'text-cyan-400'}`} />
+                        <span>Lap {longestLapM >= 1000 ? `${(longestLapM / 1000).toFixed(longestLapM % 1000 === 0 ? 0 : 1)}km` : `${longestLapM}m`}</span>
                       </span>
                     )}
 
@@ -1449,6 +1516,79 @@ export const StravaActivitiesTab: React.FC<StravaActivitiesTabProps> = ({
                           }`}
                         />
                       </div>
+                    </div>
+                  </div>
+
+                  {/* 2b. Longest Lap Distance Filter */}
+                  <div
+                    className={`p-2.5 rounded-xl border ${
+                      isLight ? 'bg-slate-50 border-slate-200' : 'bg-slate-800/40 border-slate-800'
+                    }`}
+                  >
+                    <div className="text-[10px] font-bold text-slate-400 mb-1.5 uppercase tracking-wider flex items-center justify-between">
+                      <div className="flex items-center gap-1.5">
+                        <Waves className="w-3 h-3 text-cyan-400" />
+                        <span>Longest Lap Distance (e.g. Swims &gt; 1,000m)</span>
+                      </div>
+                      {minLongestLapM !== null && (
+                        <button
+                          type="button"
+                          onClick={() => setMinLongestLapM(null)}
+                          className="text-[10px] text-amber-500 hover:underline cursor-pointer font-bold lowercase"
+                        >
+                          clear
+                        </button>
+                      )}
+                    </div>
+
+                    <div className="flex flex-wrap gap-1 mb-2">
+                      {[
+                        { label: 'Any', meters: null },
+                        { label: '> 100 m', meters: 100 },
+                        { label: '> 250 m', meters: 250 },
+                        { label: '> 500 m', meters: 500 },
+                        { label: '> 1,000 m', meters: 1000 },
+                        { label: '> 1,500 m', meters: 1500 },
+                        { label: '> 2,000 m', meters: 2000 },
+                      ].map((preset) => {
+                        const isSelected = minLongestLapM === preset.meters;
+                        return (
+                          <button
+                            key={preset.label}
+                            type="button"
+                            onClick={() => setMinLongestLapM(preset.meters)}
+                            className={`px-2 py-1 rounded-lg text-[11px] font-bold transition-all cursor-pointer border ${
+                              isSelected
+                                ? 'bg-cyan-500 text-slate-950 border-cyan-400 shadow-xs'
+                                : isLight
+                                ? 'bg-white hover:bg-slate-100 text-slate-700 border-slate-200'
+                                : 'bg-slate-800 hover:bg-slate-700 text-slate-300 border-slate-700'
+                            }`}
+                          >
+                            {preset.label}
+                          </button>
+                        );
+                      })}
+                    </div>
+
+                    <div>
+                      <label className="text-[10px] text-slate-400 block mb-0.5">Min Longest Lap (meters)</label>
+                      <input
+                        type="number"
+                        min="0"
+                        step="50"
+                        placeholder="e.g. 1000"
+                        value={minLongestLapM ?? ''}
+                        onChange={(e) => {
+                          const val = e.target.value === '' ? null : parseFloat(e.target.value);
+                          setMinLongestLapM(isNaN(val as number) ? null : val);
+                        }}
+                        className={`w-full px-2.5 py-1.5 rounded-lg border text-xs font-mono font-bold outline-none transition-all ${
+                          isLight
+                            ? 'bg-white border-slate-300 text-slate-900 focus:border-amber-500'
+                            : 'bg-slate-900 border-slate-700 text-white focus:border-amber-400'
+                        }`}
+                      />
                     </div>
                   </div>
 

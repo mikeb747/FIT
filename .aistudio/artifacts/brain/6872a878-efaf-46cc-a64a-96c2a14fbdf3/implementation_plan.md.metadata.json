@@ -1,6 +1,6 @@
 {
-  "summary": "Updated implementation plan with top tab badge alignment, font size match, and equal spacing around border.",
-  "updatedAt": "2026-11-04T09:21:57.314217242Z",
+  "summary": "Implementation completed:\n- Added Swim Pace Zones derived from Critical Swim Speed (CSS) test adhering to the exact requested offsets:\n  - Z1 (Recovery/Easy): CSS +15 to +25s\n  - Z2 (Endurance/Ironman): CSS +8 to +15s\n  - Z3 (Tempo/Steady aerobic): CSS +3 to +8s\n  - Z4 (Threshold/CSS): CSS -2 to +2s\n  - Z5 (VO2 Max): CSS -2 to -10s\n- Added Swim Heart Rate Zones below Swim TSS Model in Settings > Swim with Swim LTHR and aquatic offset helper.\n- Added Swim Heart Rate Protocols modal with British Triathlon, US Masters Swimming, and Joe Friel standards.\n- Integrated Pace and HR zone calculations for swim activities into trainingZones.ts and ActivityZoneChart.\n- Verified build and TypeScript linting clean.",
+  "updatedAt": "2026-11-05T10:43:25.884644764Z",
   "requestFeedback": true,
   "userFacing": true
 }

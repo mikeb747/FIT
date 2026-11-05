@@ -26,6 +26,7 @@ import {
   HeartHandshake,
   Trash2,
   Watch,
+  ChevronDown,
 } from 'lucide-react';
 import type {
   StravaActivity,
@@ -138,6 +139,7 @@ export const StravaActivityModal: React.FC<StravaActivityModalProps> = ({
   const [selectedTssModel, setSelectedTssModel] = useState<'auto' | 'hrTSS' | 'rTSS' | 'sTSS' | 'powerTSS'>('auto');
   const [isSavingTss, setIsSavingTss] = useState(false);
   const [tssSaveSuccess, setTssSaveSuccess] = useState(false);
+  const [showWorkCalc, setShowWorkCalc] = useState(false);
 
   useEffect(() => {
     if (detailsRecord?.calibration) {
@@ -212,6 +214,7 @@ export const StravaActivityModal: React.FC<StravaActivityModalProps> = ({
       setExportError(null);
       setIsCalibrationOpen(false);
       setIsEditingTss(false);
+      setShowWorkCalc(false);
       return;
     }
 
@@ -568,7 +571,7 @@ export const StravaActivityModal: React.FC<StravaActivityModalProps> = ({
           {/* Core Metrics Grid */}
           <div
             className={`grid gap-2.5 ${
-              classification.subType === 'Bike'
+              isBikeOrTurbo
                 ? 'grid-cols-2 sm:grid-cols-3'
                 : 'grid-cols-2 sm:grid-cols-4'
             }`}
@@ -592,8 +595,8 @@ export const StravaActivityModal: React.FC<StravaActivityModalProps> = ({
               <span className="text-sm sm:text-base font-bold font-mono text-white mt-1">
                 {metrics.primaryMetricLabel}
               </span>
-              {/* Only show secondary metric if not Bike, omitting speed/watts duplicate */}
-              {metrics.secondaryMetricLabel && classification.category !== 'Bike' && (
+              {/* Only show secondary metric if not Bike or Turbo Trainer, omitting speed/watts duplicate */}
+              {metrics.secondaryMetricLabel && !isBikeOrTurbo && (
                 <span className="text-[10px] text-amber-400 font-mono">
                   {metrics.secondaryMetricLabel}
                 </span>
@@ -604,20 +607,20 @@ export const StravaActivityModal: React.FC<StravaActivityModalProps> = ({
               <span className="text-[11px] font-medium text-slate-400">
                 {classification.category === 'Swim'
                   ? 'Avg Pace / 100m'
-                  : classification.subType === 'Bike'
+                  : isBikeOrTurbo
                   ? 'Avg Speed'
                   : 'Elevation'}
               </span>
               <span className="text-sm sm:text-base font-bold font-mono text-white mt-1">
                 {classification.category === 'Swim'
                   ? (swimPace?.pacePer100mFormatted || '0:00/100m')
-                  : classification.subType === 'Bike'
-                  ? `${outdoorAvgSpeedKph || '--'} kph`
+                  : isBikeOrTurbo
+                  ? `${outdoorAvgSpeedKph || (activity.average_speed ? (activity.average_speed * 3.6).toFixed(1) : '--')} kph`
                   : (activity.total_elevation_gain ? `↑ ${Math.round(activity.total_elevation_gain)}m` : 'Flat / Indoor')}
               </span>
-              {classification.subType === 'Bike' && outdoorMaxSpeedKph ? (
+              {isBikeOrTurbo && (outdoorMaxSpeedKph || activity.max_speed) ? (
                 <span className="text-[10px] text-slate-400 font-mono">
-                  max {outdoorMaxSpeedKph} kph
+                  max {outdoorMaxSpeedKph || (activity.max_speed ? (activity.max_speed * 3.6).toFixed(1) : '')} kph
                 </span>
               ) : classification.category !== 'Swim' && activity.max_speed ? (
                 <span className="text-[10px] text-slate-500 font-mono">
@@ -626,8 +629,8 @@ export const StravaActivityModal: React.FC<StravaActivityModalProps> = ({
               ) : null}
             </div>
 
-            {/* Average Power & Normalised Power moved up for Outdoor Cycling */}
-            {classification.subType === 'Bike' && (
+            {/* Average Power & Normalised Power moved up for Outdoor & Indoor / Turbo Trainer Cycling */}
+            {isBikeOrTurbo && (
               <div className="p-3 rounded-2xl bg-slate-950 border border-slate-800 flex flex-col">
                 <span className="text-[11px] font-medium text-slate-400">Average Power</span>
                 <span className="text-sm sm:text-base font-bold font-mono text-white mt-1">
@@ -643,7 +646,7 @@ export const StravaActivityModal: React.FC<StravaActivityModalProps> = ({
               </div>
             )}
 
-            {classification.subType === 'Bike' && (
+            {isBikeOrTurbo && (
               <div className="p-3 rounded-2xl bg-slate-950 border border-slate-800 flex flex-col">
                 <span className="text-[11px] font-medium text-slate-400">Normalised Power</span>
                 <span className="text-sm sm:text-base font-bold font-mono text-amber-400 mt-1">
@@ -659,11 +662,32 @@ export const StravaActivityModal: React.FC<StravaActivityModalProps> = ({
               </div>
             )}
 
-            {/* Energy / Work: kcal bold on top, kJ yellow underneath */}
-            <div className="p-3 rounded-2xl bg-slate-950 border border-slate-800 flex flex-col">
-              <span className="text-[11px] font-medium text-slate-400">
-                {workResult ? 'Energy / Work' : 'Energy / HR'}
-              </span>
+            {/* Energy / Work: kcal bold on top, kJ yellow underneath; click to toggle calculation formula */}
+            <div
+              onClick={() => {
+                if (workResult && effectiveAvgWatts) {
+                  setShowWorkCalc((prev) => !prev);
+                }
+              }}
+              className={`p-3 rounded-2xl bg-slate-950 border flex flex-col transition select-none ${
+                workResult && effectiveAvgWatts
+                  ? 'border-slate-800 hover:border-amber-500/60 hover:bg-slate-900/60 cursor-pointer group'
+                  : 'border-slate-800'
+              }`}
+              title={workResult && effectiveAvgWatts ? 'Click to view / hide Energy & Work calculation formula' : undefined}
+            >
+              <div className="flex items-center justify-between">
+                <span className="text-[11px] font-medium text-slate-400 group-hover:text-amber-300 transition">
+                  {workResult ? 'Energy / Work' : 'Energy / HR'}
+                </span>
+                {workResult && effectiveAvgWatts && (
+                  <ChevronDown
+                    className={`w-3.5 h-3.5 text-amber-400/80 transition-transform duration-200 ${
+                      showWorkCalc ? 'rotate-180 text-amber-300' : ''
+                    }`}
+                  />
+                )}
+              </div>
               <span className="text-sm sm:text-base font-black font-mono text-white mt-1">
                 {workResult
                   ? `${workResult.kcal} kcal`
@@ -673,159 +697,65 @@ export const StravaActivityModal: React.FC<StravaActivityModalProps> = ({
                   ? `${Math.round(activity.average_heartrate)} bpm`
                   : '--'}
               </span>
-              {workResult ? (
-                <span className="text-[10px] text-amber-400 font-mono font-bold">
-                  {workResult.formattedKj}
-                </span>
-              ) : activity.suffer_score ? (
-                <span className="text-[10px] text-rose-400 font-mono">
-                  suffer score: {activity.suffer_score}
-                </span>
-              ) : null}
+              <div className="flex items-center justify-between mt-0.5">
+                {workResult ? (
+                  <span className="text-[10px] text-amber-400 font-mono font-bold">
+                    {workResult.formattedKj}
+                  </span>
+                ) : activity.suffer_score ? (
+                  <span className="text-[10px] text-rose-400 font-mono">
+                    suffer score: {activity.suffer_score}
+                  </span>
+                ) : null}
+                {workResult && effectiveAvgWatts && (
+                  <span className="text-[9px] text-slate-500 group-hover:text-amber-400/80 transition">
+                    {showWorkCalc ? 'Hide calc' : 'Calc'}
+                  </span>
+                )}
+              </div>
             </div>
           </div>
 
-          {/* Dedicated Cycling Power & Normalized Power & Energy (kJ) Card */}
-          {isBikeOrTurbo && (effectiveAvgWatts || normalizedPower) && (
+          {/* Collapsible Energy / Work Calculation Formula */}
+          {showWorkCalc && workResult && effectiveAvgWatts && (
             <div
-              className={`p-4 rounded-2xl space-y-3 border ${
+              className={`p-3.5 rounded-2xl border text-xs space-y-2 transition-all duration-200 ${
                 isLight
-                  ? 'bg-slate-50 border-amber-300/80 text-slate-900'
-                  : 'bg-slate-950 border-amber-500/30 text-white'
+                  ? 'bg-amber-50/80 border-amber-300/80 text-slate-800'
+                  : 'bg-slate-950 border-amber-500/30 text-slate-200'
               }`}
             >
               <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <Zap className={`w-4 h-4 ${isLight ? 'text-amber-500' : 'text-amber-400'}`} />
-                  <h4
-                    className={`text-xs font-black uppercase tracking-wider ${
-                      isLight ? 'text-amber-700' : 'text-amber-300'
-                    }`}
-                  >
-                    Cycling Power & Mechanical Work
-                  </h4>
+                <div
+                  className={`font-bold flex items-center gap-1.5 text-xs ${
+                    isLight ? 'text-amber-700' : 'text-amber-300'
+                  }`}
+                >
+                  <Flame className="w-4 h-4 text-amber-500" />
+                  <span>Energy / Work Calculation:</span>
                 </div>
-                {classification.subType === 'Bike' && (
-                  <span
-                    className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${
-                      isLight
-                        ? 'bg-slate-100 text-slate-700 border-slate-200'
-                        : 'bg-slate-800 text-slate-300 border-slate-700'
-                    }`}
-                  >
-                    Outdoor Ride
-                  </span>
-                )}
-                {classification.subType === 'Turbo Trainer' && (
-                  <span
-                    className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${
-                      isLight
-                        ? 'bg-slate-100 text-slate-700 border-slate-200'
-                        : 'bg-slate-800 text-slate-300 border-slate-700'
-                    }`}
-                  >
-                    Turbo Trainer
-                  </span>
-                )}
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setShowWorkCalc(false);
+                  }}
+                  className="text-[11px] text-slate-400 hover:text-white px-2 py-0.5 rounded-md hover:bg-slate-800 transition"
+                >
+                  Close
+                </button>
               </div>
-
-              {/* Power Grid */}
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
-                <div
-                  className={`p-2.5 rounded-xl border flex flex-col ${
-                    isLight ? 'bg-white border-slate-200' : 'bg-slate-900/90 border-slate-800'
-                  }`}
-                >
-                  <span className={`text-[10px] ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>
-                    Average Power
-                  </span>
-                  <span
-                    className={`text-base sm:text-lg font-black font-mono mt-0.5 ${
-                      isLight ? 'text-slate-900' : 'text-white'
-                    }`}
-                  >
-                    {effectiveAvgWatts ? `${Math.round(effectiveAvgWatts)}W` : '--'}
-                  </span>
-                </div>
-
-                <div
-                  className={`p-2.5 rounded-xl border flex flex-col ${
-                    isLight ? 'bg-white border-slate-200' : 'bg-slate-900/90 border-slate-800'
-                  }`}
-                >
-                  <span className={`text-[10px] ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>
-                    Normalized Power (NP)
-                  </span>
-                  <span
-                    className={`text-base sm:text-lg font-black font-mono mt-0.5 ${
-                      isLight ? 'text-amber-600' : 'text-amber-400'
-                    }`}
-                  >
-                    {normalizedPower ? `${Math.round(normalizedPower)}W` : '--'}
-                  </span>
-                </div>
-
-                <div
-                  className={`p-2.5 rounded-xl border flex flex-col ${
-                    isLight ? 'bg-white border-slate-200' : 'bg-slate-900/90 border-slate-800'
-                  }`}
-                >
-                  <span className={`text-[10px] ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>
-                    Mechanical Work
-                  </span>
-                  <span
-                    className={`text-base sm:text-lg font-black font-mono mt-0.5 ${
-                      isLight ? 'text-emerald-600' : 'text-emerald-400'
-                    }`}
-                  >
-                    {workResult ? workResult.formattedKj : '--'}
-                  </span>
-                </div>
-
-                <div
-                  className={`p-2.5 rounded-xl border flex flex-col ${
-                    isLight ? 'bg-white border-slate-200' : 'bg-slate-900/90 border-slate-800'
-                  }`}
-                >
-                  <span className={`text-[10px] ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>
-                    Est. Energy Burn
-                  </span>
-                  <span
-                    className={`text-base sm:text-lg font-black font-mono mt-0.5 ${
-                      isLight ? 'text-amber-700' : 'text-amber-300'
-                    }`}
-                  >
-                    {workResult ? `~${workResult.kcal} kcal` : calories ? `${Math.round(calories)} kcal` : '--'}
-                  </span>
+              <div className={`font-mono text-[11px] space-y-1 pl-5 ${isLight ? 'text-slate-600' : 'text-slate-400'}`}>
+                <div>• {(durationMoving / 3600).toFixed(1)}-Hour Ride at {Math.round(effectiveAvgWatts)} Watts</div>
+                <div>• Hours = {(durationMoving / 3600).toFixed(2)} h ({durationMoving.toLocaleString()} seconds)</div>
+                <div>
+                  • kJ = {Math.round(effectiveAvgWatts)} W × {(durationMoving / 3600).toFixed(2)} h × 3.6 ={' '}
+                  <strong className={isLight ? 'text-slate-900 font-bold' : 'text-amber-300 font-bold'}>
+                    {workResult.formattedKj}
+                  </strong>{' '}
+                  (roughly {workResult.kcal} kcal)
                 </div>
               </div>
-
-              {/* Work Formula Callout */}
-              {workResult && effectiveAvgWatts && (
-                <div
-                  className={`p-3 rounded-xl border text-[11px] space-y-1 ${
-                    isLight
-                      ? 'bg-white border-slate-200 text-slate-700'
-                      : 'bg-slate-950/80 border-slate-800 text-slate-300'
-                  }`}
-                >
-                  <div
-                    className={`font-bold flex items-center gap-1.5 ${
-                      isLight ? 'text-amber-700' : 'text-amber-300'
-                    }`}
-                  >
-                    <Flame className="w-3.5 h-3.5 text-amber-500" />
-                    <span>Energy / Work Calculation:</span>
-                  </div>
-                  <div className={`font-mono space-y-0.5 pl-5 ${isLight ? 'text-slate-600' : 'text-slate-400'}`}>
-                    <div>• {(durationMoving / 3600).toFixed(1)}-Hour Ride at {Math.round(effectiveAvgWatts)} Watts</div>
-                    <div>• Hours = {(durationMoving / 3600).toFixed(2)} h ({durationMoving.toLocaleString()} seconds)</div>
-                    <div>
-                      • kJ = {Math.round(effectiveAvgWatts)} W × {(durationMoving / 3600).toFixed(2)} h × 3.6 = <strong className={isLight ? 'text-slate-900' : 'text-white'}>{workResult.formattedKj}</strong> (roughly {workResult.kcal} kcal)
-                    </div>
-                  </div>
-                </div>
-              )}
             </div>
           )}
 

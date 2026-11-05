@@ -43,7 +43,7 @@ export const StravaStreamPlot: React.FC<StravaStreamPlotProps> = ({
   athleteProfile,
 }) => {
   const [selectedMetric, setSelectedMetric] = useState<StreamMetricKey>('heartrate');
-  const [axisMode, setAxisMode] = useState<'distance' | 'time'>('distance');
+  const [axisMode, setAxisMode] = useState<'distance' | 'time'>('time');
   const [hoverIndex, setHoverIndex] = useState<number | null>(null);
   const [selectedPointIndex, setSelectedPointIndex] = useState<number | null>(null);
 

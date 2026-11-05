@@ -36,6 +36,10 @@ export interface AthleteProfile {
   swimPoolPace100mSec: number; // seconds per 100m for pool swimming (1:30/100m = 90)
   swimOpenWaterPace100mSec: number; // seconds per 100m for open water swimming (1:38/100m = 98)
   swimTssMode?: 'sTSS' | 'hrTSS' | 'auto'; // Swimming TSS Calculation model (default 'sTSS')
+  thresholdHeartRateSwim?: number; // bpm (Swim LTHR, typically 10-14 bpm lower than Run LTHR)
+  preferredSwimProtocol?: 'usms' | 'btf' | 'friel' | 'custom'; // Swim zone standard protocol
+  customHrZonesSwim?: Record<number, { minHr: number; maxHr: number; rangeFormatted?: string }>;
+  customPaceZonesSwim?: Record<number, { minPaceSec: number; maxPaceSec: number; rangeFormatted?: string }>;
 
   // Running Pace Zones (Customized or Derived from Threshold)
   customPaceZones?: Record<number, { minPaceSec: number; maxPaceSec: number; rangeFormatted?: string }>;
@@ -203,6 +207,8 @@ export const DEFAULT_ATHLETE_PROFILE: AthleteProfile = {
   swimPoolPace100mSec: 90, // 1:30 / 100m
   swimOpenWaterPace100mSec: 98, // 1:38 / 100m
   swimTssMode: 'sTSS',
+  thresholdHeartRateSwim: 156, // bpm (typically 10-14 bpm lower than Run LTHR)
+  preferredSwimProtocol: 'btf',
 
   injuries: DEFAULT_INJURIES,
   weeklyAvailability: DEFAULT_WEEKLY_AVAILABILITY,
@@ -367,12 +373,24 @@ export interface HeartRateZone {
   description: string;
 }
 
-export function getAthleteHeartRateZones(profile: AthleteProfile, sport: 'run' | 'bike' | 'general' = 'general'): HeartRateZone[] {
+export function getAthleteHeartRateZones(
+  profile: AthleteProfile,
+  sport: 'run' | 'bike' | 'swim' | 'general' = 'general'
+): HeartRateZone[] {
   const maxHr = profile.maxHeartRate || 185;
   const restHr = profile.restingHeartRate || 50;
-  const lthr = sport === 'bike'
-    ? profile.thresholdHeartRateBike || Math.round(maxHr * 0.88)
-    : profile.thresholdHeartRateRun || Math.round(maxHr * 0.90);
+
+  let lthr: number;
+  if (sport === 'swim') {
+    // Swimming LTHR is typically 10-14 bpm lower than running LTHR
+    lthr =
+      profile.thresholdHeartRateSwim ||
+      (profile.thresholdHeartRateRun ? profile.thresholdHeartRateRun - 12 : Math.round(maxHr * 0.84));
+  } else if (sport === 'bike') {
+    lthr = profile.thresholdHeartRateBike || Math.round(maxHr * 0.88);
+  } else {
+    lthr = profile.thresholdHeartRateRun || Math.round(maxHr * 0.90);
+  }
 
   // Friel / Coggan 5-Zone model anchored on Lactate Threshold Heart Rate
   const defaultZones: HeartRateZone[] = [
@@ -412,7 +430,7 @@ export function getAthleteHeartRateZones(profile: AthleteProfile, sport: 'run' |
       zone: 5,
       name: 'Threshold & VO2max',
       minHr: Math.round(lthr * 1.00),
-      maxHr: maxHr,
+      maxHr: sport === 'swim' ? Math.max(lthr + 5, maxHr - 12) : maxHr,
       color: '#ff1744', // Red
       description: 'Above threshold, anaerobic capacity and neuromuscular power',
     },
@@ -421,6 +439,20 @@ export function getAthleteHeartRateZones(profile: AthleteProfile, sport: 'run' |
   if (sport === 'run' && profile.customHrZonesRun) {
     return defaultZones.map((z) => {
       const custom = profile.customHrZonesRun?.[z.zone];
+      if (custom) {
+        return {
+          ...z,
+          minHr: custom.minHr,
+          maxHr: custom.maxHr,
+        };
+      }
+      return z;
+    });
+  }
+
+  if (sport === 'swim' && profile.customHrZonesSwim) {
+    return defaultZones.map((z) => {
+      const custom = profile.customHrZonesSwim?.[z.zone];
       if (custom) {
         return {
           ...z,
@@ -527,6 +559,112 @@ export function getAthletePaceZones(profile: AthleteProfile, isTreadmill = false
           minPaceSec: custom.minPaceSec,
           maxPaceSec: custom.maxPaceSec,
           rangeFormatted: z.zone === 5 ? `<${formatSecondsToMinSec(custom.minPaceSec)}/km` : z.zone === 1 ? `>${formatSecondsToMinSec(custom.minPaceSec)}/km` : `${formatSecondsToMinSec(custom.minPaceSec)} - ${formatSecondsToMinSec(custom.maxPaceSec)}/km`,
+        };
+      }
+      return z;
+    });
+  }
+
+  return defaultZones;
+}
+
+// --------------------------------------------------------------------------
+// Swimming Pace Zones (Based on Critical Swim Speed - CSS Test)
+// --------------------------------------------------------------------------
+
+/**
+ * Swimming Pace Zones derived from Critical Swim Speed (CSS):
+ * Z1 (Recovery/Easy): CSS +15 to +25 seconds
+ * Z2 (Endurance/Ironman): CSS +8 to +15 seconds
+ * Z3 (Tempo/Steady aerobic): CSS +3 to +8 seconds
+ * Z4 (Threshold/CSS): CSS -2 to +2 seconds
+ * Z5 (VO2 Max): CSS -2 to -10 seconds
+ */
+export function getAthleteSwimPaceZones(profile: AthleteProfile): PaceZone[] {
+  let cssSec = 90;
+  if (
+    profile.swim100mTimeSec &&
+    profile.swim400mTimeSec &&
+    profile.swim400mTimeSec > profile.swim100mTimeSec
+  ) {
+    const cssResult = calculateCss(profile.swim100mTimeSec, profile.swim400mTimeSec);
+    cssSec = cssResult.cssPace100mSec;
+  } else if (profile.swimPoolPace100mSec) {
+    cssSec = profile.swimPoolPace100mSec;
+  }
+
+  const z1Fast = Math.max(1, cssSec + 15);
+  const z1Slow = Math.max(1, cssSec + 25);
+
+  const z2Fast = Math.max(1, cssSec + 8);
+  const z2Slow = Math.max(1, cssSec + 15);
+
+  const z3Fast = Math.max(1, cssSec + 3);
+  const z3Slow = Math.max(1, cssSec + 8);
+
+  const z4Fast = Math.max(1, cssSec - 2);
+  const z4Slow = Math.max(1, cssSec + 2);
+
+  const z5Fast = Math.max(1, cssSec - 10);
+  const z5Slow = Math.max(1, cssSec - 2);
+
+  const defaultZones: PaceZone[] = [
+    {
+      zone: 1,
+      name: 'Recovery / Easy',
+      minPaceSec: z1Fast,
+      maxPaceSec: z1Slow,
+      rangeFormatted: `${formatSecondsToMinSec(z1Fast)} - ${formatSecondsToMinSec(z1Slow)}/100m`,
+      color: '#00e5ff', // Cyan
+      description: 'CSS +15 to +25s | Easy recovery, warm-up, drills, flushing lactate',
+    },
+    {
+      zone: 2,
+      name: 'Endurance / Ironman',
+      minPaceSec: z2Fast,
+      maxPaceSec: z2Slow,
+      rangeFormatted: `${formatSecondsToMinSec(z2Fast)} - ${formatSecondsToMinSec(z2Slow)}/100m`,
+      color: '#00b0ff', // Blue
+      description: 'CSS +8 to +15s | Aerobic base endurance, long continuous sets, Ironman race pace',
+    },
+    {
+      zone: 3,
+      name: 'Tempo / Steady Aerobic',
+      minPaceSec: z3Fast,
+      maxPaceSec: z3Slow,
+      rangeFormatted: `${formatSecondsToMinSec(z3Fast)} - ${formatSecondsToMinSec(z3Slow)}/100m`,
+      color: '#00e676', // Green
+      description: 'CSS +3 to +8s | Steady aerobic rhythm, half-Ironman pace, sustained endurance',
+    },
+    {
+      zone: 4,
+      name: 'Threshold / CSS',
+      minPaceSec: z4Fast,
+      maxPaceSec: z4Slow,
+      rangeFormatted: `${formatSecondsToMinSec(z4Fast)} - ${formatSecondsToMinSec(z4Slow)}/100m`,
+      color: '#ffea00', // Yellow
+      description: 'CSS -2 to +2s | Critical Swim Speed, anaerobic threshold, Olympic distance pace',
+    },
+    {
+      zone: 5,
+      name: 'VO2 Max',
+      minPaceSec: z5Fast,
+      maxPaceSec: z5Slow,
+      rangeFormatted: `${formatSecondsToMinSec(z5Fast)} - ${formatSecondsToMinSec(z5Slow)}/100m`,
+      color: '#ff1744', // Red
+      description: 'CSS -2 to -10s | VO2 max intervals, sprint speed, high anaerobic turnover',
+    },
+  ];
+
+  if (profile.customPaceZonesSwim) {
+    return defaultZones.map((z) => {
+      const custom = profile.customPaceZonesSwim?.[z.zone];
+      if (custom) {
+        return {
+          ...z,
+          minPaceSec: custom.minPaceSec,
+          maxPaceSec: custom.maxPaceSec,
+          rangeFormatted: `${formatSecondsToMinSec(custom.minPaceSec)} - ${formatSecondsToMinSec(custom.maxPaceSec)}/100m`,
         };
       }
       return z;
