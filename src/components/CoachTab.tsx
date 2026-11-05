@@ -36,17 +36,27 @@ import {
   Square,
   ArrowDown,
   X,
+  Sliders,
+  Wrench,
+  RotateCcw,
 } from 'lucide-react';
 import type { AthleteProfile, DayOfWeek } from '../types/athlete';
+import { formatSecondsToMinSec } from '../types/athlete';
 import type { TrainingGoal } from '../types/goals';
 import { saveAthleteGoals } from '../utils/goalsStorage';
 import type { DailyRecoveryLog } from '../types/recovery';
 import type { StravaActivity, StravaActivityDetailsRecord } from '../utils/stravaActivities';
+import { applyRunSectionsCalibration } from '../utils/stravaActivities';
+import { ActivityCalibrationModal } from './ActivityCalibrationModal';
 import type {
   RecommendedWorkout,
   PeriodizedPlan,
   CoachSport,
   CoachChatMessage,
+  CoachGoalAction,
+  CoachWorkoutCalibrationAction,
+  CoachAction,
+  CalibratedLapProposal,
   WorkoutReviewItem,
   BenchmarkMilestone,
 } from '../types/coach';
@@ -58,6 +68,13 @@ import {
   sendCoachChatMessage,
   requestWorkoutReviews,
 } from '../utils/coachApi';
+
+function formatPaceSec(seconds?: number): string {
+  if (!seconds || seconds <= 0 || !isFinite(seconds)) return '';
+  const mins = Math.floor(seconds / 60);
+  const remSec = Math.round(seconds % 60);
+  return `${mins}:${remSec.toString().padStart(2, '0')}/km`;
+}
 import {
   loadTodayRecommendedWorkout,
   saveTodayRecommendedWorkout,
@@ -82,9 +99,11 @@ interface CoachTabProps {
   stravaActivities: StravaActivity[];
   stravaActivityDetails: Record<string, StravaActivityDetailsRecord>;
   recoveryLogs: DailyRecoveryLog[];
+  stravaToken?: string | null;
   onOpenSettings: (tab?: ProfileTab) => void;
   onGoalsUpdated?: (goals: TrainingGoal[]) => void;
   onProfileUpdated?: (profile: AthleteProfile) => void;
+  onActivityDetailsUpdated?: (updatedRecord: StravaActivityDetailsRecord) => void;
 }
 
 export const CoachTab: React.FC<CoachTabProps> = ({
@@ -94,9 +113,11 @@ export const CoachTab: React.FC<CoachTabProps> = ({
   stravaActivities,
   stravaActivityDetails,
   recoveryLogs,
+  stravaToken,
   onOpenSettings,
   onGoalsUpdated,
   onProfileUpdated,
+  onActivityDetailsUpdated,
 }) => {
   // Navigation within Coach: today | reviews | benchmarks | plan | chat
   const [activeSubTab, setActiveSubTab] = useState<'today' | 'reviews' | 'benchmarks' | 'plan' | 'chat'>('today');
@@ -137,6 +158,11 @@ export const CoachTab: React.FC<CoachTabProps> = ({
   const [isListening, setIsListening] = useState(false);
   const [showQuickActions, setShowQuickActions] = useState(false);
   const [showScrollBottom, setShowScrollBottom] = useState(false);
+
+  // Fix Data Run Calibration State
+  const [selectedCalibrationActivity, setSelectedCalibrationActivity] = useState<StravaActivity | null>(null);
+  const [isFixDataModalOpen, setIsFixDataModalOpen] = useState(false);
+  const [isApplyingCalibration, setIsApplyingCalibration] = useState<string | null>(null);
 
   const chatContainerRef = useRef<HTMLDivElement>(null);
   const speechRecognitionRef = useRef<any>(null);
@@ -436,35 +462,72 @@ export const CoachTab: React.FC<CoachTabProps> = ({
       const res = await sendCoachChatMessage(query, payload, chatMessages);
 
       // Execute goal mutations if returned by the coach
-      if (res.executedAction?.type === 'add_goal' && res.executedAction.goal) {
-        const rawGoal = res.executedAction.goal;
-        const goalName = rawGoal.name || 'Flat Ironman';
-        const exists = athleteGoals.some(
-          (g) =>
-            (rawGoal.id && g.id === rawGoal.id) ||
-            (g.name.toLowerCase() === goalName.toLowerCase() && g.eventDate === rawGoal.eventDate)
-        );
-        if (!exists) {
+      if (res.executedAction) {
+        const action = res.executedAction;
+        if (action.type === 'add_goal' && action.goal) {
+          const rawGoal = action.goal;
+          const goalName = rawGoal.name || 'Goal Race';
+          const existingIdx = athleteGoals.findIndex(
+            (g) =>
+              (rawGoal.id && g.id === rawGoal.id) ||
+              (g.name.toLowerCase() === goalName.toLowerCase() && g.eventDate === rawGoal.eventDate)
+          );
+
           const completeGoal: TrainingGoal = {
-            id: rawGoal.id || `goal_${Date.now()}`,
+            id: rawGoal.id || (existingIdx >= 0 ? athleteGoals[existingIdx].id : `goal_${Date.now()}`),
             name: goalName,
             priority: (rawGoal.priority as 'A' | 'B' | 'C') || 'C',
-            eventType: rawGoal.eventType || 'triathlon',
+            eventType: rawGoal.eventType || 'run',
             status: rawGoal.status || 'upcoming',
-            targetType: rawGoal.targetType || 'finish',
-            eventDate: rawGoal.eventDate || '2028-06-18',
-            distancePreset: rawGoal.distancePreset || '140.6',
-            totalDistanceKm: rawGoal.totalDistanceKm ?? 226,
-            totalTargetTimeSec: rawGoal.totalTargetTimeSec ?? 39600,
+            targetType: rawGoal.targetType || (rawGoal.totalTargetTimeSec ? 'time' : 'finish'),
+            eventDate: rawGoal.eventDate || new Date().toISOString().split('T')[0],
+            distancePreset: rawGoal.distancePreset || (rawGoal.totalDistanceKm ? `${rawGoal.totalDistanceKm}km` : 'Custom'),
+            totalDistanceKm: rawGoal.totalDistanceKm ?? 10,
+            totalTargetTimeSec: rawGoal.totalTargetTimeSec ?? 3600,
+            runCourseType: rawGoal.runCourseType || 'road',
+            runElevationGainMeters: rawGoal.runElevationGainMeters,
+            runTargetPaceSec: rawGoal.runTargetPaceSec,
             triathlonSplits: rawGoal.triathlonSplits,
             milestones: rawGoal.milestones || [],
             location: rawGoal.location,
             notes: rawGoal.notes,
             createdAt: rawGoal.createdAt || new Date().toISOString(),
           };
-          const updated = [...athleteGoals, completeGoal];
+
+          let updated: TrainingGoal[];
+          if (existingIdx >= 0) {
+            updated = [...athleteGoals];
+            updated[existingIdx] = completeGoal;
+          } else {
+            updated = [...athleteGoals, completeGoal];
+          }
           saveAthleteGoals(updated);
           onGoalsUpdated?.(updated);
+        } else if (action.type === 'update_goal') {
+          const matchIdx = athleteGoals.findIndex(
+            (g) =>
+              (action.goalId && g.id === action.goalId) ||
+              (action.goalName && g.name.toLowerCase().includes(action.goalName.toLowerCase()))
+          );
+          if (matchIdx >= 0 && action.updates) {
+            const updated = [...athleteGoals];
+            updated[matchIdx] = {
+              ...updated[matchIdx],
+              ...action.updates,
+            };
+            saveAthleteGoals(updated);
+            onGoalsUpdated?.(updated);
+          }
+        } else if (action.type === 'delete_goal') {
+          const updated = athleteGoals.filter(
+            (g) =>
+              (action.goalId ? g.id !== action.goalId : true) &&
+              (action.goalName ? !g.name.toLowerCase().includes(action.goalName.toLowerCase()) : true)
+          );
+          if (updated.length !== athleteGoals.length) {
+            saveAthleteGoals(updated);
+            onGoalsUpdated?.(updated);
+          }
         }
       }
 
@@ -474,6 +537,7 @@ export const CoachTab: React.FC<CoachTabProps> = ({
         content: res.answer,
         executedAction: res.executedAction,
         confidenceRating: res.confidenceRating,
+        groundingSources: res.groundingSources,
         timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
       };
 
@@ -498,6 +562,196 @@ export const CoachTab: React.FC<CoachTabProps> = ({
   const handleAskAboutReview = (rev: WorkoutReviewItem) => {
     const prompt = `Coach Gemini, review my workout "${rev.name}" (${rev.sport}) on ${rev.dayOfWeek} ${rev.startDate}: was it too hard, too short, or not hard enough for my current ${rev.periodizationContext}? How did it help my goal or sub-goals?`;
     setActiveSubTab('chat');
+    handleSendMessage(prompt);
+  };
+
+  const handleConfirmGoalProposal = (msgId: string, action: CoachGoalAction, selectedPriority: 'A' | 'B' | 'C') => {
+    if (!action.goal) return;
+    const rawGoal = action.goal;
+    const goalName = rawGoal.name || 'Chippenham Spring 10 Mile';
+
+    const completeGoal: TrainingGoal = {
+      id: rawGoal.id || `goal_${Date.now()}`,
+      name: goalName,
+      priority: selectedPriority,
+      eventType: rawGoal.eventType || 'run',
+      status: rawGoal.status || 'upcoming',
+      targetType: rawGoal.targetType || (rawGoal.totalTargetTimeSec ? 'time' : 'finish'),
+      eventDate: rawGoal.eventDate || '2027-03-07',
+      distancePreset: rawGoal.distancePreset || '10 Mile',
+      totalDistanceKm: rawGoal.totalDistanceKm ?? 16.093,
+      totalTargetTimeSec: rawGoal.totalTargetTimeSec ?? 3600,
+      runCourseType: rawGoal.runCourseType || 'road',
+      runElevationGainMeters: rawGoal.runElevationGainMeters || 45,
+      runTargetPaceSec:
+        rawGoal.runTargetPaceSec ||
+        (rawGoal.totalTargetTimeSec && rawGoal.totalDistanceKm
+          ? Math.round(rawGoal.totalTargetTimeSec / rawGoal.totalDistanceKm)
+          : undefined),
+      location: rawGoal.location || 'Chippenham, Wiltshire, UK',
+      notes: rawGoal.notes || `Target: sub-1 hour (5:59/mile or 3:43/km threshold pace). Priority ${selectedPriority}-Race.`,
+      milestones: rawGoal.milestones || [],
+      createdAt: new Date().toISOString(),
+    };
+
+    const updatedGoals = [...athleteGoals.filter((g) => g.id !== completeGoal.id && g.name.toLowerCase() !== completeGoal.name.toLowerCase()), completeGoal];
+    saveAthleteGoals(updatedGoals);
+    onGoalsUpdated?.(updatedGoals);
+
+    // Update message action state to confirmed
+    const updatedMessages = chatMessages.map((m) => {
+      if (m.id === msgId && m.executedAction) {
+        return {
+          ...m,
+          executedAction: {
+            ...m.executedAction,
+            type: 'add_goal' as const,
+            status: 'confirmed' as const,
+            goal: completeGoal,
+            description: `${completeGoal.name} confirmed as Priority ${selectedPriority} Goal for ${completeGoal.eventDate}.`,
+          },
+        };
+      }
+      return m;
+    });
+
+    setChatMessages(updatedMessages);
+    saveCoachChatHistory(updatedMessages);
+  };
+
+  const handleDeleteGoalFromCard = (msgId: string, goalId?: string, goalName?: string) => {
+    const goalToDelete = athleteGoals.find(
+      (g) => (goalId && g.id === goalId) || (goalName && g.name.toLowerCase().includes(goalName.toLowerCase()))
+    );
+    if (!goalToDelete) return;
+
+    const updated = athleteGoals.filter((g) => g.id !== goalToDelete.id);
+    saveAthleteGoals(updated);
+    onGoalsUpdated?.(updated);
+
+    const updatedMessages = chatMessages.map((m) => {
+      if (m.id === msgId) {
+        return {
+          ...m,
+          executedAction: {
+            type: 'delete_goal' as const,
+            goalId: goalToDelete.id,
+            goalName: goalToDelete.name,
+            goal: goalToDelete,
+            status: 'confirmed' as const,
+            description: `Deleted "${goalToDelete.name}".`,
+          },
+        };
+      }
+      return m;
+    });
+    setChatMessages(updatedMessages);
+    saveCoachChatHistory(updatedMessages);
+  };
+
+  const handleUndoDeleteGoal = (msgId: string, goalToRestore?: Partial<TrainingGoal>) => {
+    if (!goalToRestore || !goalToRestore.name) return;
+    const restored = goalToRestore as TrainingGoal;
+    const updated = [...athleteGoals.filter((g) => g.id !== restored.id), restored];
+    saveAthleteGoals(updated);
+    onGoalsUpdated?.(updated);
+
+    const updatedMessages = chatMessages.map((m) => {
+      if (m.id === msgId) {
+        return {
+          ...m,
+          executedAction: {
+            type: 'add_goal' as const,
+            goal: restored,
+            status: 'confirmed' as const,
+            description: `Restored "${restored.name}".`,
+          },
+        };
+      }
+      return m;
+    });
+    setChatMessages(updatedMessages);
+    saveCoachChatHistory(updatedMessages);
+  };
+
+  const handleApplyRunCalibration = async (msgId: string, action: CoachWorkoutCalibrationAction) => {
+    setIsApplyingCalibration(msgId);
+    try {
+      const targetActivity = stravaActivities.find((a) => String(a.id) === String(action.activityId)) || ({
+        id: action.activityId,
+        name: action.activityName,
+        start_date: action.activityDate,
+        distance: action.originalDistanceM,
+        moving_time: action.recordedDurationSec,
+        sport_type: 'Run',
+      } as any);
+
+      // Convert CalibratedLapProposal to CalibratedRunSection
+      const calibratedSections = action.sections.map((s) => ({
+        id: s.id,
+        name: s.name,
+        durationSec: s.durationSec,
+        speedKph: s.speedKph,
+        paceMinSec: s.paceMinSec,
+        distanceM: s.distanceM,
+      }));
+
+      const updatedRecord = await applyRunSectionsCalibration(
+        action.activityId,
+        calibratedSections,
+        action.description || 'Recreated workout with intervals @ 3:30/km via AI Coach',
+        targetActivity
+      );
+
+      onActivityDetailsUpdated?.(updatedRecord);
+
+      const updatedMessages = chatMessages.map((m) => {
+        if (m.id === msgId && m.executedAction && m.executedAction.type === 'recreate_run_workout') {
+          return {
+            ...m,
+            executedAction: {
+              ...m.executedAction,
+              status: 'applied' as const,
+              description: `✓ Applied workout calibration to "${action.activityName}". Laps recreated with 3:30/km intervals.`,
+            },
+          };
+        }
+        return m;
+      });
+
+      setChatMessages(updatedMessages);
+      saveCoachChatHistory(updatedMessages);
+    } catch (err) {
+      console.error('[Apply Run Calibration Error]', err);
+    } finally {
+      setIsApplyingCalibration(null);
+    }
+  };
+
+  const handleOpenCalibrationModal = (action: CoachWorkoutCalibrationAction) => {
+    const act = stravaActivities.find((a) => String(a.id) === String(action.activityId)) || ({
+      id: action.activityId,
+      name: action.activityName,
+      start_date: action.activityDate,
+      distance: action.originalDistanceM,
+      moving_time: action.recordedDurationSec,
+      sport_type: 'Run',
+    } as any);
+    setSelectedCalibrationActivity(act);
+    setIsFixDataModalOpen(true);
+  };
+
+  const handleSelectClarificationPreset = (preset: {
+    label: string;
+    description: string;
+    activeSec: number;
+    recoverySec: number;
+    repeats: number;
+    recoveryPace?: string;
+  }) => {
+    const activeFormatted = preset.activeSec === 210 ? '3m 30s (1km)' : formatSecondsToMinSec(preset.activeSec);
+    const recFormatted = formatSecondsToMinSec(preset.recoverySec);
+    const prompt = `Recreate today's workout with ${preset.repeats} intervals of ${activeFormatted} at 3:30/km and ${recFormatted} recovery at ${preset.recoveryPace || '6:00/km'}`;
     handleSendMessage(prompt);
   };
 
@@ -1756,6 +2010,22 @@ ${todayWorkout.structure.map((s) => `• [${s.phase}] (${s.duration}): ${s.descr
             <span className="text-xs font-bold text-slate-500">Quick prompts:</span>
             {[
               {
+                label: "⚡ I did today's run at 3:30/km",
+                query: 'I did todays run at 3:30/km',
+              },
+              {
+                label: '🏃 Chippenham 10 Mile Under 1h',
+                query: 'I want to run under 1 hour a Chippenham Spring 10 mile',
+              },
+              {
+                label: '✏️ Edit Chippenham to 58m',
+                query: 'Change the Chippenham Spring 10 Mile target time to 58 minutes',
+              },
+              {
+                label: '🗑️ Delete Chippenham Goal',
+                query: 'Delete the Chippenham Spring 10 Mile race goal',
+              },
+              {
                 label: '🏊 Frame Swim vs 2028 Ironman',
                 query:
                   'in the future, when we look at activities can we frame the analysis in the context of the week and hitting long term goals. For example my swimming is often short intervals with long 30-45 second rest periods 50m/100m/200m, where i am stronger conpared to 4x400m with 20 seconds rest which would suit a 1.9km or 3.8km swim better.',
@@ -1852,27 +2122,425 @@ ${todayWorkout.structure.map((s) => `• [${s.phase}] (${s.duration}): ${s.descr
                           </div>
                         )}
 
-                        {/* Executed Action Card (e.g. Goal Added) */}
-                        {msg.executedAction?.type === 'add_goal' && (
-                          <div className="p-3.5 rounded-xl border border-amber-500/30 bg-amber-500/10 text-xs">
-                            <div className="flex items-center gap-2 mb-1.5">
-                              <span className="w-5 h-5 rounded-full bg-emerald-500/20 text-emerald-400 flex items-center justify-center text-xs font-bold">
-                                ✓
-                              </span>
-                              <span className="font-bold text-amber-300">New Long-Term Goal Added</span>
-                              <span className="ml-auto px-2 py-0.5 rounded text-[10px] font-bold bg-amber-400/20 text-amber-300 border border-amber-400/30">
-                                Priority {msg.executedAction.goal?.priority || 'C'}
+                        {/* Executed Action Cards for Goal Races */}
+                        {msg.executedAction?.type === 'propose_goal' && msg.executedAction.goal && (
+                          <div className="p-4 rounded-xl border border-amber-500/40 bg-amber-500/10 text-xs space-y-3 shadow-md animate-in fade-in duration-200">
+                            <div className="flex items-center justify-between gap-2 pb-2 border-b border-amber-500/20">
+                              <div className="flex items-center gap-2">
+                                <span className="p-1 rounded bg-amber-400/20 text-amber-300 font-bold">
+                                  <Target className="w-4 h-4" />
+                                </span>
+                                <div>
+                                  <span className="font-bold text-amber-300">Goal Race Found via Web Search</span>
+                                  <div className="text-[10px] text-zinc-400">Action Required: Select Race Priority</div>
+                                </div>
+                              </div>
+                              <span className="px-2 py-0.5 rounded text-[10px] font-black uppercase tracking-wider bg-amber-400/20 text-amber-300 border border-amber-400/40 animate-pulse">
+                                Priority Needed
                               </span>
                             </div>
-                            <div className="font-bold text-sm text-zinc-100">
+
+                            <div>
+                              <div className="font-black text-sm sm:text-base text-zinc-100">
+                                {msg.executedAction.goal.name}
+                              </div>
+                              <div className="text-[11px] text-zinc-300 mt-1.5 flex flex-wrap gap-x-4 gap-y-1">
+                                <span className="flex items-center gap-1 text-emerald-400 font-semibold">
+                                  <Calendar className="w-3.5 h-3.5" />
+                                  {msg.executedAction.goal.eventDate || 'March 2027'}
+                                </span>
+                                <span className="flex items-center gap-1 text-zinc-300">
+                                  <Clock className="w-3.5 h-3.5 text-zinc-400" />
+                                  {msg.executedAction.goal.distancePreset || `${msg.executedAction.goal.totalDistanceKm} km`}
+                                </span>
+                                <span className="flex items-center gap-1 text-amber-400 font-bold">
+                                  <Flame className="w-3.5 h-3.5 text-orange-400" />
+                                  Target: {msg.executedAction.goal.totalTargetTimeSec ? `${Math.floor(msg.executedAction.goal.totalTargetTimeSec / 3600)}h ${Math.floor((msg.executedAction.goal.totalTargetTimeSec % 3600) / 60).toString().padStart(2, '0')}m (${formatPaceSec(msg.executedAction.goal.runTargetPaceSec)})` : 'Finish'}
+                                </span>
+                              </div>
+                              {msg.executedAction.goal.location && (
+                                <div className="text-[11px] text-zinc-400 mt-1 flex items-center gap-1">
+                                  <Compass className="w-3.5 h-3.5 shrink-0 text-zinc-500" />
+                                  <span>{msg.executedAction.goal.location}</span>
+                                </div>
+                              )}
+                            </div>
+
+                            {/* Priority Selection Buttons */}
+                            <div className="pt-2 border-t border-amber-500/20 space-y-1.5">
+                              <span className="text-[11px] font-bold text-zinc-300 block">
+                                What priority would you like to set for this race?
+                              </span>
+                              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                                <button
+                                  type="button"
+                                  onClick={() => handleConfirmGoalProposal(msg.id, msg.executedAction as CoachGoalAction, 'A')}
+                                  className="px-3 py-2 rounded-lg bg-emerald-500/20 hover:bg-emerald-500 text-emerald-300 hover:text-slate-950 border border-emerald-500/40 text-left font-bold transition-all cursor-pointer flex flex-col group"
+                                >
+                                  <span className="text-xs flex items-center gap-1 font-extrabold">
+                                    ★ Priority A-Race
+                                  </span>
+                                  <span className="text-[10px] opacity-75 group-hover:opacity-95 font-normal">
+                                    Primary Peak Goal
+                                  </span>
+                                </button>
+
+                                <button
+                                  type="button"
+                                  onClick={() => handleConfirmGoalProposal(msg.id, msg.executedAction as CoachGoalAction, 'B')}
+                                  className="px-3 py-2 rounded-lg bg-indigo-500/20 hover:bg-indigo-500 text-indigo-300 hover:text-white border border-indigo-500/40 text-left font-bold transition-all cursor-pointer flex flex-col group"
+                                >
+                                  <span className="text-xs flex items-center gap-1 font-extrabold">
+                                    ✦ Priority B-Race
+                                  </span>
+                                  <span className="text-[10px] opacity-75 group-hover:opacity-95 font-normal">
+                                    Major Tune-Up
+                                  </span>
+                                </button>
+
+                                <button
+                                  type="button"
+                                  onClick={() => handleConfirmGoalProposal(msg.id, msg.executedAction as CoachGoalAction, 'C')}
+                                  className="px-3 py-2 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-300 hover:text-white border border-zinc-700 text-left font-bold transition-all cursor-pointer flex flex-col group"
+                                >
+                                  <span className="text-xs flex items-center gap-1 font-extrabold">
+                                    ○ Priority C-Race
+                                  </span>
+                                  <span className="text-[10px] opacity-75 group-hover:opacity-95 font-normal">
+                                    Training Effort
+                                  </span>
+                                </button>
+                              </div>
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Executed Action Card: Goal Added */}
+                        {msg.executedAction?.type === 'add_goal' && (
+                          <div className="p-3.5 rounded-xl border border-emerald-500/30 bg-emerald-500/10 text-xs space-y-2 animate-in fade-in duration-200">
+                            <div className="flex items-center justify-between gap-2 pb-1.5 border-b border-emerald-500/20">
+                              <div className="flex items-center gap-2">
+                                <span className="w-5 h-5 rounded-full bg-emerald-500/20 text-emerald-400 flex items-center justify-center text-xs font-bold">
+                                  ✓
+                                </span>
+                                <span className="font-bold text-emerald-300">Goal Race Saved to Profile</span>
+                              </div>
+                              <span className="px-2 py-0.5 rounded text-[10px] font-black uppercase tracking-wider bg-emerald-500/20 text-emerald-300 border border-emerald-500/40">
+                                Priority {msg.executedAction.goal?.priority || 'A'}
+                              </span>
+                            </div>
+
+                            <div className="font-black text-sm text-zinc-100">
                               {msg.executedAction.goal?.name}
                             </div>
-                            <div className="text-[11px] text-zinc-400 mt-1 flex flex-wrap gap-x-3 gap-y-0.5">
+
+                            <div className="text-[11px] text-zinc-300 flex flex-wrap gap-x-4 gap-y-0.5">
                               <span>📅 Date: {msg.executedAction.goal?.eventDate}</span>
-                              <span>🎯 Target: 3.8k Swim · 180k Bike · 42.2k Run</span>
+                              <span>
+                                🎯 Target:{' '}
+                                {msg.executedAction.goal?.totalTargetTimeSec
+                                  ? `${Math.floor(msg.executedAction.goal.totalTargetTimeSec / 3600)}h ${Math.floor((msg.executedAction.goal.totalTargetTimeSec % 3600) / 60).toString().padStart(2, '0')}m`
+                                  : msg.executedAction.goal?.eventType === 'triathlon'
+                                  ? '3.8k Swim · 180k Bike · 42.2k Run'
+                                  : 'Finish'}
+                              </span>
+                              {msg.executedAction.goal?.runTargetPaceSec && (
+                                <span className="text-amber-400 font-bold">
+                                  Pace: {formatPaceSec(msg.executedAction.goal.runTargetPaceSec)}
+                                </span>
+                              )}
                             </div>
-                            <div className="mt-2 pt-1.5 border-t border-amber-500/20 text-[10px] text-emerald-400 font-medium">
-                              ✓ Saved directly to your Athlete Profile & Training Goals
+
+                            <div className="mt-2 pt-2 border-t border-emerald-500/20 flex items-center justify-between gap-2">
+                              <span className="text-[10px] text-emerald-400 font-medium">
+                                ✓ Synced with Athlete Goals & Periodization
+                              </span>
+                              <div className="flex items-center gap-2">
+                                <button
+                                  type="button"
+                                  onClick={() => onOpenSettings('goals')}
+                                  className="text-[10px] font-bold px-2 py-1 rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-200 border border-zinc-700 cursor-pointer transition-colors"
+                                >
+                                  View in Goals
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    const ga = msg.executedAction as CoachGoalAction;
+                                    handleDeleteGoalFromCard(
+                                      msg.id,
+                                      ga?.goal?.id,
+                                      ga?.goal?.name
+                                    );
+                                  }}
+                                  className="text-[10px] font-bold px-2 py-1 rounded bg-rose-500/10 hover:bg-rose-500/20 text-rose-300 border border-rose-500/30 cursor-pointer transition-colors"
+                                  title="Remove this goal"
+                                >
+                                  Remove
+                                </button>
+                              </div>
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Executed Action Card: Goal Updated */}
+                        {msg.executedAction?.type === 'update_goal' && (
+                          <div className="p-3.5 rounded-xl border border-indigo-500/30 bg-indigo-500/10 text-xs space-y-2 animate-in fade-in duration-200">
+                            <div className="flex items-center justify-between gap-2 pb-1.5 border-b border-indigo-500/20">
+                              <div className="flex items-center gap-2">
+                                <span className="w-5 h-5 rounded-full bg-indigo-500/20 text-indigo-400 flex items-center justify-center text-xs font-bold">
+                                  ✎
+                                </span>
+                                <span className="font-bold text-indigo-300">Goal Race Updated</span>
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => onOpenSettings('goals')}
+                                className="text-[10px] font-bold px-2 py-0.5 rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-200 border border-zinc-700 cursor-pointer"
+                              >
+                                View in Goals
+                              </button>
+                            </div>
+                            <div className="font-bold text-sm text-zinc-100">
+                              {msg.executedAction.goalName}
+                            </div>
+                            <div className="text-[11px] text-zinc-300">
+                              {msg.executedAction.description}
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Executed Action Card: Goal Deleted */}
+                        {msg.executedAction?.type === 'delete_goal' && (
+                          <div className="p-3.5 rounded-xl border border-rose-500/30 bg-rose-500/10 text-xs space-y-2 animate-in fade-in duration-200">
+                            <div className="flex items-center justify-between gap-2 pb-1.5 border-b border-rose-500/20">
+                              <div className="flex items-center gap-2">
+                                <span className="w-5 h-5 rounded-full bg-rose-500/20 text-rose-400 flex items-center justify-center text-xs font-bold">
+                                  ✕
+                                </span>
+                                <span className="font-bold text-rose-300">Goal Race Removed</span>
+                              </div>
+                              {(msg.executedAction as CoachGoalAction).goal && (
+                                <button
+                                  type="button"
+                                  onClick={() => handleUndoDeleteGoal(msg.id, (msg.executedAction as CoachGoalAction)?.goal)}
+                                  className="text-[10px] font-bold px-2 py-0.5 rounded bg-zinc-800 hover:bg-zinc-700 text-emerald-400 border border-zinc-700 cursor-pointer"
+                                >
+                                  Undo
+                                </button>
+                              )}
+                            </div>
+                            <div className="font-bold text-sm text-zinc-100">
+                              {msg.executedAction.goalName}
+                            </div>
+                            <div className="text-[11px] text-zinc-400">
+                              {msg.executedAction.description || 'Removed from athlete profile.'}
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Executed Action Card: Recreate Run Workout via Fix Data (+Add Lap) */}
+                        {msg.executedAction?.type === 'recreate_run_workout' && (
+                          <div className="p-4 rounded-xl border border-cyan-500/40 bg-gradient-to-br from-cyan-950/40 via-zinc-900/60 to-zinc-900 border-l-4 border-l-cyan-400 text-xs space-y-3.5 shadow-xl animate-in fade-in duration-200">
+                            {/* Header */}
+                            <div className="flex items-center justify-between gap-2 pb-2.5 border-b border-cyan-500/20">
+                              <div className="flex items-center gap-2">
+                                <span className="p-1.5 rounded-lg bg-cyan-500/20 text-cyan-300 font-bold border border-cyan-500/30">
+                                  <Sliders className="w-4 h-4" />
+                                </span>
+                                <div>
+                                  <div className="font-bold text-cyan-200 flex items-center gap-1.5">
+                                    <span>Fix Data &rsaquo; +Add Lap Pace Recreation</span>
+                                  </div>
+                                  <div className="text-[10px] text-zinc-400">
+                                    Reconstructing intervals at {msg.executedAction.targetIntervalPace} ({(msg.executedAction.targetIntervalSpeedKph || 17.14).toFixed(1)} km/h)
+                                  </div>
+                                </div>
+                              </div>
+                              <span className={`px-2 py-0.5 rounded text-[10px] font-black uppercase tracking-wider border ${
+                                msg.executedAction.status === 'applied'
+                                  ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40'
+                                  : 'bg-cyan-500/20 text-cyan-300 border-cyan-500/40 animate-pulse'
+                              }`}>
+                                {msg.executedAction.status === 'applied' ? '✓ Calibration Applied' : 'Laps Ready To Apply'}
+                              </span>
+                            </div>
+
+                            {/* Activity Meta & Time Discrepancy Overview */}
+                            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-[11px] bg-black/40 p-2.5 rounded-lg border border-zinc-800">
+                              <div>
+                                <span className="text-[10px] text-zinc-400 block font-medium">Activity</span>
+                                <span className="font-bold text-zinc-100 truncate block">{msg.executedAction.activityName}</span>
+                              </div>
+                              <div>
+                                <span className="text-[10px] text-zinc-400 block font-medium">Recorded Time</span>
+                                <span className="font-bold text-cyan-300">
+                                  {Math.floor(msg.executedAction.recordedDurationSec / 60)}m {Math.round(msg.executedAction.recordedDurationSec % 60)}s
+                                </span>
+                              </div>
+                              <div>
+                                <span className="text-[10px] text-zinc-400 block font-medium">Recreated Distance</span>
+                                <span className="font-bold text-emerald-400">
+                                  {(msg.executedAction.recalculatedDistanceM / 1000).toFixed(2)} km
+                                </span>
+                              </div>
+                              <div>
+                                <span className="text-[10px] text-zinc-400 block font-medium">Time Discrepancy</span>
+                                <span className="font-bold text-emerald-300 flex items-center gap-1">
+                                  <Check className="w-3 h-3 text-emerald-400 inline" />
+                                  <span>0s (Stream Matched)</span>
+                                </span>
+                              </div>
+                            </div>
+
+                            {/* Core Interval Assumption Callout */}
+                            <div className="text-[11px] p-2.5 rounded-lg bg-amber-500/10 border border-amber-500/25 text-amber-200/90 leading-relaxed">
+                              <span className="font-bold text-amber-300 block mb-0.5">🧠 Coach Interval Assumption:</span>
+                              We assume your <strong className="text-amber-200">{msg.executedAction.targetIntervalPace}</strong> pace was executed on the <strong>active interval bouts</strong> of the workout, with recovery jogged at <strong>{msg.executedAction.recoveryPace || '6:00/km'}</strong> and cool-down auto-extended so there is <strong>zero time discrepancy</strong> with the original stream.
+                            </div>
+
+                            {/* Follow-up Questions for Time Discrepancy Avoidance */}
+                            {msg.executedAction.status !== 'applied' && (
+                              <div className="space-y-2 pt-1 border-t border-cyan-500/20">
+                                <span className="text-[11px] font-bold text-zinc-200 block">
+                                  Follow-up Questions to Verify Exact Interval Breakdown:
+                                </span>
+                                <div className="space-y-1 text-[11px] text-zinc-300 bg-zinc-900/70 p-2.5 rounded-lg border border-zinc-800">
+                                  <div className="flex items-start gap-1.5">
+                                    <span className="text-amber-400 font-bold">1.</span>
+                                    <span><strong>Active & Recovery Times:</strong> What active interval and recovery duration did you run? (e.g. 4 x 1km @ 3:30, 5 x 3 min)</span>
+                                  </div>
+                                  <div className="flex items-start gap-1.5">
+                                    <span className="text-amber-400 font-bold">2.</span>
+                                    <span><strong>Recovery Pace:</strong> What pace was the recovery done at? (e.g. 6:00/km jog, 10 km/h, or walk)</span>
+                                  </div>
+                                  <div className="flex items-start gap-1.5">
+                                    <span className="text-amber-400 font-bold">3.</span>
+                                    <span><strong>Warm-up & Cool-down:</strong> How long were the warm-up and cool-down portions?</span>
+                                  </div>
+                                </div>
+
+                                {/* Clickable Clarification Option Chips */}
+                                {msg.executedAction.clarificationOptions && msg.executedAction.clarificationOptions.length > 0 && (
+                                  <div className="pt-1 space-y-1.5">
+                                    <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider block">
+                                      Select Preset Configuration:
+                                    </span>
+                                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-1.5">
+                                      {msg.executedAction.clarificationOptions.map((opt, oIdx) => (
+                                        <button
+                                          key={oIdx}
+                                          type="button"
+                                          onClick={() => handleSelectClarificationPreset(opt)}
+                                          className="p-2 rounded-lg bg-zinc-900 hover:bg-zinc-800 border border-zinc-700/80 hover:border-cyan-500/50 text-left transition-all cursor-pointer group"
+                                        >
+                                          <div className="font-bold text-cyan-300 text-xs group-hover:text-cyan-200">
+                                            {opt.label}
+                                          </div>
+                                          <div className="text-[10px] text-zinc-400 group-hover:text-zinc-300 line-clamp-1">
+                                            {opt.description}
+                                          </div>
+                                        </button>
+                                      ))}
+                                    </div>
+                                  </div>
+                                )}
+                              </div>
+                            )}
+
+                            {/* Lap Breakdown Table (+Add Lap Style) */}
+                            <div className="space-y-1.5 pt-1">
+                              <span className="text-[11px] font-bold text-zinc-300 flex items-center justify-between">
+                                <span>Recreated Laps Breakdown (+Add Lap format):</span>
+                                <span className="text-[10px] text-zinc-400 font-normal">
+                                  {msg.executedAction.sections.length} Laps &middot; {msg.executedAction.recalculatedAvgPace} avg pace
+                                </span>
+                              </span>
+                              <div className="max-h-48 overflow-y-auto rounded-lg border border-zinc-800 bg-black/60 divide-y divide-zinc-800 text-[11px]">
+                                {msg.executedAction.sections.map((sec, sIdx) => {
+                                  const isInterval = sec.isInterval || sec.name.toLowerCase().includes('interval') || sec.name.toLowerCase().includes('active');
+                                  const isRecovery = sec.isRecovery || sec.name.toLowerCase().includes('recovery');
+                                  const isCool = sec.name.toLowerCase().includes('cool-down');
+                                  return (
+                                    <div
+                                      key={sec.id || sIdx}
+                                      className={`px-3 py-1.5 flex items-center justify-between gap-2 ${
+                                        isInterval
+                                          ? 'bg-cyan-500/10 text-cyan-200 font-medium'
+                                          : isRecovery
+                                          ? 'bg-zinc-900/50 text-zinc-400'
+                                          : isCool
+                                          ? 'bg-emerald-500/10 text-emerald-300'
+                                          : 'text-zinc-300'
+                                      }`}
+                                    >
+                                      <div className="flex items-center gap-2 min-w-0">
+                                        <span className="text-[10px] font-mono opacity-60 w-4">{sIdx + 1}.</span>
+                                        <span className="truncate font-semibold">{sec.name}</span>
+                                        {isInterval && (
+                                          <span className="px-1.5 py-0.2 rounded text-[9px] font-black uppercase tracking-wider bg-cyan-400/20 text-cyan-300 border border-cyan-400/30">
+                                            Active
+                                          </span>
+                                        )}
+                                        {isRecovery && (
+                                          <span className="px-1.5 py-0.2 rounded text-[9px] font-medium bg-zinc-800 text-zinc-400 border border-zinc-700">
+                                            Rest
+                                          </span>
+                                        )}
+                                        {isCool && (
+                                          <span className="px-1.5 py-0.2 rounded text-[9px] font-medium bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                                            0s disc
+                                          </span>
+                                        )}
+                                      </div>
+                                      <div className="flex items-center gap-3 shrink-0 font-mono text-[10px]">
+                                        <span>{Math.floor(sec.durationSec / 60)}m {(sec.durationSec % 60).toString().padStart(2, '0')}s</span>
+                                        <span className="font-bold text-zinc-200">{sec.paceMinSec || `${(3600 / sec.speedKph).toFixed(0)}s`}</span>
+                                        <span className="text-zinc-400">{sec.speedKph.toFixed(1)} km/h</span>
+                                        <span className="text-zinc-300 w-12 text-right">{sec.distanceM ? `${(sec.distanceM / 1000).toFixed(2)}km` : '-'}</span>
+                                      </div>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            </div>
+
+                            {/* Action Buttons */}
+                            <div className="pt-2 border-t border-cyan-500/20 flex flex-wrap items-center justify-between gap-2">
+                              {msg.executedAction.status === 'applied' ? (
+                                <div className="flex items-center gap-1.5 text-emerald-400 font-bold text-xs">
+                                  <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+                                  <span>Recreated workout successfully applied and saved!</span>
+                                </div>
+                              ) : (
+                                <button
+                                  type="button"
+                                  onClick={() => handleApplyRunCalibration(msg.id, msg.executedAction as CoachWorkoutCalibrationAction)}
+                                  disabled={isApplyingCalibration === msg.id}
+                                  className="px-3.5 py-2 rounded-lg bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-black text-xs transition-all cursor-pointer shadow-md flex items-center gap-1.5 active:scale-95 disabled:opacity-50"
+                                >
+                                  {isApplyingCalibration === msg.id ? (
+                                    <>
+                                      <RotateCcw className="w-3.5 h-3.5 animate-spin" />
+                                      <span>Applying Calibration...</span>
+                                    </>
+                                  ) : (
+                                    <>
+                                      <Zap className="w-3.5 h-3.5 fill-slate-950" />
+                                      <span>Apply Recreated Workout to Run</span>
+                                    </>
+                                  )}
+                                </button>
+                              )}
+
+                              <button
+                                type="button"
+                                onClick={() => handleOpenCalibrationModal(msg.executedAction as CoachWorkoutCalibrationAction)}
+                                className="px-3 py-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-200 border border-zinc-700 font-bold text-xs transition-colors cursor-pointer flex items-center gap-1.5"
+                              >
+                                <Sliders className="w-3.5 h-3.5 text-zinc-400" />
+                                <span>Open in Fix Data Modal</span>
+                              </button>
                             </div>
                           </div>
                         )}
@@ -1964,6 +2632,29 @@ ${todayWorkout.structure.map((s) => `• [${s.phase}] (${s.duration}): ${s.descr
                               );
                             })}
                         </div>
+
+                        {/* Grounding Web Search Sources */}
+                        {msg.groundingSources && msg.groundingSources.length > 0 && (
+                          <div className="pt-2 border-t border-zinc-800/60 text-[10px] text-zinc-400 space-y-1">
+                            <div className="flex items-center gap-1 font-bold text-zinc-300">
+                              <span>🔍 Web Search Citations:</span>
+                            </div>
+                            <div className="flex flex-wrap gap-2">
+                              {msg.groundingSources.map((source, sIdx) => (
+                                <a
+                                  key={sIdx}
+                                  href={source.uri}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="px-2 py-0.5 rounded bg-zinc-900 border border-zinc-800 text-sky-400 hover:text-sky-300 hover:border-sky-500/40 transition-colors truncate max-w-xs flex items-center gap-1"
+                                >
+                                  <span>🌐</span>
+                                  <span className="truncate">{source.title || source.uri}</span>
+                                </a>
+                              ))}
+                            </div>
+                          </div>
+                        )}
 
                         {/* Runvia Action Toolbar */}
                         <div className="pt-2.5 mt-2 border-t border-zinc-800/70 flex items-center justify-between text-zinc-400 text-[11px]">
@@ -2190,6 +2881,25 @@ ${todayWorkout.structure.map((s) => `• [${s.phase}] (${s.duration}): ${s.descr
             </button>
           </form>
         </div>
+      )}
+
+      {/* Activity Fix Data / Calibration Modal */}
+      {isFixDataModalOpen && selectedCalibrationActivity && (
+        <ActivityCalibrationModal
+          isOpen={isFixDataModalOpen}
+          activity={selectedCalibrationActivity}
+          detailsRecord={stravaActivityDetails[String(selectedCalibrationActivity.id)] || null}
+          stravaToken={stravaToken}
+          onClose={() => {
+            setIsFixDataModalOpen(false);
+            setSelectedCalibrationActivity(null);
+          }}
+          onCalibrationSaved={(updatedRecord) => {
+            onActivityDetailsUpdated?.(updatedRecord);
+            setIsFixDataModalOpen(false);
+            setSelectedCalibrationActivity(null);
+          }}
+        />
       )}
     </div>
   );

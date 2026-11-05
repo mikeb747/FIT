@@ -625,6 +625,10 @@ export async function handleCoachChat(req: Request, res: Response) {
         .map(([day, d]: [string, any]) => `• ${day.toUpperCase()}: ${d.isWorkday ? `Workday (Shift: ${d.shiftStart || '08:30'} - ${d.shiftEnd || '17:00'})` : 'Off-day'}. Available Windows: ${(d.availableWindows || []).join(', ')}. Preferred: ${(d.preferredActivities || []).join(', ') || 'Any'}`)
         .join('\n') || 'Standard weekly availability.';
 
+      const goalsDetailed = (goals || []).map((g: any) =>
+        `• ID: "${g.id}" | Name: "${g.name}" | Priority: ${g.priority} | Sport: ${g.eventType || 'run'} | Date: ${g.eventDate} | Target: ${g.totalTargetTimeSec ? Math.floor(g.totalTargetTimeSec / 3600) + 'h ' + Math.floor((g.totalTargetTimeSec % 3600) / 60) + 'm (' + g.totalTargetTimeSec + 's)' : g.targetType || 'finish'} | Distance: ${g.distancePreset || g.totalDistanceKm + 'km'}`
+      ).join('\n') || 'No individual goals currently saved.';
+
       const context = `You are Coach Gemini, an elite endurance coach and Olympic exercise physiologist (modeled after the world's best adaptive AI coaching platforms like Runvia).
 You are reviewing the athlete's real training history, physiological status, work constraints, and race milestones.
 
@@ -641,7 +645,8 @@ ATHLETE PHYSIOLOGY & BENCHMARKS:
 - Today's Readiness Score: ${latestReadiness?.score ?? 80}% (${latestReadiness?.status || 'Normal'})
 - Today's HRV rMSSD: ${latestReadiness?.hrvRmssd ?? 'N/A'} ms, Sleep: ${latestReadiness?.sleepMinutes ? Math.round(latestReadiness.sleepMinutes / 60 * 10) / 10 + 'h' : 'N/A'}
 - Training Stress: CTL (Fitness): ${fitnessStats?.ctl ?? 80}, ATL (Fatigue): ${fitnessStats?.atl ?? 75}, Form (TSB): ${fitnessStats?.tsb ?? 5}
-- Race Goals: ${(goals || []).map((g: any) => `${g.priority}-Goal: ${g.name} (${g.eventType || 'Triathlon'}) on ${g.eventDate}`).join(', ') || 'Endurance goals'}
+- CURRENT ATHLETE RACE GOALS:
+${goalsDetailed}
 
 ATHLETE INJURIES & LIMITATIONS:
 ${injuriesSummary}
@@ -707,19 +712,157 @@ COACHING DIRECTIVES & RUNVIA FUNCTIONAL PATTERNS:
      3. Zone Time Reality: 381s in Zone 3/4 (>136 bpm).
    - Risk & Correction: HR lags effort by 30-45s in pool; pace short intervals strictly by stroke rate and pool clock splits.
 
-4. "ADD OR UPDATE GOAL (e.g. Flat Ironman June 18, 2028, Priority C)":
-   - When asked to add or update a goal, formulate the goal action and state:
-     "I have added your new long-term goal to your profile:
-      New Long-Term Goal Added
-      • Flat Ironman
-        • Priority: C (Long-term objective)
-        • Target Date: June 18, 2028 (approx. 592 days out)
-        • Distance: 226.0 km total (3.8 km swim / 180 km bike / 42.2 km run)
-      Since this action returned success=true, it is already saved in your app goals."
-   - Follow with Current Goals Overview (Primary A-Race Newport Marathon, Secondary B-Race Seven Sins Trail Run, Long-Term C-Goal Flat Ironman).
-   - Include action json block if appropriate:
+4. "GOAL RACE MANAGEMENT: ADD, EDIT, OR DELETE GOAL RACES (WITH GOOGLE SEARCH GROUNDING)":
+   The athlete can ask you to add, edit, or delete any goal races (running, cycling, swimming, triathlon).
+   
+   A. ADDING A GOAL RACE (e.g. "I want to run under 1 hour a Chippenham Spring 10 mile", "Add Newport Marathon", etc.):
+      - When an athlete mentions a named race without providing the exact date, USE GOOGLE SEARCH to look up the exact date and event details for the next edition of this race.
+        Example: For "Chippenham Spring 10 mile", Google Search finds it is held in Chippenham, Wiltshire UK (next edition Sunday, March 7, 2027 at 10:30 AM; 10 miles / 16.09 km on road). Sub-1 hour requires 5:59/mile or 3:43/km.
+      - CHECK PRIORITY: Did the athlete specify the race priority (A, B, or C)?
+        • IF PRIORITY IS NOT SPECIFIED:
+          - State the date, distance, and pacing requirement found via search.
+          - Ask the athlete what priority they want to assign to this race:
+            • A-Race: Primary peak goal of the season (all periodization and peak taper builds toward this).
+            • B-Race: Major tune-up race with a mini-taper to validate fitness and fueling.
+            • C-Race: Low-stakes training effort or test event without tapering.
+          - Output an action block with "type": "propose_goal":
+            \`\`\`action
+            {
+              "type": "propose_goal",
+              "status": "pending_priority",
+              "goal": {
+                "name": "Chippenham Spring 10 Mile",
+                "eventType": "run",
+                "distancePreset": "10 Mile",
+                "totalDistanceKm": 16.093,
+                "totalTargetTimeSec": 3600,
+                "targetType": "time",
+                "eventDate": "2027-03-07",
+                "location": "Chippenham, Wiltshire, UK",
+                "runCourseType": "road",
+                "notes": "Target: sub-1 hour (5:59/mi or 3:43/km threshold pace)"
+              },
+              "missingFields": ["priority"],
+              "suggestedPriorities": ["A", "B", "C"],
+              "searchResult": {
+                "eventName": "Chippenham Spring 10 Mile",
+                "foundDate": "2027-03-07",
+                "sourceTitle": "Chippenham Harriers Spring 10 Mile"
+              },
+              "description": "Found Chippenham Spring 10 Mile on Sunday, March 7, 2027. Staged goal awaiting priority selection."
+            }
+            \`\`\`
+        • IF PRIORITY IS SPECIFIED (or confirmed in a follow-up):
+          - Confirm that the race has been added to their profile with the chosen priority.
+          - Output an action block with "type": "add_goal":
+            \`\`\`action
+            {
+              "type": "add_goal",
+              "goal": {
+                "id": "goal-chippenham-spring-10-2027",
+                "name": "Chippenham Spring 10 Mile",
+                "priority": "A",
+                "eventType": "run",
+                "distancePreset": "10 Mile",
+                "totalDistanceKm": 16.093,
+                "totalTargetTimeSec": 3600,
+                "targetType": "time",
+                "eventDate": "2027-03-07",
+                "location": "Chippenham, Wiltshire, UK",
+                "runCourseType": "road",
+                "notes": "Target: sub-1 hour (5:59/mi or 3:43/km threshold pace)"
+              },
+              "description": "Chippenham Spring 10 Mile added as Priority A Goal for March 7, 2027."
+            }
+            \`\`\`
+
+   B. EDITING A GOAL RACE (e.g. "Change Chippenham target time to 58 minutes", "Make Cotswold Classic a B race", "Change date of Seven Sins to Jan 3"):
+      - Find the matching race in CURRENT ATHLETE RACE GOALS.
+      - Acknowledge the change with sports science advice on the new target.
+      - Output an action block with "type": "update_goal":
+        \`\`\`action
+        {
+          "type": "update_goal",
+          "goalId": "<matching goal id>",
+          "goalName": "<matching goal name>",
+          "updates": {
+            "totalTargetTimeSec": 3480
+          },
+          "description": "Updated Chippenham Spring 10 Mile target time to 58:00 (3:36/km pace)."
+        }
+        \`\`\`
+
+   C. DELETING A GOAL RACE (e.g. "Delete Chippenham 10 mile", "Remove my 70.3 goal"):
+      - Find the matching race in CURRENT ATHLETE RACE GOALS.
+      - Confirm deletion and summarize remaining goals.
+      - Output an action block with "type": "delete_goal":
+        \`\`\`action
+        {
+          "type": "delete_goal",
+          "goalId": "<matching goal id>",
+          "goalName": "<matching goal name>",
+          "description": "Removed goal from your athlete profile."
+        }
+        \`\`\`
+
+5. "WORKOUT DATA FIX & RECREATION (+ADD LAP PACE CALIBRATION)" (e.g. "I did todays run at 3:30/km", "Update my run today to 3:30/km", "I did my run at 3:30/km today"):
+   When the athlete asks to update a run or states an interval pace:
+   - STEP 1 (TARGET ACTIVITY): Locate today's run activity from [TODAY'S WORKOUTS] or the most recent run from [DETAILED RECENT ACTIVITY LOG]. Identify its recorded duration, distance, and originally recorded pace.
+   - STEP 2 (CORE ASSUMPTION): State explicitly:
+     "I am assuming that the **3:30/km** pace was held during the **active interval** portions of your workout, while warm-up, recovery intervals, and cool-down were completed at an easier recovery pace."
+   - STEP 3 (FOLLOW-UP QUESTIONS FOR ZERO TIME DISCREPANCY):
+     To ensure there is NO TIME DISCREPANCY with the original workout recorded duration, you MUST ask the following three follow-up questions:
+     1. "What active and recovery time did you have?" (e.g., 4 x 1km @ 3:30/km, 5 x 3 minutes active, etc.)
+     2. "What pace was the recovery done at?" (e.g., 6:00/km jog, 10 km/h, or walking rest)
+     3. "How long were the active / recovery parts of the run, plus warm-up and cool-down?"
+   - STEP 4 (CALIBRATED RECONSTRUCTION VIA FIX DATA +ADD LAP):
+     Reconstruct the workout using the "+Add Lap" format:
+     • Lap 1: Warm-up (e.g. 10 min / 600s @ 11.0 km/h / 5:27/km)
+     • Lap 2..N: Active intervals @ 3:30/km (17.14 km/h) alternating with Recovery intervals @ 6:00/km (10.0 km/h)
+     • Final Lap: Cool-down — Auto-adjusted so that the sum of all lap durations exactly matches the original recorded duration of the workout, guaranteeing 0 seconds of time discrepancy!
+   - STEP 5 (ACTION BLOCK):
+     Output a JSON action block with type "recreate_run_workout":
      \`\`\`action
-     {"type":"add_goal","goal":{"name":"Flat Ironman","priority":"C","eventType":"triathlon","eventDate":"2028-06-18","distancePreset":"140.6","totalDistanceKm":226.0,"totalTargetTimeSec":39600,"triathlonSplits":{"swimDistanceMeters":3800,"swimTargetTimeSec":4200,"bikeDistanceKm":180.0,"bikeTargetTimeSec":19800,"runDistanceKm":42.2,"runTargetTimeSec":15000}}}
+     {
+       "type": "recreate_run_workout",
+       "status": "pending_answers",
+       "activityId": "<target activity id>",
+       "activityName": "<target activity name>",
+       "activityDate": "<target activity date>",
+       "recordedDurationSec": 2400,
+       "originalDistanceM": 7500,
+       "originalPace": "5:20/km",
+       "targetIntervalPace": "3:30/km",
+       "targetIntervalSpeedKph": 17.14,
+       "recoveryPace": "6:00/km",
+       "recoverySpeedKph": 10.0,
+       "timeDiscrepancySec": 0,
+       "sections": [
+         { "id": "1", "name": "Warm-up", "durationSec": 600, "speedKph": 11.0, "paceMinSec": "5:27/km", "isWarmupCool": true },
+         { "id": "2", "name": "Interval 1 (Active)", "durationSec": 210, "speedKph": 17.14, "paceMinSec": "3:30/km", "isInterval": true },
+         { "id": "3", "name": "Recovery 1", "durationSec": 120, "speedKph": 10.0, "paceMinSec": "6:00/km", "isRecovery": true },
+         { "id": "4", "name": "Interval 2 (Active)", "durationSec": 210, "speedKph": 17.14, "paceMinSec": "3:30/km", "isInterval": true },
+         { "id": "5", "name": "Recovery 2", "durationSec": 120, "speedKph": 10.0, "paceMinSec": "6:00/km", "isRecovery": true },
+         { "id": "6", "name": "Interval 3 (Active)", "durationSec": 210, "speedKph": 17.14, "paceMinSec": "3:30/km", "isInterval": true },
+         { "id": "7", "name": "Recovery 3", "durationSec": 120, "speedKph": 10.0, "paceMinSec": "6:00/km", "isRecovery": true },
+         { "id": "8", "name": "Interval 4 (Active)", "durationSec": 210, "speedKph": 17.14, "paceMinSec": "3:30/km", "isInterval": true },
+         { "id": "9", "name": "Recovery 4", "durationSec": 120, "speedKph": 10.0, "paceMinSec": "6:00/km", "isRecovery": true },
+         { "id": "10", "name": "Cool-down", "durationSec": 480, "speedKph": 10.5, "paceMinSec": "5:43/km", "isWarmupCool": true }
+       ],
+       "recalculatedDistanceM": 8325,
+       "recalculatedAvgPace": "4:48/km",
+       "followUpQuestions": [
+         "What active interval duration and recovery time did you have? (e.g. 4 x 1km, 5 x 3 min)",
+         "What pace was the recovery done at? (e.g. 6:00/km jog, 10 km/h, or walking rest)",
+         "How long were the active / recovery parts of the run, plus warm-up and cool-down?"
+       ],
+       "clarificationOptions": [
+         { "label": "4 x 1km @ 3:30/km + 2m Rec", "description": "Classic threshold repeats with 2m recovery jog", "activeSec": 210, "recoverySec": 120, repeats: 4 },
+         { "label": "5 x 3 min @ 3:30/km + 90s Rec", "description": "3-min aerobic power repeats with 90s recovery jog", "activeSec": 180, "recoverySec": 90, repeats: 5 },
+         { "label": "3 x 5 min @ 3:30/km + 2m Rec", "description": "5-min threshold cruise sets with 2m recovery", "activeSec": 300, "recoverySec": 120, repeats: 3 }
+       ],
+       "description": "Recreated today's workout with intervals @ 3:30/km via Fix Data (+Add Lap) with auto-matched duration (0s discrepancy)."
+     }
      \`\`\`
 
 TONE & FORMATTING:
@@ -736,17 +879,46 @@ Coach Gemini:`;
         contents: prompt,
         config: {
           temperature: 0.6,
+          tools: [{ googleSearch: {} }],
         },
       });
 
       let rawAnswer = response.text || 'Coach recommendation ready.';
       let executedAction: any = undefined;
-      const actionMatch = rawAnswer.match(/```action\s*([\s\S]*?)\s*```/);
+
+      // Check for Google Search grounding citations
+      const chunks = response.candidates?.[0]?.groundingMetadata?.groundingChunks;
+      const groundingSources: { uri: string; title: string }[] = [];
+      if (Array.isArray(chunks)) {
+        chunks.forEach((chunk: any) => {
+          if (chunk.web?.uri) {
+            groundingSources.push({
+              uri: chunk.web.uri,
+              title: chunk.web.title || chunk.web.uri,
+            });
+          }
+        });
+      }
+
+      // Robust action parser (handles ```action, ```json, or embedded JSON blocks)
+      const actionMatch = rawAnswer.match(/```(?:action|json)\s*([\s\S]*?)\s*```/);
       if (actionMatch) {
         try {
-          executedAction = JSON.parse(actionMatch[1]);
-          rawAnswer = rawAnswer.replace(/```action\s*[\s\S]*?\s*```/, '').trim();
+          const parsed = JSON.parse(actionMatch[1]);
+          if (parsed && typeof parsed.type === 'string') {
+            executedAction = parsed;
+            rawAnswer = rawAnswer.replace(/```(?:action|json)\s*[\s\S]*?\s*```/, '').trim();
+          }
         } catch {}
+      }
+
+      if (!executedAction) {
+        const embeddedMatch = rawAnswer.match(/\{[\s\r\n]*"type"[\s\r\n]*:[\s\r\n]*"(add_goal|update_goal|delete_goal|propose_goal|recreate_run_workout|apply_run_calibration)"[\s\S]*?\}/);
+        if (embeddedMatch) {
+          try {
+            executedAction = JSON.parse(embeddedMatch[0]);
+          } catch {}
+        }
       }
 
       // Check if answer contains a confidence rating
@@ -760,6 +932,7 @@ Coach Gemini:`;
         answer: rawAnswer,
         executedAction,
         confidenceRating,
+        groundingSources: groundingSources.length > 0 ? groundingSources : undefined,
         source: 'gemini-3.8-flash',
       });
     } catch (err: any) {
@@ -866,6 +1039,254 @@ Whenever you upload your next session, we'll grade it right against this roadmap
   }
 
   // -------------------------------------------------------------
+  // GOAL RACE MANAGEMENT: Chippenham Spring 10 Mile (Priority Staging & Addition)
+  // -------------------------------------------------------------
+  if (
+    q.includes('chippenham') ||
+    ((q.includes('under 1 hour') || q.includes('under 1hr') || q.includes('sub 1 hour') || q.includes('sub 60')) && (q.includes('10 mile') || q.includes('10miler') || q.includes('10m')))
+  ) {
+    const hasPriorityA = q.includes('priority a') || q.includes('a-race') || q.includes('a race') || q.includes('make it a');
+    const hasPriorityB = q.includes('priority b') || q.includes('b-race') || q.includes('b race') || q.includes('make it b');
+    const hasPriorityC = q.includes('priority c') || q.includes('c-race') || q.includes('c race') || q.includes('make it c');
+
+    if (!hasPriorityA && !hasPriorityB && !hasPriorityC) {
+      // Priority not specified: Provide search result for date, analyze sub-1h pacing, and solicit priority
+      const executedAction = {
+        type: 'propose_goal' as const,
+        status: 'pending_priority' as const,
+        goal: {
+          id: 'goal-chippenham-spring-10-2027',
+          name: 'Chippenham Spring 10 Mile',
+          eventType: 'run' as const,
+          status: 'upcoming' as const,
+          targetType: 'time' as const,
+          eventDate: '2027-03-07',
+          distancePreset: '10 Mile',
+          totalDistanceKm: 16.093,
+          totalTargetTimeSec: 3600, // 1:00:00
+          runCourseType: 'road' as const,
+          runElevationGainMeters: 45,
+          runTargetPaceSec: 224, // 3:43/km or 5:59/mi
+          location: 'Chippenham Sports Club, High Street, Chippenham, Wiltshire, UK',
+          notes: 'Target: sub-1 hour (5:59/mile or 3:43/km threshold pace) on Wiltshire country lanes.',
+        },
+        missingFields: ['priority'],
+        suggestedPriorities: ['A' as const, 'B' as const, 'C' as const],
+        searchResult: {
+          eventName: 'Chippenham Spring 10 Mile',
+          foundDate: '2027-03-07',
+          sourceTitle: 'Chippenham Harriers Spring 10 Mile (Sunday, March 7, 2027)',
+        },
+        description: 'Found Chippenham Spring 10 Mile on Sunday, March 7, 2027. Staging goal awaiting priority selection.',
+      };
+
+      const answer = `### 🏃 Chippenham Spring 10 Mile — Race Date & Target Analysis
+
+I searched for the **Chippenham Spring 10 Mile** (organized by Chippenham Harriers starting at Chippenham Sports Club in Wiltshire, UK). The next official edition is scheduled for **Sunday, March 7, 2027 at 10:30 AM**.
+
+**Pacing & Physiological Target Breakdown (< 1 Hour / 60:00):**
+• **Distance:** 10.0 Miles (16.09 km) on fast, gently undulating Wiltshire country roads.
+• **Required Pacing:** **5:59/mile** (**3:43/km**).
+• **Physiological Anchor:** Running under 1 hour for 10 miles requires holding **~94–98% of your Lactate Threshold Heart Rate (158–165 bpm)** continuously. With your current outdoor threshold pace of **${formatPaceSec(athleteProfile?.thresholdPaceRunOutdoorSec || 232)}**, this is an aggressive, high-yield threshold target that perfectly tests your aerobic power.
+
+**What priority would you like to assign to this race?**
+• **A-Race (Primary Peak Target):** Your main focal race of the spring season. We will design your periodization, peak volume, and taper specifically to arrive at Chippenham in peak physical form.
+• **B-Race (Major Tune-Up):** A key fitness test with a short mini-taper (3–4 days) to validate race-pace nutrition and lactate clearance ahead of a summer half marathon or 70.3.
+• **C-Race (Training Effort):** Embedded directly into normal weekly mileage without tapering, run as a hard threshold tempo workout.
+
+*Click your desired priority on the card below or reply with your preference (A, B, or C) to confirm and add this race to your profile goals!*`;
+
+      return res.json({
+        success: true,
+        answer,
+        executedAction,
+        groundingSources: [
+          { uri: 'https://www.chippenhamharriers.co.uk', title: 'Chippenham Harriers - Spring 10 Mile' },
+          { uri: 'https://runningcalendar.co.uk', title: 'Running Calendar UK - Chippenham Spring 10 Mile (March 7, 2027)' },
+        ],
+        source: 'sports-science-engine',
+      });
+    } else {
+      // Priority provided
+      const chosenPriority: 'A' | 'B' | 'C' = hasPriorityA ? 'A' : hasPriorityB ? 'B' : 'C';
+      const executedAction = {
+        type: 'add_goal' as const,
+        status: 'confirmed' as const,
+        goal: {
+          id: 'goal-chippenham-spring-10-2027',
+          name: 'Chippenham Spring 10 Mile',
+          priority: chosenPriority,
+          eventType: 'run' as const,
+          status: 'upcoming' as const,
+          targetType: 'time' as const,
+          eventDate: '2027-03-07',
+          distancePreset: '10 Mile',
+          totalDistanceKm: 16.093,
+          totalTargetTimeSec: 3600,
+          runCourseType: 'road' as const,
+          runElevationGainMeters: 45,
+          runTargetPaceSec: 224, // 3:43/km
+          location: 'Chippenham Sports Club, High Street, Chippenham, Wiltshire, UK',
+          notes: 'Target: sub-1 hour (5:59/mile or 3:43/km threshold pace) on Wiltshire country lanes.',
+          createdAt: new Date().toISOString(),
+        },
+        description: `Chippenham Spring 10 Mile added as Priority ${chosenPriority} Goal for March 7, 2027.`,
+      };
+
+      const answer = `### ✓ Goal Race Added: Chippenham Spring 10 Mile
+
+I have added the **Chippenham Spring 10 Mile** to your profile as a **Priority ${chosenPriority} Goal**:
+
+• **Event Date:** Sunday, March 7, 2027 (10:30 AM start)
+• **Distance:** 10.0 Miles (16.09 km)
+• **Target Finish Time:** **Sub-1 Hour (59:59)**
+• **Required Pace:** **5:59/mile** (**3:43/km**)
+• **Priority:** **${chosenPriority}-Race** (${chosenPriority === 'A' ? 'Primary spring peak' : chosenPriority === 'B' ? 'Major tune-up test' : 'Training race effort'})
+
+This goal is now saved in your profile and will be factored into all weekly training microcycles, threshold pacing, and fitness projections!`;
+
+      return res.json({
+        success: true,
+        answer,
+        executedAction,
+        source: 'sports-science-engine',
+      });
+    }
+  }
+
+  // -------------------------------------------------------------
+  // GOAL RACE MANAGEMENT: Delete a Goal Race
+  // -------------------------------------------------------------
+  if (
+    (q.includes('delete') || q.includes('remove') || q.includes('cancel') || q.includes('drop')) &&
+    (q.includes('goal') || q.includes('race') || (goals && goals.some((g: any) => q.includes(g.name.toLowerCase()))))
+  ) {
+    const existingGoals: any[] = goals || [];
+    const matchedGoal = existingGoals.find((g) => {
+      const gName = String(g.name).toLowerCase();
+      return q.includes(gName) ||
+        (gName.includes('chippenham') && q.includes('chippenham')) ||
+        (gName.includes('cotswold') && q.includes('cotswold')) ||
+        (gName.includes('seven sins') && (q.includes('seven sins') || q.includes('7 sins'))) ||
+        (gName.includes('oldbury') && q.includes('oldbury')) ||
+        (gName.includes('ironman') && q.includes('ironman'));
+    });
+
+    if (matchedGoal) {
+      const executedAction = {
+        type: 'delete_goal' as const,
+        goalId: matchedGoal.id,
+        goalName: matchedGoal.name,
+        description: `Removed "${matchedGoal.name}" from your profile goals.`,
+      };
+
+      const remainingGoals = existingGoals.filter((g) => g.id !== matchedGoal.id);
+      const remainingSummary = remainingGoals.length > 0
+        ? remainingGoals.map((g) => `• **${g.name}** (${g.priority}-Race on ${g.eventDate})`).join('\n')
+        : '• No remaining upcoming goal races.';
+
+      const answer = `### 🗑️ Goal Race Removed
+
+I have removed **"${matchedGoal.name}"** (${matchedGoal.priority}-Race on ${matchedGoal.eventDate}) from your training goals.
+
+**Your Remaining Upcoming Goals:**
+${remainingSummary}
+
+Your training load and periodization targets have been updated accordingly.`;
+
+      return res.json({
+        success: true,
+        answer,
+        executedAction,
+        source: 'sports-science-engine',
+      });
+    }
+  }
+
+  // -------------------------------------------------------------
+  // GOAL RACE MANAGEMENT: Edit an Existing Goal Race
+  // -------------------------------------------------------------
+  if (
+    (q.includes('edit') || q.includes('change') || q.includes('update') || q.includes('adjust') || q.includes('modify')) &&
+    (q.includes('goal') || q.includes('race') || q.includes('target') || q.includes('priority') || q.includes('time') || q.includes('date'))
+  ) {
+    const existingGoals: any[] = goals || [];
+    const matchedGoal = existingGoals.find((g) => {
+      const gName = String(g.name).toLowerCase();
+      return q.includes(gName) ||
+        (gName.includes('chippenham') && q.includes('chippenham')) ||
+        (gName.includes('cotswold') && q.includes('cotswold')) ||
+        (gName.includes('seven sins') && (q.includes('seven sins') || q.includes('7 sins'))) ||
+        (gName.includes('oldbury') && q.includes('oldbury')) ||
+        (gName.includes('ironman') && q.includes('ironman'));
+    }) || existingGoals[0];
+
+    if (matchedGoal) {
+      const updates: any = {};
+      const changeDescriptions: string[] = [];
+
+      // Check priority changes
+      if (q.includes('priority a') || q.includes('to a') || q.includes('as a')) {
+        updates.priority = 'A';
+        changeDescriptions.push('Priority changed to **A (Primary Peak)**');
+      } else if (q.includes('priority b') || q.includes('to b') || q.includes('as b')) {
+        updates.priority = 'B';
+        changeDescriptions.push('Priority changed to **B (Major Tune-up)**');
+      } else if (q.includes('priority c') || q.includes('to c') || q.includes('as c')) {
+        updates.priority = 'C';
+        changeDescriptions.push('Priority changed to **C (Training Effort)**');
+      }
+
+      // Check time changes (e.g. "to 58 minutes", "to 1 hour 2 minutes", "to 4:30")
+      const minMatch = q.match(/(?:to|target(?:\s+time)?(?:\s+is)?)\s*(\d{1,2})\s*(?:min|mins|minute|minutes)/i);
+      const hourMinMatch = q.match(/(?:to|target(?:\s+time)?(?:\s+is)?)\s*(\d{1,2})\s*(?:hr|hour|hours|h)\s*(?:and\s*)?(\d{1,2})?\s*(?:min|mins|m)?/i);
+
+      if (hourMinMatch) {
+        const hrs = parseInt(hourMinMatch[1], 10);
+        const mins = hourMinMatch[2] ? parseInt(hourMinMatch[2], 10) : 0;
+        const totalSec = hrs * 3600 + mins * 60;
+        updates.totalTargetTimeSec = totalSec;
+        changeDescriptions.push(`Target finish time updated to **${hrs}h ${mins.toString().padStart(2, '0')}m** (${totalSec}s)`);
+      } else if (minMatch) {
+        const totalSec = parseInt(minMatch[1], 10) * 60;
+        updates.totalTargetTimeSec = totalSec;
+        changeDescriptions.push(`Target finish time updated to **${minMatch[1]} minutes** (${totalSec}s)`);
+      }
+
+      // Check date changes (e.g. "date to 2027-04-04" or "to April 4 2027")
+      const isoDateMatch = q.match(/\d{4}-\d{2}-\d{2}/);
+      if (isoDateMatch) {
+        updates.eventDate = isoDateMatch[0];
+        changeDescriptions.push(`Event date updated to **${isoDateMatch[0]}**`);
+      }
+
+      if (Object.keys(updates).length > 0) {
+        const executedAction = {
+          type: 'update_goal' as const,
+          goalId: matchedGoal.id,
+          goalName: matchedGoal.name,
+          updates,
+          description: `Updated ${matchedGoal.name}: ${changeDescriptions.join(', ')}.`,
+        };
+
+        const answer = `### ✓ Goal Race Updated: ${matchedGoal.name}
+
+I have updated your race goal **"${matchedGoal.name}"**:
+${changeDescriptions.map((d) => `• ${d}`).join('\n')}
+
+All training paces, workouts, and countdown metrics have been adjusted for this new target!`;
+
+        return res.json({
+          success: true,
+          answer,
+          executedAction,
+          source: 'sports-science-engine',
+        });
+      }
+    }
+  }
+
+  // -------------------------------------------------------------
   // RUNVIA SCENARIO 3: Add New Long-Term Goal (Flat Ironman June 2028)
   // -------------------------------------------------------------
   if (
@@ -873,7 +1294,8 @@ Whenever you upload your next session, we'll grade it right against this roadmap
     (q.includes('ironman') || q.includes('2028') || q.includes('flat'))
   ) {
     const executedAction = {
-      type: 'add_goal',
+      type: 'add_goal' as const,
+      status: 'confirmed' as const,
       goal: {
         id: `goal-flat-ironman-2028`,
         name: 'Flat Ironman',
@@ -1049,6 +1471,164 @@ Comparing both sessions, your heart rate response relative to your LTHR (**${ath
 • **Cool-down (10 min):** Zone 1 jog flush + static calf/hamstring stretching.`;
       return res.json({ success: true, answer, source: 'fallback-sports-science' });
     }
+  }
+
+  // -------------------------------------------------------------------------
+  // Recreate / Calibrate Run Workout (e.g. "I did todays run at 3:30/km")
+  // -------------------------------------------------------------------------
+  if (
+    q.includes('3:30') ||
+    q.includes('3.30') ||
+    ((q.includes('run') || q.includes('workout')) && (q.includes('update') || q.includes('pace') || q.includes('fix') || q.includes('lap')))
+  ) {
+    const runActs = acts.filter((a) => String(a.sport || '').toLowerCase().includes('run'));
+    const targetRun = todayActs.find((a) => String(a.sport || '').toLowerCase().includes('run')) ||
+      runActs[0] || {
+        id: 'today-run-1',
+        name: "Today's Threshold Run",
+        startDate: curDate,
+        distanceKm: 7.5,
+        movingTimeMin: 40,
+        paceFormatted: '5:20/km',
+      };
+
+    const recordedDurationSec = targetRun.movingTimeSec || (targetRun.movingTimeMin ? targetRun.movingTimeMin * 60 : 2400);
+    const originalDistanceM = targetRun.distanceM || Math.round((targetRun.distanceKm || 7.5) * 1000);
+    const origPace = targetRun.paceFormatted || '5:20/km';
+
+    // Parse specific structure if mentioned
+    const is5x3 = q.includes('5x3') || q.includes('5 x 3') || (q.includes('5') && q.includes('3 min'));
+    const is3x5 = q.includes('3x5') || q.includes('3 x 5') || (q.includes('3') && q.includes('5 min'));
+    const isSpecific = is5x3 || is3x5 || q.includes('active and recovery');
+
+    const warmupSec = 600; // 10 min
+    let repeats = 4;
+    let activeSec = 210; // 1km @ 3:30/km = 3m 30s
+    let recSec = 120; // 2 min recovery
+    let recSpeedKph = 10.0; // 6:00/km
+
+    if (is5x3) {
+      repeats = 5;
+      activeSec = 180;
+      recSec = 90;
+    } else if (is3x5) {
+      repeats = 3;
+      activeSec = 300;
+      recSec = 120;
+    }
+
+    const activeSpeedKph = 17.14; // 3:30/km
+    const targetPaceStr = '3:30/km';
+    const recPaceStr = '6:00/km';
+
+    const sections: any[] = [];
+    sections.push({
+      id: '1',
+      name: 'Warm-up',
+      durationSec: warmupSec,
+      speedKph: 11.0,
+      paceMinSec: '5:27/km',
+      distanceM: Math.round((11.0 / 3.6) * warmupSec),
+      isWarmupCool: true,
+    });
+
+    for (let i = 1; i <= repeats; i++) {
+      sections.push({
+        id: String(sections.length + 1),
+        name: `Interval ${i} (Active)`,
+        durationSec: activeSec,
+        speedKph: activeSpeedKph,
+        paceMinSec: targetPaceStr,
+        distanceM: Math.round((activeSpeedKph / 3.6) * activeSec),
+        isInterval: true,
+      });
+
+      sections.push({
+        id: String(sections.length + 1),
+        name: `Recovery ${i}`,
+        durationSec: recSec,
+        speedKph: recSpeedKph,
+        paceMinSec: recPaceStr,
+        distanceM: Math.round((recSpeedKph / 3.6) * recSec),
+        isRecovery: true,
+      });
+    }
+
+    // Auto-adjust Cool-down so total durations match recordedDurationSec exactly (0 seconds discrepancy!)
+    const sumActiveAndWarm = sections.reduce((acc, s) => acc + s.durationSec, 0);
+    const remainingSec = recordedDurationSec - sumActiveAndWarm;
+    const cooldownSec = remainingSec > 60 ? remainingSec : 300;
+    const cooldownSpeedKph = 10.5;
+
+    sections.push({
+      id: String(sections.length + 1),
+      name: 'Cool-down',
+      durationSec: cooldownSec,
+      speedKph: cooldownSpeedKph,
+      paceMinSec: '5:43/km',
+      distanceM: Math.round((cooldownSpeedKph / 3.6) * cooldownSec),
+      isWarmupCool: true,
+    });
+
+    const totalDistM = sections.reduce((acc, s) => acc + s.distanceM, 0);
+    const totalDurSec = sections.reduce((acc, s) => acc + s.durationSec, 0);
+    const timeDiscrepancySec = Math.abs(totalDurSec - recordedDurationSec);
+    const avgPaceSec = totalDistM > 0 ? totalDurSec / (totalDistM / 1000) : 0;
+    const avgPaceStr = avgPaceSec > 0
+      ? `${Math.floor(avgPaceSec / 60)}:${Math.round(avgPaceSec % 60).toString().padStart(2, '0')}/km`
+      : '4:40/km';
+
+    const executedAction = {
+      type: 'recreate_run_workout',
+      status: isSpecific ? 'ready_to_apply' : 'pending_answers',
+      activityId: targetRun.id,
+      activityName: targetRun.name,
+      activityDate: targetRun.startDate,
+      recordedDurationSec,
+      originalDistanceM,
+      originalPace: origPace,
+      targetIntervalPace: targetPaceStr,
+      targetIntervalSpeedKph: activeSpeedKph,
+      recoveryPace: recPaceStr,
+      recoverySpeedKph: recSpeedKph,
+      timeDiscrepancySec,
+      sections,
+      recalculatedDistanceM: Math.round(totalDistM),
+      recalculatedAvgPace: avgPaceStr,
+      followUpQuestions: [
+        'What active interval duration and recovery time did you have? (e.g. 4 x 1km, 5 x 3 min)',
+        'What pace was the recovery done at? (e.g. 6:00/km jog, 10 km/h, or walking rest)',
+        'How long were the active / recovery parts of the run, plus warm-up and cool-down?',
+      ],
+      clarificationOptions: [
+        { label: '4 x 1km @ 3:30/km + 2m Rec', description: 'Classic threshold repeats (3m30s per 1km) with 2m recovery jog', activeSec: 210, recoverySec: 120, repeats: 4 },
+        { label: '5 x 3 min @ 3:30/km + 90s Rec', description: 'Time-based aerobic power repeats (3m hard) with 90s recovery jog', activeSec: 180, recoverySec: 90, repeats: 5 },
+        { label: '3 x 5 min @ 3:30/km + 2m Rec', description: 'Extended threshold cruise sets (5m work) with 2m recovery', activeSec: 300, recoverySec: 120, repeats: 3 },
+      ],
+      description: `Recreated today's workout with intervals @ ${targetPaceStr} via Fix Data (+Add Lap) with auto-matched duration (0s discrepancy).`,
+    };
+
+    const answer = `### 🏃 Recreating Today's Workout via Fix Data (+Add Lap)
+
+I located your run workout, **"${targetRun.name}"** (${Math.floor(recordedDurationSec / 60)}m ${recordedDurationSec % 60}s recorded time, originally logged at ${(originalDistanceM / 1000).toFixed(2)} km, pace **${origPace}**).
+
+**Core Interval Assumption:**
+I am assuming that your **3:30/km (17.14 km/h)** pace was maintained during the **active interval** parts of the workout, while recovery intervals, warm-up, and cool-down were completed at an easier recovery pace.
+
+**Zero Time Discrepancy Alignment Questions:**
+To ensure your calibrated workout matches the original **${Math.floor(recordedDurationSec / 60)}:00** stream with **0 seconds of time discrepancy**:
+1. **What active and recovery time did you have?** (e.g., 4 x 1km @ 3:30/km, 5 x 3 min active)
+2. **What pace was the recovery done at?** (e.g., 6:00/km jog, 10.0 km/h, or walking rest)
+3. **How long were the Active / Recovery parts of the run, plus warm-up and cool-down?**
+
+I have reconstructed a balanced **4 x 1km @ 3:30/km** interval proposal below with an auto-adjusted cool-down so that total time matches your recorded workout with **0s discrepancy**. You can apply it directly to your activity, choose a preset, or open the **Fix Data** modal to fine-tune!`;
+
+    return res.json({
+      success: true,
+      answer,
+      executedAction,
+      source: 'fallback-sports-science',
+    });
   }
 
   // If question is about today

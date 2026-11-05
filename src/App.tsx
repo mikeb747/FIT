@@ -518,6 +518,28 @@ export default function App() {
     );
   };
 
+  const handleActivityDetailsUpdated = (updatedRecord: StravaActivityDetailsRecord) => {
+    if (!updatedRecord?.id) return;
+    setStravaActivityDetails((prev) => ({
+      ...prev,
+      [String(updatedRecord.id)]: updatedRecord,
+    }));
+    if (updatedRecord.calibration) {
+      setStravaActivities((prev) =>
+        prev.map((act) => {
+          if (String(act.id) === String(updatedRecord.id)) {
+            return {
+              ...act,
+              distance: updatedRecord.calibration?.calibratedDistanceM ?? act.distance,
+              moving_time: updatedRecord.calibration?.calibratedMovingTimeSec ?? act.moving_time,
+            };
+          }
+          return act;
+        })
+      );
+    }
+  };
+
   // -------------------------------------------------------------
   // Strava Activities Synchronization
   // -------------------------------------------------------------
@@ -1131,6 +1153,8 @@ export default function App() {
             }}
             onGoalsUpdated={handleSaveAthleteGoals}
             onProfileUpdated={handleSaveAthleteProfile}
+            onActivityDetailsUpdated={handleActivityDetailsUpdated}
+            stravaToken={stravaToken}
           />
         )}
         </ErrorBoundary>

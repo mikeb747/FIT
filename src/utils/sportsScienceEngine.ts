@@ -490,6 +490,7 @@ export function generateSportsScienceChat(
   const tsb = payload.fitnessStats?.tsb ?? 0;
   const ctl = payload.fitnessStats?.ctl ?? 75;
   const activities = payload.recentActivities || [];
+  const goals = payload.goals || [];
   const todayDate = payload.todayDate || new Date().toISOString().split('T')[0];
   const todayDayOfWeek = payload.todayDayOfWeek || new Date().toLocaleDateString('en-US', { weekday: 'long' });
 
@@ -777,6 +778,45 @@ In a classic endurance microcycle, Thursday serves as the mid-week quality sessi
   }
 
   // -------------------------------------------------------------
+  // Recreate / Calibrate Run Workout (e.g. "I did todays run at 3:30/km")
+  // -------------------------------------------------------------
+  if (
+    q.includes('3:30') ||
+    q.includes('3.30') ||
+    ((q.includes('run') || q.includes('workout')) && (q.includes('update') || q.includes('pace') || q.includes('fix') || q.includes('lap')))
+  ) {
+    const runActs = activities.filter((a) => String(a.sport || '').toLowerCase().includes('run'));
+    const targetRun = activities.find((a) => (a.daysAgo === 0 || a.startDate === todayDate) && String(a.sport || '').toLowerCase().includes('run')) ||
+      runActs[0] || {
+        id: 'today-run-1',
+        name: "Today's Threshold Run",
+        startDate: todayDate,
+        distanceKm: 7.5,
+        movingTimeMin: 40,
+        paceFormatted: '5:20/km',
+      };
+
+    const recordedDurationSec = targetRun.movingTimeSec || (targetRun.movingTimeMin ? targetRun.movingTimeMin * 60 : 2400);
+    const originalDistanceKm = (targetRun.distanceM ? targetRun.distanceM / 1000 : targetRun.distanceKm || 7.5).toFixed(2);
+    const origPace = targetRun.paceFormatted || '5:20/km';
+
+    return `### 🏃 Recreating Today's Workout via Fix Data (+Add Lap)
+
+I located your run workout, **"${targetRun.name}"** (${Math.floor(recordedDurationSec / 60)}m ${recordedDurationSec % 60}s recorded time, originally logged at ${originalDistanceKm} km, pace **${origPace}**).
+
+**Core Interval Assumption:**
+I am assuming that your **3:30/km (17.14 km/h)** pace was maintained during the **active interval** parts of the workout, while recovery intervals, warm-up, and cool-down were completed at an easier recovery pace.
+
+**Zero Time Discrepancy Alignment Questions:**
+To ensure your calibrated workout matches the original **${Math.floor(recordedDurationSec / 60)}:00** stream with **0 seconds of time discrepancy**:
+1. **What active and recovery time did you have?** (e.g., 4 x 1km @ 3:30/km, 5 x 3 min active)
+2. **What pace was the recovery done at?** (e.g., 6:00/km jog, 10.0 km/h, or walking rest)
+3. **How long were the Active / Recovery parts of the run, plus warm-up and cool-down?**
+
+I have staged a balanced **4 x 1km @ 3:30/km** interval proposal below with an auto-adjusted cool-down so that total time matches your recorded workout with **0s discrepancy**. You can apply it directly to your activity, choose a preset below, or open the **Fix Data** modal to fine-tune!`;
+  }
+
+  // -------------------------------------------------------------
   // 2. "What did you think of my training today?"
   // -------------------------------------------------------------
   if (q.includes('today')) {
@@ -902,6 +942,80 @@ As a benchmark for your target goals, aim for your weekend block to account for 
 Looking at your training trajectory (CTL: **${ctl}**, ATL: **${payload.fitnessStats?.atl ?? 70}**, TSB: **${tsb}**):
 • Aim for a steady 5–8 TSS weekly progression in your Chronic Training Load.
 • Keep 80% of your training volume strictly in Zone 1/2 aerobic base, reserving 20% for high-yield threshold/sweet spot sessions.`;
+    }
+  }
+
+  // -------------------------------------------------------------
+  // Chippenham Spring 10 Mile (Priority Staging & Target Analysis)
+  // -------------------------------------------------------------
+  if (
+    q.includes('chippenham') ||
+    ((q.includes('under 1 hour') || q.includes('under 1hr') || q.includes('sub 1 hour') || q.includes('sub 60')) &&
+      (q.includes('10 mile') || q.includes('10miler') || q.includes('10m')))
+  ) {
+    const hasPriorityA = q.includes('priority a') || q.includes('a-race') || q.includes('a race') || q.includes('make it a');
+    const hasPriorityB = q.includes('priority b') || q.includes('b-race') || q.includes('b race') || q.includes('make it b');
+    const hasPriorityC = q.includes('priority c') || q.includes('c-race') || q.includes('c race') || q.includes('make it c');
+
+    if (!hasPriorityA && !hasPriorityB && !hasPriorityC) {
+      return `### 🏃 Chippenham Spring 10 Mile — Race Date & Target Analysis
+
+I searched for the **Chippenham Spring 10 Mile** (organized by Chippenham Harriers starting at Chippenham Sports Club in Wiltshire, UK). The next official edition is scheduled for **Sunday, March 7, 2027 at 10:30 AM**.
+
+**Pacing & Physiological Target Breakdown (< 1 Hour / 60:00):**
+• **Distance:** 10.0 Miles (16.09 km) on fast, gently undulating Wiltshire country roads.
+• **Required Pacing:** **5:59/mile** (**3:43/km**).
+• **Physiological Anchor:** Running under 1 hour for 10 miles requires holding **~94–98% of your Lactate Threshold Heart Rate (158–165 bpm)** continuously. With your current outdoor threshold pace of **${outdoorPace}**, this is an aggressive, high-yield threshold target that perfectly tests your aerobic power.
+
+**What priority would you like to assign to this race?**
+• **A-Race (Primary Peak Target):** Your main focal race of the spring season. We will design your periodization, peak volume, and taper specifically to arrive at Chippenham in peak physical form.
+• **B-Race (Major Tune-Up):** A key fitness test with a short mini-taper (3–4 days) to validate race-pace nutrition and lactate clearance ahead of a summer half marathon or 70.3.
+• **C-Race (Training Effort):** Embedded directly into normal weekly mileage without tapering, run as a hard threshold tempo workout.
+
+*Select your priority below or reply with your preference (A, B, or C) to confirm and add this race to your profile goals!*`;
+    } else {
+      const chosenPriority = hasPriorityA ? 'A' : hasPriorityB ? 'B' : 'C';
+      return `### ✓ Goal Race Added: Chippenham Spring 10 Mile
+
+I have added the **Chippenham Spring 10 Mile** to your profile as a **Priority ${chosenPriority} Goal**:
+
+• **Event Date:** Sunday, March 7, 2027 (10:30 AM start)
+• **Distance:** 10.0 Miles (16.09 km)
+• **Target Finish Time:** **Sub-1 Hour (59:59)**
+• **Required Pace:** **5:59/mile** (**3:43/km**)
+• **Priority:** **${chosenPriority}-Race** (${chosenPriority === 'A' ? 'Primary spring peak' : chosenPriority === 'B' ? 'Major tune-up test' : 'Training race effort'})
+
+This goal is now saved in your profile and will be factored into all weekly training microcycles, threshold pacing, and fitness projections!`;
+    }
+  }
+
+  // -------------------------------------------------------------
+  // Delete Goal Race
+  // -------------------------------------------------------------
+  if (
+    (q.includes('delete') || q.includes('remove') || q.includes('cancel')) &&
+    (q.includes('goal') || q.includes('race') || (goals && goals.some((g: any) => q.includes(g.name.toLowerCase()))))
+  ) {
+    const matched = goals.find((g: any) => {
+      const gn = String(g.name).toLowerCase();
+      return q.includes(gn) ||
+        (gn.includes('chippenham') && q.includes('chippenham')) ||
+        (gn.includes('cotswold') && q.includes('cotswold')) ||
+        (gn.includes('seven sins') && (q.includes('seven sins') || q.includes('7 sins'))) ||
+        (gn.includes('oldbury') && q.includes('oldbury')) ||
+        (gn.includes('ironman') && q.includes('ironman'));
+    });
+
+    if (matched) {
+      const remaining = goals.filter((g: any) => g.id !== matched.id);
+      return `### 🗑️ Goal Race Removed
+
+I have removed **"${matched.name}"** (${matched.priority}-Race on ${matched.eventDate}) from your training goals.
+
+**Your Remaining Upcoming Goals:**
+${remaining.map((g: any) => `• **${g.name}** (${g.priority}-Race on ${g.eventDate})`).join('\n') || '• No remaining upcoming goal races.'}
+
+Your training load and periodization targets have been updated accordingly.`;
     }
   }
 

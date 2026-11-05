@@ -1444,6 +1444,144 @@ export function clearActivityCalibration(
   });
 }
 
+/**
+ * Recreates a run workout using calibrated run sections (Fix Data > +Add Lap).
+ * Generates synthetic velocity_smooth and distance streams and calibrated laps
+ * matching the exact durations and speeds of the sections.
+ */
+export async function applyRunSectionsCalibration(
+  activityId: number | string,
+  sections: CalibratedRunSection[],
+  notes?: string,
+  activityFallback?: any
+): Promise<StravaActivityDetailsRecord> {
+  const totalDurationSec = sections.reduce((acc, s) => acc + (s.durationSec || 0), 0);
+  let totalDistanceM = 0;
+  sections.forEach((s) => {
+    totalDistanceM += ((s.speedKph || 0) / 3.6) * (s.durationSec || 0);
+  });
+  totalDistanceM = Math.round(totalDistanceM * 10) / 10;
+
+  return updateStravaActivityRecord(activityId, (record) => {
+    const existing = record || { id: String(activityId) };
+    const rawStreams = (existing.streams || {}) as Record<string, any>;
+    const act = (existing.activity || activityFallback || {}) as Record<string, any>;
+
+    const originalTimeStream = rawStreams.time?.data as number[] | undefined;
+    const timeStream = originalTimeStream && originalTimeStream.length > 0
+      ? [...originalTimeStream]
+      : Array.from({ length: Math.ceil(totalDurationSec) + 1 }, (_, i) => i);
+
+    const boundaries: { endTime: number; speedMps: number; section: CalibratedRunSection }[] = [];
+    let currentEnd = 0;
+    sections.forEach((s) => {
+      currentEnd += s.durationSec;
+      boundaries.push({
+        endTime: currentEnd,
+        speedMps: (s.speedKph || 0) / 3.6,
+        section: s,
+      });
+    });
+
+    const speedStream: number[] = [];
+    const distanceStream: number[] = [];
+    let cumDist = 0;
+
+    for (let i = 0; i < timeStream.length; i++) {
+      const t = timeStream[i];
+      let activeSpeedMps = boundaries.length > 0 ? boundaries[0].speedMps : 0;
+      for (const b of boundaries) {
+        if (t <= b.endTime) {
+          activeSpeedMps = b.speedMps;
+          break;
+        }
+        activeSpeedMps = b.speedMps;
+      }
+
+      if (i > 0) {
+        const dt = Math.max(0, timeStream[i] - timeStream[i - 1]);
+        cumDist += activeSpeedMps * dt;
+      }
+
+      speedStream.push(Number(activeSpeedMps.toFixed(3)));
+      distanceStream.push(Number(cumDist.toFixed(1)));
+    }
+
+    let lapStartSec = 0;
+    const newLaps = sections.map((s, idx) => {
+      const lapEndSec = lapStartSec + s.durationSec;
+      const startIdx = timeStream.findIndex((t) => t >= lapStartSec);
+      let endIdx = timeStream.findIndex((t) => t >= lapEndSec);
+      if (endIdx === -1) endIdx = timeStream.length - 1;
+
+      const lapDistanceM = Math.round(((s.speedKph || 0) / 3.6) * s.durationSec * 10) / 10;
+      const lapObj = {
+        id: Number(activityId) * 100 + (idx + 1),
+        resource_state: 2,
+        name: s.name || `Lap ${idx + 1}`,
+        activity: { id: activityId },
+        athlete: act.athlete || { id: 0 },
+        elapsed_time: Math.round(s.durationSec),
+        moving_time: Math.round(s.durationSec),
+        start_date: act.start_date,
+        start_date_local: act.start_date_local,
+        distance: lapDistanceM,
+        start_index: Math.max(0, startIdx),
+        end_index: Math.max(startIdx, endIdx),
+        total_elevation_gain: 0,
+        average_speed: Number(((s.speedKph || 0) / 3.6).toFixed(2)),
+        max_speed: Number(((s.speedKph || 0) / 3.6).toFixed(2)),
+        lap_index: idx + 1,
+        split: idx + 1,
+      };
+      lapStartSec = lapEndSec;
+      return lapObj;
+    });
+
+    const prevCalib = existing.calibration || {};
+    const updatedCalibration: ActivityCalibration = {
+      ...prevCalib,
+      calibratedDistanceM: totalDistanceM,
+      calibratedMovingTimeSec: Math.round(totalDurationSec),
+      calibratedRunSections: sections,
+      calibrationNotes: notes || prevCalib.calibrationNotes || 'Recreated workout with calibrated intervals via AI Coach',
+      calibratedAt: new Date().toISOString(),
+    };
+
+    return {
+      ...existing,
+      activity: {
+        ...act,
+        distance: totalDistanceM,
+        moving_time: Math.round(totalDurationSec),
+        laps: newLaps,
+      },
+      calibration: updatedCalibration,
+      streams: {
+        ...rawStreams,
+        time: rawStreams.time || {
+          data: timeStream,
+          series_type: 'time',
+          original_size: timeStream.length,
+          resolution: 'high',
+        },
+        velocity_smooth: {
+          data: speedStream,
+          series_type: 'distance',
+          original_size: speedStream.length,
+          resolution: 'high',
+        },
+        distance: {
+          data: distanceStream,
+          series_type: 'distance',
+          original_size: distanceStream.length,
+          resolution: 'high',
+        },
+      },
+    };
+  });
+}
+
 export function saveActivityEffortFeedback(
   activityId: number | string,
   feedback: ActivityEffortFeedback

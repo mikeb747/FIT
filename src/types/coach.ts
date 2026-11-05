@@ -73,11 +73,69 @@ export interface PeriodizedPlan {
 import type { TrainingGoal } from './goals';
 
 export interface CoachGoalAction {
-  type: 'add_goal' | 'update_goal' | 'delete_goal' | 'update_benchmark';
+  type: 'add_goal' | 'update_goal' | 'delete_goal' | 'propose_goal' | 'update_benchmark';
+  status?: 'pending_confirmation' | 'pending_priority' | 'confirmed' | 'cancelled';
   goal?: Partial<TrainingGoal>;
+  goalId?: string;
+  goalName?: string;
+  updates?: Partial<TrainingGoal>;
+  missingFields?: string[];
+  suggestedPriorities?: ('A' | 'B' | 'C')[];
+  searchResult?: {
+    eventName?: string;
+    foundDate?: string;
+    sourceUri?: string;
+    sourceTitle?: string;
+  };
   benchmark?: Record<string, unknown>;
   description: string;
 }
+
+export interface CalibratedLapProposal {
+  id: string;
+  name: string; // e.g. "Warm-up", "Interval 1", "Recovery 1", "Cool-down"
+  durationSec: number;
+  speedKph: number;
+  paceMinSec?: string; // e.g. "3:30/km", "6:00/km"
+  distanceM?: number;
+  isInterval?: boolean; // true if this is an active interval
+  isRecovery?: boolean; // true if this is rest/recovery
+  isWarmupCool?: boolean;
+}
+
+export interface CoachWorkoutCalibrationAction {
+  type: 'recreate_run_workout' | 'apply_run_calibration';
+  status?: 'pending_answers' | 'ready_to_apply' | 'applied';
+  activityId: string | number;
+  activityName: string;
+  activityDate: string;
+  recordedDurationSec: number;
+  originalDistanceM: number;
+  originalPace?: string;
+  targetIntervalPace: string; // e.g. "3:30/km"
+  targetIntervalSpeedKph: number; // e.g. 17.14
+  recoveryPace?: string; // e.g. "6:00/km"
+  recoverySpeedKph?: number; // e.g. 10.0
+  activeDurationSec?: number;
+  recoveryDurationSec?: number;
+  intervalsCount?: number;
+  timeDiscrepancySec: number;
+  sections: CalibratedLapProposal[];
+  recalculatedDistanceM: number;
+  recalculatedAvgPace: string;
+  followUpQuestions?: string[];
+  clarificationOptions?: {
+    label: string;
+    description: string;
+    activeSec: number;
+    recoverySec: number;
+    repeats: number;
+    recoveryPace?: string;
+  }[];
+  description: string;
+}
+
+export type CoachAction = CoachGoalAction | CoachWorkoutCalibrationAction;
 
 export interface CoachChatMessage {
   id: string;
@@ -85,8 +143,9 @@ export interface CoachChatMessage {
   content: string;
   timestamp: string;
   feedback?: 'like' | 'dislike' | null;
-  executedAction?: CoachGoalAction;
+  executedAction?: CoachAction;
   confidenceRating?: string;
+  groundingSources?: { uri: string; title: string }[];
 }
 
 export interface CoachActivityRecord {
@@ -98,7 +157,9 @@ export interface CoachActivityRecord {
   dayOfWeek: string; // e.g. "Thursday", "Saturday"
   daysAgo: number; // 0 = today, 1 = yesterday, etc.
   distanceKm: number;
+  distanceM?: number;
   movingTimeMin: number;
+  movingTimeSec?: number;
   paceFormatted?: string; // e.g. "4:38/km" for runs
   speedKmh?: number; // e.g. 31.4 km/h for bike
   avgWatts?: number;
