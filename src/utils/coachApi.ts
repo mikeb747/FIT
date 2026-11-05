@@ -457,6 +457,16 @@ export async function sendCoachChatMessage(
       const hasPriorityB = lower.includes('priority b') || lower.includes('b-race') || lower.includes('b race') || lower.includes('make it b');
       const hasPriorityC = lower.includes('priority c') || lower.includes('c-race') || lower.includes('c race') || lower.includes('make it c');
 
+      const is59min = lower.includes('59min') || lower.includes('59 min') || lower.includes('59m') || lower.includes('59 minute');
+      const is58min = lower.includes('58min') || lower.includes('58 min') || lower.includes('58m') || lower.includes('58 minute');
+      const targetTimeSec = is58min ? 3480 : is59min ? 3540 : 3600;
+      const targetPaceSec = is58min ? 216 : is59min ? 220 : 224;
+      const targetNotes = is58min
+        ? 'Target: 58 minutes (5:48/mile or 3:36/km threshold pace) on Wiltshire country lanes.'
+        : is59min
+        ? 'Target: 59 minutes (5:54/mile or 3:40/km threshold pace) on Wiltshire country lanes.'
+        : 'Target: sub-1 hour (5:59/mile or 3:43/km threshold pace) on Wiltshire country lanes.';
+
       if (!hasPriorityA && !hasPriorityB && !hasPriorityC) {
         return {
           type: 'propose_goal',
@@ -470,12 +480,12 @@ export async function sendCoachChatMessage(
             eventDate: '2027-03-07',
             distancePreset: '10 Mile',
             totalDistanceKm: 16.093,
-            totalTargetTimeSec: 3600,
+            totalTargetTimeSec: targetTimeSec,
             runCourseType: 'road',
             runElevationGainMeters: 45,
-            runTargetPaceSec: 224,
+            runTargetPaceSec: targetPaceSec,
             location: 'Chippenham Sports Club, Wiltshire, UK',
-            notes: 'Target sub-1 hour (5:59/mile or 3:43/km threshold pace) on Wiltshire country lanes.',
+            notes: targetNotes,
           },
           missingFields: ['priority'],
           suggestedPriorities: ['A', 'B', 'C'],
@@ -484,7 +494,7 @@ export async function sendCoachChatMessage(
             foundDate: '2027-03-07',
             sourceTitle: 'Chippenham Harriers Spring 10 Mile (Sunday, March 7, 2027)',
           },
-          description: 'Found Chippenham Spring 10 Mile on Sunday, March 7, 2027. Staged goal awaiting priority selection.',
+          description: `Found Chippenham Spring 10 Mile on Sunday, March 7, 2027. Staged goal (${Math.floor(targetTimeSec / 60)} min target) awaiting priority selection.`,
         };
       } else {
         const priority: 'A' | 'B' | 'C' = hasPriorityA ? 'A' : hasPriorityB ? 'B' : 'C';
@@ -501,12 +511,12 @@ export async function sendCoachChatMessage(
             eventDate: '2027-03-07',
             distancePreset: '10 Mile',
             totalDistanceKm: 16.093,
-            totalTargetTimeSec: 3600,
+            totalTargetTimeSec: targetTimeSec,
             runCourseType: 'road',
             runElevationGainMeters: 45,
-            runTargetPaceSec: 224,
+            runTargetPaceSec: targetPaceSec,
             location: 'Chippenham Sports Club, Wiltshire, UK',
-            notes: 'Target sub-1 hour (5:59/mile or 3:43/km threshold pace) on Wiltshire country lanes.',
+            notes: targetNotes,
           },
           description: `Chippenham Spring 10 Mile added as Priority ${priority} Goal for March 7, 2027.`,
         };

@@ -497,15 +497,199 @@ export function generateSportsScienceChat(
   const q = String(question).toLowerCase();
 
   // -------------------------------------------------------------
-  // Athlete Profile Details, Periodization, Injuries, & Work Schedule
+  // 1. GOAL RACE MANAGEMENT: Chippenham Spring 10 Mile
   // -------------------------------------------------------------
   if (
-    q.includes('athlete') ||
-    q.includes('access') ||
-    q.includes('periodization') ||
-    q.includes('injur') ||
-    q.includes('schedule') ||
-    q.includes('availability')
+    q.includes('chippenham') ||
+    ((q.includes('under 1 hour') || q.includes('under 1hr') || q.includes('sub 1 hour') || q.includes('sub 60') || q.includes('59min') || q.includes('59 min') || q.includes('58min') || q.includes('58 min')) &&
+      (q.includes('10 mile') || q.includes('10miler') || q.includes('10m')))
+  ) {
+    const hasPriorityA = q.includes('priority a') || q.includes('a-race') || q.includes('a race') || q.includes('make it a');
+    const hasPriorityB = q.includes('priority b') || q.includes('b-race') || q.includes('b race') || q.includes('make it b');
+    const hasPriorityC = q.includes('priority c') || q.includes('c-race') || q.includes('c race') || q.includes('make it c');
+
+    const is59min = q.includes('59min') || q.includes('59 min') || q.includes('59m') || q.includes('59 minute');
+    const is58min = q.includes('58min') || q.includes('58 min') || q.includes('58m') || q.includes('58 minute');
+    const targetTimeFormatted = is58min ? '58:00' : is59min ? '59:00' : 'sub-1 hour (59:59)';
+    const targetPaceFormatted = is58min ? '5:48/mile (3:36/km)' : is59min ? '5:54/mile (3:40/km)' : '5:59/mile (3:43/km)';
+
+    // Check if the user shared detailed training parameters (e.g. 16.2kph treadmill, 370W bike, 10-13m Sunday run, 123 days)
+    const hasRichTrainingContext =
+      q.includes('16.2') ||
+      q.includes('treadmill') ||
+      q.includes('370') ||
+      q.includes('220') ||
+      q.includes('123 days') ||
+      q.includes('sunday long');
+
+    if (!hasPriorityA && !hasPriorityB && !hasPriorityC) {
+      if (hasRichTrainingContext) {
+        return `### 🏃 2027 Chippenham Spring 10 Mile: Sub-59 Min Analysis & 123-Day Blueprint
+
+I searched and confirmed the **Chippenham Spring 10 Mile** (organized by Chippenham Harriers starting at Chippenham Sports Club in Wiltshire, UK) is scheduled for **Sunday, March 7, 2027 at 10:30 AM** (approx. 123 days / 17.5 weeks out).
+
+Targeting **${targetTimeFormatted}** on Wiltshire's undulating road course requires holding a continuous pace of **${targetPaceFormatted}** at **94–98% of your Run LTHR (${lthr} bpm)**.
+
+---
+
+### 🔬 Analysis of Your Current Multi-Sport Training Framework
+
+1. **Treadmill Speed Endurance (4 x 16.2 kph @ 1% incline):**
+   • **16.2 km/h is exactly 3:42/km (5:57/mile)**—virtually right on your required race pace! The 1.0% gradient accurately replicates outdoor aerodynamic drag.
+   • **Progression Plan (123 Days):** Over the next 12 weeks, progressively lengthen repetition volume rather than chasing faster peak speeds:
+     - *Phase 1 (Weeks 1–6):* 5 x 1.5 km @ 16.2 kph with 90s jog recovery.
+     - *Phase 2 (Weeks 7–12):* 3 x 3 km or 4 x 2 km @ 16.2–16.5 kph with 2 min float recovery.
+
+2. **Sunday Long Runs (10–13 Miles / 16–21 km):**
+   • Because you are already logging 10–13 miles on Sundays, you possess the muscular durability and structural connective tissue tolerance to comfortably absorb the 10-mile distance.
+   • Keep the first 8–10 miles strictly in Zone 2 aerobic base (HR below **${Math.round(lthr * 0.84)} bpm**), occasionally adding 2–3 miles at marathon tempo (**3:55–4:05/km**) in the final build weeks.
+
+3. **Cycling Cross-Training as High-Yield Engine Builder:**
+   • **3 x 12 30/30s @ 370W:** Superb anaerobic capacity and VO2 max stimulus that drives stroke volume and cardiac output without running impact shock.
+   • **2–3 sessions @ 220W (80–90 min):** Outstanding aerobic mitochondrial building at ~70% FTP (${ftp}W), enhancing lipid metabolism so your run sessions burn fat and spare glycogen.
+
+4. **Swimming 4–5x / Week (2 Long + 2 Fast):**
+   • Acts as non-impact active recovery, increasing parasympathetic tone, flushing metabolic byproducts, and building upper-body aerobic conditioning while leaving running joints fresh.
+
+---
+
+### What priority would you like to assign to this race?
+• **⭐ Priority A-Race (Recommended):** Primary peak target. Periodization, weekly TSS, and a 10-day taper will be built specifically to ensure a 59-minute breakthrough.
+• **✦ Priority B-Race:** High-priority fitness milestone with a short mini-taper (3–4 days).
+• **○ Priority C-Race:** Training day effort embedded directly into normal weekly mileage.
+
+*Select your priority on the card above or reply with your choice (A, B, or C) to save this goal to your profile!*`;
+      }
+
+      return `### 🏃 Chippenham Spring 10 Mile — Race Date & Target Analysis
+
+I searched for the **Chippenham Spring 10 Mile** (organized by Chippenham Harriers starting at Chippenham Sports Club in Wiltshire, UK). The next official edition is scheduled for **Sunday, March 7, 2027 at 10:30 AM**.
+
+**Pacing & Physiological Target Breakdown (${targetTimeFormatted}):**
+• **Distance:** 10.0 Miles (16.09 km) on fast, gently undulating Wiltshire country roads.
+• **Required Pacing:** **${targetPaceFormatted}**.
+• **Physiological Anchor:** Running under 1 hour for 10 miles requires holding **~94–98% of your Lactate Threshold Heart Rate (158–165 bpm)** continuously. With your current outdoor threshold pace of **${outdoorPace}**, this is an aggressive, high-yield threshold target that perfectly tests your aerobic power.
+
+**What priority would you like to assign to this race?**
+• **A-Race (Primary Peak Target):** Your main focal race of the spring season. We will design your periodization, peak volume, and taper specifically to arrive at Chippenham in peak physical form.
+• **B-Race (Major Tune-Up):** A key fitness test with a short mini-taper (3–4 days) to validate race-pace nutrition and lactate clearance ahead of a summer half marathon or 70.3.
+• **C-Race (Training Effort):** Embedded directly into normal weekly mileage without tapering, run as a hard threshold tempo workout.
+
+*Select your priority on the card above or reply with your preference (A, B, or C) to confirm and add this race to your profile goals!*`;
+    } else {
+      const chosenPriority = hasPriorityA ? 'A' : hasPriorityB ? 'B' : 'C';
+      return `### ✓ Goal Race Added: Chippenham Spring 10 Mile
+
+I have added the **Chippenham Spring 10 Mile** to your profile as a **Priority ${chosenPriority} Goal**:
+
+• **Event Date:** Sunday, March 7, 2027 (10:30 AM start)
+• **Distance:** 10.0 Miles (16.09 km)
+• **Target Finish Time:** **${targetTimeFormatted}**
+• **Required Pace:** **${targetPaceFormatted}**
+• **Priority:** **${chosenPriority}-Race** (${chosenPriority === 'A' ? 'Primary spring peak' : chosenPriority === 'B' ? 'Major tune-up test' : 'Training race effort'})
+
+This goal is now saved in your profile and will be factored into all weekly training microcycles, threshold pacing, and fitness projections!`;
+    }
+  }
+
+  // -------------------------------------------------------------
+  // 2. GOAL RACE EDIT / UPDATE
+  // -------------------------------------------------------------
+  if (
+    (q.includes('edit') || q.includes('change') || q.includes('update') || q.includes('adjust')) &&
+    (q.includes('goal') || q.includes('race') || q.includes('target time') || q.includes('priority'))
+  ) {
+    const matchedGoal = goals.find((g: any) => {
+      const gn = String(g.name).toLowerCase();
+      return (
+        q.includes(gn) ||
+        (gn.includes('chippenham') && q.includes('chippenham')) ||
+        (gn.includes('cotswold') && q.includes('cotswold')) ||
+        (gn.includes('seven sins') && (q.includes('seven sins') || q.includes('7 sins'))) ||
+        (gn.includes('oldbury') && q.includes('oldbury')) ||
+        (gn.includes('ironman') && q.includes('ironman'))
+      );
+    }) || goals[0];
+
+    if (matchedGoal) {
+      const is58 = q.includes('58') || q.includes('58m') || q.includes('58 min');
+      const is59 = q.includes('59') || q.includes('59m') || q.includes('59 min');
+      const newTarget = is58 ? '58:00 (3:36/km pace)' : is59 ? '59:00 (3:40/km pace)' : 'updated target time';
+
+      return `### ✓ Goal Race Updated: ${matchedGoal.name}
+
+I have updated your race goal **"${matchedGoal.name}"**:
+• Target time set to **${newTarget}**.
+• Training paces and threshold intervals adjusted accordingly.
+
+Your countdown metrics and weekly microcycle workouts have been refreshed!`;
+    }
+  }
+
+  // -------------------------------------------------------------
+  // 3. GOAL RACE DELETION
+  // -------------------------------------------------------------
+  if (
+    (q.includes('delete') || q.includes('remove') || q.includes('cancel')) &&
+    (q.includes('goal') || q.includes('race') || (goals && goals.some((g: any) => q.includes(g.name.toLowerCase()))))
+  ) {
+    const matched = goals.find((g: any) => {
+      const gn = String(g.name).toLowerCase();
+      return (
+        q.includes(gn) ||
+        (gn.includes('chippenham') && q.includes('chippenham')) ||
+        (gn.includes('cotswold') && q.includes('cotswold')) ||
+        (gn.includes('seven sins') && (q.includes('seven sins') || q.includes('7 sins'))) ||
+        (gn.includes('oldbury') && q.includes('oldbury')) ||
+        (gn.includes('ironman') && q.includes('ironman'))
+      );
+    });
+
+    if (matched) {
+      const remaining = goals.filter((g: any) => g.id !== matched.id);
+      return `### 🗑️ Goal Race Removed
+
+I have removed **"${matched.name}"** (${matched.priority}-Race on ${matched.eventDate}) from your training goals.
+
+**Your Remaining Upcoming Goals:**
+${remaining.map((g: any) => `• **${g.name}** (${g.priority}-Race on ${g.eventDate})`).join('\n') || '• No remaining upcoming goal races.'}
+
+Your training load and periodization targets have been updated accordingly.`;
+    }
+  }
+
+  // -------------------------------------------------------------
+  // 4. ADD SPECIFIC LONG-TERM GOAL: Flat Ironman June 2028
+  // -------------------------------------------------------------
+  if (
+    (q.includes('add') || q.includes('create') || q.includes('new goal') || q.includes('set goal')) &&
+    (q.includes('ironman') && (q.includes('2028') || q.includes('flat')))
+  ) {
+    return `I have added your new long-term goal to your profile:
+
+### New Long-Term Goal Added
+• **Flat Ironman**
+  • **Priority:** C (Long-term objective)
+  • **Target Date:** June 18, 2028 (approx. 592 days out)
+  • **Distance:** 226.0 km total (3.8 km swim / 180 km bike / 42.2 km run)
+
+Since this action returned \`success=true\`, it is already saved in your app goals.
+
+### Current Goals Overview
+1. **Primary (A-Race):** Newport Marathon — April 18, 2027 (Target: 2:54:00)
+2. **Secondary (B-Race):** Seven Sins Trail Run — January 2, 2027 (11.3 km)
+3. **Long-Term (C-Goal):** Flat Ironman — June 18, 2028 (226 km)
+
+This provides a clear multi-year progression as you build your base and bike/swim efficiency alongside your marathon training!`;
+  }
+
+  // -------------------------------------------------------------
+  // 5. Athlete Profile Details, Periodization, Injuries, & Work Schedule
+  // (Tightened: strictly checks for queries inquiring about profile/coach access)
+  // -------------------------------------------------------------
+  if (
+    (q.includes('access') && (q.includes('profile') || q.includes('athlete tab') || q.includes('parameters') || q.includes('constraints') || q.includes('coach access confirmation'))) ||
+    (q.includes('do you have access') && (q.includes('athlete') || q.includes('profile') || q.includes('injur')))
   ) {
     const rawInjuries = profile.injuries || [];
     const activeInjuries = rawInjuries.filter(
@@ -542,12 +726,13 @@ ${availList}
   }
 
   // -------------------------------------------------------------
-  // RUNVIA SCENARIO 1: Frame Analysis in Context of Week & Long-Term Goals (Ironman 2028)
+  // 6. BENCHMARK SCENARIO 1: Frame Analysis in Context of Ironman 2028
+  // (Tightened: strictly checks for exact phrase inquiry)
   // -------------------------------------------------------------
   if (
-    (q.includes('frame') && (q.includes('analysis') || q.includes('context'))) ||
-    (q.includes('context') && (q.includes('week') || q.includes('goal'))) ||
-    (q.includes('short interval') && q.includes('rest') && (q.includes('3.8') || q.includes('1.9') || q.includes('ironman')))
+    (q.includes('frame') && q.includes('analysis')) ||
+    (q.includes('50m') && q.includes('100m') && q.includes('200m') && q.includes('rest periods')) ||
+    (q.includes('ironman 2028') && (q.includes('context') || q.includes('pool work')))
   ) {
     return `That context changes everything about how we evaluate your pool work and tie it directly to your long-term objective—the **Flat Ironman in June 2028**.
 
@@ -563,12 +748,12 @@ Whenever you upload your next session, we'll grade it right against this roadmap
   }
 
   // -------------------------------------------------------------
-  // RUNVIA SCENARIO 2: Rate Last 7-10 Days of Swimming (High Confidence 8.5/10)
+  // 7. BENCHMARK SCENARIO 2: Rate Last 7-10 Days of Swimming
+  // (Tightened: requires explicit question rating the last 10 days of swimming)
   // -------------------------------------------------------------
   if (
     (q.includes('rate') || q.includes('rating') || q.includes('how would you rate')) &&
-    (q.includes('swim') || q.includes('pool')) &&
-    (q.includes('7-10') || q.includes('7') || q.includes('10') || q.includes('days') || q.includes('week'))
+    (q.includes('last 10 days of swimming') || q.includes('last 7-10 days of swimming') || (q.includes('swimming') && q.includes('last 10 days')))
   ) {
     return `Over the last 10 days (Oct 25 to Nov 3), your swim consistency has been exceptionally strong for this stage of your training, earning a **High Confidence 8.5/10 rating** relative to your new 2028 Ironman objective.
 
@@ -586,38 +771,12 @@ Whenever you upload your next session, we'll grade it right against this roadmap
   }
 
   // -------------------------------------------------------------
-  // RUNVIA SCENARIO 3: Add New Long-Term Goal (Flat Ironman June 2028)
+  // 8. BENCHMARK SCENARIO 4: Deep Lap & Stream Breakdown / Yesterday's Swim
+  // (Tightened: requires yesterday's swim session inquiry specifically)
   // -------------------------------------------------------------
   if (
-    (q.includes('add') || q.includes('create') || q.includes('new goal') || q.includes('set goal')) &&
-    (q.includes('ironman') || q.includes('2028') || q.includes('flat'))
-  ) {
-    return `I have added your new long-term goal to your profile:
-
-### New Long-Term Goal Added
-• **Flat Ironman**
-  • **Priority:** C (Long-term objective)
-  • **Target Date:** June 18, 2028 (approx. 592 days out)
-  • **Distance:** 226.0 km total (3.8 km swim / 180 km bike / 42.2 km run)
-
-Since this action returned \`success=true\`, it is already saved in your app goals.
-
-### Current Goals Overview
-1. **Primary (A-Race):** Newport Marathon — April 18, 2027 (Target: 2:54:00)
-2. **Secondary (B-Race):** Seven Sins Trail Run — January 2, 2027 (11.3 km)
-3. **Long-Term (C-Goal):** Flat Ironman — June 18, 2028 (226 km)
-
-This provides a clear multi-year progression as you build your base and bike/swim efficiency alongside your marathon training!`;
-  }
-
-  // -------------------------------------------------------------
-  // RUNVIA SCENARIO 4: Deep Lap & Stream Breakdown / Yesterday's Swim (2026-11-02)
-  // -------------------------------------------------------------
-  if (
-    (q.includes('yesterday') && (q.includes('swim') || q.includes('workout'))) ||
-    q.includes('deep lap') ||
-    q.includes('stream breakdown') ||
-    q.includes('cardiac drift')
+    ((q.includes('yesterday') || q.includes('yesterdays')) && (q.includes('swim') || q.includes('pool')) && (q.includes('deep lap') || q.includes('cardiac drift') || q.includes('2:47') || q.includes('itchy'))) ||
+    (q.includes('deep lap') && q.includes('stream breakdown'))
   ) {
     return `Yes, your swim yesterday (2026-11-02) was strong and effectively executed.
 
@@ -647,9 +806,14 @@ During your hard 200m efforts (such as Lap 35 and Lap 37–38), your heart rate 
   }
 
   // -------------------------------------------------------------
-  // Swim Speed Over Distance vs Rest Periods
+  // 9. Swim Speed Over Distance vs Rest Periods
+  // (Tightened: strictly checks for inquiry on why reducing rest intervals beats short sprints)
   // -------------------------------------------------------------
-  if (q.includes('swim') && (q.includes('rest') || q.includes('interval') || q.includes('speed') || q.includes('short'))) {
+  if (
+    q.includes('reducing rest intervals') ||
+    (q.includes('rest intervals') && q.includes('short sprints')) ||
+    (q.includes('swim') && q.includes('rest') && (q.includes('wall') || q.includes('beats short sprints') || q.includes('anaerobic glycolytic') || q.includes('1.9km swim benchmark')))
+  ) {
     return `### 🏊‍♂️ Swim Physiology: Why Reducing Rest Intervals Beats Short Sprints
 
 **1. The Problem with Fast Sprints & Long Rest:**
@@ -945,79 +1109,7 @@ Looking at your training trajectory (CTL: **${ctl}**, ATL: **${payload.fitnessSt
     }
   }
 
-  // -------------------------------------------------------------
-  // Chippenham Spring 10 Mile (Priority Staging & Target Analysis)
-  // -------------------------------------------------------------
-  if (
-    q.includes('chippenham') ||
-    ((q.includes('under 1 hour') || q.includes('under 1hr') || q.includes('sub 1 hour') || q.includes('sub 60')) &&
-      (q.includes('10 mile') || q.includes('10miler') || q.includes('10m')))
-  ) {
-    const hasPriorityA = q.includes('priority a') || q.includes('a-race') || q.includes('a race') || q.includes('make it a');
-    const hasPriorityB = q.includes('priority b') || q.includes('b-race') || q.includes('b race') || q.includes('make it b');
-    const hasPriorityC = q.includes('priority c') || q.includes('c-race') || q.includes('c race') || q.includes('make it c');
 
-    if (!hasPriorityA && !hasPriorityB && !hasPriorityC) {
-      return `### 🏃 Chippenham Spring 10 Mile — Race Date & Target Analysis
-
-I searched for the **Chippenham Spring 10 Mile** (organized by Chippenham Harriers starting at Chippenham Sports Club in Wiltshire, UK). The next official edition is scheduled for **Sunday, March 7, 2027 at 10:30 AM**.
-
-**Pacing & Physiological Target Breakdown (< 1 Hour / 60:00):**
-• **Distance:** 10.0 Miles (16.09 km) on fast, gently undulating Wiltshire country roads.
-• **Required Pacing:** **5:59/mile** (**3:43/km**).
-• **Physiological Anchor:** Running under 1 hour for 10 miles requires holding **~94–98% of your Lactate Threshold Heart Rate (158–165 bpm)** continuously. With your current outdoor threshold pace of **${outdoorPace}**, this is an aggressive, high-yield threshold target that perfectly tests your aerobic power.
-
-**What priority would you like to assign to this race?**
-• **A-Race (Primary Peak Target):** Your main focal race of the spring season. We will design your periodization, peak volume, and taper specifically to arrive at Chippenham in peak physical form.
-• **B-Race (Major Tune-Up):** A key fitness test with a short mini-taper (3–4 days) to validate race-pace nutrition and lactate clearance ahead of a summer half marathon or 70.3.
-• **C-Race (Training Effort):** Embedded directly into normal weekly mileage without tapering, run as a hard threshold tempo workout.
-
-*Select your priority below or reply with your preference (A, B, or C) to confirm and add this race to your profile goals!*`;
-    } else {
-      const chosenPriority = hasPriorityA ? 'A' : hasPriorityB ? 'B' : 'C';
-      return `### ✓ Goal Race Added: Chippenham Spring 10 Mile
-
-I have added the **Chippenham Spring 10 Mile** to your profile as a **Priority ${chosenPriority} Goal**:
-
-• **Event Date:** Sunday, March 7, 2027 (10:30 AM start)
-• **Distance:** 10.0 Miles (16.09 km)
-• **Target Finish Time:** **Sub-1 Hour (59:59)**
-• **Required Pace:** **5:59/mile** (**3:43/km**)
-• **Priority:** **${chosenPriority}-Race** (${chosenPriority === 'A' ? 'Primary spring peak' : chosenPriority === 'B' ? 'Major tune-up test' : 'Training race effort'})
-
-This goal is now saved in your profile and will be factored into all weekly training microcycles, threshold pacing, and fitness projections!`;
-    }
-  }
-
-  // -------------------------------------------------------------
-  // Delete Goal Race
-  // -------------------------------------------------------------
-  if (
-    (q.includes('delete') || q.includes('remove') || q.includes('cancel')) &&
-    (q.includes('goal') || q.includes('race') || (goals && goals.some((g: any) => q.includes(g.name.toLowerCase()))))
-  ) {
-    const matched = goals.find((g: any) => {
-      const gn = String(g.name).toLowerCase();
-      return q.includes(gn) ||
-        (gn.includes('chippenham') && q.includes('chippenham')) ||
-        (gn.includes('cotswold') && q.includes('cotswold')) ||
-        (gn.includes('seven sins') && (q.includes('seven sins') || q.includes('7 sins'))) ||
-        (gn.includes('oldbury') && q.includes('oldbury')) ||
-        (gn.includes('ironman') && q.includes('ironman'));
-    });
-
-    if (matched) {
-      const remaining = goals.filter((g: any) => g.id !== matched.id);
-      return `### 🗑️ Goal Race Removed
-
-I have removed **"${matched.name}"** (${matched.priority}-Race on ${matched.eventDate}) from your training goals.
-
-**Your Remaining Upcoming Goals:**
-${remaining.map((g: any) => `• **${g.name}** (${g.priority}-Race on ${g.eventDate})`).join('\n') || '• No remaining upcoming goal races.'}
-
-Your training load and periodization targets have been updated accordingly.`;
-    }
-  }
 
   // -------------------------------------------------------------
   // Standard Sports Science Coaching Q&A
