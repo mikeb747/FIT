@@ -816,21 +816,21 @@ ${todayWorkout.structure.map((s) => `• [${s.phase}] (${s.duration}): ${s.descr
     <div className="space-y-6 animate-in fade-in duration-200">
       {/* Coach Navigation Switcher */}
       <div className="flex flex-col sm:flex-row sm:items-center gap-2">
-        <div className="w-full sm:flex-1 overflow-x-auto rounded-[12px] border-[0.8px] border-[#324158] bg-white">
-          <div className="flex h-[40px] min-w-max sm:min-w-[760px] lg:min-w-0">
+        <div className="w-full rounded-[12px] border-[0.8px] border-[#324158] bg-white">
+          <div className="flex min-h-[40px]">
             {([
-              { id: 'chat', label: 'Ask Coach', icon: MessageSquare },
-              { id: 'today', label: "Today's Workout", icon: Flame },
-              { id: 'reviews', label: 'Review Workouts', icon: FileText },
-              { id: 'benchmarks', label: 'Benchmarks & Sub-Goals', icon: Award },
-              { id: 'plan', label: 'Adaptive Plan', icon: Calendar },
-            ] as const).map(({ id, label, icon: Icon }, index) => (
+              { id: 'chat', label: 'Ask Coach', icon: MessageSquare, iconColor: 'text-indigo-500' },
+              { id: 'today', label: "Today's Workout", icon: Flame, iconColor: 'text-orange-500' },
+              { id: 'reviews', label: 'Review Workouts', icon: FileText, iconColor: 'text-sky-500' },
+              { id: 'benchmarks', label: 'Benchmarks & Sub-Goals', icon: Award, iconColor: 'text-amber-500' },
+              { id: 'plan', label: 'Adaptive Plan', icon: Calendar, iconColor: 'text-emerald-500' },
+            ] as const).map(({ id, label, icon: Icon, iconColor }, index) => (
               <button
                 key={id}
                 type="button"
                 aria-pressed={activeSubTab === id}
                 onClick={() => setActiveSubTab(id)}
-                className={`flex-1 min-w-[145px] lg:min-w-0 h-full px-3 text-xs font-bold whitespace-nowrap flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
+                className={`flex-1 min-w-0 px-1.5 sm:px-2 py-2 text-[10px] sm:text-xs font-bold flex flex-col sm:flex-row items-center justify-center gap-1 sm:gap-1.5 transition-all cursor-pointer ${
                   index > 0 ? 'border-l-[0.8px] border-l-[#0f172b]' : ''
                 } ${
                   activeSubTab === id
@@ -838,8 +838,8 @@ ${todayWorkout.structure.map((s) => `• [${s.phase}] (${s.duration}): ${s.descr
                     : 'bg-white hover:bg-slate-50 text-slate-700 hover:text-slate-900'
                 }`}
               >
-                <Icon className="w-3.5 h-3.5 shrink-0" />
-                <span>{label}</span>
+                <Icon className={`w-3.5 h-3.5 shrink-0 ${iconColor}`} />
+                <span className="text-center leading-tight">{label}</span>
               </button>
             ))}
           </div>
