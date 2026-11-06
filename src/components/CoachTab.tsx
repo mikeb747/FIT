@@ -816,8 +816,8 @@ ${todayWorkout.structure.map((s) => `• [${s.phase}] (${s.duration}): ${s.descr
     <div className="space-y-6 animate-in fade-in duration-200">
       {/* Coach Navigation Switcher */}
       <div className="flex flex-col sm:flex-row sm:items-center gap-2">
-        <div className="w-full rounded-[12px] border-[0.8px] border-[#324158] bg-white">
-          <div className="flex min-h-[40px]">
+        <div className="w-full rounded-[12px] border-[0.8px] border-[#324158] bg-white overflow-hidden">
+          <div className="flex min-h-[40px] overflow-hidden rounded-[11px]">
             {([
               { id: 'chat', label: 'Ask Coach', icon: MessageSquare, iconColor: 'text-indigo-500' },
               { id: 'today', label: "Today's Workout", icon: Flame, iconColor: 'text-orange-500' },
@@ -830,7 +830,7 @@ ${todayWorkout.structure.map((s) => `• [${s.phase}] (${s.duration}): ${s.descr
                 type="button"
                 aria-pressed={activeSubTab === id}
                 onClick={() => setActiveSubTab(id)}
-                className={`flex-1 min-w-0 px-1.5 sm:px-2 py-2 text-[10px] sm:text-xs font-bold flex flex-col sm:flex-row items-center justify-center gap-1 sm:gap-1.5 transition-all cursor-pointer ${
+                className={`flex-1 min-w-0 px-1.5 sm:px-2 py-2 text-[10px] sm:text-xs font-bold flex flex-col sm:flex-row items-center justify-center gap-1 sm:gap-1.5 transition-all cursor-pointer first:rounded-l-[11px] last:rounded-r-[11px] ${
                   index > 0 ? 'border-l-[0.8px] border-l-[#0f172b]' : ''
                 } ${
                   activeSubTab === id
