@@ -140,6 +140,76 @@ interface AthleteProfileModalProps {
   onClearDemoData?: () => void;
 }
 
+/**
+ * Helper to update linked integer zones (HR or Power).
+ * Prevents gaps and overlaps:
+ * When Zone k max is edited to N, Zone k+1 min automatically updates to N + 1.
+ * When Zone k min is edited to M, Zone k-1 max automatically updates to M - 1.
+ */
+function updateLinkedIntZones<T extends { zone: number; [key: string]: any }>(
+  prev: T[],
+  zoneNumber: number,
+  field: string,
+  value: string,
+  minField: string,
+  maxField: string
+): T[] {
+  const next: any[] = prev.map((z) => ({ ...z }));
+  const targetIdx = next.findIndex((z) => z.zone === zoneNumber);
+  if (targetIdx === -1) return prev;
+
+  next[targetIdx][field] = value;
+
+  const numVal = parseInt(value, 10);
+  if (!isNaN(numVal)) {
+    if (field === maxField) {
+      if (targetIdx + 1 < next.length) {
+        next[targetIdx + 1][minField] = String(numVal + 1);
+      }
+    } else if (field === minField) {
+      if (targetIdx - 1 >= 0) {
+        next[targetIdx - 1][maxField] = String(Math.max(0, numVal - 1));
+      }
+    }
+  }
+
+  return next as T[];
+}
+
+/**
+ * Helper to update linked pace zones (Running pace or Swim pace).
+ * Prevents gaps:
+ * Zone k's slow bound (maxPaceStr) connects with Zone k-1's fast bound (minPaceStr).
+ * When Zone k maxPaceStr is edited, Zone k-1 minPaceStr updates to match.
+ * When Zone k minPaceStr is edited, Zone k+1 maxPaceStr updates to match.
+ */
+function updateLinkedPaceZones<T extends { zone: number; minPaceStr: string; maxPaceStr: string; [key: string]: any }>(
+  prev: T[],
+  zoneNumber: number,
+  field: 'minPaceStr' | 'maxPaceStr',
+  value: string
+): T[] {
+  const next: any[] = prev.map((z) => ({ ...z }));
+  const targetIdx = next.findIndex((z) => z.zone === zoneNumber);
+  if (targetIdx === -1) return prev;
+
+  next[targetIdx][field] = value;
+
+  if (field === 'maxPaceStr') {
+    const adjacent = next.find((z) => z.zone === zoneNumber - 1);
+    if (adjacent) {
+      adjacent.minPaceStr = value;
+    }
+  } else if (field === 'minPaceStr') {
+    const adjacent = next.find((z) => z.zone === zoneNumber + 1);
+    if (adjacent) {
+      adjacent.maxPaceStr = value;
+    }
+  }
+
+  return next as T[];
+}
+
 export const AthleteProfileModal: React.FC<AthleteProfileModalProps> = ({
   isOpen,
   onClose,
@@ -311,11 +381,11 @@ export const AthleteProfileModal: React.FC<AthleteProfileModalProps> = ({
   }>>(() => {
     const base = getAthleteSwimPaceZones(profile);
     const offsets = [
-      'CSS +15 to +25s',
+      'CSS +15s & slower',
       'CSS +8 to +15s',
-      'CSS +3 to +8s',
+      'CSS +2 to +8s',
       'CSS -2 to +2s',
-      'CSS -2 to -10s',
+      '< CSS -2s (sprint)',
     ];
     return base.map((z, i) => {
       const custom = profile.customPaceZonesSwim?.[z.zone];
@@ -355,9 +425,7 @@ export const AthleteProfileModal: React.FC<AthleteProfileModalProps> = ({
   });
 
   const handleUpdatePaceZoneSwim = (zoneNumber: number, field: 'minPaceStr' | 'maxPaceStr', value: string) => {
-    setPaceZonesSwimState((prev) =>
-      prev.map((z) => (z.zone === zoneNumber ? { ...z, [field]: value } : z))
-    );
+    setPaceZonesSwimState((prev) => updateLinkedPaceZones(prev, zoneNumber, field, value));
   };
 
   const handleResetPaceZonesSwim = () => {
@@ -372,11 +440,11 @@ export const AthleteProfileModal: React.FC<AthleteProfileModalProps> = ({
     };
     const defaultPaces = getAthleteSwimPaceZones(tempProfile);
     const offsets = [
-      'CSS +15 to +25s',
+      'CSS +15s & slower',
       'CSS +8 to +15s',
-      'CSS +3 to +8s',
+      'CSS +2 to +8s',
       'CSS -2 to +2s',
-      'CSS -2 to -10s',
+      '< CSS -2s (sprint)',
     ];
     setPaceZonesSwimState(
       defaultPaces.map((z, i) => ({
@@ -393,7 +461,7 @@ export const AthleteProfileModal: React.FC<AthleteProfileModalProps> = ({
 
   const handleUpdateHrZoneSwim = (zoneNumber: number, field: 'minHrStr' | 'maxHrStr', value: string) => {
     setHrZonesSwimState((prev) =>
-      prev.map((z) => (z.zone === zoneNumber ? { ...z, [field]: value } : z))
+      updateLinkedIntZones(prev, zoneNumber, field, value, 'minHrStr', 'maxHrStr')
     );
   };
 
@@ -521,13 +589,9 @@ export const AthleteProfileModal: React.FC<AthleteProfileModalProps> = ({
 
   const handleUpdatePaceZone = (zoneNumber: number, field: 'minPaceStr' | 'maxPaceStr', value: string) => {
     if (runPaceZoneTab === 'outside') {
-      setPaceZonesOutsideState((prev) =>
-        prev.map((z) => (z.zone === zoneNumber ? { ...z, [field]: value } : z))
-      );
+      setPaceZonesOutsideState((prev) => updateLinkedPaceZones(prev, zoneNumber, field, value));
     } else {
-      setPaceZonesTreadmillState((prev) =>
-        prev.map((z) => (z.zone === zoneNumber ? { ...z, [field]: value } : z))
-      );
+      setPaceZonesTreadmillState((prev) => updateLinkedPaceZones(prev, zoneNumber, field, value));
     }
   };
 
@@ -574,7 +638,7 @@ export const AthleteProfileModal: React.FC<AthleteProfileModalProps> = ({
 
   const handleUpdateHrZoneRun = (zoneNumber: number, field: 'minHrStr' | 'maxHrStr', value: string) => {
     setHrZonesRunState((prev) =>
-      prev.map((z) => (z.zone === zoneNumber ? { ...z, [field]: value } : z))
+      updateLinkedIntZones(prev, zoneNumber, field, value, 'minHrStr', 'maxHrStr')
     );
   };
 
@@ -633,7 +697,7 @@ export const AthleteProfileModal: React.FC<AthleteProfileModalProps> = ({
 
   const handleUpdatePowerZone = (zoneNumber: number, field: 'minWattsStr' | 'maxWattsStr', value: string) => {
     setPowerZonesState((prev) =>
-      prev.map((z) => (z.zone === zoneNumber ? { ...z, [field]: value } : z))
+      updateLinkedIntZones(prev, zoneNumber, field, value, 'minWattsStr', 'maxWattsStr')
     );
   };
 
@@ -3289,11 +3353,11 @@ export const AthleteProfileModal: React.FC<AthleteProfileModalProps> = ({
                     Critical Swim Speed (CSS) Zone Protocols:
                   </span>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-1 text-[10px] text-slate-300 font-mono">
-                    <div>• <strong className="text-cyan-300">Z1 Recovery/Easy:</strong> CSS +15 to +25s</div>
+                    <div>• <strong className="text-cyan-300">Z1 Recovery/Easy:</strong> CSS +15s &amp; slower (up to 3:00+/100m)</div>
                     <div>• <strong className="text-sky-300">Z2 Endurance/Ironman:</strong> CSS +8 to +15s</div>
-                    <div>• <strong className="text-emerald-300">Z3 Tempo/Steady:</strong> CSS +3 to +8s</div>
+                    <div>• <strong className="text-emerald-300">Z3 Tempo/Steady:</strong> CSS +2 to +8s</div>
                     <div>• <strong className="text-amber-300">Z4 Threshold/CSS:</strong> CSS -2 to +2s</div>
-                    <div className="sm:col-span-2">• <strong className="text-rose-300">Z5 VO2 Max:</strong> CSS -2 to -10s</div>
+                    <div className="sm:col-span-2">• <strong className="text-rose-300">Z5 VO2 Max/Sprint:</strong> Faster than CSS -2s (down to 1:10/100m or faster)</div>
                   </div>
                 </div>
 

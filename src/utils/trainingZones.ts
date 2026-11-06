@@ -57,11 +57,14 @@ export function calculateActivityZonesTime(
   );
   const hrStream: number[] = streams?.heartrate?.data || [];
 
+  const minAllowedHr = athleteProfile.restingHeartRate || 40;
+  const maxAllowedHr = Math.round((athleteProfile.maxHeartRate || 185) * 1.05);
+
   if (hrStream.length >= 10) {
     const counts = [0, 0, 0, 0, 0];
     let validCount = 0;
     for (const hr of hrStream) {
-      if (typeof hr !== 'number' || hr < 40) continue;
+      if (typeof hr !== 'number' || hr < minAllowedHr || hr > maxAllowedHr) continue;
       validCount++;
       if (hr <= hrZonesConfig[0].maxHr) counts[0]++;
       else if (hr <= hrZonesConfig[1].maxHr) counts[1]++;
@@ -297,7 +300,7 @@ export function calculateActivityZonesTime(
       const counts = new Array(powerZonesConfig.length).fill(0);
       let validCount = 0;
       for (const w of wStream) {
-        if (typeof w !== 'number' || w < 0) continue;
+        if (typeof w !== 'number' || w < 0 || w > 2000) continue;
         validCount++;
         let placed = false;
         for (let i = 0; i < powerZonesConfig.length; i++) {

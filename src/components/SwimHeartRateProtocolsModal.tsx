@@ -55,7 +55,7 @@ export const SWIM_PROTOCOLS: SwimProtocolDefinition[] = [
         description: 'Very light aerobic effort. Focus on stroke mechanics, rotation, head position, and recovery between hard blocks.',
         color: '#00e5ff',
         calcRange: (lthr) => ({
-          minHr: Math.round(lthr * 0.60),
+          minHr: Math.round(lthr * 0.55),
           maxHr: Math.round(lthr * 0.72),
         }),
       },
@@ -68,7 +68,7 @@ export const SWIM_PROTOCOLS: SwimProtocolDefinition[] = [
         description: 'Sustainable continuous swimming for 60+ minutes. High fat oxidation, building mitochondrial density and stroke efficiency.',
         color: '#00b0ff',
         calcRange: (lthr) => ({
-          minHr: Math.round(lthr * 0.73),
+          minHr: Math.round(lthr * 0.72) + 1,
           maxHr: Math.round(lthr * 0.84),
         }),
       },
@@ -81,7 +81,7 @@ export const SWIM_PROTOCOLS: SwimProtocolDefinition[] = [
         description: 'Moderate-hard aerobic power. Cruise intervals on 15–20s rest (e.g. 5x400m or 10x200m). Sustainable for 30–45 minutes.',
         color: '#ffea00',
         calcRange: (lthr) => ({
-          minHr: Math.round(lthr * 0.85),
+          minHr: Math.round(lthr * 0.84) + 1,
           maxHr: Math.round(lthr * 0.93),
         }),
       },
@@ -94,7 +94,7 @@ export const SWIM_PROTOCOLS: SwimProtocolDefinition[] = [
         description: 'Anaerobic threshold (CSS pace). Blood lactate production balances clearance. Hard repeats on short rest (e.g. 20x100m on 10s rest).',
         color: '#ff9100',
         calcRange: (lthr) => ({
-          minHr: Math.round(lthr * 0.94),
+          minHr: Math.round(lthr * 0.93) + 1,
           maxHr: Math.round(lthr * 1.00),
         }),
       },
@@ -107,8 +107,8 @@ export const SWIM_PROTOCOLS: SwimProtocolDefinition[] = [
         description: 'High intensity anaerobic capacity. 50m–100m sprints, race starts, and draft surge simulations with longer recovery.',
         color: '#ff1744',
         calcRange: (lthr) => ({
-          minHr: Math.round(lthr * 1.01),
-          maxHr: Math.round(lthr * 1.08),
+          minHr: Math.round(lthr * 1.00) + 1,
+          maxHr: Math.max(Math.round(lthr * 1.00) + 1, Math.round(lthr * 1.08)),
         }),
       },
     ],
@@ -132,7 +132,7 @@ export const SWIM_PROTOCOLS: SwimProtocolDefinition[] = [
         description: 'Active recovery, warm-up, and cool-down. Drills, sculling, and breathing mechanics.',
         color: '#00e5ff',
         calcRange: (maxHr) => ({
-          minHr: Math.round(maxHr * 0.60),
+          minHr: Math.round(maxHr * 0.55),
           maxHr: Math.round(maxHr * 0.70),
         }),
       },
@@ -145,7 +145,7 @@ export const SWIM_PROTOCOLS: SwimProtocolDefinition[] = [
         description: 'Extensive endurance sets (e.g. 400m to 1500m continuous) at conversational cadence.',
         color: '#00b0ff',
         calcRange: (maxHr) => ({
-          minHr: Math.round(maxHr * 0.71),
+          minHr: Math.round(maxHr * 0.70) + 1,
           maxHr: Math.round(maxHr * 0.80),
         }),
       },
@@ -158,7 +158,7 @@ export const SWIM_PROTOCOLS: SwimProtocolDefinition[] = [
         description: 'Maximal lactate steady state. Typical sets: 10x100m or 5x200m on 10s–15s rest.',
         color: '#ffea00',
         calcRange: (maxHr) => ({
-          minHr: Math.round(maxHr * 0.81),
+          minHr: Math.round(maxHr * 0.80) + 1,
           maxHr: Math.round(maxHr * 0.88),
         }),
       },
@@ -171,7 +171,7 @@ export const SWIM_PROTOCOLS: SwimProtocolDefinition[] = [
         description: 'Race pace repeats with partial recovery (e.g. 8x50m on 30s rest). Stresses buffer capacity.',
         color: '#ff9100',
         calcRange: (maxHr) => ({
-          minHr: Math.round(maxHr * 0.89),
+          minHr: Math.round(maxHr * 0.88) + 1,
           maxHr: Math.round(maxHr * 0.95),
         }),
       },
@@ -184,8 +184,8 @@ export const SWIM_PROTOCOLS: SwimProtocolDefinition[] = [
         description: 'All-out anaerobic capacity (15m–50m bursts) with full passive recovery between reps.',
         color: '#ff1744',
         calcRange: (maxHr) => ({
-          minHr: Math.round(maxHr * 0.96),
-          maxHr: Math.round(maxHr * 1.00),
+          minHr: Math.round(maxHr * 0.95) + 1,
+          maxHr: Math.max(Math.round(maxHr * 0.95) + 1, Math.round(maxHr * 1.05)),
         }),
       },
     ],
@@ -209,7 +209,7 @@ export const SWIM_PROTOCOLS: SwimProtocolDefinition[] = [
         description: '< 85% Swim LTHR. Warmup, technical stroke drills, and recovery flushing between intervals.',
         color: '#00e5ff',
         calcRange: (lthr) => ({
-          minHr: Math.round(lthr * 0.65),
+          minHr: Math.round(lthr * 0.55),
           maxHr: Math.round(lthr * 0.84),
         }),
       },
@@ -222,7 +222,7 @@ export const SWIM_PROTOCOLS: SwimProtocolDefinition[] = [
         description: '85–89% Swim LTHR. Base aerobic volume, long continuous swim intervals.',
         color: '#00b0ff',
         calcRange: (lthr) => ({
-          minHr: Math.round(lthr * 0.85),
+          minHr: Math.round(lthr * 0.84) + 1,
           maxHr: Math.round(lthr * 0.89),
         }),
       },
@@ -235,7 +235,7 @@ export const SWIM_PROTOCOLS: SwimProtocolDefinition[] = [
         description: '90–94% Swim LTHR. Half-Ironman / Olympic pacing; cruise sets with 15–20s rest.',
         color: '#ffea00',
         calcRange: (lthr) => ({
-          minHr: Math.round(lthr * 0.90),
+          minHr: Math.round(lthr * 0.89) + 1,
           maxHr: Math.round(lthr * 0.94),
         }),
       },
@@ -248,7 +248,7 @@ export const SWIM_PROTOCOLS: SwimProtocolDefinition[] = [
         description: '95–99% Swim LTHR. Critical Swim Speed boundary; sustainable for roughly 30–45 minutes.',
         color: '#ff9100',
         calcRange: (lthr) => ({
-          minHr: Math.round(lthr * 0.95),
+          minHr: Math.round(lthr * 0.94) + 1,
           maxHr: Math.round(lthr * 0.99),
         }),
       },
@@ -261,8 +261,8 @@ export const SWIM_PROTOCOLS: SwimProtocolDefinition[] = [
         description: '100%+ Swim LTHR. Maximum speed intervals, short repeats (25m–100m) with full recovery.',
         color: '#ff1744',
         calcRange: (lthr) => ({
-          minHr: Math.round(lthr * 1.00),
-          maxHr: Math.round(lthr * 1.08),
+          minHr: Math.round(lthr * 0.99) + 1,
+          maxHr: Math.max(Math.round(lthr * 0.99) + 1, Math.round(lthr * 1.08)),
         }),
       },
     ],

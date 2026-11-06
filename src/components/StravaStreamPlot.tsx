@@ -180,8 +180,10 @@ export const StravaStreamPlot: React.FC<StravaStreamPlotProps> = ({
       const t = timeData[i] ?? (i > 0 ? (timeData[timeData.length - 1] / rawValues.length) * i : 0);
       const d = distData[i] ?? 0;
 
-      // Filter extreme outliers
-      if (activeConfig.key === 'heartrate' && (val < 30 || val > 240)) continue;
+      // Filter extreme outliers (resting HR cutoff and max HR + 5%, power > 2000W)
+      const minAllowedHr = athleteProfile?.restingHeartRate || 40;
+      const maxAllowedHr = Math.round((athleteProfile?.maxHeartRate || 185) * 1.05);
+      if (activeConfig.key === 'heartrate' && (val < minAllowedHr || val > maxAllowedHr)) continue;
       if (activeConfig.key === 'watts' && (val < 0 || val > 2000)) continue;
       if (activeConfig.key === 'cadence' && (val < 0 || val > 300)) continue;
 
@@ -586,7 +588,9 @@ export const StravaStreamPlot: React.FC<StravaStreamPlotProps> = ({
 
     // Default Heart Rate
     const hrData = streams?.heartrate?.data || [];
-    const activeHrs = hrData.filter((h: any) => typeof h === 'number' && h >= 40);
+    const minAllowedHr = athleteProfile?.restingHeartRate || 40;
+    const maxAllowedHr = Math.round((athleteProfile?.maxHeartRate || 185) * 1.05);
+    const activeHrs = hrData.filter((h: any) => typeof h === 'number' && h >= minAllowedHr && h <= maxAllowedHr);
     const activeMinHr = activeHrs.length > 0 ? Math.min(...activeHrs) : Math.round(chartData.minVal);
     return [
       {
