@@ -227,10 +227,12 @@ export const StravaActivityModal: React.FC<StravaActivityModalProps> = ({
         const cached = await getCachedStravaActivityRecord(activityId);
         if (cached && (cached.activity || cached.streams)) {
           if (!isCancelled) setDetailsRecord(cached);
-          return;
+          const cachedLaps = cached.activity?.laps;
+          const hasCachedLaps = Array.isArray(cachedLaps) && cachedLaps.length > 0;
+          if (cached.lapsFetchedAt || hasCachedLaps || !stravaToken) return;
         }
 
-        // 2. If not cached and we have strava token, fetch on-demand
+        // Fetch missing lap button presses as well as detailed streams.
         if (stravaToken) {
           if (!isCancelled) setLoadingDetails(true);
           const fresh = await fetchStravaActivityDetails(stravaToken, activityId);

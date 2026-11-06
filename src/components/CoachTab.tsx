@@ -804,6 +804,14 @@ ${todayWorkout.structure.map((s) => `• [${s.phase}] (${s.duration}): ${s.descr
     return workoutReviews;
   }, [workoutReviews, reviewFilter]);
 
+  const coachModelName =
+    coachStatus.model === 'sports-science-engine'
+      ? 'Sports Science Physiological Model'
+      : `${coachStatus.model
+          .replace(/^gemini-/i, 'Gemini ')
+          .replace(/-/g, ' ')
+          .replace(/\b\w/g, (letter) => letter.toUpperCase())} model`;
+
   return (
     <div className="space-y-6 animate-in fade-in duration-200">
       {/* Coach Navigation Switcher */}
@@ -811,11 +819,11 @@ ${todayWorkout.structure.map((s) => `• [${s.phase}] (${s.duration}): ${s.descr
         <div className="w-full sm:flex-1 overflow-x-auto rounded-[12px] border-[0.8px] border-[#324158] bg-white">
           <div className="flex h-[40px] min-w-max sm:min-w-[760px] lg:min-w-0">
             {([
+              { id: 'chat', label: 'Ask Coach', icon: MessageSquare },
               { id: 'today', label: "Today's Workout", icon: Flame },
               { id: 'reviews', label: 'Review Workouts', icon: FileText },
               { id: 'benchmarks', label: 'Benchmarks & Sub-Goals', icon: Award },
               { id: 'plan', label: 'Adaptive Plan', icon: Calendar },
-              { id: 'chat', label: 'Ask Coach Gemini', icon: MessageSquare },
             ] as const).map(({ id, label, icon: Icon }, index) => (
               <button
                 key={id}
@@ -832,23 +840,9 @@ ${todayWorkout.structure.map((s) => `• [${s.phase}] (${s.duration}): ${s.descr
               >
                 <Icon className="w-3.5 h-3.5 shrink-0" />
                 <span>{label}</span>
-                {id === 'reviews' && workoutReviews.length > 0 && (
-                  <span className="inline-flex items-center justify-center text-[10px] px-1 pt-[1px] h-[18px] min-w-[24px] rounded-[8px] font-mono leading-[12px] border-[0.8px] border-[#8b8c97] bg-slate-100 text-slate-700">
-                    {workoutReviews.length}
-                  </span>
-                )}
               </button>
             ))}
           </div>
-        </div>
-
-        <div className="flex items-center gap-2 text-[11px] text-slate-400 sm:shrink-0">
-          <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-          <span>
-            {coachStatus.model === 'gemini-3.8-flash'
-              ? 'Engine: Gemini 3.8 Flash'
-              : 'Engine: Sports Science Physiological Model'}
-          </span>
         </div>
       </div>
 
@@ -1289,7 +1283,7 @@ ${todayWorkout.structure.map((s) => `• [${s.phase}] (${s.duration}): ${s.descr
                         </span>
                         <div>
                           <div className="flex items-center gap-2">
-                            <span className="text-xs font-black text-white">{step.phase}</span>
+                            <span className={`text-xs font-black ${theme === 'light' ? 'text-slate-900' : 'text-white'}`}>{step.phase}</span>
                             <span className="text-[11px] font-bold text-slate-400">
                               ({step.duration})
                             </span>
@@ -1376,14 +1370,20 @@ ${todayWorkout.structure.map((s) => `• [${s.phase}] (${s.duration}): ${s.descr
             </div>
 
             <div className="flex items-center gap-2">
-              <div className="flex items-center gap-1 bg-slate-950/60 p-1 rounded-xl border border-slate-800 text-xs">
+              <div className={`flex items-center gap-1 p-1 rounded-xl border text-xs ${
+                theme === 'light' ? 'bg-slate-100 border-slate-200' : 'bg-slate-950/60 border-slate-800'
+              }`}>
                 <button
                   type="button"
                   onClick={() => setReviewFilter('all')}
                   className={`px-2.5 py-1 rounded-lg font-bold transition-all cursor-pointer ${
                     reviewFilter === 'all'
-                      ? 'bg-slate-800 text-white'
-                      : 'text-slate-400 hover:text-slate-200'
+                      ? theme === 'light'
+                        ? 'bg-white text-slate-900 shadow-sm'
+                        : 'bg-slate-800 text-white'
+                      : theme === 'light'
+                        ? 'text-slate-600 hover:text-slate-900'
+                        : 'text-slate-400 hover:text-slate-200'
                   }`}
                 >
                   All ({workoutReviews.length})
@@ -1393,8 +1393,10 @@ ${todayWorkout.structure.map((s) => `• [${s.phase}] (${s.duration}): ${s.descr
                   onClick={() => setReviewFilter('optimal')}
                   className={`px-2.5 py-1 rounded-lg font-bold transition-all cursor-pointer ${
                     reviewFilter === 'optimal'
-                      ? 'bg-emerald-500/20 text-emerald-300'
-                      : 'text-slate-400 hover:text-emerald-300'
+                      ? 'bg-emerald-500/20 text-emerald-700 dark:text-emerald-300'
+                      : theme === 'light'
+                        ? 'text-slate-600 hover:text-emerald-700'
+                        : 'text-slate-400 hover:text-emerald-300'
                   }`}
                 >
                   Optimal ({workoutReviews.filter((r) => r.assessment === 'optimal').length})
@@ -1404,8 +1406,10 @@ ${todayWorkout.structure.map((s) => `• [${s.phase}] (${s.duration}): ${s.descr
                   onClick={() => setReviewFilter('needs_adjustment')}
                   className={`px-2.5 py-1 rounded-lg font-bold transition-all cursor-pointer ${
                     reviewFilter === 'needs_adjustment'
-                      ? 'bg-amber-500/20 text-amber-300'
-                      : 'text-slate-400 hover:text-amber-300'
+                      ? 'bg-amber-500/20 text-amber-800 dark:text-amber-300'
+                      : theme === 'light'
+                        ? 'text-slate-600 hover:text-amber-800'
+                        : 'text-slate-400 hover:text-amber-300'
                   }`}
                 >
                   Needs Attention ({workoutReviews.filter((r) => r.assessment !== 'optimal').length})
@@ -1416,7 +1420,11 @@ ${todayWorkout.structure.map((s) => `• [${s.phase}] (${s.duration}): ${s.descr
                 type="button"
                 onClick={handleRefreshReviews}
                 disabled={isLoadingReviews}
-                className="px-3 py-1.5 text-xs font-bold rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 flex items-center gap-1.5 transition-all cursor-pointer disabled:opacity-50"
+                className={`px-3 py-1.5 text-xs font-bold rounded-xl border flex items-center gap-1.5 transition-all cursor-pointer disabled:opacity-50 ${
+                  theme === 'light'
+                    ? 'bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-300'
+                    : 'bg-slate-800 hover:bg-slate-700 text-slate-300 border-slate-700'
+                }`}
               >
                 <RotateCw className={`w-3.5 h-3.5 ${isLoadingReviews ? 'animate-spin' : ''}`} />
                 <span>Re-Analyze</span>
@@ -1477,7 +1485,11 @@ ${todayWorkout.structure.map((s) => `• [${s.phase}] (${s.duration}): ${s.descr
                       <button
                         type="button"
                         onClick={() => handleAskAboutReview(rev)}
-                        className="px-2.5 py-1 text-xs font-bold rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 flex items-center gap-1 cursor-pointer transition-colors"
+                        className={`px-2.5 py-1 text-xs font-bold rounded-lg border flex items-center gap-1 cursor-pointer transition-colors ${
+                          theme === 'light'
+                            ? 'bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-300'
+                            : 'bg-slate-800 hover:bg-slate-700 text-slate-300 border-slate-700'
+                        }`}
                         title="Ask Coach Gemini to analyze this workout in chat"
                       >
                         <MessageSquare className="w-3 h-3 text-emerald-400" />
@@ -1488,9 +1500,9 @@ ${todayWorkout.structure.map((s) => `• [${s.phase}] (${s.duration}): ${s.descr
 
                   {/* Metrics Summary Strip */}
                   <div className="grid grid-cols-2 sm:grid-cols-5 gap-2.5 py-3 text-xs">
-                    <div className="p-2.5 rounded-xl bg-slate-950/40 border border-slate-800/80">
+                    <div className={`p-2.5 rounded-xl border ${theme === 'light' ? 'bg-slate-50 border-slate-200' : 'bg-slate-950/40 border-slate-800/80'}`}>
                       <div className="text-[10px] text-slate-400 font-bold uppercase">Volume</div>
-                      <div className="text-sm font-black mt-0.5 text-white">
+                      <div className={`text-sm font-black mt-0.5 ${theme === 'light' ? 'text-slate-900' : 'text-white'}`}>
                         {rev.distanceKm > 0 ? `${rev.distanceKm} km` : `${rev.movingTimeMin} min`}
                         <span className="text-[11px] text-slate-400 font-normal ml-1">
                           ({rev.movingTimeMin}m)
@@ -1498,21 +1510,21 @@ ${todayWorkout.structure.map((s) => `• [${s.phase}] (${s.duration}): ${s.descr
                       </div>
                     </div>
 
-                    <div className="p-2.5 rounded-xl bg-slate-950/40 border border-slate-800/80">
+                    <div className={`p-2.5 rounded-xl border ${theme === 'light' ? 'bg-slate-50 border-slate-200' : 'bg-slate-950/40 border-slate-800/80'}`}>
                       <div className="text-[10px] text-slate-400 font-bold uppercase">Pace / Speed</div>
                       <div className="text-sm font-black mt-0.5 text-amber-400">
                         {rev.paceFormatted || (rev.speedKmh ? `${rev.speedKmh} km/h` : 'Steady')}
                       </div>
                     </div>
 
-                    <div className="p-2.5 rounded-xl bg-slate-950/40 border border-slate-800/80">
+                    <div className={`p-2.5 rounded-xl border ${theme === 'light' ? 'bg-slate-50 border-slate-200' : 'bg-slate-950/40 border-slate-800/80'}`}>
                       <div className="text-[10px] text-slate-400 font-bold uppercase">Power / Watts</div>
                       <div className="text-sm font-black mt-0.5 text-amber-300">
                         {rev.avgWatts ? `${rev.avgWatts}W avg` : 'N/A'}
                       </div>
                     </div>
 
-                    <div className="p-2.5 rounded-xl bg-slate-950/40 border border-slate-800/80">
+                    <div className={`p-2.5 rounded-xl border ${theme === 'light' ? 'bg-slate-50 border-slate-200' : 'bg-slate-950/40 border-slate-800/80'}`}>
                       <div className="text-[10px] text-slate-400 font-bold uppercase">Heart Rate</div>
                       <div className="text-sm font-black mt-0.5 text-rose-400">
                         {rev.avgHeartrate ? `${rev.avgHeartrate} bpm` : 'N/A'}
@@ -1524,7 +1536,7 @@ ${todayWorkout.structure.map((s) => `• [${s.phase}] (${s.duration}): ${s.descr
                       </div>
                     </div>
 
-                    <div className="p-2.5 rounded-xl bg-slate-950/40 border border-slate-800/80">
+                    <div className={`p-2.5 rounded-xl border ${theme === 'light' ? 'bg-slate-50 border-slate-200' : 'bg-slate-950/40 border-slate-800/80'}`}>
                       <div className="text-[10px] text-slate-400 font-bold uppercase">Training Stress</div>
                       <div className="text-sm font-black mt-0.5 text-orange-400">
                         {rev.tss ? `${rev.tss} TSS` : 'Light'}
@@ -1533,9 +1545,11 @@ ${todayWorkout.structure.map((s) => `• [${s.phase}] (${s.duration}): ${s.descr
                   </div>
 
                   {/* Streams & Physiological Analysis Strip */}
-                  <div className="mt-1 p-3 rounded-xl bg-slate-950/60 border border-slate-800 space-y-2 text-xs">
+                  <div className={`mt-1 p-3 rounded-xl border space-y-2 text-xs ${
+                    theme === 'light' ? 'bg-slate-50 border-slate-200' : 'bg-slate-950/60 border-slate-800'
+                  }`}>
                     <div className="flex items-center justify-between flex-wrap gap-2 text-[11px] font-bold pb-1.5 border-b border-slate-800/80">
-                      <div className="flex items-center gap-1.5 text-slate-300">
+                      <div className={`flex items-center gap-1.5 ${theme === 'light' ? 'text-slate-700' : 'text-slate-300'}`}>
                         <Activity className="w-3.5 h-3.5 text-emerald-400" />
                         <span>Streams Telemetry Analysis</span>
                       </div>
@@ -1554,7 +1568,7 @@ ${todayWorkout.structure.map((s) => `• [${s.phase}] (${s.duration}): ${s.descr
                     </div>
 
                     {/* Specific Stream Observations */}
-                    <div className="space-y-1 text-slate-300 leading-relaxed text-[11px]">
+                    <div className={`space-y-1 leading-relaxed text-[11px] ${theme === 'light' ? 'text-slate-700' : 'text-slate-300'}`}>
                       {rev.streamInsights.swimIntervalSummary && (
                         <div className="flex items-start gap-1.5 text-cyan-300">
                           <span>🏊</span>
@@ -1588,20 +1602,20 @@ ${todayWorkout.structure.map((s) => `• [${s.phase}] (${s.duration}): ${s.descr
 
                   {/* Periodization & Goal Contribution Row */}
                   <div className="mt-3 grid grid-cols-1 md:grid-cols-2 gap-3 text-xs">
-                    <div className="p-3 rounded-xl bg-slate-950/40 border border-slate-800">
+                    <div className={`p-3 rounded-xl border ${theme === 'light' ? 'bg-slate-50 border-slate-200' : 'bg-slate-950/40 border-slate-800'}`}>
                       <span className="text-[10px] uppercase font-bold text-sky-400 block mb-1">
                         📊 Periodization Fit ({rev.periodizationContext}):
                       </span>
-                      <p className="text-slate-300 leading-relaxed text-[11px]">
+                      <p className={`leading-relaxed text-[11px] ${theme === 'light' ? 'text-slate-700' : 'text-slate-300'}`}>
                         {rev.periodizationFit}
                       </p>
                     </div>
 
-                    <div className="p-3 rounded-xl bg-slate-950/40 border border-slate-800">
+                    <div className={`p-3 rounded-xl border ${theme === 'light' ? 'bg-slate-50 border-slate-200' : 'bg-slate-950/40 border-slate-800'}`}>
                       <span className="text-[10px] uppercase font-bold text-indigo-400 block mb-1">
                         🎯 Goal & Sub-Goal Contribution:
                       </span>
-                      <p className="text-slate-300 leading-relaxed text-[11px]">
+                      <p className={`leading-relaxed text-[11px] ${theme === 'light' ? 'text-slate-700' : 'text-slate-300'}`}>
                         {rev.goalContribution}
                         {rev.subGoalContribution ? ` • ${rev.subGoalContribution}` : ''}
                       </p>
@@ -1610,7 +1624,7 @@ ${todayWorkout.structure.map((s) => `• [${s.phase}] (${s.duration}): ${s.descr
 
                   {/* Coach Takeaway & Actionable Adjustment */}
                   <div className="mt-3 pt-3 border-t border-slate-800/80 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs">
-                    <div className="space-y-0.5 text-slate-300">
+                    <div className={`space-y-0.5 ${theme === 'light' ? 'text-slate-700' : 'text-slate-300'}`}>
                       <strong className="text-emerald-400 font-extrabold mr-1">Coach Takeaway:</strong>
                       <span>{rev.coachTakeaway}</span>
                       {rev.suggestedAdjustment && (
@@ -1657,7 +1671,7 @@ ${todayWorkout.structure.map((s) => `• [${s.phase}] (${s.duration}): ${s.descr
           <div className="space-y-3">
             <div className="flex items-center gap-2">
               <span className="w-2.5 h-2.5 rounded-full bg-indigo-400" />
-              <h3 className="text-xs font-black uppercase tracking-wider text-slate-300">
+              <h3 className={`text-xs font-black uppercase tracking-wider ${theme === 'light' ? 'text-slate-700' : 'text-slate-300'}`}>
                 1. Macro Volume Milestones (Mechanical Durability)
               </h3>
             </div>
@@ -1675,7 +1689,7 @@ ${todayWorkout.structure.map((s) => `• [${s.phase}] (${s.duration}): ${s.descr
                     }`}
                   >
                     <div>
-                      <div className="flex items-center justify-between gap-2 pb-2 border-b border-slate-800">
+                      <div className="flex items-center justify-between gap-2 pb-2 border-b border-slate-200 dark:border-slate-800">
                         <span
                           className={`text-[9px] uppercase font-black px-2 py-0.5 rounded border ${sportColor(
                             b.discipline
@@ -1688,25 +1702,27 @@ ${todayWorkout.structure.map((s) => `• [${s.phase}] (${s.duration}): ${s.descr
                           className={`text-[10px] font-black uppercase px-2 py-0.5 rounded-full ${
                             b.status === 'achieved'
                               ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/40'
-                              : 'bg-slate-800 text-slate-400'
+                              : theme === 'light'
+                                ? 'bg-slate-100 text-slate-600'
+                                : 'bg-slate-800 text-slate-400'
                           }`}
                         >
                           {b.status === 'achieved' ? 'Achieved' : `${b.progressPct}%`}
                         </span>
                       </div>
 
-                      <h4 className="text-sm font-black mt-2 text-white">{b.title}</h4>
+                      <h4 className={`text-sm font-black mt-2 ${theme === 'light' ? 'text-slate-900' : 'text-white'}`}>{b.title}</h4>
                       <p className="text-xs text-slate-400 mt-1 leading-relaxed">{b.description}</p>
 
                       {/* Progress Bar */}
                       <div className="mt-3 space-y-1">
                         <div className="flex items-center justify-between text-[11px] font-bold">
                           <span className="text-slate-400">Current Best:</span>
-                          <span className="text-white">
+                          <span className={theme === 'light' ? 'text-slate-900' : 'text-white'}>
                             {b.currentValue} / {b.targetValue} {b.unit}
                           </span>
                         </div>
-                        <div className="w-full h-2 rounded-full bg-slate-800 overflow-hidden">
+                        <div className={`w-full h-2 rounded-full overflow-hidden ${theme === 'light' ? 'bg-slate-200' : 'bg-slate-800'}`}>
                           <div
                             className="h-full bg-emerald-500 rounded-full transition-all duration-500"
                             style={{ width: `${b.progressPct}%` }}
@@ -1716,8 +1732,12 @@ ${todayWorkout.structure.map((s) => `• [${s.phase}] (${s.duration}): ${s.descr
 
                       {/* Best Recorded Workout */}
                       {b.bestEffortActivity && (
-                        <div className="mt-3 p-2 rounded-xl bg-slate-950/60 border border-slate-800 text-[11px] text-slate-300">
-                          <span className="text-slate-400 block text-[10px] uppercase font-bold">
+                        <div className={`mt-3 p-2 rounded-xl border text-[11px] ${
+                          theme === 'light'
+                            ? 'bg-slate-50 border-slate-200 text-slate-700'
+                            : 'bg-slate-950/60 border-slate-800 text-slate-300'
+                        }`}>
+                          <span className={`block text-[10px] uppercase font-bold ${theme === 'light' ? 'text-slate-500' : 'text-slate-400'}`}>
                             Logged in Activities:
                           </span>
                           <span className="font-extrabold text-emerald-400">
@@ -1728,7 +1748,9 @@ ${todayWorkout.structure.map((s) => `• [${s.phase}] (${s.duration}): ${s.descr
                       )}
                     </div>
 
-                    <div className="mt-3 pt-2 border-t border-slate-800 text-[11px] text-slate-400 italic">
+                    <div className={`mt-3 pt-2 border-t text-[11px] italic ${
+                      theme === 'light' ? 'border-slate-200 text-slate-500' : 'border-slate-800 text-slate-400'
+                    }`}>
                       💡 {b.whyItMatters}
                     </div>
                   </div>
@@ -1740,7 +1762,7 @@ ${todayWorkout.structure.map((s) => `• [${s.phase}] (${s.duration}): ${s.descr
           <div className="space-y-3 pt-2">
             <div className="flex items-center gap-2">
               <span className="w-2.5 h-2.5 rounded-full bg-emerald-400" />
-              <h3 className="text-xs font-black uppercase tracking-wider text-slate-300">
+              <h3 className={`text-xs font-black uppercase tracking-wider ${theme === 'light' ? 'text-slate-700' : 'text-slate-300'}`}>
                 2. High-Yield Precision Sub-Goals (Physiological & Aero Benchmarks)
               </h3>
             </div>
@@ -1758,7 +1780,7 @@ ${todayWorkout.structure.map((s) => `• [${s.phase}] (${s.duration}): ${s.descr
                     }`}
                   >
                     <div>
-                      <div className="flex items-center justify-between gap-2 pb-2.5 border-b border-slate-800">
+                      <div className="flex items-center justify-between gap-2 pb-2.5 border-b border-slate-200 dark:border-slate-800">
                         <div className="flex items-center gap-2">
                           <span
                             className={`text-[9px] uppercase font-black px-2 py-0.5 rounded border ${sportColor(
@@ -1774,19 +1796,19 @@ ${todayWorkout.structure.map((s) => `• [${s.phase}] (${s.duration}): ${s.descr
                           className={`text-[10px] font-black uppercase px-2 py-0.5 rounded-full ${
                             b.status === 'achieved'
                               ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/40'
-                              : 'bg-indigo-500/20 text-indigo-300 border border-indigo-500/30'
+                              : 'bg-indigo-500/20 text-indigo-700 dark:text-indigo-300 border border-indigo-500/30'
                           }`}
                         >
                           {b.status === 'achieved' ? 'Target Reached' : `Progress: ${b.progressPct}%`}
                         </span>
                       </div>
 
-                      <h4 className="text-sm sm:text-base font-black mt-2 text-white">{b.title}</h4>
-                      <p className="text-xs text-slate-300 mt-1 leading-relaxed">{b.description}</p>
+                      <h4 className={`text-sm sm:text-base font-black mt-2 ${theme === 'light' ? 'text-slate-900' : 'text-white'}`}>{b.title}</h4>
+                      <p className={`text-xs mt-1 leading-relaxed ${theme === 'light' ? 'text-slate-700' : 'text-slate-300'}`}>{b.description}</p>
 
                       {/* Progress Bar */}
                       <div className="mt-3.5 space-y-1">
-                        <div className="w-full h-2 rounded-full bg-slate-800 overflow-hidden">
+                        <div className={`w-full h-2 rounded-full overflow-hidden ${theme === 'light' ? 'bg-slate-200' : 'bg-slate-800'}`}>
                           <div
                             className="h-full bg-gradient-to-r from-emerald-500 to-indigo-500 rounded-full transition-all duration-500"
                             style={{ width: `${b.progressPct}%` }}
@@ -1795,21 +1817,27 @@ ${todayWorkout.structure.map((s) => `• [${s.phase}] (${s.duration}): ${s.descr
                       </div>
 
                       {/* Sports Science Rationale Callout */}
-                      <div className="mt-3 p-3 rounded-xl bg-slate-950/80 border border-slate-800 text-xs text-slate-300 space-y-1">
+                      <div className={`mt-3 p-3 rounded-xl border text-xs space-y-1 ${
+                        theme === 'light'
+                          ? 'bg-slate-50 border-slate-200 text-slate-700'
+                          : 'bg-slate-950/80 border-slate-800 text-slate-300'
+                      }`}>
                         <div className="flex items-center gap-1.5 text-amber-400 font-bold text-[11px]">
                           <Zap className="w-3.5 h-3.5 shrink-0" />
                           <span>Sports Science ROI (Why this gains the most time):</span>
                         </div>
-                        <p className="text-[11px] text-slate-300 leading-relaxed">
+                        <p className={`text-[11px] leading-relaxed ${theme === 'light' ? 'text-slate-700' : 'text-slate-300'}`}>
                           {b.whyItMatters}
                         </p>
                       </div>
                     </div>
 
                     {b.bestEffortActivity && (
-                      <div className="mt-3 pt-2 border-t border-slate-800 text-[11px] text-slate-400 flex items-center justify-between">
+                      <div className={`mt-3 pt-2 border-t text-[11px] flex items-center justify-between ${
+                        theme === 'light' ? 'border-slate-200 text-slate-500' : 'border-slate-800 text-slate-400'
+                      }`}>
                         <span>Latest Best Effort:</span>
-                        <span className="font-extrabold text-white">
+                        <span className={`font-extrabold ${theme === 'light' ? 'text-slate-900' : 'text-white'}`}>
                           {b.bestEffortActivity.name} ({b.bestEffortActivity.metricValue})
                         </span>
                       </div>
@@ -1872,10 +1900,10 @@ ${todayWorkout.structure.map((s) => `• [${s.phase}] (${s.duration}): ${s.descr
               >
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
                   <div className="space-y-1">
-                    <span className="text-[10px] uppercase tracking-wider font-extrabold px-2 py-0.5 rounded-md bg-indigo-500/20 text-indigo-400 border border-indigo-500/30">
+                    <span className="text-[10px] uppercase tracking-wider font-extrabold px-2 py-0.5 rounded-md bg-indigo-500/20 text-indigo-700 dark:text-indigo-300 border border-indigo-500/30">
                       {savedPlan.periodizationPhase}
                     </span>
-                    <p className="text-xs text-slate-300 pt-1 leading-relaxed">
+                    <p className={`text-xs pt-1 leading-relaxed ${theme === 'light' ? 'text-slate-700' : 'text-slate-300'}`}>
                       {savedPlan.summary}
                     </p>
                   </div>
@@ -1890,11 +1918,17 @@ ${todayWorkout.structure.map((s) => `• [${s.phase}] (${s.duration}): ${s.descr
                 </div>
 
                 {savedPlan.keyFocusAreas && savedPlan.keyFocusAreas.length > 0 && (
-                  <div className="mt-3 pt-3 border-t border-slate-800 flex flex-wrap gap-2 text-xs">
+                  <div className={`mt-3 pt-3 border-t flex flex-wrap gap-2 text-xs ${
+                    theme === 'light' ? 'border-slate-200' : 'border-slate-800'
+                  }`}>
                     {savedPlan.keyFocusAreas.map((area, i) => (
                       <span
                         key={i}
-                        className="px-2.5 py-1 rounded-lg bg-slate-950 text-slate-300 border border-slate-800 flex items-center gap-1.5"
+                        className={`px-2.5 py-1 rounded-lg border flex items-center gap-1.5 ${
+                          theme === 'light'
+                            ? 'bg-white text-slate-700 border-slate-200'
+                            : 'bg-slate-950 text-slate-300 border-slate-800'
+                        }`}
                       >
                         <TrendingUp className="w-3 h-3 text-emerald-400" />
                         <span>{area}</span>
@@ -1918,7 +1952,7 @@ ${todayWorkout.structure.map((s) => `• [${s.phase}] (${s.duration}): ${s.descr
                     }`}
                   >
                     <div>
-                      <div className="flex items-center justify-between gap-1 pb-1.5 border-b border-slate-800/60">
+                      <div className="flex items-center justify-between gap-1 pb-1.5 border-b border-slate-200 dark:border-slate-800/60">
                         <span className="text-xs font-black">{day.dayName.slice(0, 3)}</span>
                         <span
                           className={`text-[9px] uppercase font-extrabold px-1.5 py-0.2 rounded border ${sportColor(
@@ -1939,7 +1973,9 @@ ${todayWorkout.structure.map((s) => `• [${s.phase}] (${s.duration}): ${s.descr
                       </div>
                     </div>
 
-                    <div className="mt-3 pt-2 border-t border-slate-800/60 flex items-center justify-between text-[10px] text-slate-400 font-bold">
+                    <div className={`mt-3 pt-2 border-t flex items-center justify-between text-[10px] font-bold ${
+                      theme === 'light' ? 'border-slate-200 text-slate-500' : 'border-slate-800/60 text-slate-400'
+                    }`}>
                       <span>{day.durationMin > 0 ? `${day.durationMin}m` : 'Rest'}</span>
                       {day.targetTss > 0 && <span className="text-amber-400">{day.targetTss} TSS</span>}
                     </div>
@@ -2019,13 +2055,25 @@ ${todayWorkout.structure.map((s) => `• [${s.phase}] (${s.duration}): ${s.descr
 
           {/* Quick Actions Popover (when + is clicked) */}
           {showQuickActions && (
-            <div className="p-3 rounded-2xl bg-zinc-900 border border-zinc-700/80 shadow-2xl space-y-1.5 z-20">
-              <div className="flex items-center justify-between pb-1.5 border-b border-zinc-800 text-[11px] font-bold text-zinc-400">
+            <div
+              className={`p-3 rounded-2xl border shadow-2xl space-y-1.5 z-20 ${
+                theme === 'light'
+                  ? 'bg-white border-slate-200 text-slate-700'
+                  : 'bg-zinc-900 border-zinc-700/80 text-zinc-300'
+              }`}
+            >
+              <div
+                className={`flex items-center justify-between pb-1.5 border-b text-[11px] font-bold ${
+                  theme === 'light' ? 'border-slate-200 text-slate-500' : 'border-zinc-800 text-zinc-400'
+                }`}
+              >
                 <span>Runvia Endurance Coaching Actions</span>
                 <button
                   type="button"
                   onClick={() => setShowQuickActions(false)}
-                  className="p-1 hover:text-white cursor-pointer"
+                  className={`p-1 cursor-pointer ${
+                    theme === 'light' ? 'hover:text-slate-900' : 'hover:text-white'
+                  }`}
                 >
                   <X className="w-3 h-3" />
                 </button>
@@ -2070,10 +2118,12 @@ ${todayWorkout.structure.map((s) => `• [${s.phase}] (${s.duration}): ${s.descr
                   key={idx}
                   type="button"
                   onClick={() => handleSendMessage(item.query)}
-                  className="w-full text-left p-2 rounded-xl hover:bg-zinc-800 transition-colors flex flex-col cursor-pointer"
+                  className={`w-full text-left p-2 rounded-xl transition-colors flex flex-col cursor-pointer ${
+                    theme === 'light' ? 'hover:bg-slate-100' : 'hover:bg-zinc-800'
+                  }`}
                 >
-                  <span className="text-xs font-bold text-zinc-100">{item.title}</span>
-                  <span className="text-[10px] text-zinc-400">{item.desc}</span>
+                  <span className={`text-xs font-bold ${theme === 'light' ? 'text-slate-800' : 'text-zinc-100'}`}>{item.title}</span>
+                  <span className={`text-[10px] ${theme === 'light' ? 'text-slate-500' : 'text-zinc-400'}`}>{item.desc}</span>
                 </button>
               ))}
             </div>
@@ -2156,12 +2206,16 @@ ${todayWorkout.structure.map((s) => `• [${s.phase}] (${s.duration}): ${s.descr
             }`}
           >
             {chatMessages.length === 0 ? (
-              <div className="h-64 flex flex-col items-center justify-center text-center text-zinc-400 text-xs px-4">
+              <div className={`h-64 flex flex-col items-center justify-center text-center text-xs px-4 ${
+                theme === 'light' ? 'text-slate-500' : 'text-zinc-400'
+              }`}>
                 <div className="w-12 h-12 rounded-full bg-amber-400/10 border border-amber-400/20 flex items-center justify-center mb-3">
                   <Sparkles className="w-6 h-6 text-amber-400" />
                 </div>
-                <p className="text-base font-bold text-zinc-200">Runvia-Grade AI Endurance Coach</p>
-                <p className="text-xs text-zinc-400 mt-1 max-w-lg leading-relaxed">
+                <p className={`text-base font-bold ${theme === 'light' ? 'text-slate-800' : 'text-zinc-200'}`}>
+                  Runvia-Grade AI Endurance Coach
+                </p>
+                <p className={`text-xs mt-1 max-w-lg leading-relaxed ${theme === 'light' ? 'text-slate-500' : 'text-zinc-400'}`}>
                   Ask anything about multi-year Ironman progressions, stream heart rate drift, swim rest interval specificity, Thursday tempo workouts, or add goals directly via conversation.
                 </p>
               </div>
@@ -2174,9 +2228,9 @@ ${todayWorkout.structure.map((s) => `• [${s.phase}] (${s.duration}): ${s.descr
                     className={`flex flex-col ${isUser ? 'items-end' : 'items-start'} w-full`}
                   >
                     {isUser ? (
-                      <div className="max-w-[85%] sm:max-w-[75%] p-3.5 rounded-2xl bg-zinc-800 text-zinc-100 border border-zinc-700/60 text-xs sm:text-sm leading-relaxed rounded-br-xs shadow-md">
+                      <div className="max-w-[85%] sm:max-w-[75%] p-3.5 rounded-2xl bg-[#feefc3] text-slate-900 border border-[#eadba5] text-xs sm:text-sm leading-relaxed rounded-br-xs shadow-md">
                         <div className="whitespace-pre-wrap">{msg.content}</div>
-                        <div className="text-[10px] text-zinc-400 text-right mt-1.5 opacity-80">
+                        <div className="text-[10px] text-slate-600 text-right mt-1.5 opacity-80">
                           {msg.timestamp}
                         </div>
                       </div>
@@ -2198,7 +2252,9 @@ ${todayWorkout.structure.map((s) => `• [${s.phase}] (${s.duration}): ${s.descr
 
                         {/* Executed Action Cards for Goal Races */}
                         {msg.executedAction?.type === 'propose_goal' && msg.executedAction.goal && (
-                          <div className="p-4 rounded-xl border border-amber-500/40 bg-amber-500/10 text-xs space-y-3 shadow-md animate-in fade-in duration-200">
+                          <div className={`p-4 rounded-xl border border-amber-500/40 bg-amber-500/10 text-xs space-y-3 shadow-md animate-in fade-in duration-200 ${
+                            theme === 'light' ? 'text-slate-800' : 'text-zinc-200'
+                          }`}>
                             <div className="flex items-center justify-between gap-2 pb-2 border-b border-amber-500/20">
                               <div className="flex items-center gap-2">
                                 <span className="p-1 rounded bg-amber-400/20 text-amber-300 font-bold">
@@ -2206,7 +2262,7 @@ ${todayWorkout.structure.map((s) => `• [${s.phase}] (${s.duration}): ${s.descr
                                 </span>
                                 <div>
                                   <span className="font-bold text-amber-300">Goal Race Found via Web Search</span>
-                                  <div className="text-[10px] text-zinc-400">Action Required: Select Race Priority</div>
+                                  <div className={`text-[10px] ${theme === 'light' ? 'text-slate-600' : 'text-zinc-400'}`}>Action Required: Select Race Priority</div>
                                 </div>
                               </div>
                               <span className="px-2 py-0.5 rounded text-[10px] font-black uppercase tracking-wider bg-amber-400/20 text-amber-300 border border-amber-400/40 animate-pulse">
@@ -2215,16 +2271,16 @@ ${todayWorkout.structure.map((s) => `• [${s.phase}] (${s.duration}): ${s.descr
                             </div>
 
                             <div>
-                              <div className="font-black text-sm sm:text-base text-zinc-100">
+                              <div className={`font-black text-sm sm:text-base ${theme === 'light' ? 'text-slate-900' : 'text-zinc-100'}`}>
                                 {msg.executedAction.goal.name}
                               </div>
-                              <div className="text-[11px] text-zinc-300 mt-1.5 flex flex-wrap gap-x-4 gap-y-1">
+                              <div className={`text-[11px] mt-1.5 flex flex-wrap gap-x-4 gap-y-1 ${theme === 'light' ? 'text-slate-700' : 'text-zinc-300'}`}>
                                 <span className="flex items-center gap-1 text-emerald-400 font-semibold">
                                   <Calendar className="w-3.5 h-3.5" />
                                   {msg.executedAction.goal.eventDate || 'March 2027'}
                                 </span>
-                                <span className="flex items-center gap-1 text-zinc-300">
-                                  <Clock className="w-3.5 h-3.5 text-zinc-400" />
+                                <span className={`flex items-center gap-1 ${theme === 'light' ? 'text-slate-700' : 'text-zinc-300'}`}>
+                                  <Clock className={`w-3.5 h-3.5 ${theme === 'light' ? 'text-slate-500' : 'text-zinc-400'}`} />
                                   {msg.executedAction.goal.distancePreset || `${msg.executedAction.goal.totalDistanceKm} km`}
                                 </span>
                                 <span className="flex items-center gap-1 text-amber-400 font-bold">
@@ -2233,8 +2289,8 @@ ${todayWorkout.structure.map((s) => `• [${s.phase}] (${s.duration}): ${s.descr
                                 </span>
                               </div>
                               {msg.executedAction.goal.location && (
-                                <div className="text-[11px] text-zinc-400 mt-1 flex items-center gap-1">
-                                  <Compass className="w-3.5 h-3.5 shrink-0 text-zinc-500" />
+                                <div className={`text-[11px] mt-1 flex items-center gap-1 ${theme === 'light' ? 'text-slate-600' : 'text-zinc-400'}`}>
+                                  <Compass className={`w-3.5 h-3.5 shrink-0 ${theme === 'light' ? 'text-slate-500' : 'text-zinc-500'}`} />
                                   <span>{msg.executedAction.goal.location}</span>
                                 </div>
                               )}
@@ -2242,7 +2298,7 @@ ${todayWorkout.structure.map((s) => `• [${s.phase}] (${s.duration}): ${s.descr
 
                             {/* Priority Selection Buttons */}
                             <div className="pt-2 border-t border-amber-500/20 space-y-1.5">
-                              <span className="text-[11px] font-bold text-zinc-300 block">
+                              <span className={`text-[11px] font-bold block ${theme === 'light' ? 'text-slate-700' : 'text-zinc-300'}`}>
                                 What priority would you like to set for this race?
                               </span>
                               <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
@@ -2275,7 +2331,11 @@ ${todayWorkout.structure.map((s) => `• [${s.phase}] (${s.duration}): ${s.descr
                                 <button
                                   type="button"
                                   onClick={() => handleConfirmGoalProposal(msg.id, msg.executedAction as CoachGoalAction, 'C')}
-                                  className="px-3 py-2 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-300 hover:text-white border border-zinc-700 text-left font-bold transition-all cursor-pointer flex flex-col group"
+                                  className={`px-3 py-2 rounded-lg border text-left font-bold transition-all cursor-pointer flex flex-col group ${
+                                    theme === 'light'
+                                      ? 'bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-300'
+                                      : 'bg-zinc-800 hover:bg-zinc-700 text-zinc-300 hover:text-white border-zinc-700'
+                                  }`}
                                 >
                                   <span className="text-xs flex items-center gap-1 font-extrabold">
                                     ○ Priority C-Race
@@ -2304,11 +2364,11 @@ ${todayWorkout.structure.map((s) => `• [${s.phase}] (${s.duration}): ${s.descr
                               </span>
                             </div>
 
-                            <div className="font-black text-sm text-zinc-100">
+                            <div className={`font-black text-sm ${theme === 'light' ? 'text-slate-900' : 'text-zinc-100'}`}>
                               {msg.executedAction.goal?.name}
                             </div>
 
-                            <div className="text-[11px] text-zinc-300 flex flex-wrap gap-x-4 gap-y-0.5">
+                            <div className={`text-[11px] flex flex-wrap gap-x-4 gap-y-0.5 ${theme === 'light' ? 'text-slate-700' : 'text-zinc-300'}`}>
                               <span>📅 Date: {msg.executedAction.goal?.eventDate}</span>
                               <span>
                                 🎯 Target:{' '}
@@ -2333,7 +2393,11 @@ ${todayWorkout.structure.map((s) => `• [${s.phase}] (${s.duration}): ${s.descr
                                 <button
                                   type="button"
                                   onClick={() => onOpenSettings('goals')}
-                                  className="text-[10px] font-bold px-2 py-1 rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-200 border border-zinc-700 cursor-pointer transition-colors"
+                                  className={`text-[10px] font-bold px-2 py-1 rounded border cursor-pointer transition-colors ${
+                                    theme === 'light'
+                                      ? 'bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-300'
+                                      : 'bg-zinc-800 hover:bg-zinc-700 text-zinc-200 border-zinc-700'
+                                  }`}
                                 >
                                   View in Goals
                                 </button>
@@ -2370,15 +2434,19 @@ ${todayWorkout.structure.map((s) => `• [${s.phase}] (${s.duration}): ${s.descr
                               <button
                                 type="button"
                                 onClick={() => onOpenSettings('goals')}
-                                className="text-[10px] font-bold px-2 py-0.5 rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-200 border border-zinc-700 cursor-pointer"
+                                className={`text-[10px] font-bold px-2 py-0.5 rounded border cursor-pointer ${
+                                  theme === 'light'
+                                    ? 'bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-300'
+                                    : 'bg-zinc-800 hover:bg-zinc-700 text-zinc-200 border-zinc-700'
+                                }`}
                               >
                                 View in Goals
                               </button>
                             </div>
-                            <div className="font-bold text-sm text-zinc-100">
+                            <div className={`font-bold text-sm ${theme === 'light' ? 'text-slate-900' : 'text-zinc-100'}`}>
                               {msg.executedAction.goalName}
                             </div>
-                            <div className="text-[11px] text-zinc-300">
+                            <div className={`text-[11px] ${theme === 'light' ? 'text-slate-700' : 'text-zinc-300'}`}>
                               {msg.executedAction.description}
                             </div>
                           </div>
@@ -2398,16 +2466,20 @@ ${todayWorkout.structure.map((s) => `• [${s.phase}] (${s.duration}): ${s.descr
                                 <button
                                   type="button"
                                   onClick={() => handleUndoDeleteGoal(msg.id, (msg.executedAction as CoachGoalAction)?.goal)}
-                                  className="text-[10px] font-bold px-2 py-0.5 rounded bg-zinc-800 hover:bg-zinc-700 text-emerald-400 border border-zinc-700 cursor-pointer"
+                                  className={`text-[10px] font-bold px-2 py-0.5 rounded border cursor-pointer ${
+                                    theme === 'light'
+                                      ? 'bg-slate-100 hover:bg-slate-200 text-emerald-700 border-slate-300'
+                                      : 'bg-zinc-800 hover:bg-zinc-700 text-emerald-400 border-zinc-700'
+                                  }`}
                                 >
                                   Undo
                                 </button>
                               )}
                             </div>
-                            <div className="font-bold text-sm text-zinc-100">
+                            <div className={`font-bold text-sm ${theme === 'light' ? 'text-slate-900' : 'text-zinc-100'}`}>
                               {msg.executedAction.goalName}
                             </div>
-                            <div className="text-[11px] text-zinc-400">
+                            <div className={`text-[11px] ${theme === 'light' ? 'text-slate-600' : 'text-zinc-400'}`}>
                               {msg.executedAction.description || 'Removed from athlete profile.'}
                             </div>
                           </div>
@@ -2415,7 +2487,11 @@ ${todayWorkout.structure.map((s) => `• [${s.phase}] (${s.duration}): ${s.descr
 
                         {/* Executed Action Card: Recreate Run Workout via Fix Data (+Add Lap) */}
                         {msg.executedAction?.type === 'recreate_run_workout' && (
-                          <div className="p-4 rounded-xl border border-cyan-500/40 bg-gradient-to-br from-cyan-950/40 via-zinc-900/60 to-zinc-900 border-l-4 border-l-cyan-400 text-xs space-y-3.5 shadow-xl animate-in fade-in duration-200">
+                          <div className={`p-4 rounded-xl border border-cyan-500/40 border-l-4 border-l-cyan-400 text-xs space-y-3.5 shadow-xl animate-in fade-in duration-200 ${
+                            theme === 'light'
+                              ? 'bg-gradient-to-br from-cyan-50 via-white to-slate-50 text-slate-800'
+                              : 'bg-gradient-to-br from-cyan-950/40 via-zinc-900/60 to-zinc-900 text-zinc-200'
+                          }`}>
                             {/* Header */}
                             <div className="flex items-center justify-between gap-2 pb-2.5 border-b border-cyan-500/20">
                               <div className="flex items-center gap-2">
@@ -2423,10 +2499,10 @@ ${todayWorkout.structure.map((s) => `• [${s.phase}] (${s.duration}): ${s.descr
                                   <Sliders className="w-4 h-4" />
                                 </span>
                                 <div>
-                                  <div className="font-bold text-cyan-200 flex items-center gap-1.5">
+                                  <div className={`font-bold flex items-center gap-1.5 ${theme === 'light' ? 'text-cyan-800' : 'text-cyan-200'}`}>
                                     <span>Fix Data &rsaquo; +Add Lap Pace Recreation</span>
                                   </div>
-                                  <div className="text-[10px] text-zinc-400">
+                                  <div className={`text-[10px] ${theme === 'light' ? 'text-slate-500' : 'text-zinc-400'}`}>
                                     Reconstructing intervals at {msg.executedAction.targetIntervalPace} ({(msg.executedAction.targetIntervalSpeedKph || 17.14).toFixed(1)} km/h)
                                   </div>
                                 </div>
@@ -2441,25 +2517,29 @@ ${todayWorkout.structure.map((s) => `• [${s.phase}] (${s.duration}): ${s.descr
                             </div>
 
                             {/* Activity Meta & Time Discrepancy Overview */}
-                            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-[11px] bg-black/40 p-2.5 rounded-lg border border-zinc-800">
+                            <div className={`grid grid-cols-2 sm:grid-cols-4 gap-2 text-[11px] p-2.5 rounded-lg border ${
+                              theme === 'light'
+                                ? 'bg-white/80 border-slate-200'
+                                : 'bg-black/40 border-zinc-800'
+                            }`}>
                               <div>
-                                <span className="text-[10px] text-zinc-400 block font-medium">Activity</span>
-                                <span className="font-bold text-zinc-100 truncate block">{msg.executedAction.activityName}</span>
+                                <span className={`text-[10px] block font-medium ${theme === 'light' ? 'text-slate-500' : 'text-zinc-400'}`}>Activity</span>
+                                <span className={`font-bold truncate block ${theme === 'light' ? 'text-slate-900' : 'text-zinc-100'}`}>{msg.executedAction.activityName}</span>
                               </div>
                               <div>
-                                <span className="text-[10px] text-zinc-400 block font-medium">Recorded Time</span>
+                                <span className={`text-[10px] block font-medium ${theme === 'light' ? 'text-slate-500' : 'text-zinc-400'}`}>Recorded Time</span>
                                 <span className="font-bold text-cyan-300">
                                   {Math.floor(msg.executedAction.recordedDurationSec / 60)}m {Math.round(msg.executedAction.recordedDurationSec % 60)}s
                                 </span>
                               </div>
                               <div>
-                                <span className="text-[10px] text-zinc-400 block font-medium">Recreated Distance</span>
+                                <span className={`text-[10px] block font-medium ${theme === 'light' ? 'text-slate-500' : 'text-zinc-400'}`}>Recreated Distance</span>
                                 <span className="font-bold text-emerald-400">
                                   {(msg.executedAction.recalculatedDistanceM / 1000).toFixed(2)} km
                                 </span>
                               </div>
                               <div>
-                                <span className="text-[10px] text-zinc-400 block font-medium">Time Discrepancy</span>
+                                <span className={`text-[10px] block font-medium ${theme === 'light' ? 'text-slate-500' : 'text-zinc-400'}`}>Time Discrepancy</span>
                                 <span className="font-bold text-emerald-300 flex items-center gap-1">
                                   <Check className="w-3 h-3 text-emerald-400 inline" />
                                   <span>0s (Stream Matched)</span>
@@ -2468,18 +2548,26 @@ ${todayWorkout.structure.map((s) => `• [${s.phase}] (${s.duration}): ${s.descr
                             </div>
 
                             {/* Core Interval Assumption Callout */}
-                            <div className="text-[11px] p-2.5 rounded-lg bg-amber-500/10 border border-amber-500/25 text-amber-200/90 leading-relaxed">
-                              <span className="font-bold text-amber-300 block mb-0.5">🧠 Coach Interval Assumption:</span>
-                              We assume your <strong className="text-amber-200">{msg.executedAction.targetIntervalPace}</strong> pace was executed on the <strong>active interval bouts</strong> of the workout, with recovery jogged at <strong>{msg.executedAction.recoveryPace || '6:00/km'}</strong> and cool-down auto-extended so there is <strong>zero time discrepancy</strong> with the original stream.
+                            <div className={`text-[11px] p-2.5 rounded-lg border leading-relaxed ${
+                              theme === 'light'
+                                ? 'bg-amber-50 border-amber-200 text-amber-900'
+                                : 'bg-amber-500/10 border-amber-500/25 text-amber-200/90'
+                            }`}>
+                              <span className={`font-bold block mb-0.5 ${theme === 'light' ? 'text-amber-800' : 'text-amber-300'}`}>🧠 Coach Interval Assumption:</span>
+                              We assume your <strong className={theme === 'light' ? 'text-amber-900' : 'text-amber-200'}>{msg.executedAction.targetIntervalPace}</strong> pace was executed on the <strong>active interval bouts</strong> of the workout, with recovery jogged at <strong>{msg.executedAction.recoveryPace || '6:00/km'}</strong> and cool-down auto-extended so there is <strong>zero time discrepancy</strong> with the original stream.
                             </div>
 
                             {/* Follow-up Questions for Time Discrepancy Avoidance */}
                             {msg.executedAction.status !== 'applied' && (
                               <div className="space-y-2 pt-1 border-t border-cyan-500/20">
-                                <span className="text-[11px] font-bold text-zinc-200 block">
+                                <span className={`text-[11px] font-bold block ${theme === 'light' ? 'text-slate-800' : 'text-zinc-200'}`}>
                                   Follow-up Questions to Verify Exact Interval Breakdown:
                                 </span>
-                                <div className="space-y-1 text-[11px] text-zinc-300 bg-zinc-900/70 p-2.5 rounded-lg border border-zinc-800">
+                                <div className={`space-y-1 text-[11px] p-2.5 rounded-lg border ${
+                                  theme === 'light'
+                                    ? 'text-slate-700 bg-white border-slate-200'
+                                    : 'text-zinc-300 bg-zinc-900/70 border-zinc-800'
+                                }`}>
                                   <div className="flex items-start gap-1.5">
                                     <span className="text-amber-400 font-bold">1.</span>
                                     <span><strong>Active & Recovery Times:</strong> What active interval and recovery duration did you run? (e.g. 4 x 1km @ 3:30, 5 x 3 min)</span>
@@ -2497,7 +2585,7 @@ ${todayWorkout.structure.map((s) => `• [${s.phase}] (${s.duration}): ${s.descr
                                 {/* Clickable Clarification Option Chips */}
                                 {msg.executedAction.clarificationOptions && msg.executedAction.clarificationOptions.length > 0 && (
                                   <div className="pt-1 space-y-1.5">
-                                    <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider block">
+                                    <span className={`text-[10px] font-bold uppercase tracking-wider block ${theme === 'light' ? 'text-slate-500' : 'text-zinc-400'}`}>
                                       Select Preset Configuration:
                                     </span>
                                     <div className="grid grid-cols-1 sm:grid-cols-3 gap-1.5">
@@ -2506,12 +2594,20 @@ ${todayWorkout.structure.map((s) => `• [${s.phase}] (${s.duration}): ${s.descr
                                           key={oIdx}
                                           type="button"
                                           onClick={() => handleSelectClarificationPreset(opt)}
-                                          className="p-2 rounded-lg bg-zinc-900 hover:bg-zinc-800 border border-zinc-700/80 hover:border-cyan-500/50 text-left transition-all cursor-pointer group"
+                                          className={`p-2 rounded-lg border hover:border-cyan-500/50 text-left transition-all cursor-pointer group ${
+                                            theme === 'light'
+                                              ? 'bg-white hover:bg-cyan-50 border-slate-200'
+                                              : 'bg-zinc-900 hover:bg-zinc-800 border-zinc-700/80'
+                                          }`}
                                         >
                                           <div className="font-bold text-cyan-300 text-xs group-hover:text-cyan-200">
                                             {opt.label}
                                           </div>
-                                          <div className="text-[10px] text-zinc-400 group-hover:text-zinc-300 line-clamp-1">
+                                          <div className={`text-[10px] line-clamp-1 ${
+                                            theme === 'light'
+                                              ? 'text-slate-500 group-hover:text-slate-700'
+                                              : 'text-zinc-400 group-hover:text-zinc-300'
+                                          }`}>
                                             {opt.description}
                                           </div>
                                         </button>
@@ -2524,13 +2620,17 @@ ${todayWorkout.structure.map((s) => `• [${s.phase}] (${s.duration}): ${s.descr
 
                             {/* Lap Breakdown Table (+Add Lap Style) */}
                             <div className="space-y-1.5 pt-1">
-                              <span className="text-[11px] font-bold text-zinc-300 flex items-center justify-between">
+                              <span className={`text-[11px] font-bold flex items-center justify-between ${theme === 'light' ? 'text-slate-700' : 'text-zinc-300'}`}>
                                 <span>Recreated Laps Breakdown (+Add Lap format):</span>
-                                <span className="text-[10px] text-zinc-400 font-normal">
+                                <span className={`text-[10px] font-normal ${theme === 'light' ? 'text-slate-500' : 'text-zinc-400'}`}>
                                   {msg.executedAction.sections.length} Laps &middot; {msg.executedAction.recalculatedAvgPace} avg pace
                                 </span>
                               </span>
-                              <div className="max-h-48 overflow-y-auto rounded-lg border border-zinc-800 bg-black/60 divide-y divide-zinc-800 text-[11px]">
+                              <div className={`max-h-48 overflow-y-auto rounded-lg border divide-y text-[11px] ${
+                                theme === 'light'
+                                  ? 'border-slate-200 bg-white divide-slate-200'
+                                  : 'border-zinc-800 bg-black/60 divide-zinc-800'
+                              }`}>
                                 {msg.executedAction.sections.map((sec, sIdx) => {
                                   const isInterval = sec.isInterval || sec.name.toLowerCase().includes('interval') || sec.name.toLowerCase().includes('active');
                                   const isRecovery = sec.isRecovery || sec.name.toLowerCase().includes('recovery');
@@ -2540,38 +2640,46 @@ ${todayWorkout.structure.map((s) => `• [${s.phase}] (${s.duration}): ${s.descr
                                       key={sec.id || sIdx}
                                       className={`px-3 py-1.5 flex items-center justify-between gap-2 ${
                                         isInterval
-                                          ? 'bg-cyan-500/10 text-cyan-200 font-medium'
+                                        ? `bg-cyan-500/10 ${theme === 'light' ? 'text-cyan-800' : 'text-cyan-200'} font-medium`
                                           : isRecovery
-                                          ? 'bg-zinc-900/50 text-zinc-400'
+                                          ? theme === 'light'
+                                            ? 'bg-slate-50 text-slate-500'
+                                            : 'bg-zinc-900/50 text-zinc-400'
                                           : isCool
-                                          ? 'bg-emerald-500/10 text-emerald-300'
+                                          ? `bg-emerald-500/10 ${theme === 'light' ? 'text-emerald-800' : 'text-emerald-300'}`
+                                          : theme === 'light'
+                                          ? 'text-slate-700'
                                           : 'text-zinc-300'
                                       }`}
                                     >
                                       <div className="flex items-center gap-2 min-w-0">
-                                        <span className="text-[10px] font-mono opacity-60 w-4">{sIdx + 1}.</span>
+                                        <span className={`text-[10px] font-mono opacity-60 w-4 ${theme === 'light' ? 'text-slate-500' : ''}`}>{sIdx + 1}.</span>
                                         <span className="truncate font-semibold">{sec.name}</span>
                                         {isInterval && (
-                                          <span className="px-1.5 py-0.2 rounded text-[9px] font-black uppercase tracking-wider bg-cyan-400/20 text-cyan-300 border border-cyan-400/30">
+                                          <span className={`px-1.5 py-0.2 rounded text-[9px] font-black uppercase tracking-wider bg-cyan-400/20 border border-cyan-400/30 ${theme === 'light' ? 'text-cyan-800' : 'text-cyan-300'}`}>
                                             Active
                                           </span>
                                         )}
                                         {isRecovery && (
-                                          <span className="px-1.5 py-0.2 rounded text-[9px] font-medium bg-zinc-800 text-zinc-400 border border-zinc-700">
+                                          <span className={`px-1.5 py-0.2 rounded text-[9px] font-medium border ${
+                                            theme === 'light'
+                                              ? 'bg-slate-100 text-slate-600 border-slate-300'
+                                              : 'bg-zinc-800 text-zinc-400 border-zinc-700'
+                                          }`}>
                                             Rest
                                           </span>
                                         )}
                                         {isCool && (
-                                          <span className="px-1.5 py-0.2 rounded text-[9px] font-medium bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                                          <span className={`px-1.5 py-0.2 rounded text-[9px] font-medium bg-emerald-500/20 border border-emerald-500/30 ${theme === 'light' ? 'text-emerald-800' : 'text-emerald-300'}`}>
                                             0s disc
                                           </span>
                                         )}
                                       </div>
                                       <div className="flex items-center gap-3 shrink-0 font-mono text-[10px]">
                                         <span>{Math.floor(sec.durationSec / 60)}m {(sec.durationSec % 60).toString().padStart(2, '0')}s</span>
-                                        <span className="font-bold text-zinc-200">{sec.paceMinSec || `${(3600 / sec.speedKph).toFixed(0)}s`}</span>
-                                        <span className="text-zinc-400">{sec.speedKph.toFixed(1)} km/h</span>
-                                        <span className="text-zinc-300 w-12 text-right">{sec.distanceM ? `${(sec.distanceM / 1000).toFixed(2)}km` : '-'}</span>
+                                        <span className={`font-bold ${theme === 'light' ? 'text-slate-800' : 'text-zinc-200'}`}>{sec.paceMinSec || `${(3600 / sec.speedKph).toFixed(0)}s`}</span>
+                                        <span className={theme === 'light' ? 'text-slate-500' : 'text-zinc-400'}>{sec.speedKph.toFixed(1)} km/h</span>
+                                        <span className={`w-12 text-right ${theme === 'light' ? 'text-slate-600' : 'text-zinc-300'}`}>{sec.distanceM ? `${(sec.distanceM / 1000).toFixed(2)}km` : '-'}</span>
                                       </div>
                                     </div>
                                   );
@@ -2610,9 +2718,13 @@ ${todayWorkout.structure.map((s) => `• [${s.phase}] (${s.duration}): ${s.descr
                               <button
                                 type="button"
                                 onClick={() => handleOpenCalibrationModal(msg.executedAction as CoachWorkoutCalibrationAction)}
-                                className="px-3 py-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-200 border border-zinc-700 font-bold text-xs transition-colors cursor-pointer flex items-center gap-1.5"
+                                className={`px-3 py-1.5 rounded-lg border font-bold text-xs transition-colors cursor-pointer flex items-center gap-1.5 ${
+                                  theme === 'light'
+                                    ? 'bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-300'
+                                    : 'bg-zinc-800 hover:bg-zinc-700 text-zinc-200 border-zinc-700'
+                                }`}
                               >
-                                <Sliders className="w-3.5 h-3.5 text-zinc-400" />
+                                <Sliders className={`w-3.5 h-3.5 ${theme === 'light' ? 'text-slate-500' : 'text-zinc-400'}`} />
                                 <span>Open in Fix Data Modal</span>
                               </button>
                             </div>
@@ -2647,7 +2759,7 @@ ${todayWorkout.structure.map((s) => `• [${s.phase}] (${s.duration}): ${s.descr
                                               part.startsWith('**') && part.endsWith('**') ? (
                                                 <strong
                                                   key={i}
-                                                  className="font-bold text-white dark:text-white"
+                                                  className={`font-bold ${theme === 'light' ? 'text-slate-900' : 'text-white'}`}
                                                 >
                                                   {part.slice(2, -2)}
                                                 </strong>
@@ -2671,7 +2783,7 @@ ${todayWorkout.structure.map((s) => `• [${s.phase}] (${s.duration}): ${s.descr
                                               part.startsWith('**') && part.endsWith('**') ? (
                                                 <strong
                                                   key={i}
-                                                  className="font-bold text-white dark:text-white"
+                                                  className={`font-bold ${theme === 'light' ? 'text-slate-900' : 'text-white'}`}
                                                 >
                                                   {part.slice(2, -2)}
                                                 </strong>
@@ -2691,7 +2803,7 @@ ${todayWorkout.structure.map((s) => `• [${s.phase}] (${s.duration}): ${s.descr
                                           part.startsWith('**') && part.endsWith('**') ? (
                                             <strong
                                               key={i}
-                                              className="font-bold text-white dark:text-white"
+                                              className={`font-bold ${theme === 'light' ? 'text-slate-900' : 'text-white'}`}
                                             >
                                               {part.slice(2, -2)}
                                             </strong>
@@ -2709,8 +2821,12 @@ ${todayWorkout.structure.map((s) => `• [${s.phase}] (${s.duration}): ${s.descr
 
                         {/* Grounding Web Search Sources */}
                         {msg.groundingSources && msg.groundingSources.length > 0 && (
-                          <div className="pt-2 border-t border-zinc-800/60 text-[10px] text-zinc-400 space-y-1">
-                            <div className="flex items-center gap-1 font-bold text-zinc-300">
+                          <div className={`pt-2 border-t text-[10px] space-y-1 ${
+                            theme === 'light'
+                              ? 'border-slate-200 text-slate-500'
+                              : 'border-zinc-800/60 text-zinc-400'
+                          }`}>
+                            <div className={`flex items-center gap-1 font-bold ${theme === 'light' ? 'text-slate-700' : 'text-zinc-300'}`}>
                               <span>🔍 Web Search Citations:</span>
                             </div>
                             <div className="flex flex-wrap gap-2">
@@ -2720,7 +2836,11 @@ ${todayWorkout.structure.map((s) => `• [${s.phase}] (${s.duration}): ${s.descr
                                   href={source.uri}
                                   target="_blank"
                                   rel="noopener noreferrer"
-                                  className="px-2 py-0.5 rounded bg-zinc-900 border border-zinc-800 text-sky-400 hover:text-sky-300 hover:border-sky-500/40 transition-colors truncate max-w-xs flex items-center gap-1"
+                                  className={`px-2 py-0.5 rounded border transition-colors truncate max-w-xs flex items-center gap-1 ${
+                                    theme === 'light'
+                                      ? 'bg-sky-50 border-sky-200 text-sky-700 hover:text-sky-800 hover:border-sky-400'
+                                      : 'bg-zinc-900 border-zinc-800 text-sky-400 hover:text-sky-300 hover:border-sky-500/40'
+                                  }`}
                                 >
                                   <span>🌐</span>
                                   <span className="truncate">{source.title || source.uri}</span>
@@ -2731,15 +2851,21 @@ ${todayWorkout.structure.map((s) => `• [${s.phase}] (${s.duration}): ${s.descr
                         )}
 
                         {/* Runvia Action Toolbar */}
-                        <div className="pt-2.5 mt-2 border-t border-zinc-800/70 flex items-center justify-between text-zinc-400 text-[11px]">
+                        <div className={`pt-2.5 mt-2 border-t flex items-center justify-between text-[11px] ${
+                          theme === 'light' ? 'border-slate-200 text-slate-500' : 'border-zinc-800/70 text-zinc-400'
+                        }`}>
                           <div className="flex items-center gap-1.5">
-                            <span className="text-[10px] text-zinc-400 mr-1.5">{msg.timestamp}</span>
+                            <span className={`text-[10px] mr-1.5 ${theme === 'light' ? 'text-slate-500' : 'text-zinc-400'}`}>{msg.timestamp}</span>
 
                             {/* Copy button */}
                             <button
                               type="button"
                               onClick={() => handleCopyMessage(msg.id, msg.content)}
-                              className="p-1 rounded hover:bg-zinc-800 text-zinc-400 hover:text-zinc-200 transition-colors cursor-pointer"
+                              className={`p-1 rounded transition-colors cursor-pointer ${
+                                theme === 'light'
+                                  ? 'hover:bg-slate-100 text-slate-500 hover:text-slate-800'
+                                  : 'hover:bg-zinc-800 text-zinc-400 hover:text-zinc-200'
+                              }`}
                               title="Copy response"
                             >
                               {copiedMsgId === msg.id ? (
@@ -2798,8 +2924,8 @@ ${todayWorkout.structure.map((s) => `• [${s.phase}] (${s.duration}): ${s.descr
                         </div>
 
                         {/* Runvia Disclaimer */}
-                        <div className="text-[10px] text-zinc-400 italic">
-                          Personalized using your data. Not medical advice.
+                        <div className={`text-[10px] italic ${theme === 'light' ? 'text-slate-500' : 'text-zinc-400'}`}>
+                          {coachModelName}, personalized using your data.
                         </div>
                       </div>
                     )}
@@ -2810,7 +2936,11 @@ ${todayWorkout.structure.map((s) => `• [${s.phase}] (${s.duration}): ${s.descr
 
             {/* "Drafting the reply..." loading indicator with Stop button */}
             {isSendingChat && (
-              <div className="flex items-center justify-between p-3.5 rounded-2xl bg-zinc-900/90 border border-zinc-800 text-xs text-amber-300 shadow-lg animate-pulse">
+              <div className={`flex items-center justify-between p-3.5 rounded-2xl border text-xs shadow-lg animate-pulse ${
+                theme === 'light'
+                  ? 'bg-amber-50 border-amber-200 text-amber-800'
+                  : 'bg-zinc-900/90 border-zinc-800 text-amber-300'
+              }`}>
                 <div className="flex items-center gap-2">
                   <RotateCw className="w-3.5 h-3.5 animate-spin text-amber-400" />
                   <span>Drafting the reply... analyzing your training history & multi-year goals</span>
@@ -2818,7 +2948,11 @@ ${todayWorkout.structure.map((s) => `• [${s.phase}] (${s.duration}): ${s.descr
                 <button
                   type="button"
                   onClick={() => setIsSendingChat(false)}
-                  className="px-2 py-1 rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-200 text-[10px] font-bold flex items-center gap-1 cursor-pointer transition-colors"
+                  className={`px-2 py-1 rounded text-[10px] font-bold flex items-center gap-1 cursor-pointer transition-colors ${
+                    theme === 'light'
+                      ? 'bg-amber-100 hover:bg-amber-200 text-amber-900'
+                      : 'bg-zinc-800 hover:bg-zinc-700 text-zinc-200'
+                  }`}
                   title="Stop generating"
                 >
                   <Square className="w-2.5 h-2.5 fill-current" />

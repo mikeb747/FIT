@@ -333,9 +333,10 @@ export async function startBackgroundStreamDownload({
     notifyListeners();
 
     try {
-      // fetchStravaActivityDetails performs 2 read calls:
+      // fetchStravaActivityDetails performs 3 read calls:
       // 1. /api/strava/activities/:id
       // 2. /api/strava/activities/:id/streams
+      // 3. /api/strava/activities/:id/laps
       const details = await fetchStravaActivityDetails(stravaToken, activity.id);
       if (signal.aborted) break;
 

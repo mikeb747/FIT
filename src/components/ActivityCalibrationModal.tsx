@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   X,
   Sliders,
@@ -31,6 +31,7 @@ import type {
 } from '../utils/stravaActivities';
 import {
   classifyActivity,
+  mapStravaRunLapsToSections,
   saveActivityCalibration,
   clearActivityCalibration,
   updateStravaActivityRecord,
@@ -180,12 +181,32 @@ export const ActivityCalibrationModal: React.FC<ActivityCalibrationModalProps> =
 
   // Indoor Run Simulated Laps / Sections
   const isRun = classification.category === 'Run';
+  const detailedRunLaps = detailsRecord?.activity?.laps;
+  const rawRunLaps =
+    Array.isArray(detailedRunLaps) && detailedRunLaps.length > 0
+      ? detailedRunLaps
+      : activity.laps;
+  const sectionsFromStravaLaps = useMemo(() => mapStravaRunLapsToSections(rawRunLaps), [rawRunLaps]);
   const [runSections, setRunSections] = useState<CalibratedRunSection[]>(() => {
     if (existingCalib?.calibratedRunSections && existingCalib.calibratedRunSections.length > 0) {
       return existingCalib.calibratedRunSections;
     }
-    return [];
+    return sectionsFromStravaLaps;
   });
+  const runSectionsInitialized = useRef(
+    Boolean(existingCalib?.calibratedRunSections?.length || sectionsFromStravaLaps.length)
+  );
+
+  useEffect(() => {
+    if (runSectionsInitialized.current || runSections.length > 0) return;
+    if (existingCalib?.calibratedRunSections?.length) {
+      setRunSections(existingCalib.calibratedRunSections);
+      runSectionsInitialized.current = true;
+    } else if (sectionsFromStravaLaps.length > 0) {
+      setRunSections(sectionsFromStravaLaps);
+      runSectionsInitialized.current = true;
+    }
+  }, [existingCalib?.calibratedRunSections, runSections.length, sectionsFromStravaLaps]);
 
   const [notes, setNotes] = useState<string>(existingCalib?.calibrationNotes || '');
   const [isSaving, setIsSaving] = useState(false);
@@ -919,7 +940,11 @@ export const ActivityCalibrationModal: React.FC<ActivityCalibrationModalProps> =
                       Laps & Simulated Speed/Pace Streams
                     </h4>
                     <p className="text-[11px] text-slate-400">
-                      Indoor / Treadmill workout profiler. Preserves HR, cadence & timestamps.
+                      {sectionsFromStravaLaps.length > 0
+                        ? `Loaded ${sectionsFromStravaLaps.length} Strava lap${sectionsFromStravaLaps.length === 1 ? '' : 's'} with recorded duration and pace. Edit as needed; HR, cadence & timestamps are preserved.`
+                        : detailsRecord?.lapsError
+                          ? `Could not load Strava lap times: ${detailsRecord.lapsError}`
+                          : 'No Strava laps found. Add laps or load a template; HR, cadence & timestamps are preserved.'}
                     </p>
                   </div>
                 </div>

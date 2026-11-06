@@ -51,6 +51,34 @@ export interface CalibratedRunSection {
   distanceM?: number;
 }
 
+export function mapStravaRunLapsToSections(rawLaps: unknown): CalibratedRunSection[] {
+  if (!Array.isArray(rawLaps)) return [];
+
+  return rawLaps.flatMap((rawLap, index) => {
+    if (!rawLap || typeof rawLap !== 'object') return [];
+    const lap = rawLap as Record<string, unknown>;
+    const movingTimeSec = Number(lap.moving_time) || 0;
+    const durationSec = Math.round(Number(lap.elapsed_time) || movingTimeSec);
+    if (durationSec <= 0) return [];
+
+    const distanceM = Number(lap.distance) || 0;
+    const averageSpeedMps = Number(lap.average_speed) || 0;
+    const speedKph = averageSpeedMps > 0
+      ? averageSpeedMps * 3.6
+      : distanceM > 0 && movingTimeSec > 0
+        ? (distanceM / movingTimeSec) * 3.6
+        : 0;
+    const lapNumber = Number(lap.lap_index) || index + 1;
+
+    return [{
+      id: String(lap.id ?? `strava-lap-${lapNumber}`),
+      name: typeof lap.name === 'string' && lap.name.trim() ? lap.name : `Lap ${lapNumber}`,
+      durationSec,
+      speedKph: Number(speedKph.toFixed(2)),
+    }];
+  });
+}
+
 export interface ActivityCalibration {
   isIgnoredFromTrainingStatus?: boolean; // Exclude from TSS & training load calculations
   calibratedDistanceM?: number; // Overrides total distance (treadmill calibration)
@@ -80,11 +108,13 @@ export interface StravaActivityDetailsRecord {
   activity?: Record<string, unknown>;
   streams?: Record<string, unknown>;
   streamsError?: string;
+  lapsError?: string;
   noStreamsAvailable?: boolean;
   isHydratedFromSheet?: boolean;
   calibration?: ActivityCalibration;
   effortFeedback?: ActivityEffortFeedback;
   fetchedAt?: string;
+  lapsFetchedAt?: string;
   analysedAt?: string;
   googleDrivePublishedAt?: string;
 }
@@ -96,6 +126,7 @@ export interface StravaActivityDetailsResponse {
   activity: Record<string, unknown>;
   streams?: Record<string, unknown>;
   streamsError?: string;
+  lapsError?: string;
 }
 
 export const STRAVA_ACTIVITIES_CACHE_KEY = 'gymfit_strava_activities_cache';
@@ -1400,6 +1431,8 @@ export function saveStravaActivityDetails(
   return updateStravaActivityRecord(activityId, (record) => ({
     ...record,
     activity: details.activity,
+    lapsError: details.lapsError,
+    lapsFetchedAt: new Date().toISOString(),
     ...(hasValidStreams
       ? { streams: details.streams, streamsError: undefined, noStreamsAvailable: false }
       : {
@@ -1807,23 +1840,61 @@ export async function fetchStravaActivityDetails(
     throw new Error('Invalid activity details response from Strava');
   }
 
-  try {
-    const streams = await fetchStravaApiJson(
+  const result: StravaActivityDetailsResponse = {
+    activity: activity as Record<string, unknown>,
+  };
+  const activityHasLaps =
+    Array.isArray(result.activity.laps) && result.activity.laps.length > 0;
+
+  const [streamsResult, lapsResult] = await Promise.allSettled([
+    fetchStravaApiJson(
       accessToken,
       `/api/strava/activities/${id}/streams`,
       `/activities/${id}/streams?keys=time,distance,latlng,altitude,velocity_smooth,heartrate,cadence,watts,temp,moving,grade_smooth&key_by_type=true`,
       'Strava activity streams request'
-    );
-    if (!streams || typeof streams !== 'object' || Array.isArray(streams)) {
-      throw new Error('Invalid activity streams response from Strava');
+    ),
+    activityHasLaps
+      ? Promise.resolve(result.activity.laps)
+      : fetchStravaApiJson(
+          accessToken,
+          `/api/strava/activities/${id}/laps`,
+          `/activities/${id}/laps`,
+          'Strava activity laps request'
+        ),
+  ]);
+
+  if (streamsResult.status === 'fulfilled') {
+    const streams = streamsResult.value;
+    if (streams && typeof streams === 'object' && !Array.isArray(streams)) {
+      result.streams = streams as Record<string, unknown>;
+    } else {
+      result.streamsError = 'Invalid activity streams response from Strava';
     }
-    return { activity: activity as Record<string, unknown>, streams: streams as Record<string, unknown> };
-  } catch (error) {
-    return {
-      activity: activity as Record<string, unknown>,
-      streamsError: error instanceof Error ? error.message : 'Could not fetch activity streams',
-    };
+  } else {
+    result.streamsError =
+      streamsResult.reason instanceof Error
+        ? streamsResult.reason.message
+        : 'Could not fetch activity streams';
   }
+
+  if (lapsResult.status === 'fulfilled') {
+    const laps = lapsResult.value;
+    if (Array.isArray(laps)) {
+      result.activity = {
+        ...result.activity,
+        laps: laps.length > 0 ? laps : result.activity.laps,
+      };
+    } else {
+      result.lapsError = 'Invalid activity laps response from Strava';
+    }
+  } else if (!Array.isArray(result.activity.laps)) {
+    result.lapsError =
+      lapsResult.reason instanceof Error
+        ? lapsResult.reason.message
+        : 'Could not fetch activity laps';
+  }
+
+  return result;
 }
 
 /**

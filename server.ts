@@ -372,6 +372,31 @@ app.get('/api/strava/activities/:activityId', async (req, res) => {
   }
 });
 
+// Fetch lap button presses and split metrics for an individual Strava activity
+app.get('/api/strava/activities/:activityId/laps', async (req, res) => {
+  try {
+    const authHeader = req.headers.authorization;
+    if (!authHeader) {
+      return res.status(401).json({ error: 'Strava access token is required' });
+    }
+
+    const activityId = Number(req.params.activityId);
+    if (!Number.isSafeInteger(activityId) || activityId <= 0) {
+      return res.status(400).json({ error: 'A valid Strava activity ID is required' });
+    }
+
+    const stravaRes = await fetch(`https://www.strava.com/api/v3/activities/${activityId}/laps`, {
+      method: 'GET',
+      headers: { Authorization: authHeader, Accept: 'application/json' },
+    });
+    forwardStravaRateLimitHeaders(stravaRes.headers, res);
+    const data = await stravaRes.json();
+    return res.status(stravaRes.status).json(data);
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message || 'Error fetching Strava activity laps' });
+  }
+});
+
 // Update an individual activity (name, description, sport_type, etc.) on Strava
 app.put('/api/strava/activities/:activityId', async (req, res) => {
   try {
