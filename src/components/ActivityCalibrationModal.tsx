@@ -84,7 +84,8 @@ const LapDurationInput: React.FC<{
   isLastAutoExtended?: boolean;
   timeDiscrepancySec?: number;
   onCommit: (seconds: number) => void;
-}> = ({ durationSec, isLastAutoExtended, timeDiscrepancySec, onCommit }) => {
+  isAlternate?: boolean;
+}> = ({ durationSec, isLastAutoExtended, timeDiscrepancySec, onCommit, isAlternate }) => {
   const [localVal, setLocalVal] = useState(() => formatSecondsToMinSec(durationSec));
   const [isFocused, setIsFocused] = useState(false);
 
@@ -138,11 +139,17 @@ const LapDurationInput: React.FC<{
           }
         }}
         placeholder="m:ss"
-        className="w-full px-1.5 py-1 bg-slate-950 border border-slate-700/80 rounded-lg text-white font-mono text-xs text-center focus:border-emerald-400 focus:outline-none"
+        className={`w-full px-1.5 py-1 rounded-lg font-mono text-xs text-center focus:outline-none transition-colors ${
+          isAlternate
+            ? 'bg-white border border-sky-300 text-slate-900 focus:border-sky-500 font-semibold'
+            : 'bg-slate-950 border border-slate-700/80 text-white focus:border-emerald-400'
+        }`}
       />
       {isLastAutoExtended && (timeDiscrepancySec || 0) > 0.05 && (
         <span
-          className="text-[9px] text-emerald-400 block text-center truncate font-mono mt-0.5"
+          className={`text-[9px] block text-center truncate font-mono mt-0.5 ${
+            isAlternate ? 'text-sky-700 font-bold' : 'text-emerald-400'
+          }`}
           title="Auto-extended to match exact recording duration"
         >
           +{(timeDiscrepancySec || 0).toFixed(0)}s
@@ -155,7 +162,8 @@ const LapDurationInput: React.FC<{
 const LapSpeedInput: React.FC<{
   speedKph: number;
   onCommit: (speed: number) => void;
-}> = ({ speedKph, onCommit }) => {
+  isAlternate?: boolean;
+}> = ({ speedKph, onCommit, isAlternate }) => {
   const [localVal, setLocalVal] = useState(() => (speedKph ? String(speedKph) : ''));
   const [isFocused, setIsFocused] = useState(false);
 
@@ -198,9 +206,13 @@ const LapSpeedInput: React.FC<{
           }
         }}
         placeholder="11.0"
-        className="w-full px-1.5 py-1 bg-slate-950 border border-slate-700/80 rounded-lg text-white font-mono text-xs text-center focus:border-emerald-400 focus:outline-none"
+        className={`w-full px-1.5 py-1 rounded-lg font-mono text-xs text-center focus:outline-none transition-colors ${
+          isAlternate
+            ? 'bg-white border border-sky-300 text-slate-900 focus:border-sky-500 font-semibold'
+            : 'bg-slate-950 border border-slate-700/80 text-white focus:border-emerald-400'
+        }`}
       />
-      <span className="text-[10px] text-slate-500 shrink-0 font-mono">km/h</span>
+      <span className={`text-[10px] shrink-0 font-mono ${isAlternate ? 'text-sky-900 font-bold' : 'text-slate-500'}`}>km/h</span>
     </div>
   );
 };
@@ -1051,33 +1063,27 @@ export const ActivityCalibrationModal: React.FC<ActivityCalibrationModalProps> =
                   </div>
                   <div>
                     <h4 className="text-xs font-bold text-emerald-300 uppercase tracking-wider">
-                      Laps & Simulated Speed/Pace Streams
+                      Laps & Simulated Speed
                     </h4>
                     <p className="text-[11px] text-slate-400">
                       {sectionsFromStravaLaps.length > 0
                         ? `Loaded ${sectionsFromStravaLaps.length} Strava lap${sectionsFromStravaLaps.length === 1 ? '' : 's'} with recorded duration and pace. Edit as needed; HR, cadence & timestamps are preserved.`
                         : detailsRecord?.lapsError
                           ? `Could not load Strava lap times: ${detailsRecord.lapsError}`
-                          : 'No Strava laps found. Add laps or load a template; HR, cadence & timestamps are preserved.'}
+                          : 'No Strava laps found. Click +Add Lap to build workout intervals; HR, cadence & timestamps are preserved.'}
                     </p>
                   </div>
                 </div>
 
-                <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={handleLoad7SectionTemplate}
-                    className="px-2.5 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-emerald-400 hover:text-emerald-300 text-[11px] font-bold cursor-pointer transition-all flex items-center gap-1.5"
-                    title="Load 7-segment template from workout profile (Warm-up, Recovery, Main effort, Progressions 1-4)"
-                  >
-                    <Sparkles className="w-3.5 h-3.5" />
-                    <span>Load 7-Stage Template</span>
-                  </button>
-
+                {/* +Add Lap and Clear buttons moved right 40px, up 46px */}
+                <div
+                  className="flex items-center gap-2 relative z-10"
+                  style={{ transform: 'translate(40px, -46px)' }}
+                >
                   <button
                     type="button"
                     onClick={handleAddRunSection}
-                    className="px-2.5 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-slate-950 font-bold text-[11px] cursor-pointer transition-all flex items-center gap-1"
+                    className="px-2.5 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-slate-950 font-bold text-[11px] cursor-pointer transition-all flex items-center gap-1 shadow-sm"
                   >
                     <Plus className="w-3.5 h-3.5 stroke-[3]" />
                     <span>Add Lap</span>
@@ -1087,7 +1093,7 @@ export const ActivityCalibrationModal: React.FC<ActivityCalibrationModalProps> =
                     <button
                       type="button"
                       onClick={() => setRunSections([])}
-                      className="px-2 py-1.5 rounded-xl bg-slate-800 hover:bg-rose-950/40 text-slate-400 hover:text-rose-300 text-[11px] font-bold cursor-pointer transition-all"
+                      className="px-2 py-1.5 rounded-xl bg-slate-800 hover:bg-rose-950/40 text-slate-400 hover:text-rose-300 text-[11px] font-bold cursor-pointer transition-all border border-slate-700 shadow-sm"
                       title="Clear laps"
                     >
                       Clear
@@ -1096,16 +1102,16 @@ export const ActivityCalibrationModal: React.FC<ActivityCalibrationModalProps> =
                 </div>
               </div>
 
-              {/* Sections Table */}
+              {/* Sections Table - 20% taller (max-h-[350px]) */}
               {runSections.length === 0 ? (
                 <div className="text-center py-5 px-3 rounded-xl bg-slate-900/60 border border-dashed border-slate-800 space-y-2">
                   <Play className="w-6 h-6 text-slate-600 mx-auto" />
                   <p className="text-xs text-slate-400 font-medium">
-                    No custom laps defined yet. Click &ldquo;Load 7-Stage Template&rdquo; or &ldquo;Add Lap&rdquo; to build your treadmill intervals.
+                    No custom laps defined yet. Click &ldquo;+Add Lap&rdquo; to build your treadmill intervals.
                   </p>
                 </div>
               ) : (
-                <div className="space-y-1.5 max-h-72 overflow-y-auto pr-1">
+                <div className="space-y-1.5 min-h-[180px] max-h-[350px] overflow-y-auto pr-1">
                   <div className="flex items-center gap-1.5 sm:gap-2 text-[10px] font-bold uppercase tracking-wider text-slate-400 px-2 pb-0.5">
                     <span className="w-12 sm:w-14 shrink-0">Lap</span>
                     <span className="w-16 sm:w-20 shrink-0 text-center">Duration</span>
@@ -1118,19 +1124,27 @@ export const ActivityCalibrationModal: React.FC<ActivityCalibrationModalProps> =
                   {runSections.map((sec, idx) => {
                     const computed = computedRunSections[idx];
                     const isLast = idx === runSections.length - 1;
+                    const isAlternate = idx % 2 === 1;
 
                     return (
                       <div
                         key={sec.id || idx}
-                        className={`px-2 py-1.5 rounded-xl border text-xs transition-colors flex items-center gap-1.5 sm:gap-2 ${
-                          isLast && timeDiscrepancySec > 0.05
-                            ? 'bg-emerald-950/20 border-emerald-500/40'
-                            : 'bg-slate-900/90 border-slate-800'
+                        style={isAlternate ? { backgroundColor: '#d3f0ff' } : undefined}
+                        className={`px-2 py-1.5 rounded-xl border text-xs transition-colors flex items-center gap-1.5 sm:gap-2 shadow-xs ${
+                          isAlternate
+                            ? 'border-sky-300 text-slate-900'
+                            : isLast && timeDiscrepancySec > 0.05
+                            ? 'bg-emerald-950/20 border-emerald-500/40 text-white'
+                            : 'bg-slate-900/90 border-slate-800 text-white'
                         }`}
                       >
                         {/* Fixed Lap Label */}
                         <div className="w-12 sm:w-14 shrink-0 flex items-center">
-                          <span className="font-bold font-mono text-xs text-white">
+                          <span
+                            className={`font-bold font-mono text-xs ${
+                              isAlternate ? 'text-slate-900' : 'text-white'
+                            }`}
+                          >
                             Lap {idx + 1}
                           </span>
                         </div>
@@ -1141,21 +1155,33 @@ export const ActivityCalibrationModal: React.FC<ActivityCalibrationModalProps> =
                           isLastAutoExtended={isLast}
                           timeDiscrepancySec={timeDiscrepancySec}
                           onCommit={(newSec) => handleUpdateRunSection(idx, 'durationSec', newSec)}
+                          isAlternate={isAlternate}
                         />
 
                         {/* Speed: Clean kph numeric input */}
                         <LapSpeedInput
                           speedKph={sec.speedKph || 0}
                           onCommit={(newSpd) => handleUpdateRunSection(idx, 'speedKph', newSpd)}
+                          isAlternate={isAlternate}
                         />
 
                         {/* Pace: Auto-synced formatted min/km */}
-                        <div className="w-14 sm:w-16 shrink-0 text-center font-mono text-[11px] font-bold text-emerald-300 bg-slate-950/70 py-1 px-1 rounded-lg border border-slate-800">
+                        <div
+                          className={`w-14 sm:w-16 shrink-0 text-center font-mono text-[11px] font-bold py-1 px-1 rounded-lg border ${
+                            isAlternate
+                              ? 'text-sky-950 bg-white border-sky-300'
+                              : 'text-emerald-300 bg-slate-950/70 border-slate-800'
+                          }`}
+                        >
                           {speedKphToPaceStr(sec.speedKph)}
                         </div>
 
                         {/* Distance for this segment */}
-                        <div className="flex-1 text-right font-mono text-[11px] text-slate-300 truncate">
+                        <div
+                          className={`flex-1 text-right font-mono text-[11px] truncate ${
+                            isAlternate ? 'text-slate-800 font-bold' : 'text-slate-300'
+                          }`}
+                        >
                           {((computed?.distanceM || 0) / 1000).toFixed(2)}km
                         </div>
 
@@ -1164,7 +1190,11 @@ export const ActivityCalibrationModal: React.FC<ActivityCalibrationModalProps> =
                           <button
                             type="button"
                             onClick={() => handleRemoveRunSection(idx)}
-                            className="p-1 rounded text-slate-500 hover:text-rose-400 hover:bg-rose-500/10 cursor-pointer transition-colors"
+                            className={`p-1 rounded cursor-pointer transition-colors ${
+                              isAlternate
+                                ? 'text-slate-600 hover:text-rose-600 hover:bg-rose-500/20'
+                                : 'text-slate-500 hover:text-rose-400 hover:bg-rose-500/10'
+                            }`}
                             title={`Remove Lap ${idx + 1}`}
                           >
                             <Trash2 className="w-3.5 h-3.5" />

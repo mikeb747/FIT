@@ -1107,6 +1107,7 @@ export default function App() {
             logs={recoveryLogs}
             athleteProfile={athleteProfile}
             stravaActivities={stravaActivities}
+            activityDetails={stravaActivityDetails}
             theme={theme}
             isGarminConnected={garminConnected}
             garminEmail={garminEmail}

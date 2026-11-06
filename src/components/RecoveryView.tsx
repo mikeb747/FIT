@@ -31,7 +31,11 @@ import {
 } from 'lucide-react';
 import type { DailyRecoveryLog, ReadinessScoreResult } from '../types/recovery';
 import type { AthleteProfile } from '../types/athlete';
-import type { StravaActivity } from '../utils/stravaActivities';
+import {
+  type StravaActivity,
+  type StravaActivityDetailsRecord,
+  calculateActivityTSS,
+} from '../utils/stravaActivities';
 import { computeDailyReadiness, computeCrossCorrelations } from '../utils/readinessEngine';
 import { RecoveryLogModal } from './RecoveryLogModal';
 import { RecoveryCsvModal } from './RecoveryCsvModal';
@@ -46,6 +50,7 @@ interface RecoveryViewProps {
   logs: DailyRecoveryLog[];
   athleteProfile: AthleteProfile;
   stravaActivities?: StravaActivity[];
+  activityDetails?: Record<string, StravaActivityDetailsRecord>;
   onUpsertLog: (log: DailyRecoveryLog) => void;
   onDeleteLog: (id: string) => void;
   onImportLogs: (logs: DailyRecoveryLog[]) => void;
@@ -67,6 +72,7 @@ export const RecoveryView: React.FC<RecoveryViewProps> = ({
   logs,
   athleteProfile,
   stravaActivities = [],
+  activityDetails = {},
   onUpsertLog,
   onDeleteLog,
   onImportLogs,
@@ -82,6 +88,7 @@ export const RecoveryView: React.FC<RecoveryViewProps> = ({
   onConnectGoogle,
 }) => {
   const [selectedChartMode, setSelectedChartMode] = useState<ChartViewMode>('sleep_rhr');
+  const [tssDataSource, setTssDataSource] = useState<'strava' | 'fit'>('strava');
   const [isLogModalOpen, setIsLogModalOpen] = useState(false);
   const [editingLog, setEditingLog] = useState<DailyRecoveryLog | null>(null);
   const [isCsvModalOpen, setIsCsvModalOpen] = useState(false);
@@ -90,6 +97,18 @@ export const RecoveryView: React.FC<RecoveryViewProps> = ({
 
   const isLight = theme === 'light';
   const baselineRhr = athleteProfile.restingHeartRate || 41;
+
+  // Cache or prop-provided activity details for FIT TSS calculation
+  const effectiveActivityDetails = useMemo(() => {
+    if (activityDetails && Object.keys(activityDetails).length > 0) {
+      return activityDetails;
+    }
+    try {
+      const cached = localStorage.getItem('strava_activity_details_cache');
+      if (cached) return JSON.parse(cached);
+    } catch {}
+    return {};
+  }, [activityDetails]);
 
   // Determine if Garmin is actively connected
   const isGarminActive = Boolean(
@@ -149,8 +168,8 @@ export const RecoveryView: React.FC<RecoveryViewProps> = ({
     return computeCrossCorrelations(sortedLogs);
   }, [sortedLogs]);
 
-  // Map Strava TSS per date for training stress cross-correlation
-  const tssByDate = useMemo(() => {
+  // Map Strava raw activity TSS per date
+  const stravaTssByDate = useMemo(() => {
     const map: Record<string, number> = {};
     stravaActivities.forEach((act) => {
       if (act && act.start_date) {
@@ -168,6 +187,40 @@ export const RecoveryView: React.FC<RecoveryViewProps> = ({
     });
     return map;
   }, [stravaActivities]);
+
+  // Map App recorded / calibrated FIT TSS per date
+  const fitTssByDate = useMemo(() => {
+    const map: Record<string, number> = {};
+    stravaActivities.forEach((act) => {
+      if (act && act.start_date) {
+        const d = act.start_date.split('T')[0];
+        const details = effectiveActivityDetails[String(act.id)];
+        const manualTss = details?.calibration?.manualTss;
+        let tss = 0;
+        if (manualTss !== undefined && manualTss !== null && !isNaN(manualTss)) {
+          tss = Math.max(0, Math.round(manualTss));
+        } else {
+          const calc = calculateActivityTSS(act, details, athleteProfile);
+          if (calc && Number.isFinite(calc.tss) && calc.tss > 0) {
+            tss = Math.round(calc.tss);
+          } else {
+            const rawSuffer = Number(act.suffer_score);
+            const rawMoving = Number(act.moving_time);
+            tss =
+              Number.isFinite(rawSuffer) && rawSuffer > 0
+                ? rawSuffer
+                : Number.isFinite(rawMoving) && rawMoving > 0
+                ? Math.round((rawMoving / 3600) * 55)
+                : 0;
+          }
+        }
+        map[d] = (map[d] || 0) + (Number.isFinite(tss) ? tss : 0);
+      }
+    });
+    return map;
+  }, [stravaActivities, effectiveActivityDetails, athleteProfile]);
+
+  const tssByDate = tssDataSource === 'fit' ? fitTssByDate : stravaTssByDate;
 
   // Horizontal Scrollable Timeline State for 7-Day Viewport with swipe/drag loading ahead
   const scrollContainerRef = React.useRef<HTMLDivElement>(null);
@@ -212,6 +265,8 @@ export const RecoveryView: React.FC<RecoveryViewProps> = ({
       log: DailyRecoveryLog;
       readiness: ReadinessScoreResult;
       tss: number;
+      stravaTss: number;
+      fitTss: number;
       dayWeekday: string;
       dayNumber: string;
       date: string;
@@ -267,8 +322,9 @@ export const RecoveryView: React.FC<RecoveryViewProps> = ({
             insights: [],
           };
 
-      const rawTss = tssByDate[dateStr];
-      const tss = Number.isFinite(rawTss) ? rawTss : 0;
+      const sTss = Number.isFinite(stravaTssByDate[dateStr]) ? stravaTssByDate[dateStr] : 0;
+      const fTss = Number.isFinite(fitTssByDate[dateStr]) ? fitTssByDate[dateStr] : 0;
+      const tss = tssDataSource === 'fit' ? fTss : sTss;
 
       const dayWeekday = dt.toLocaleDateString(undefined, { weekday: 'short' });
       const dayNumber = String(dt.getDate());
@@ -277,6 +333,8 @@ export const RecoveryView: React.FC<RecoveryViewProps> = ({
         log: logToUse,
         readiness: read,
         tss,
+        stravaTss: sTss,
+        fitTss: fTss,
         dayWeekday,
         dayNumber,
         date: dateStr,
@@ -285,7 +343,7 @@ export const RecoveryView: React.FC<RecoveryViewProps> = ({
     }
 
     return days;
-  }, [sortedLogs, athleteProfile, tssByDate, isLight]);
+  }, [sortedLogs, athleteProfile, stravaTssByDate, fitTssByDate, tssDataSource, isLight]);
 
   // Alias for compatibility with downstream hover and inspection
   const chartDays = timelineDays;
@@ -1200,12 +1258,51 @@ export const RecoveryView: React.FC<RecoveryViewProps> = ({
           )}
 
           {selectedChartMode === 'training_stress' && (
-            <>
-              <div className="flex items-center gap-1.5 text-orange-500 font-semibold">
-                <span className="w-3 h-3 rounded bg-orange-500 inline-block" />
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setTssDataSource('strava')}
+                className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer ${
+                  tssDataSource === 'strava'
+                    ? isLight
+                      ? 'bg-orange-500 text-white shadow-xs font-extrabold ring-2 ring-orange-400/40'
+                      : 'bg-orange-500 text-slate-950 font-extrabold shadow-sm ring-2 ring-orange-400/40'
+                    : isLight
+                    ? 'text-slate-600 hover:text-slate-900 hover:bg-slate-100 border border-slate-300'
+                    : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800 border border-slate-700'
+                }`}
+                title="Display raw Strava Activity TSS (suffer score)"
+              >
+                <span
+                  className={`w-2.5 h-2.5 rounded-full inline-block ${
+                    tssDataSource === 'strava' ? 'bg-white' : 'bg-orange-500'
+                  }`}
+                />
                 <span>Strava Activity TSS</span>
-              </div>
-            </>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setTssDataSource('fit')}
+                className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer ${
+                  tssDataSource === 'fit'
+                    ? isLight
+                      ? 'bg-sky-500 text-white shadow-xs font-extrabold ring-2 ring-sky-400/40'
+                      : 'bg-sky-500 text-slate-950 font-extrabold shadow-sm ring-2 ring-sky-400/40'
+                    : isLight
+                    ? 'text-slate-600 hover:text-slate-900 hover:bg-slate-100 border border-slate-300'
+                    : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800 border border-slate-700'
+                }`}
+                title="Display FIT TSS calculated in the app from power, pace zones, HR zones, or calibrated workout laps"
+              >
+                <span
+                  className={`w-2.5 h-2.5 rounded-full inline-block ${
+                    tssDataSource === 'fit' ? 'bg-white' : 'bg-sky-400'
+                  }`}
+                />
+                <span>FIT TSS</span>
+              </button>
+            </div>
           )}
         </div>
 
@@ -1765,12 +1862,13 @@ export const RecoveryView: React.FC<RecoveryViewProps> = ({
                     </>
                   )}
 
-                  {/* Render Chart Mode 3: Strava TSS vs Recovery */}
+                  {/* Render Chart Mode 3: Strava TSS / FIT TSS vs Recovery */}
                   {selectedChartMode === 'training_stress' && (
                     <>
                       {(() => {
                         const step = DAY_COL_WIDTH;
                         const barWidth = DAY_COL_WIDTH - 3;
+                        const barColor = tssDataSource === 'fit' ? '#0ea5e9' : '#f97316';
 
                         return (
                           <g>
@@ -1797,14 +1895,14 @@ export const RecoveryView: React.FC<RecoveryViewProps> = ({
                                         y={y}
                                         width={barWidth}
                                         height={Number.isFinite(tssHeight) ? tssHeight : 0}
-                                        fill="#f97316"
+                                        fill={barColor}
                                         opacity="0.9"
                                         rx="2"
                                       />
                                       <text
                                         x={xCenter}
                                         y={y - 5}
-                                        fill="#f97316"
+                                        fill={barColor}
                                         fontSize="11"
                                         fontWeight="800"
                                         fontFamily="monospace"
@@ -1886,24 +1984,40 @@ export const RecoveryView: React.FC<RecoveryViewProps> = ({
                 <span className={`font-bold ${isLight ? 'text-slate-900' : 'text-white'}`}>
                   {hItem.log.date}
                 </span>
-                <span className="text-rose-500 font-semibold">
-                  Morning RHR: <strong>{safeRhr !== null ? `${safeRhr} bpm` : '--'}</strong>{' '}
-                  {diff !== null && (
-                    <>
-                      ({diff > 0 ? `+${diff}` : String(diff)} vs {baselineRhr} bpm baseline)
-                    </>
-                  )}
-                </span>
-                <span className="text-purple-500 font-semibold">
-                  HRV: <strong>{safeHrv !== null ? `${safeHrv} ms` : '--'}</strong>
-                </span>
-                <span className="text-sky-500 font-semibold">
-                  Total Sleep: <strong>{formatMinutesToHhMm(hItem.log.sleepDurationMinutes)}</strong>{' '}
-                  (Deep: {safeDeep}m, REM: {safeRem}m)
-                </span>
-                <span className="text-emerald-500 font-bold">
-                  Readiness: {safeScore !== null ? `${safeScore}%` : '--'}
-                </span>
+                {selectedChartMode === 'training_stress' ? (
+                  <>
+                    <span className="text-orange-500 font-semibold">
+                      Strava TSS: <strong>{hItem.stravaTss ?? hItem.tss}</strong>
+                    </span>
+                    <span className="text-sky-500 font-semibold">
+                      FIT TSS: <strong>{hItem.fitTss ?? hItem.tss}</strong>
+                    </span>
+                    <span className="text-emerald-500 font-bold">
+                      Readiness: {safeScore !== null ? `${safeScore}%` : '--'}
+                    </span>
+                  </>
+                ) : (
+                  <>
+                    <span className="text-rose-500 font-semibold">
+                      Morning RHR: <strong>{safeRhr !== null ? `${safeRhr} bpm` : '--'}</strong>{' '}
+                      {diff !== null && (
+                        <>
+                          ({diff > 0 ? `+${diff}` : String(diff)} vs {baselineRhr} bpm baseline)
+                        </>
+                      )}
+                    </span>
+                    <span className="text-purple-500 font-semibold">
+                      HRV: <strong>{safeHrv !== null ? `${safeHrv} ms` : '--'}</strong>
+                    </span>
+                    <span className="text-sky-500 font-semibold">
+                      Total Sleep: <strong>{formatMinutesToHhMm(hItem.log.sleepDurationMinutes)}</strong>{' '}
+                      (Deep: {safeDeep}m, REM: {safeRem}m)
+                    </span>
+                    <span className="text-emerald-500 font-bold">
+                      Readiness: {safeScore !== null ? `${safeScore}%` : '--'}
+                    </span>
+                  </>
+                )}
               </div>
             );
           })()}
