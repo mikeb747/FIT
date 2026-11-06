@@ -7,6 +7,11 @@ import type {
   CoachRequestPayload,
   WorkoutIntensityLevel,
 } from '../types/coach';
+import {
+  findBestMatchingActivity,
+  reconstructWorkoutFromQuery,
+  speedKphToPace,
+} from './coachWorkoutMatcher';
 
 function formatPaceSec(seconds?: number): string {
   if (!seconds || seconds <= 0) return 'N/A';
@@ -942,42 +947,69 @@ In a classic endurance microcycle, Thursday serves as the mid-week quality sessi
   }
 
   // -------------------------------------------------------------
-  // Recreate / Calibrate Run Workout (e.g. "I did todays run at 3:30/km")
+  // Recreate / Calibrate Run Workout or Warm-up
+  // (Runs BEFORE generic today review to catch phrases like "adjust warmup from my run today to 6kph")
   // -------------------------------------------------------------
-  if (
+  const isWorkoutAdjustment =
     q.includes('3:30') ||
     q.includes('3.30') ||
-    ((q.includes('run') || q.includes('workout')) && (q.includes('update') || q.includes('pace') || q.includes('fix') || q.includes('lap')))
-  ) {
-    const runActs = activities.filter((a) => String(a.sport || '').toLowerCase().includes('run'));
-    const targetRun = activities.find((a) => (a.daysAgo === 0 || a.startDate === todayDate) && String(a.sport || '').toLowerCase().includes('run')) ||
-      runActs[0] || {
-        id: 'today-run-1',
-        name: "Today's Threshold Run",
-        startDate: todayDate,
-        distanceKm: 7.5,
-        movingTimeMin: 40,
-        paceFormatted: '5:20/km',
-      };
+    q.includes('17kph') ||
+    q.includes('17 kph') ||
+    q.includes('6kph') ||
+    q.includes('6 kph') ||
+    q.includes('warmup') ||
+    q.includes('warm up') ||
+    q.includes('warm-up') ||
+    ((q.includes('run') || q.includes('workout') || q.includes('interval') || q.includes('treadmill')) &&
+      (q.includes('update') || q.includes('pace') || q.includes('speed') || q.includes('adjust') || q.includes('change') || q.includes('fix') || q.includes('lap')));
 
-    const recordedDurationSec = targetRun.movingTimeSec || (targetRun.movingTimeMin ? targetRun.movingTimeMin * 60 : 2400);
-    const originalDistanceKm = (targetRun.distanceM ? targetRun.distanceM / 1000 : targetRun.distanceKm || 7.5).toFixed(2);
-    const origPace = targetRun.paceFormatted || '5:20/km';
+  if (isWorkoutAdjustment) {
+    const matchedRun = findBestMatchingActivity(question, activities, todayDate);
+    const targetRun = matchedRun || {
+      id: 'today-run-1',
+      name: "Today's Threshold Run",
+      startDate: todayDate,
+      distanceKm: 7.5,
+      movingTimeMin: 40,
+      paceFormatted: '5:20/km',
+    };
 
-    return `### 🏃 Recreating Today's Workout via Fix Data (+Add Lap)
+    const recon = reconstructWorkoutFromQuery(question, targetRun, todayDate);
+    const recordedDurationSec = recon.recordedDurationSec;
+    const durMins = Math.floor(recordedDurationSec / 60);
+    const durSecs = recordedDurationSec % 60;
+    const durFormatted = durSecs > 0 ? `${durMins}m ${durSecs}s` : `${durMins} min`;
 
-I located your run workout, **"${targetRun.name}"** (${Math.floor(recordedDurationSec / 60)}m ${recordedDurationSec % 60}s recorded time, originally logged at ${originalDistanceKm} km, pace **${origPace}**).
+    if (recon.isWarmupTarget) {
+      return `### 🏃 Calibrated Workout Warm-up Adjustment via Fix Data (+Add Lap)
 
-**Core Interval Assumption:**
-I am assuming that your **3:30/km (17.14 km/h)** pace was maintained during the **active interval** parts of the workout, while recovery intervals, warm-up, and cool-down were completed at an easier recovery pace.
+I located your workout, **"${targetRun.name}"** (${durFormatted} recorded duration).
 
-**Zero Time Discrepancy Alignment Questions:**
-To ensure your calibrated workout matches the original **${Math.floor(recordedDurationSec / 60)}:00** stream with **0 seconds of time discrepancy**:
-1. **What active and recovery time did you have?** (e.g., 4 x 1km @ 3:30/km, 5 x 3 min active)
-2. **What pace was the recovery done at?** (e.g., 6:00/km jog, 10.0 km/h, or walking rest)
-3. **How long were the Active / Recovery parts of the run, plus warm-up and cool-down?**
+**Warm-up Calibration:**
+• Adjusted warm-up to **${recon.warmupSpeedKph} km/h (${recon.warmupPace})**.
+• Active interval pace and recovery bouts are preserved.
+• Cool-down has been automatically calculated so total workout duration matches your recorded **${durFormatted}** stream with **0 seconds of time discrepancy**!
 
-I have staged a balanced **4 x 1km @ 3:30/km** interval proposal below with an auto-adjusted cool-down so that total time matches your recorded workout with **0s discrepancy**. You can apply it directly to your activity, choose a preset below, or open the **Fix Data** modal to fine-tune!`;
+You can review the updated lap breakdown in the card below and apply it directly to your activity, or open the **Fix Data** modal to fine-tune!`;
+    }
+
+    return `### 🏃 Recreating Workout via Fix Data (+Add Lap)
+
+I located your interval run, **"${targetRun.name}"** (${durFormatted} recorded duration).
+
+**Pace & Speed Conversion:**
+• Holding **${recon.targetIntervalSpeedKph} km/h** equates exactly to **${recon.targetIntervalPace}** (3600s / ${recon.targetIntervalSpeedKph} km/h = ${(3600 / recon.targetIntervalSpeedKph).toFixed(1)}s/km).
+
+**Structure & Zero Time Discrepancy:**
+• Structured as **${recon.repeats} intervals @ ${recon.targetIntervalSpeedKph} km/h (${recon.targetIntervalPace})** with recovery intervals @ **${recon.recoverySpeedKph} km/h (${recon.recoveryPace})**.
+• The cool-down has been automatically adjusted so the total duration matches your recorded **${durFormatted}** stream with **0 seconds of time discrepancy**!
+
+**Follow-up Questions to Confirm Exact Execution:**
+1. **Active & Recovery Duration:** Did you run ${recon.repeats} x ${Math.round(recon.activeSec / 60)} min active with ${recon.recoverySec}s recovery?
+2. **Recovery Pace:** Was recovery jogged at ${recon.recoveryPace} (${recon.recoverySpeedKph} km/h), or walking rest?
+3. **Warm-up & Cool-down:** How long was your warm-up jog (default 10 min @ ${recon.warmupSpeedKph} km/h)?
+
+Your calibrated workout is staged below with zero time discrepancy—click **Apply Recreated Laps** to update your stream!`;
   }
 
   // -------------------------------------------------------------

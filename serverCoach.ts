@@ -1,6 +1,10 @@
 import type { Request, Response } from 'express';
 import { GoogleGenAI } from '@google/genai';
 import { generateWorkoutReviews } from './src/utils/workoutReviewEngine';
+import {
+  findBestMatchingActivity,
+  reconstructWorkoutFromQuery,
+} from './src/utils/coachWorkoutMatcher';
 
 // Initialize Gemini Client safely on the server
 const geminiApiKey = process.env.GEMINI_API_KEY || process.env.API_KEY || '';
@@ -327,7 +331,6 @@ COACHING RULES:
         contents: prompt,
         config: {
           responseMimeType: 'application/json',
-          temperature: 0.4,
         },
       });
 
@@ -423,7 +426,6 @@ INSTRUCTIONS:
         contents: prompt,
         config: {
           responseMimeType: 'application/json',
-          temperature: 0.4,
         },
       });
 
@@ -805,63 +807,74 @@ COACHING DIRECTIVES & RUNVIA FUNCTIONAL PATTERNS:
         }
         \`\`\`
 
-5. "WORKOUT DATA FIX & RECREATION (+ADD LAP PACE CALIBRATION)" (e.g. "I did todays run at 3:30/km", "Update my run today to 3:30/km", "I did my run at 3:30/km today"):
-   When the athlete asks to update a run or states an interval pace:
-   - STEP 1 (TARGET ACTIVITY): Locate today's run activity from [TODAY'S WORKOUTS] or the most recent run from [DETAILED RECENT ACTIVITY LOG]. Identify its recorded duration, distance, and originally recorded pace.
-   - STEP 2 (CORE ASSUMPTION): State explicitly:
-     "I am assuming that the **3:30/km** pace was held during the **active interval** portions of your workout, while warm-up, recovery intervals, and cool-down were completed at an easier recovery pace."
-   - STEP 3 (FOLLOW-UP QUESTIONS FOR ZERO TIME DISCREPANCY):
-     To ensure there is NO TIME DISCREPANCY with the original workout recorded duration, you MUST ask the following three follow-up questions:
-     1. "What active and recovery time did you have?" (e.g., 4 x 1km @ 3:30/km, 5 x 3 minutes active, etc.)
-     2. "What pace was the recovery done at?" (e.g., 6:00/km jog, 10 km/h, or walking rest)
-     3. "How long were the active / recovery parts of the run, plus warm-up and cool-down?"
-   - STEP 4 (CALIBRATED RECONSTRUCTION VIA FIX DATA +ADD LAP):
-     Reconstruct the workout using the "+Add Lap" format:
-     • Lap 1: Warm-up (e.g. 10 min / 600s @ 11.0 km/h / 5:27/km)
-     • Lap 2..N: Active intervals @ 3:30/km (17.14 km/h) alternating with Recovery intervals @ 6:00/km (10.0 km/h)
+5. "WORKOUT DATA FIX & RECREATION (+ADD LAP PACE CALIBRATION)" (e.g. "adjust pace to 17kph", "I did my run at 17kph", "adjust warmup to 6kph"):
+   When the athlete asks to update a run, adjust pace/speed, or recalibrate workout laps:
+   - STEP 1 (TARGET ACTIVITY MATCHING):
+     Search for the activity mentioned in quotes (e.g. "8 x 3min treadmill 17kph 3:32/km 70sec rest") or matching keywords in [DETAILED RECENT ACTIVITY LOG] or [TODAY'S WORKOUTS].
+     NEVER default blindly to the newest run if the athlete referenced a specific activity title or quote!
+   - STEP 2 (EXACT SPEED & PACE MATH):
+     - Pace is strictly 3600 / speedKph.
+     - For 17.0 km/h: 3600 / 17 = 211.76 seconds = 3:32/km. (NEVER claim 17 km/h is 3:30/km; 3:30/km is 17.14 km/h).
+     - For 6.0 km/h: 3600 / 6 = 600 seconds = 10:00/km.
+   - STEP 3 (TITLE & LAP STRUCTURE PARSING):
+     If the activity title or user states a structure like "8 x 3min ... 70sec rest", "5 x 10min", or "8 x 1km":
+     - Identify repeats (e.g. 8 or 5)
+     - Active interval duration (e.g. 3 min / 180s, 10 min / 600s, or distance 1km)
+     - Recovery duration (e.g. 70s rest)
+     - Target speed/pace (e.g. 17 km/h / 3:32/km)
+     - Warm-up adjustment: If user specified "adjust warmup to 6kph", set warm-up to 6.0 km/h (10:00/km) and keep interval structure.
+   - STEP 4 (ZERO TIME DISCREPANCY & FIXED LAP NAMES):
+     Reconstruct using "+Add Lap" format with FIXED lap names:
+     • Lap 1: Warm-up
+     • Lap 2..N: Alternating Active interval and Recovery
      • Final Lap: Cool-down — Auto-adjusted so that the sum of all lap durations exactly matches the original recorded duration of the workout, guaranteeing 0 seconds of time discrepancy!
-   - STEP 5 (ACTION BLOCK):
+   - STEP 5 (NO PRESET BUTTONS):
+     Do NOT output "clarificationOptions" presets. Provide direct calibrated laps.
+   - STEP 6 (ACTION BLOCK):
      Output a JSON action block with type "recreate_run_workout":
      \`\`\`action
      {
        "type": "recreate_run_workout",
-       "status": "pending_answers",
-       "activityId": "<target activity id>",
-       "activityName": "<target activity name>",
-       "activityDate": "<target activity date>",
+       "status": "ready_to_apply",
+       "activityId": "<matching activity id>",
+       "activityName": "<matching activity name>",
+       "activityDate": "<matching activity date>",
        "recordedDurationSec": 2400,
        "originalDistanceM": 7500,
        "originalPace": "5:20/km",
-       "targetIntervalPace": "3:30/km",
-       "targetIntervalSpeedKph": 17.14,
+       "targetIntervalPace": "3:32/km",
+       "targetIntervalSpeedKph": 17.0,
        "recoveryPace": "6:00/km",
        "recoverySpeedKph": 10.0,
        "timeDiscrepancySec": 0,
        "sections": [
-         { "id": "1", "name": "Warm-up", "durationSec": 600, "speedKph": 11.0, "paceMinSec": "5:27/km", "isWarmupCool": true },
-         { "id": "2", "name": "Interval 1 (Active)", "durationSec": 210, "speedKph": 17.14, "paceMinSec": "3:30/km", "isInterval": true },
-         { "id": "3", "name": "Recovery 1", "durationSec": 120, "speedKph": 10.0, "paceMinSec": "6:00/km", "isRecovery": true },
-         { "id": "4", "name": "Interval 2 (Active)", "durationSec": 210, "speedKph": 17.14, "paceMinSec": "3:30/km", "isInterval": true },
-         { "id": "5", "name": "Recovery 2", "durationSec": 120, "speedKph": 10.0, "paceMinSec": "6:00/km", "isRecovery": true },
-         { "id": "6", "name": "Interval 3 (Active)", "durationSec": 210, "speedKph": 17.14, "paceMinSec": "3:30/km", "isInterval": true },
-         { "id": "7", "name": "Recovery 3", "durationSec": 120, "speedKph": 10.0, "paceMinSec": "6:00/km", "isRecovery": true },
-         { "id": "8", "name": "Interval 4 (Active)", "durationSec": 210, "speedKph": 17.14, "paceMinSec": "3:30/km", "isInterval": true },
-         { "id": "9", "name": "Recovery 4", "durationSec": 120, "speedKph": 10.0, "paceMinSec": "6:00/km", "isRecovery": true },
-         { "id": "10", "name": "Cool-down", "durationSec": 480, "speedKph": 10.5, "paceMinSec": "5:43/km", "isWarmupCool": true }
+         { "id": "1", "name": "Lap 1", "durationSec": 600, "speedKph": 11.0, "paceMinSec": "5:27/km", "isWarmupCool": true },
+         { "id": "2", "name": "Lap 2", "durationSec": 180, "speedKph": 17.0, "paceMinSec": "3:32/km", "isInterval": true },
+         { "id": "3", "name": "Lap 3", "durationSec": 70, "speedKph": 10.0, "paceMinSec": "6:00/km", "isRecovery": true },
+         { "id": "4", "name": "Lap 4", "durationSec": 180, "speedKph": 17.0, "paceMinSec": "3:32/km", "isInterval": true },
+         { "id": "5", "name": "Lap 5", "durationSec": 70, "speedKph": 10.0, "paceMinSec": "6:00/km", "isRecovery": true },
+         { "id": "6", "name": "Lap 6", "durationSec": 180, "speedKph": 17.0, "paceMinSec": "3:32/km", "isInterval": true },
+         { "id": "7", "name": "Lap 7", "durationSec": 70, "speedKph": 10.0, "paceMinSec": "6:00/km", "isRecovery": true },
+         { "id": "8", "name": "Lap 8", "durationSec": 180, "speedKph": 17.0, "paceMinSec": "3:32/km", "isInterval": true },
+         { "id": "9", "name": "Lap 9", "durationSec": 70, "speedKph": 10.0, "paceMinSec": "6:00/km", "isRecovery": true },
+         { "id": "10", "name": "Lap 10", "durationSec": 180, "speedKph": 17.0, "paceMinSec": "3:32/km", "isInterval": true },
+         { "id": "11", "name": "Lap 11", "durationSec": 70, "speedKph": 10.0, "paceMinSec": "6:00/km", "isRecovery": true },
+         { "id": "12", "name": "Lap 12", "durationSec": 180, "speedKph": 17.0, "paceMinSec": "3:32/km", "isInterval": true },
+         { "id": "13", "name": "Lap 13", "durationSec": 70, "speedKph": 10.0, "paceMinSec": "6:00/km", "isRecovery": true },
+         { "id": "14", "name": "Lap 14", "durationSec": 180, "speedKph": 17.0, "paceMinSec": "3:32/km", "isInterval": true },
+         { "id": "15", "name": "Lap 15", "durationSec": 70, "speedKph": 10.0, "paceMinSec": "6:00/km", "isRecovery": true },
+         { "id": "16", "name": "Lap 16", "durationSec": 180, "speedKph": 17.0, "paceMinSec": "3:32/km", "isInterval": true },
+         { "id": "17", "name": "Lap 17", "durationSec": 70, "speedKph": 10.0, "paceMinSec": "6:00/km", "isRecovery": true },
+         { "id": "18", "name": "Lap 18", "durationSec": 450, "speedKph": 10.5, "paceMinSec": "5:43/km", "isWarmupCool": true }
        ],
-       "recalculatedDistanceM": 8325,
-       "recalculatedAvgPace": "4:48/km",
+       "recalculatedDistanceM": 8550,
+       "recalculatedAvgPace": "4:40/km",
        "followUpQuestions": [
-         "What active interval duration and recovery time did you have? (e.g. 4 x 1km, 5 x 3 min)",
-         "What pace was the recovery done at? (e.g. 6:00/km jog, 10 km/h, or walking rest)",
-         "How long were the active / recovery parts of the run, plus warm-up and cool-down?"
+         "What active interval duration and recovery time did you have? (e.g. 8 x 3 min, 70s rest)",
+         "What pace was the recovery done at? (e.g. 6:00/km jog or walking rest)",
+         "How long was your warm-up and cool-down?"
        ],
-       "clarificationOptions": [
-         { "label": "4 x 1km @ 3:30/km + 2m Rec", "description": "Classic threshold repeats with 2m recovery jog", "activeSec": 210, "recoverySec": 120, repeats: 4 },
-         { "label": "5 x 3 min @ 3:30/km + 90s Rec", "description": "3-min aerobic power repeats with 90s recovery jog", "activeSec": 180, "recoverySec": 90, repeats: 5 },
-         { "label": "3 x 5 min @ 3:30/km + 2m Rec", "description": "5-min threshold cruise sets with 2m recovery", "activeSec": 300, "recoverySec": 120, repeats: 3 }
-       ],
-       "description": "Recreated today's workout with intervals @ 3:30/km via Fix Data (+Add Lap) with auto-matched duration (0s discrepancy)."
+       "description": "Recreated workout via Fix Data (+Add Lap) with exact speed calibration and auto-matched duration (0s discrepancy)."
      }
      \`\`\`
 
@@ -878,7 +891,6 @@ Coach Gemini:`;
         model: 'gemini-3.8-flash',
         contents: prompt,
         config: {
-          temperature: 0.6,
           tools: [{ googleSearch: {} }],
         },
       });
@@ -1535,154 +1547,97 @@ Comparing both sessions, your heart rate response relative to your LTHR (**${ath
   }
 
   // -------------------------------------------------------------------------
-  // Recreate / Calibrate Run Workout (e.g. "I did todays run at 3:30/km")
+  // Recreate / Calibrate Run Workout (e.g. "adjust pace to 17kph", "warmup to 6kph")
+  // (Runs BEFORE generic today review to catch phrases like "adjust warmup from my run today to 6kph")
   // -------------------------------------------------------------------------
-  if (
+  const isWorkoutAdjustment =
     q.includes('3:30') ||
     q.includes('3.30') ||
-    ((q.includes('run') || q.includes('workout')) && (q.includes('update') || q.includes('pace') || q.includes('fix') || q.includes('lap')))
-  ) {
-    const runActs = acts.filter((a) => String(a.sport || '').toLowerCase().includes('run'));
-    const targetRun = todayActs.find((a) => String(a.sport || '').toLowerCase().includes('run')) ||
-      runActs[0] || {
-        id: 'today-run-1',
-        name: "Today's Threshold Run",
-        startDate: curDate,
-        distanceKm: 7.5,
-        movingTimeMin: 40,
-        paceFormatted: '5:20/km',
-      };
+    q.includes('17kph') ||
+    q.includes('17 kph') ||
+    q.includes('6kph') ||
+    q.includes('6 kph') ||
+    q.includes('warmup') ||
+    q.includes('warm up') ||
+    q.includes('warm-up') ||
+    ((q.includes('run') || q.includes('workout') || q.includes('interval') || q.includes('treadmill')) &&
+      (q.includes('update') || q.includes('pace') || q.includes('speed') || q.includes('adjust') || q.includes('change') || q.includes('fix') || q.includes('lap')));
 
-    const recordedDurationSec = targetRun.movingTimeSec || (targetRun.movingTimeMin ? targetRun.movingTimeMin * 60 : 2400);
-    const originalDistanceM = targetRun.distanceM || Math.round((targetRun.distanceKm || 7.5) * 1000);
-    const origPace = targetRun.paceFormatted || '5:20/km';
+  if (isWorkoutAdjustment) {
+    const matchedRun = findBestMatchingActivity(question, acts, curDate);
+    const targetRun = matchedRun || {
+      id: 'today-run-1',
+      name: "Today's Threshold Run",
+      startDate: curDate,
+      distanceKm: 7.5,
+      distanceM: 7500,
+      movingTimeMin: 40,
+      movingTimeSec: 2400,
+      paceFormatted: '5:20/km',
+    };
 
-    // Parse specific structure if mentioned
-    const is5x3 = q.includes('5x3') || q.includes('5 x 3') || (q.includes('5') && q.includes('3 min'));
-    const is3x5 = q.includes('3x5') || q.includes('3 x 5') || (q.includes('3') && q.includes('5 min'));
-    const isSpecific = is5x3 || is3x5 || q.includes('active and recovery');
-
-    const warmupSec = 600; // 10 min
-    let repeats = 4;
-    let activeSec = 210; // 1km @ 3:30/km = 3m 30s
-    let recSec = 120; // 2 min recovery
-    let recSpeedKph = 10.0; // 6:00/km
-
-    if (is5x3) {
-      repeats = 5;
-      activeSec = 180;
-      recSec = 90;
-    } else if (is3x5) {
-      repeats = 3;
-      activeSec = 300;
-      recSec = 120;
-    }
-
-    const activeSpeedKph = 17.14; // 3:30/km
-    const targetPaceStr = '3:30/km';
-    const recPaceStr = '6:00/km';
-
-    const sections: any[] = [];
-    sections.push({
-      id: '1',
-      name: 'Warm-up',
-      durationSec: warmupSec,
-      speedKph: 11.0,
-      paceMinSec: '5:27/km',
-      distanceM: Math.round((11.0 / 3.6) * warmupSec),
-      isWarmupCool: true,
-    });
-
-    for (let i = 1; i <= repeats; i++) {
-      sections.push({
-        id: String(sections.length + 1),
-        name: `Interval ${i} (Active)`,
-        durationSec: activeSec,
-        speedKph: activeSpeedKph,
-        paceMinSec: targetPaceStr,
-        distanceM: Math.round((activeSpeedKph / 3.6) * activeSec),
-        isInterval: true,
-      });
-
-      sections.push({
-        id: String(sections.length + 1),
-        name: `Recovery ${i}`,
-        durationSec: recSec,
-        speedKph: recSpeedKph,
-        paceMinSec: recPaceStr,
-        distanceM: Math.round((recSpeedKph / 3.6) * recSec),
-        isRecovery: true,
-      });
-    }
-
-    // Auto-adjust Cool-down so total durations match recordedDurationSec exactly (0 seconds discrepancy!)
-    const sumActiveAndWarm = sections.reduce((acc, s) => acc + s.durationSec, 0);
-    const remainingSec = recordedDurationSec - sumActiveAndWarm;
-    const cooldownSec = remainingSec > 60 ? remainingSec : 300;
-    const cooldownSpeedKph = 10.5;
-
-    sections.push({
-      id: String(sections.length + 1),
-      name: 'Cool-down',
-      durationSec: cooldownSec,
-      speedKph: cooldownSpeedKph,
-      paceMinSec: '5:43/km',
-      distanceM: Math.round((cooldownSpeedKph / 3.6) * cooldownSec),
-      isWarmupCool: true,
-    });
-
-    const totalDistM = sections.reduce((acc, s) => acc + s.distanceM, 0);
-    const totalDurSec = sections.reduce((acc, s) => acc + s.durationSec, 0);
-    const timeDiscrepancySec = Math.abs(totalDurSec - recordedDurationSec);
-    const avgPaceSec = totalDistM > 0 ? totalDurSec / (totalDistM / 1000) : 0;
-    const avgPaceStr = avgPaceSec > 0
-      ? `${Math.floor(avgPaceSec / 60)}:${Math.round(avgPaceSec % 60).toString().padStart(2, '0')}/km`
-      : '4:40/km';
+    const recon = reconstructWorkoutFromQuery(question, targetRun, curDate);
+    const recordedDurationSec = recon.recordedDurationSec;
+    const durMins = Math.floor(recordedDurationSec / 60);
+    const durSecs = recordedDurationSec % 60;
+    const durFormatted = durSecs > 0 ? `${durMins}m ${durSecs}s` : `${durMins} min`;
 
     const executedAction = {
-      type: 'recreate_run_workout',
-      status: isSpecific ? 'ready_to_apply' : 'pending_answers',
+      type: 'recreate_run_workout' as const,
+      status: 'ready_to_apply' as const,
       activityId: targetRun.id,
       activityName: targetRun.name,
       activityDate: targetRun.startDate,
       recordedDurationSec,
-      originalDistanceM,
-      originalPace: origPace,
-      targetIntervalPace: targetPaceStr,
-      targetIntervalSpeedKph: activeSpeedKph,
-      recoveryPace: recPaceStr,
-      recoverySpeedKph: recSpeedKph,
-      timeDiscrepancySec,
-      sections,
-      recalculatedDistanceM: Math.round(totalDistM),
-      recalculatedAvgPace: avgPaceStr,
+      originalDistanceM: targetRun.distanceM || Math.round((targetRun.distanceKm || 7.5) * 1000),
+      originalPace: targetRun.paceFormatted || '5:20/km',
+      targetIntervalPace: recon.targetIntervalPace,
+      targetIntervalSpeedKph: recon.targetIntervalSpeedKph,
+      recoveryPace: recon.recoveryPace,
+      recoverySpeedKph: recon.recoverySpeedKph,
+      timeDiscrepancySec: recon.timeDiscrepancySec,
+      sections: recon.sections,
+      recalculatedDistanceM: recon.recalculatedDistanceM,
+      recalculatedAvgPace: recon.recalculatedAvgPace,
       followUpQuestions: [
-        'What active interval duration and recovery time did you have? (e.g. 4 x 1km, 5 x 3 min)',
-        'What pace was the recovery done at? (e.g. 6:00/km jog, 10 km/h, or walking rest)',
-        'How long were the active / recovery parts of the run, plus warm-up and cool-down?',
+        `Did you execute ${recon.repeats} intervals at ${recon.targetIntervalSpeedKph} km/h (${recon.targetIntervalPace})?`,
+        `Was recovery jogged at ${recon.recoveryPace} (${recon.recoverySpeedKph} km/h), or walking rest?`,
+        `How long was your warm-up (default 10 min @ ${recon.warmupSpeedKph} km/h)?`,
       ],
-      clarificationOptions: [
-        { label: '4 x 1km @ 3:30/km + 2m Rec', description: 'Classic threshold repeats (3m30s per 1km) with 2m recovery jog', activeSec: 210, recoverySec: 120, repeats: 4 },
-        { label: '5 x 3 min @ 3:30/km + 90s Rec', description: 'Time-based aerobic power repeats (3m hard) with 90s recovery jog', activeSec: 180, recoverySec: 90, repeats: 5 },
-        { label: '3 x 5 min @ 3:30/km + 2m Rec', description: 'Extended threshold cruise sets (5m work) with 2m recovery', activeSec: 300, recoverySec: 120, repeats: 3 },
-      ],
-      description: `Recreated today's workout with intervals @ ${targetPaceStr} via Fix Data (+Add Lap) with auto-matched duration (0s discrepancy).`,
+      description: recon.description,
     };
 
-    const answer = `### 🏃 Recreating Today's Workout via Fix Data (+Add Lap)
+    let answer = '';
+    if (recon.isWarmupTarget) {
+      answer = `### 🏃 Calibrated Workout Warm-up Adjustment via Fix Data (+Add Lap)
 
-I located your run workout, **"${targetRun.name}"** (${Math.floor(recordedDurationSec / 60)}m ${recordedDurationSec % 60}s recorded time, originally logged at ${(originalDistanceM / 1000).toFixed(2)} km, pace **${origPace}**).
+I located your workout, **"${targetRun.name}"** (${durFormatted} recorded duration).
 
-**Core Interval Assumption:**
-I am assuming that your **3:30/km (17.14 km/h)** pace was maintained during the **active interval** parts of the workout, while recovery intervals, warm-up, and cool-down were completed at an easier recovery pace.
+**Warm-up Calibration:**
+• Adjusted warm-up to **${recon.warmupSpeedKph} km/h (${recon.warmupPace})**.
+• Active interval pace and recovery bouts are preserved.
+• Cool-down has been automatically calculated so total workout duration matches your recorded **${durFormatted}** stream with **0 seconds of time discrepancy**!
 
-**Zero Time Discrepancy Alignment Questions:**
-To ensure your calibrated workout matches the original **${Math.floor(recordedDurationSec / 60)}:00** stream with **0 seconds of time discrepancy**:
-1. **What active and recovery time did you have?** (e.g., 4 x 1km @ 3:30/km, 5 x 3 min active)
-2. **What pace was the recovery done at?** (e.g., 6:00/km jog, 10.0 km/h, or walking rest)
-3. **How long were the Active / Recovery parts of the run, plus warm-up and cool-down?**
+You can review the updated lap breakdown in the card below and apply it directly to your activity, or open the **Fix Data** modal to fine-tune!`;
+    } else {
+      answer = `### 🏃 Recreating Workout via Fix Data (+Add Lap)
 
-I have reconstructed a balanced **4 x 1km @ 3:30/km** interval proposal below with an auto-adjusted cool-down so that total time matches your recorded workout with **0s discrepancy**. You can apply it directly to your activity, choose a preset, or open the **Fix Data** modal to fine-tune!`;
+I located your interval run, **"${targetRun.name}"** (${durFormatted} recorded duration).
+
+**Pace & Speed Conversion:**
+• Holding **${recon.targetIntervalSpeedKph} km/h** equates exactly to **${recon.targetIntervalPace}** (3600s / ${recon.targetIntervalSpeedKph} km/h = ${(3600 / recon.targetIntervalSpeedKph).toFixed(1)}s/km).
+
+**Structure & Zero Time Discrepancy:**
+• Structured as **${recon.repeats} intervals @ ${recon.targetIntervalSpeedKph} km/h (${recon.targetIntervalPace})** with recovery intervals @ **${recon.recoverySpeedKph} km/h (${recon.recoveryPace})**.
+• The cool-down has been automatically adjusted so the total duration matches your recorded **${durFormatted}** stream with **0 seconds of time discrepancy**!
+
+**Follow-up Questions to Confirm Exact Execution:**
+1. **Active & Recovery Duration:** Did you run ${recon.repeats} x ${Math.round(recon.activeSec / 60)} min active with ${recon.recoverySec}s recovery?
+2. **Recovery Pace:** Was recovery jogged at ${recon.recoveryPace} (${recon.recoverySpeedKph} km/h), or walking rest?
+3. **Warm-up & Cool-down:** How long was your warm-up jog (default 10 min @ ${recon.warmupSpeedKph} km/h)?
+
+Your calibrated workout is staged below with zero time discrepancy—click **Apply Recreated Laps** to update your stream!`;
+    }
 
     return res.json({
       success: true,

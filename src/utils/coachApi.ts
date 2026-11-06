@@ -30,6 +30,10 @@ import {
   evaluateBenchmarkMilestones,
   generateWorkoutReviews,
 } from './workoutReviewEngine';
+import {
+  findBestMatchingActivity,
+  reconstructWorkoutFromQuery,
+} from './coachWorkoutMatcher';
 
 const isGitHubPages =
   typeof window !== 'undefined' &&
@@ -619,18 +623,24 @@ export async function sendCoachChatMessage(
     }
 
     // -----------------------------------------------------------------------
-    // Recreate / Calibrate Run Workout (e.g. "I did todays run at 3:30/km")
+    // Recreate / Calibrate Run Workout (e.g. "adjust pace to 17kph", "warmup to 6kph")
     // -----------------------------------------------------------------------
-    if (
+    const isWorkoutAdjustment =
       lower.includes('3:30') ||
       lower.includes('3.30') ||
-      (lower.includes('run') && (lower.includes('update') || lower.includes('pace') || lower.includes('fix') || lower.includes('lap') || lower.includes('interval')))
-    ) {
-      const runs = (payload.recentActivities || []).filter((a: any) =>
-        String(a.sport || '').toLowerCase().includes('run')
-      );
-      const todayRun = runs.find((a: any) => a.daysAgo === 0 || a.startDate === payload.todayDate);
-      const targetRun = todayRun || runs[0] || {
+      lower.includes('17kph') ||
+      lower.includes('17 kph') ||
+      lower.includes('6kph') ||
+      lower.includes('6 kph') ||
+      lower.includes('warmup') ||
+      lower.includes('warm up') ||
+      lower.includes('warm-up') ||
+      ((lower.includes('run') || lower.includes('workout') || lower.includes('interval') || lower.includes('treadmill')) &&
+        (lower.includes('update') || lower.includes('pace') || lower.includes('speed') || lower.includes('adjust') || lower.includes('change') || lower.includes('fix') || lower.includes('lap')));
+
+    if (isWorkoutAdjustment) {
+      const matchedRun = findBestMatchingActivity(q, payload.recentActivities || [], payload.todayDate);
+      const targetRun = matchedRun || {
         id: 'today-run-1',
         name: "Today's Threshold Run",
         startDate: payload.todayDate || new Date().toISOString().split('T')[0],
@@ -641,121 +651,31 @@ export async function sendCoachChatMessage(
         paceFormatted: '5:20/km',
       };
 
-      const recordedDurationSec = targetRun.movingTimeSec || (targetRun.movingTimeMin ? targetRun.movingTimeMin * 60 : 2400);
-      const originalDistanceM = targetRun.distanceM || (targetRun.distanceKm ? Math.round(targetRun.distanceKm * 1000) : 7500);
-
-      // Check if user specified interval structure (e.g. "5 x 3 min", "4 x 1km", etc.)
-      const is5x3 = lower.includes('5x3') || lower.includes('5 x 3') || (lower.includes('5') && lower.includes('3 min'));
-      const is3x5 = lower.includes('3x5') || lower.includes('3 x 5') || (lower.includes('3') && lower.includes('5 min'));
-      const isSpecificStructure = is5x3 || is3x5 || lower.includes('active and recovery') || lower.includes('90s');
-
-      const warmupSec = 600; // 10 min
-      let repeats = 4;
-      let activeSec = 210; // 3m 30s per interval (1km @ 3:30/km)
-      let recSec = 120; // 2 min recovery
-      let recSpeedKph = 10.0; // 6:00/km
-
-      if (is5x3) {
-        repeats = 5;
-        activeSec = 180; // 3 min
-        recSec = 90; // 90 sec
-      } else if (is3x5) {
-        repeats = 3;
-        activeSec = 300; // 5 min
-        recSec = 120; // 2 min
-      }
-
-      const activeSpeedKph = 17.14; // 3:30/km
-      const targetPaceStr = '3:30/km';
-      const recPaceStr = '6:00/km';
-
-      // Build sections matching +Add Lap structure
-      const sections: any[] = [];
-      sections.push({
-        id: '1',
-        name: 'Warm-up',
-        durationSec: warmupSec,
-        speedKph: 11.0,
-        paceMinSec: '5:27/km',
-        distanceM: Math.round((11.0 / 3.6) * warmupSec),
-        isWarmupCool: true,
-      });
-
-      for (let i = 1; i <= repeats; i++) {
-        sections.push({
-          id: String(sections.length + 1),
-          name: `Interval ${i} (Active)`,
-          durationSec: activeSec,
-          speedKph: activeSpeedKph,
-          paceMinSec: targetPaceStr,
-          distanceM: Math.round((activeSpeedKph / 3.6) * activeSec),
-          isInterval: true,
-        });
-
-        sections.push({
-          id: String(sections.length + 1),
-          name: `Recovery ${i}`,
-          durationSec: recSec,
-          speedKph: recSpeedKph,
-          paceMinSec: recPaceStr,
-          distanceM: Math.round((recSpeedKph / 3.6) * recSec),
-          isRecovery: true,
-        });
-      }
-
-      // Cool-down: Auto-extend/adjust to match exact recorded workout duration (Zero time discrepancy!)
-      const currentSum = sections.reduce((acc, s) => acc + s.durationSec, 0);
-      const remainingSec = recordedDurationSec - currentSum;
-      const cooldownSec = remainingSec > 60 ? remainingSec : 300;
-      const cooldownSpeedKph = 10.5;
-
-      sections.push({
-        id: String(sections.length + 1),
-        name: 'Cool-down',
-        durationSec: cooldownSec,
-        speedKph: cooldownSpeedKph,
-        paceMinSec: '5:43/km',
-        distanceM: Math.round((cooldownSpeedKph / 3.6) * cooldownSec),
-        isWarmupCool: true,
-      });
-
-      // Calculate total simulated distance and average pace
-      const totalDistM = sections.reduce((acc, s) => acc + s.distanceM, 0);
-      const totalDurSec = sections.reduce((acc, s) => acc + s.durationSec, 0);
-      const timeDiscrepancySec = Math.abs(totalDurSec - recordedDurationSec);
-      const avgPaceSec = totalDistM > 0 ? totalDurSec / (totalDistM / 1000) : 0;
-      const avgPaceStr = avgPaceSec > 0
-        ? `${Math.floor(avgPaceSec / 60)}:${Math.round(avgPaceSec % 60).toString().padStart(2, '0')}/km`
-        : '4:40/km';
+      const recon = reconstructWorkoutFromQuery(q, targetRun, payload.todayDate);
 
       return {
         type: 'recreate_run_workout',
-        status: isSpecificStructure ? 'ready_to_apply' : 'pending_answers',
+        status: 'ready_to_apply',
         activityId: targetRun.id,
         activityName: targetRun.name,
         activityDate: targetRun.startDate,
-        recordedDurationSec,
-        originalDistanceM,
+        recordedDurationSec: recon.recordedDurationSec,
+        originalDistanceM: targetRun.distanceM || Math.round((targetRun.distanceKm || 7.5) * 1000),
         originalPace: targetRun.paceFormatted || '5:20/km',
-        targetIntervalPace: targetPaceStr,
-        targetIntervalSpeedKph: activeSpeedKph,
-        recoveryPace: recPaceStr,
-        recoverySpeedKph: recSpeedKph,
-        timeDiscrepancySec,
-        sections,
-        recalculatedDistanceM: Math.round(totalDistM),
-        recalculatedAvgPace: avgPaceStr,
+        targetIntervalPace: recon.targetIntervalPace,
+        targetIntervalSpeedKph: recon.targetIntervalSpeedKph,
+        recoveryPace: recon.recoveryPace,
+        recoverySpeedKph: recon.recoverySpeedKph,
+        timeDiscrepancySec: recon.timeDiscrepancySec,
+        sections: recon.sections,
+        recalculatedDistanceM: recon.recalculatedDistanceM,
+        recalculatedAvgPace: recon.recalculatedAvgPace,
         followUpQuestions: [
-          'What active interval duration and recovery time did you have? (e.g. 4 x 1km, 5 x 3 min)',
-          'What pace was the recovery done at? (e.g. 6:00/km jog, 10 km/h, or walking rest)',
-          'How long were the active / recovery parts of the run, plus warm-up and cool-down?',
+          `Did you execute ${recon.repeats} intervals at ${recon.targetIntervalSpeedKph} km/h (${recon.targetIntervalPace})?`,
+          `Was recovery jogged at ${recon.recoveryPace} (${recon.recoverySpeedKph} km/h), or walking rest?`,
+          `How long was your warm-up (default 10 min @ ${recon.warmupSpeedKph} km/h)?`,
         ],
-        clarificationOptions: [
-          { label: '4 x 1km @ 3:30/km + 2m Rec', description: 'Classic threshold intervals (3m30s per 1km) with 2m recovery jog', activeSec: 210, recoverySec: 120, repeats: 4 },
-          { label: '5 x 3 min @ 3:30/km + 90s Rec', description: 'Time-based aerobic power repeats (3m hard) with 90s recovery jog', activeSec: 180, recoverySec: 90, repeats: 5 },
-          { label: '3 x 5 min @ 3:30/km + 2m Rec', description: 'Extended threshold cruise sets (5m work) with 2m recovery', activeSec: 300, recoverySec: 120, repeats: 3 },
-        ],
-        description: `Recreated today's workout with active intervals @ ${targetPaceStr} via Fix Data (+Add Lap) with auto-matched duration (0s discrepancy).`,
+        description: recon.description,
       };
     }
     return undefined;

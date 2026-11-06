@@ -58,13 +58,13 @@ interface ActivityCalibrationModalProps {
 
 // 7-Stage Treadmill Workout Template from user specification
 const DEFAULT_7_SECTION_TEMPLATE: CalibratedRunSection[] = [
-  { id: '1', name: 'Warm-up', durationSec: 8 * 60, speedKph: 11.0 },
-  { id: '2', name: 'Recovery', durationSec: 2 * 60, speedKph: 6.0 },
-  { id: '3', name: 'Main effort', durationSec: 20 * 60, speedKph: 16.1 },
-  { id: '4', name: 'Progression 1', durationSec: 2.5 * 60, speedKph: 16.2 },
-  { id: '5', name: 'Progression 2', durationSec: 2.5 * 60, speedKph: 16.3 },
-  { id: '6', name: 'Progression 3', durationSec: 2.5 * 60, speedKph: 16.4 },
-  { id: '7', name: 'Progression 4', durationSec: 2.5 * 60, speedKph: 16.5 },
+  { id: '1', name: 'Lap 1', durationSec: 8 * 60, speedKph: 11.0 },
+  { id: '2', name: 'Lap 2', durationSec: 2 * 60, speedKph: 6.0 },
+  { id: '3', name: 'Lap 3', durationSec: 20 * 60, speedKph: 16.1 },
+  { id: '4', name: 'Lap 4', durationSec: 2.5 * 60, speedKph: 16.2 },
+  { id: '5', name: 'Lap 5', durationSec: 2.5 * 60, speedKph: 16.3 },
+  { id: '6', name: 'Lap 6', durationSec: 2.5 * 60, speedKph: 16.4 },
+  { id: '7', name: 'Lap 7', durationSec: 2.5 * 60, speedKph: 16.5 },
 ];
 
 function speedKphToPaceStr(speedKph: number): string {
@@ -79,17 +79,131 @@ function paceStrToSpeedKph(paceStr: string): number {
   return Number((3600 / sec).toFixed(2));
 }
 
-function parseDurationInput(raw: string, defaultSec: number): number {
-  if (!raw || !raw.trim()) return defaultSec;
-  const str = raw.trim();
-  if (str.includes(':')) {
-    return parseMinSecToSeconds(str, defaultSec);
-  }
-  const num = parseFloat(str);
-  if (isNaN(num) || num <= 0) return defaultSec;
-  // If user entered e.g. 2.5 or 8, interpret as decimal minutes
-  return Math.round(num * 60);
-}
+const LapDurationInput: React.FC<{
+  durationSec: number;
+  isLastAutoExtended?: boolean;
+  timeDiscrepancySec?: number;
+  onCommit: (seconds: number) => void;
+}> = ({ durationSec, isLastAutoExtended, timeDiscrepancySec, onCommit }) => {
+  const [localVal, setLocalVal] = useState(() => formatSecondsToMinSec(durationSec));
+  const [isFocused, setIsFocused] = useState(false);
+
+  useEffect(() => {
+    if (!isFocused) {
+      setLocalVal(formatSecondsToMinSec(durationSec));
+    }
+  }, [durationSec, isFocused]);
+
+  const commitValue = (val: string) => {
+    const trimmed = val.trim();
+    if (!trimmed) {
+      setLocalVal(formatSecondsToMinSec(durationSec));
+      return;
+    }
+    let sec = durationSec;
+    if (trimmed.includes(':')) {
+      sec = parseMinSecToSeconds(trimmed, durationSec);
+    } else {
+      const num = parseFloat(trimmed);
+      if (!isNaN(num) && num > 0) {
+        if (num >= 30 && Number.isInteger(num)) {
+          sec = num;
+        } else {
+          sec = Math.round(num * 60);
+        }
+      }
+    }
+    onCommit(sec);
+    setLocalVal(formatSecondsToMinSec(sec));
+  };
+
+  return (
+    <div className="relative w-16 sm:w-20 shrink-0">
+      <input
+        type="text"
+        inputMode="numeric"
+        value={localVal}
+        onFocus={(e) => {
+          setIsFocused(true);
+          e.target.select();
+        }}
+        onChange={(e) => setLocalVal(e.target.value)}
+        onBlur={() => {
+          setIsFocused(false);
+          commitValue(localVal);
+        }}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') {
+            (e.target as HTMLInputElement).blur();
+          }
+        }}
+        placeholder="m:ss"
+        className="w-full px-1.5 py-1 bg-slate-950 border border-slate-700/80 rounded-lg text-white font-mono text-xs text-center focus:border-emerald-400 focus:outline-none"
+      />
+      {isLastAutoExtended && (timeDiscrepancySec || 0) > 0.05 && (
+        <span
+          className="text-[9px] text-emerald-400 block text-center truncate font-mono mt-0.5"
+          title="Auto-extended to match exact recording duration"
+        >
+          +{(timeDiscrepancySec || 0).toFixed(0)}s
+        </span>
+      )}
+    </div>
+  );
+};
+
+const LapSpeedInput: React.FC<{
+  speedKph: number;
+  onCommit: (speed: number) => void;
+}> = ({ speedKph, onCommit }) => {
+  const [localVal, setLocalVal] = useState(() => (speedKph ? String(speedKph) : ''));
+  const [isFocused, setIsFocused] = useState(false);
+
+  useEffect(() => {
+    if (!isFocused) {
+      setLocalVal(speedKph ? String(speedKph) : '');
+    }
+  }, [speedKph, isFocused]);
+
+  const commitValue = (val: string) => {
+    const trimmed = val.trim();
+    const num = parseFloat(trimmed);
+    if (!isNaN(num) && num > 0) {
+      const rounded = Number(num.toFixed(2));
+      onCommit(rounded);
+      setLocalVal(String(rounded));
+    } else {
+      setLocalVal(speedKph ? String(speedKph) : '');
+    }
+  };
+
+  return (
+    <div className="flex items-center gap-1 w-20 sm:w-24 shrink-0">
+      <input
+        type="text"
+        inputMode="decimal"
+        value={localVal}
+        onFocus={(e) => {
+          setIsFocused(true);
+          e.target.select();
+        }}
+        onChange={(e) => setLocalVal(e.target.value)}
+        onBlur={() => {
+          setIsFocused(false);
+          commitValue(localVal);
+        }}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') {
+            (e.target as HTMLInputElement).blur();
+          }
+        }}
+        placeholder="11.0"
+        className="w-full px-1.5 py-1 bg-slate-950 border border-slate-700/80 rounded-lg text-white font-mono text-xs text-center focus:border-emerald-400 focus:outline-none"
+      />
+      <span className="text-[10px] text-slate-500 shrink-0 font-mono">km/h</span>
+    </div>
+  );
+};
 
 export const ActivityCalibrationModal: React.FC<ActivityCalibrationModalProps> = ({
   isOpen,
@@ -302,12 +416,12 @@ export const ActivityCalibrationModal: React.FC<ActivityCalibrationModalProps> =
 
   const handleAddRunSection = () => {
     const nextIdx = runSections.length + 1;
-    const lastSpeed = runSections.length > 0 ? runSections[runSections.length - 1].speedKph : 12.0;
+    const lastSpeed = runSections.length > 0 ? runSections[runSections.length - 1].speedKph : 11.0;
     const newSection: CalibratedRunSection = {
       id: String(Date.now()),
-      name: `Progression ${nextIdx}`,
-      durationSec: 150, // 2m 30s
-      speedKph: lastSpeed,
+      name: `Lap ${nextIdx}`,
+      durationSec: 180, // 3 min
+      speedKph: lastSpeed || 11.0,
     };
     const updated = [...runSections, newSection];
     setRunSections(updated);
@@ -991,14 +1105,14 @@ export const ActivityCalibrationModal: React.FC<ActivityCalibrationModalProps> =
                   </p>
                 </div>
               ) : (
-                <div className="space-y-2 max-h-72 overflow-y-auto pr-1">
-                  <div className="grid grid-cols-12 gap-2 text-[10px] font-bold uppercase tracking-wider text-slate-400 px-1">
-                    <span className="col-span-3 sm:col-span-3">Segment</span>
-                    <span className="col-span-3 sm:col-span-2">Duration</span>
-                    <span className="col-span-3 sm:col-span-3">Speed (km/h)</span>
-                    <span className="hidden sm:inline sm:col-span-2">Pace</span>
-                    <span className="col-span-2 sm:col-span-1 text-right">Dist</span>
-                    <span className="col-span-1 text-right"></span>
+                <div className="space-y-1.5 max-h-72 overflow-y-auto pr-1">
+                  <div className="flex items-center gap-1.5 sm:gap-2 text-[10px] font-bold uppercase tracking-wider text-slate-400 px-2 pb-0.5">
+                    <span className="w-12 sm:w-14 shrink-0">Lap</span>
+                    <span className="w-16 sm:w-20 shrink-0 text-center">Duration</span>
+                    <span className="w-20 sm:w-24 shrink-0 text-center">Speed</span>
+                    <span className="w-14 sm:w-16 shrink-0 text-center">Pace</span>
+                    <span className="flex-1 text-right">Dist</span>
+                    <span className="w-6 shrink-0"></span>
                   </div>
 
                   {runSections.map((sec, idx) => {
@@ -1008,88 +1122,50 @@ export const ActivityCalibrationModal: React.FC<ActivityCalibrationModalProps> =
                     return (
                       <div
                         key={sec.id || idx}
-                        className={`p-2 rounded-xl border text-xs transition-colors flex flex-col sm:grid sm:grid-cols-12 gap-2 items-center ${
-                          isLast && timeDiscrepancySec > 0
+                        className={`px-2 py-1.5 rounded-xl border text-xs transition-colors flex items-center gap-1.5 sm:gap-2 ${
+                          isLast && timeDiscrepancySec > 0.05
                             ? 'bg-emerald-950/20 border-emerald-500/40'
                             : 'bg-slate-900/90 border-slate-800'
                         }`}
                       >
-                        {/* Segment Name */}
-                        <div className="col-span-3 w-full sm:w-auto">
-                          <input
-                            type="text"
-                            value={sec.name}
-                            onChange={(e) => handleUpdateRunSection(idx, 'name', e.target.value)}
-                            placeholder={`Lap ${idx + 1}`}
-                            className="w-full px-2 py-1 bg-slate-950 border border-slate-700/80 rounded-lg text-white font-medium text-xs focus:border-emerald-400 focus:outline-none"
-                          />
+                        {/* Fixed Lap Label */}
+                        <div className="w-12 sm:w-14 shrink-0 flex items-center">
+                          <span className="font-bold font-mono text-xs text-white">
+                            Lap {idx + 1}
+                          </span>
                         </div>
 
-                        {/* Duration */}
-                        <div className="col-span-3 sm:col-span-2 w-full sm:w-auto">
-                          <div className="relative">
-                            <input
-                              type="text"
-                              value={formatSecondsToMinSec(sec.durationSec)}
-                              onChange={(e) => {
-                                const parsedSec = parseDurationInput(e.target.value, sec.durationSec);
-                                handleUpdateRunSection(idx, 'durationSec', parsedSec);
-                              }}
-                              className="w-full px-2 py-1 bg-slate-950 border border-slate-700/80 rounded-lg text-white font-mono text-xs text-center focus:border-emerald-400 focus:outline-none"
-                            />
-                            {isLast && timeDiscrepancySec > 0 && (
-                              <span className="text-[9px] text-emerald-400 block text-center mt-0.5" title="Auto-extended to match exact recording duration">
-                                +{timeDiscrepancySec.toFixed(1)}s ext
-                              </span>
-                            )}
-                          </div>
-                        </div>
+                        {/* Duration: Ergonomic input that doesn't overwrite from left */}
+                        <LapDurationInput
+                          durationSec={sec.durationSec}
+                          isLastAutoExtended={isLast}
+                          timeDiscrepancySec={timeDiscrepancySec}
+                          onCommit={(newSec) => handleUpdateRunSection(idx, 'durationSec', newSec)}
+                        />
 
-                        {/* Speed (km/h) */}
-                        <div className="col-span-3 sm:col-span-3 w-full sm:w-auto flex items-center gap-1">
-                          <input
-                            type="number"
-                            step="0.1"
-                            min="1"
-                            max="30"
-                            value={sec.speedKph || ''}
-                            onChange={(e) => {
-                              const spd = parseFloat(e.target.value) || 0;
-                              handleUpdateRunSection(idx, 'speedKph', spd);
-                            }}
-                            className="w-full px-2 py-1 bg-slate-950 border border-slate-700/80 rounded-lg text-white font-mono text-xs text-center focus:border-emerald-400 focus:outline-none"
-                          />
-                          <span className="text-[10px] text-slate-500 shrink-0 font-mono">kph</span>
-                        </div>
+                        {/* Speed: Clean kph numeric input */}
+                        <LapSpeedInput
+                          speedKph={sec.speedKph || 0}
+                          onCommit={(newSpd) => handleUpdateRunSection(idx, 'speedKph', newSpd)}
+                        />
 
-                        {/* Pace (min/km, bi-directional) */}
-                        <div className="hidden sm:inline sm:col-span-2 w-full text-center">
-                          <input
-                            type="text"
-                            value={speedKphToPaceStr(sec.speedKph)}
-                            onChange={(e) => {
-                              const spd = paceStrToSpeedKph(e.target.value);
-                              if (spd > 0) {
-                                handleUpdateRunSection(idx, 'speedKph', spd);
-                              }
-                            }}
-                            placeholder="m:ss"
-                            className="w-full px-1.5 py-1 bg-slate-950/60 border border-slate-800 rounded-lg text-emerald-300 font-mono text-xs text-center focus:border-emerald-400 focus:outline-none"
-                          />
+                        {/* Pace: Auto-synced formatted min/km */}
+                        <div className="w-14 sm:w-16 shrink-0 text-center font-mono text-[11px] font-bold text-emerald-300 bg-slate-950/70 py-1 px-1 rounded-lg border border-slate-800">
+                          {speedKphToPaceStr(sec.speedKph)}
                         </div>
 
                         {/* Distance for this segment */}
-                        <div className="col-span-2 sm:col-span-1 text-right font-mono text-[11px] text-slate-300">
+                        <div className="flex-1 text-right font-mono text-[11px] text-slate-300 truncate">
                           {((computed?.distanceM || 0) / 1000).toFixed(2)}km
                         </div>
 
                         {/* Delete action */}
-                        <div className="col-span-1 text-right">
+                        <div className="w-6 shrink-0 text-right">
                           <button
                             type="button"
                             onClick={() => handleRemoveRunSection(idx)}
                             className="p-1 rounded text-slate-500 hover:text-rose-400 hover:bg-rose-500/10 cursor-pointer transition-colors"
-                            title="Remove lap"
+                            title={`Remove Lap ${idx + 1}`}
                           >
                             <Trash2 className="w-3.5 h-3.5" />
                           </button>

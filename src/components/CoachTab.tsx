@@ -741,20 +741,6 @@ export const CoachTab: React.FC<CoachTabProps> = ({
     setIsFixDataModalOpen(true);
   };
 
-  const handleSelectClarificationPreset = (preset: {
-    label: string;
-    description: string;
-    activeSec: number;
-    recoverySec: number;
-    repeats: number;
-    recoveryPace?: string;
-  }) => {
-    const activeFormatted = preset.activeSec === 210 ? '3m 30s (1km)' : formatSecondsToMinSec(preset.activeSec);
-    const recFormatted = formatSecondsToMinSec(preset.recoverySec);
-    const prompt = `Recreate today's workout with ${preset.repeats} intervals of ${activeFormatted} at 3:30/km and ${recFormatted} recovery at ${preset.recoveryPace || '6:00/km'}`;
-    handleSendMessage(prompt);
-  };
-
   const handleCopyWorkout = () => {
     if (!todayWorkout) return;
     const text = `🎯 ${todayWorkout.title} (${todayWorkout.sport.toUpperCase()})
@@ -2582,39 +2568,6 @@ ${todayWorkout.structure.map((s) => `• [${s.phase}] (${s.duration}): ${s.descr
                                   </div>
                                 </div>
 
-                                {/* Clickable Clarification Option Chips */}
-                                {msg.executedAction.clarificationOptions && msg.executedAction.clarificationOptions.length > 0 && (
-                                  <div className="pt-1 space-y-1.5">
-                                    <span className={`text-[10px] font-bold uppercase tracking-wider block ${theme === 'light' ? 'text-slate-500' : 'text-zinc-400'}`}>
-                                      Select Preset Configuration:
-                                    </span>
-                                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-1.5">
-                                      {msg.executedAction.clarificationOptions.map((opt, oIdx) => (
-                                        <button
-                                          key={oIdx}
-                                          type="button"
-                                          onClick={() => handleSelectClarificationPreset(opt)}
-                                          className={`p-2 rounded-lg border hover:border-cyan-500/50 text-left transition-all cursor-pointer group ${
-                                            theme === 'light'
-                                              ? 'bg-white hover:bg-cyan-50 border-slate-200'
-                                              : 'bg-zinc-900 hover:bg-zinc-800 border-zinc-700/80'
-                                          }`}
-                                        >
-                                          <div className="font-bold text-cyan-300 text-xs group-hover:text-cyan-200">
-                                            {opt.label}
-                                          </div>
-                                          <div className={`text-[10px] line-clamp-1 ${
-                                            theme === 'light'
-                                              ? 'text-slate-500 group-hover:text-slate-700'
-                                              : 'text-zinc-400 group-hover:text-zinc-300'
-                                          }`}>
-                                            {opt.description}
-                                          </div>
-                                        </button>
-                                      ))}
-                                    </div>
-                                  </div>
-                                )}
                               </div>
                             )}
 
