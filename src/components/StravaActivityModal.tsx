@@ -57,6 +57,7 @@ import type { AthleteProfile } from '../types/athlete';
 import { calculateRecoveryEstimate, calculateWorkKj, formatDuration } from '../types/athlete';
 import { StravaStreamPlot } from './StravaStreamPlot';
 import { ActivityZoneChart } from './ActivityZoneChart';
+import { WorkoutAnalysis } from './WorkoutAnalysis';
 import { ActivityCalibrationModal } from './ActivityCalibrationModal';
 import { appendActivityToTrainingLog } from '../utils/googleSheets';
 import { applyRenameRulesToName, updateStravaActivityName } from '../utils/activityRenameRules';
@@ -664,6 +665,24 @@ export const StravaActivityModal: React.FC<StravaActivityModalProps> = ({
                 Saved to Google Sheets
               </span>
             )}
+
+            {/* Workout Analysis Jump Button */}
+            <button
+              type="button"
+              onClick={() => {
+                const el = document.getElementById('workout-analysis-section');
+                el?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+              }}
+              className={`inline-flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-xl border-2 transition-all cursor-pointer font-bold ${
+                isLight
+                  ? 'bg-blue-50 hover:bg-blue-100 text-blue-700 border-blue-400 hover:border-blue-500 shadow-xs'
+                  : 'bg-blue-600/15 hover:bg-blue-600/25 text-blue-300 border-blue-500/50 hover:border-blue-400 shadow-xs'
+              }`}
+              title="Jump to Workout Analysis"
+            >
+              <Activity className="w-3.5 h-3.5" />
+              <span>Workout Analysis</span>
+            </button>
 
             {/* Calibrate / Fix Data quick button with border */}
             <button
@@ -1594,6 +1613,18 @@ export const StravaActivityModal: React.FC<StravaActivityModalProps> = ({
               )}
             </div>
           )}
+
+          {/* ======================================================= */}
+          {/* WORKOUT ANALYSIS (INTERACTIVE LAPS CHART & SYNCED TABLE) */}
+          {/* ======================================================= */}
+          <div id="workout-analysis-section">
+            <WorkoutAnalysis
+              activity={activity}
+              details={detailsRecord}
+              athleteProfile={athleteProfile}
+              theme={theme}
+            />
+          </div>
 
           {/* ======================================================= */}
           {/* CACHED STREAMS INTERACTIVE PLOT & TELEMETRY             */}
