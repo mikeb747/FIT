@@ -58,6 +58,7 @@ import { calculateRecoveryEstimate, calculateWorkKj, formatDuration } from '../t
 import { StravaStreamPlot } from './StravaStreamPlot';
 import { ActivityZoneChart } from './ActivityZoneChart';
 import { WorkoutAnalysis } from './WorkoutAnalysis';
+import { MuteBadgeIcon } from './MuteBadgeIcon';
 import { ActivityCalibrationModal } from './ActivityCalibrationModal';
 import { appendActivityToTrainingLog } from '../utils/googleSheets';
 import { applyRenameRulesToName, updateStravaActivityName } from '../utils/activityRenameRules';
@@ -628,11 +629,7 @@ export const StravaActivityModal: React.FC<StravaActivityModalProps> = ({
                 }`}
                 title="This activity is muted on Strava (hidden from home feed)"
               >
-                <img
-                  src="/assets/aistudio/81-811244_mute-unmute-icon-png-png-download-mute-unmute_320a2cc1.png"
-                  alt="Muted"
-                  className="w-3.5 h-3.5 object-contain"
-                />
+                <MuteBadgeIcon isLight={isLight} />
                 <span>Muted</span>
               </span>
             )}

@@ -47,6 +47,7 @@ import {
 import { applyRenameRulesToName } from '../utils/activityRenameRules';
 import type { AthleteProfile } from '../types/athlete';
 import { StravaActivityModal } from './StravaActivityModal';
+import { MuteBadgeIcon } from './MuteBadgeIcon';
 import { PWAInstallButton } from './PWAInstallButton';
 import { batchBackupActivitiesToGoogleSheet } from '../utils/googleSheets';
 import { isDemoModeActive } from '../utils/demoData';
@@ -1030,42 +1031,52 @@ export const StravaActivitiesTab: React.FC<StravaActivitiesTabProps> = ({
                 </div>
 
                 {/* 4.c: Bottom-right badges: Muted & Kudos */}
-                <div className="absolute bottom-0 right-0 flex items-center z-10 pointer-events-none">
-                  {Boolean(act.hide_from_home || act.muted || (details?.activity as any)?.hide_from_home || (details?.activity as any)?.muted) && (
-                    <div
-                      className={`px-2 py-1 flex items-center justify-center border-l border-t shadow-xs ${
-                        act.kudos_count && act.kudos_count > 0 ? 'rounded-tl-xl' : 'rounded-br-2xl rounded-tl-xl'
-                      } ${
-                        isLight
-                          ? 'bg-slate-100/95 border-slate-200 text-slate-600'
-                          : 'bg-slate-950/95 border-slate-800 text-slate-300'
-                      }`}
-                      title="Muted on Strava (hidden from home feed)"
-                    >
-                      <img
-                        src="/assets/aistudio/81-811244_mute-unmute-icon-png-png-download-mute-unmute_320a2cc1.png"
-                        alt="Muted"
-                        className="w-3.5 h-3.5 object-contain"
-                      />
+                {(() => {
+                  const isActivityMuted = Boolean(
+                    act.hide_from_home ||
+                    act.muted ||
+                    (details?.activity as any)?.hide_from_home ||
+                    (details?.activity as any)?.muted
+                  );
+                  const hasKudos = typeof act.kudos_count === 'number' && act.kudos_count > 0;
+
+                  if (!isActivityMuted && !hasKudos) return null;
+
+                  return (
+                    <div className="absolute bottom-0 right-0 flex items-center z-10 pointer-events-none">
+                      {isActivityMuted && (
+                        <div
+                          className={`px-2 py-1 flex items-center justify-center border-l border-t shadow-xs ${
+                            hasKudos ? 'rounded-tl-xl' : 'rounded-br-2xl rounded-tl-xl'
+                          } ${
+                            isLight
+                              ? 'bg-slate-100/95 border-slate-200 text-slate-600'
+                              : 'bg-slate-950/95 border-slate-800 text-slate-300'
+                          }`}
+                          title="Muted on Strava (hidden from home feed)"
+                        >
+                          <MuteBadgeIcon isLight={isLight} />
+                        </div>
+                      )}
+                      {hasKudos ? (
+                        <div
+                          className={`px-2.5 py-1 rounded-br-2xl ${
+                            isActivityMuted
+                              ? 'border-t border-l'
+                              : 'rounded-tl-xl border-l border-t'
+                          } font-sans font-bold text-[11px] flex items-center gap-1 shadow-xs ${
+                            isLight
+                              ? 'bg-amber-100/70 border-amber-300/80 text-amber-800'
+                              : 'bg-amber-500/15 border-amber-500/25 text-amber-300'
+                          }`}
+                        >
+                          <ThumbsUp className={`w-3 h-3 ${isLight ? 'text-amber-600' : 'text-amber-400'}`} />
+                          <span>{act.kudos_count}</span>
+                        </div>
+                      ) : null}
                     </div>
-                  )}
-                  {act.kudos_count && act.kudos_count > 0 && (
-                    <div
-                      className={`px-2.5 py-1 rounded-br-2xl ${
-                        Boolean(act.hide_from_home || act.muted || (details?.activity as any)?.hide_from_home || (details?.activity as any)?.muted)
-                          ? 'border-t border-l'
-                          : 'rounded-tl-xl border-l border-t'
-                      } font-sans font-bold text-[11px] flex items-center gap-1 shadow-xs ${
-                        isLight
-                          ? 'bg-amber-100/70 border-amber-300/80 text-amber-800'
-                          : 'bg-amber-500/15 border-amber-500/25 text-amber-300'
-                      }`}
-                    >
-                      <ThumbsUp className={`w-3 h-3 ${isLight ? 'text-amber-600' : 'text-amber-400'}`} />
-                      <span>{act.kudos_count}</span>
-                    </div>
-                  )}
-                </div>
+                  );
+                })()}
 
                 {/* Card Content with padding offset clearing the corner badges */}
                 <div className="pt-2.5 pb-8 pl-13 pr-3.5 flex flex-col gap-1.5">

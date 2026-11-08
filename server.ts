@@ -57,6 +57,10 @@ app.use((req, res, next) => {
 
 app.use(express.json({ limit: '15mb' }));
 
+// Serve static assets from public folder (e.g. uploaded images, icons, and audio)
+app.use(express.static(path.resolve(__dirname, 'public')));
+app.use('/assets/aistudio', express.static(path.resolve(__dirname, 'public/assets/aistudio')));
+
 // Helper to determine the callback URL
 const getRedirectUri = (req: express.Request) => {
   const appUrl = process.env.APP_URL;
