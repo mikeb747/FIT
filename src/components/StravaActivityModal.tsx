@@ -27,6 +27,7 @@ import {
   Trash2,
   Watch,
   ChevronDown,
+  Pencil,
 } from 'lucide-react';
 import type {
   StravaActivity,
@@ -58,7 +59,7 @@ import { StravaStreamPlot } from './StravaStreamPlot';
 import { ActivityZoneChart } from './ActivityZoneChart';
 import { ActivityCalibrationModal } from './ActivityCalibrationModal';
 import { appendActivityToTrainingLog } from '../utils/googleSheets';
-import { applyRenameRulesToName } from '../utils/activityRenameRules';
+import { applyRenameRulesToName, updateStravaActivityName } from '../utils/activityRenameRules';
 import { ErrorBoundary } from './ErrorBoundary';
 
 interface StravaActivityModalProps {
@@ -73,6 +74,7 @@ interface StravaActivityModalProps {
   onActivityPublished?: (activityId: string) => void;
   onOpenAthleteProfile?: () => void;
   onDeleteActivity?: (activityId: string | number) => void;
+  onRenameActivity?: (activityId: string | number, newName: string) => void;
 }
 
 function formatActivityDate(dateString: string): string {
@@ -120,6 +122,7 @@ export const StravaActivityModal: React.FC<StravaActivityModalProps> = ({
   onActivityPublished,
   onOpenAthleteProfile,
   onDeleteActivity,
+  onRenameActivity,
 }) => {
   const isLight = theme === 'light';
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
@@ -128,6 +131,12 @@ export const StravaActivityModal: React.FC<StravaActivityModalProps> = ({
   const [loadingDetails, setLoadingDetails] = useState(false);
   const [detailsError, setDetailsError] = useState<string | null>(null);
   const [isCalibrationOpen, setIsCalibrationOpen] = useState(false);
+
+  // Activity Rename State
+  const [isEditingName, setIsEditingName] = useState(false);
+  const [nameInput, setNameInput] = useState('');
+  const [localName, setLocalName] = useState<string | null>(null);
+  const [stravaSyncStatus, setStravaSyncStatus] = useState<'idle' | 'syncing' | 'synced' | 'error'>('idle');
 
   const [isExportingToSheets, setIsExportingToSheets] = useState(false);
   const [exportSuccess, setExportSuccess] = useState<{ url: string; alreadyExists: boolean } | null>(null);
@@ -140,6 +149,48 @@ export const StravaActivityModal: React.FC<StravaActivityModalProps> = ({
   const [isSavingTss, setIsSavingTss] = useState(false);
   const [tssSaveSuccess, setTssSaveSuccess] = useState(false);
   const [showWorkCalc, setShowWorkCalc] = useState(false);
+
+  const currentActivityName = localName ?? (activity ? applyRenameRulesToName(activity.name).newName : '');
+
+  useEffect(() => {
+    setLocalName(null);
+    setIsEditingName(false);
+    setStravaSyncStatus('idle');
+    setNameInput(activity?.name ? applyRenameRulesToName(activity.name).newName : '');
+  }, [activity?.id]);
+
+  const handleSaveName = async () => {
+    const trimmed = nameInput.trim();
+    if (!trimmed || !activity) {
+      setIsEditingName(false);
+      return;
+    }
+    setIsEditingName(false);
+    if (trimmed === currentActivityName) return;
+
+    setLocalName(trimmed);
+    onRenameActivity?.(activity.id, trimmed);
+
+    // In background immediately try and update the name in Strava
+    if (stravaToken) {
+      setStravaSyncStatus('syncing');
+      try {
+        const res = await updateStravaActivityName(activity.id, trimmed, stravaToken);
+        if (res.success) {
+          setStravaSyncStatus('synced');
+          setTimeout(() => setStravaSyncStatus('idle'), 3500);
+        } else {
+          console.warn('[Strava Rename Warning]', res.error);
+          setStravaSyncStatus('error');
+          setTimeout(() => setStravaSyncStatus('idle'), 3500);
+        }
+      } catch (err) {
+        console.warn('[Strava Rename Error]', err);
+        setStravaSyncStatus('error');
+        setTimeout(() => setStravaSyncStatus('idle'), 3500);
+      }
+    }
+  };
 
   useEffect(() => {
     if (detailsRecord?.calibration) {
@@ -390,9 +441,9 @@ export const StravaActivityModal: React.FC<StravaActivityModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/80 backdrop-blur-sm animate-fade-in">
+    <div className="fixed inset-0 z-50 flex items-center justify-center px-1 sm:px-1.5 py-3 sm:py-4 bg-black/80 backdrop-blur-sm animate-fade-in">
       <div
-        className={`rounded-3xl w-full max-w-xl max-h-[90vh] flex flex-col shadow-2xl overflow-hidden border ${
+        className={`rounded-3xl w-full max-w-2xl max-h-[90vh] flex flex-col shadow-2xl overflow-hidden border ${
           isLight
             ? 'bg-white border-slate-200 text-slate-900 shadow-xl'
             : 'bg-slate-900 border-slate-800 text-white'
@@ -400,37 +451,130 @@ export const StravaActivityModal: React.FC<StravaActivityModalProps> = ({
       >
         {/* Modal Header */}
         <div
-          className={`p-4 sm:p-5 border-b flex items-start justify-between gap-3 shrink-0 ${
+          className={`px-3.5 sm:px-4 py-2.5 sm:py-3 border-b flex items-start justify-between gap-3 shrink-0 ${
             isLight ? 'bg-slate-50 border-slate-200' : 'bg-slate-950/60 border-slate-800'
           }`}
         >
-          <div className="flex items-start gap-3 min-w-0">
+          <div className="flex items-start gap-3 min-w-0 flex-1">
             <div
-              className={`w-11 h-11 rounded-2xl flex items-center justify-center shrink-0 mt-0.5 border ${
+              className={`w-11 h-11 rounded-2xl flex items-center justify-center shrink-0 border ${
                 isLight ? 'bg-slate-100 border-slate-200' : 'bg-slate-800 border-slate-700'
               }`}
             >
               {getCategoryIcon(classification.category, 'w-6 h-6', isLight)}
             </div>
-            <div className="min-w-0">
-              <h3
-                className={`text-base sm:text-lg font-black leading-tight truncate ${
-                  isLight ? 'text-slate-900' : 'text-white'
-                }`}
-              >
-                {applyRenameRulesToName(activity.name).newName}
-              </h3>
-              <p className={`text-xs mt-1 ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>
-                {formatActivityDate(activity.start_date_local || activity.start_date)}
-              </p>
+            <div className="min-w-0 flex-1 h-11 flex flex-col justify-between">
+              {isEditingName ? (
+                <form
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    handleSaveName();
+                  }}
+                  className="flex items-center gap-1.5 min-w-0"
+                >
+                  <input
+                    type="text"
+                    value={nameInput}
+                    onChange={(e) => setNameInput(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Escape') {
+                        setIsEditingName(false);
+                        setNameInput(currentActivityName);
+                      }
+                    }}
+                    autoFocus
+                    className={`px-2 py-0.5 text-xs sm:text-sm font-bold rounded-lg border outline-none min-w-0 flex-1 ${
+                      isLight
+                        ? 'bg-white border-amber-500 text-slate-900 focus:ring-1 focus:ring-amber-500/20'
+                        : 'bg-slate-900 border-amber-500 text-white focus:ring-1 focus:ring-amber-500/30'
+                    }`}
+                    placeholder="Activity name..."
+                  />
+                  <button
+                    type="submit"
+                    disabled={!nameInput.trim()}
+                    className="p-1 rounded-md bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold cursor-pointer disabled:opacity-40 shrink-0"
+                    title="Save name"
+                  >
+                    <Check className="w-3.5 h-3.5 stroke-[3]" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsEditingName(false);
+                      setNameInput(currentActivityName);
+                    }}
+                    className={`p-1 rounded-md cursor-pointer shrink-0 ${
+                      isLight ? 'hover:bg-slate-200 text-slate-600' : 'hover:bg-slate-800 text-slate-400'
+                    }`}
+                    title="Cancel"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                </form>
+              ) : (
+                <div className="flex items-center gap-1.5 min-w-0">
+                  <h3
+                    className={`text-base sm:text-lg font-black leading-tight truncate cursor-pointer hover:underline ${
+                      isLight ? 'text-slate-900' : 'text-white'
+                    }`}
+                    onClick={() => {
+                      setNameInput(currentActivityName);
+                      setIsEditingName(true);
+                    }}
+                    title="Click to rename activity"
+                  >
+                    {currentActivityName}
+                  </h3>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setNameInput(currentActivityName);
+                      setIsEditingName(true);
+                    }}
+                    className={`p-1 rounded-md opacity-60 hover:opacity-100 transition-opacity cursor-pointer shrink-0 ${
+                      isLight ? 'hover:bg-slate-200/70 text-slate-600' : 'hover:bg-slate-800 text-slate-300'
+                    }`}
+                    title="Rename activity"
+                  >
+                    <Pencil className="w-3.5 h-3.5" />
+                  </button>
+                  {stravaSyncStatus === 'syncing' && (
+                    <span className="inline-flex items-center gap-1 text-[10px] text-amber-400 font-medium shrink-0 animate-pulse">
+                      <Loader2 className="w-2.5 h-2.5 animate-spin" />
+                      <span>Strava...</span>
+                    </span>
+                  )}
+                  {stravaSyncStatus === 'synced' && (
+                    <span className="inline-flex items-center gap-0.5 text-[10px] text-emerald-400 font-semibold shrink-0">
+                      <Check className="w-2.5 h-2.5" />
+                      <span>Strava updated</span>
+                    </span>
+                  )}
+                </div>
+              )}
+              <div className="flex items-center justify-between gap-2">
+                <p className={`text-xs leading-none ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>
+                  {formatActivityDate(activity.start_date_local || activity.start_date)}
+                </p>
+                <a
+                  href={`https://www.strava.com/activities/${activity.id}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1 text-xs text-[#FC5200] hover:underline font-bold shrink-0 leading-none"
+                >
+                  <span>Strava.com</span>
+                  <ExternalLink className="w-3 h-3" />
+                </a>
+              </div>
             </div>
           </div>
 
-          <div className="flex items-center gap-2 shrink-0">
+          <div className="flex items-center gap-2 shrink-0 self-start">
             <button
               type="button"
               onClick={onClose}
-              className={`p-2 rounded-xl transition-colors cursor-pointer ${
+              className={`p-1.5 rounded-xl transition-colors cursor-pointer ${
                 isLight
                   ? 'text-slate-400 hover:text-slate-800 hover:bg-slate-100'
                   : 'text-slate-400 hover:text-white hover:bg-slate-800'
@@ -443,10 +587,10 @@ export const StravaActivityModal: React.FC<StravaActivityModalProps> = ({
         </div>
 
         {/* Modal Body */}
-        <div className="p-4 sm:p-5 overflow-y-auto space-y-4">
+        <div className="pt-2 sm:pt-2.5 px-3 sm:px-4 pb-4 sm:pb-5 overflow-y-auto space-y-2.5">
           <ErrorBoundary fallbackTitle="Unable to display this workout's details" onReset={onClose}>
           {/* Badges strip */}
-          <div className="flex flex-wrap items-center gap-2">
+          <div className="pt-0.5 pb-0.5 flex flex-wrap items-center gap-1.5 sm:gap-2">
             <span
               className={`px-2.5 py-1 rounded-xl text-xs font-bold flex items-center gap-1.5 border ${
                 isLight
@@ -470,6 +614,25 @@ export const StravaActivityModal: React.FC<StravaActivityModalProps> = ({
               >
                 <Watch className="w-3.5 h-3.5 text-slate-400" />
                 <span>{deviceName}</span>
+              </span>
+            )}
+
+            {/* Muted Badge */}
+            {Boolean(activity.hide_from_home || activity.muted || (detailsRecord?.activity as any)?.hide_from_home || (detailsRecord?.activity as any)?.muted) && (
+              <span
+                className={`px-2.5 py-1 rounded-xl text-xs font-bold flex items-center gap-1.5 border ${
+                  isLight
+                    ? 'bg-slate-100 text-slate-700 border-slate-200'
+                    : 'bg-slate-800 text-slate-300 border-slate-700'
+                }`}
+                title="This activity is muted on Strava (hidden from home feed)"
+              >
+                <img
+                  src="/assets/aistudio/81-811244_mute-unmute-icon-png-png-download-mute-unmute_320a2cc1.png"
+                  alt="Muted"
+                  className="w-3.5 h-3.5 object-contain"
+                />
+                <span>Muted</span>
               </span>
             )}
 
@@ -548,16 +711,6 @@ export const StravaActivityModal: React.FC<StravaActivityModalProps> = ({
                 <span>Sheet</span>
               </button>
             )}
-
-            <a
-              href={`https://www.strava.com/activities/${activity.id}`}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="ml-auto inline-flex items-center gap-1 text-xs text-[#FC5200] hover:underline font-bold"
-            >
-              <span>Strava.com</span>
-              <ExternalLink className="w-3 h-3" />
-            </a>
           </div>
 
           {/* Description / Notes if available - at the top of Activity Details */}

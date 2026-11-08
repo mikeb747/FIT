@@ -223,6 +223,7 @@ interface StravaActivitiesTabProps {
   onActivityPublished: (activityId: string) => void;
   onOpenAthleteProfile?: () => void;
   onDeleteActivity?: (activityId: string | number) => void;
+  onRenameActivity?: (activityId: string | number, newName: string) => void;
 }
 
 function formatDuration(seconds: number): string {
@@ -288,6 +289,7 @@ export const StravaActivitiesTab: React.FC<StravaActivitiesTabProps> = ({
   onActivityPublished,
   onOpenAthleteProfile,
   onDeleteActivity,
+  onRenameActivity,
 }) => {
   const isLight = theme === 'light';
   const [selectedCategory, setSelectedCategory] = useState<ActivityFilterCategory>('All');
@@ -350,7 +352,7 @@ export const StravaActivitiesTab: React.FC<StravaActivitiesTabProps> = ({
 
   // Multi-Metric Filter & Sort
   const filteredAndSortedActivities = useMemo(() => {
-    let list = activities;
+    let list = activities.filter((act) => !act.isDeleted);
 
     // 1. Filter by selected category: All, Swim, Bike, Run, Gym
     if (selectedCategory !== 'All') {
@@ -515,16 +517,17 @@ export const StravaActivitiesTab: React.FC<StravaActivitiesTabProps> = ({
     setSortDirection('desc');
   };
 
-  // Category counts strictly for All, Swim, Bike, Run, Gym
+  // Category counts strictly for All, Swim, Bike, Run, Gym (excluding deleted activities)
   const categoryCounts = useMemo(() => {
+    const activeActivities = activities.filter((act) => !act.isDeleted);
     const counts: Record<ActivityFilterCategory, number> = {
-      All: activities.length,
+      All: activeActivities.length,
       Swim: 0,
       Bike: 0,
       Run: 0,
       Gym: 0,
     };
-    for (const act of activities) {
+    for (const act of activeActivities) {
       const cat = classifyActivity(act).category;
       if (cat === 'Swim' || cat === 'Bike' || cat === 'Run' || cat === 'Gym') {
         counts[cat] = (counts[cat] || 0) + 1;
@@ -1026,27 +1029,43 @@ export const StravaActivitiesTab: React.FC<StravaActivitiesTabProps> = ({
                   <span>{isIgnored ? '0 TSS' : tssValue !== null ? `${tssValue} TSS` : '-- TSS'}</span>
                 </div>
 
-                {/* 4.c: Kudos / Deleted badge flush in bottom-right corner */}
-                {act.isDeleted ? (
-                  <div
-                    className="absolute bottom-0 right-0 px-2.5 py-1 rounded-br-2xl rounded-tl-xl bg-rose-500/20 border-l border-t border-rose-500/35 text-rose-400 font-sans font-bold text-[11px] flex items-center gap-1.5 z-10 shadow-xs"
-                    title="This activity was deleted"
-                  >
-                    <span className="w-1.5 h-1.5 rounded-full bg-rose-400" />
-                    <span>Deleted</span>
-                  </div>
-                ) : act.kudos_count && act.kudos_count > 0 ? (
-                  <div
-                    className={`absolute bottom-0 right-0 px-2.5 py-1 rounded-br-2xl rounded-tl-xl border-l border-t font-sans font-bold text-[11px] flex items-center gap-1 z-10 ${
-                      isLight
-                        ? 'bg-amber-100/70 border-amber-300/80 text-amber-800'
-                        : 'bg-amber-500/15 border-amber-500/25 text-amber-300'
-                    }`}
-                  >
-                    <ThumbsUp className={`w-3 h-3 ${isLight ? 'text-amber-600' : 'text-amber-400'}`} />
-                    <span>{act.kudos_count}</span>
-                  </div>
-                ) : null}
+                {/* 4.c: Bottom-right badges: Muted & Kudos */}
+                <div className="absolute bottom-0 right-0 flex items-center z-10 pointer-events-none">
+                  {Boolean(act.hide_from_home || act.muted || (details?.activity as any)?.hide_from_home || (details?.activity as any)?.muted) && (
+                    <div
+                      className={`px-2 py-1 flex items-center justify-center border-l border-t shadow-xs ${
+                        act.kudos_count && act.kudos_count > 0 ? 'rounded-tl-xl' : 'rounded-br-2xl rounded-tl-xl'
+                      } ${
+                        isLight
+                          ? 'bg-slate-100/95 border-slate-200 text-slate-600'
+                          : 'bg-slate-950/95 border-slate-800 text-slate-300'
+                      }`}
+                      title="Muted on Strava (hidden from home feed)"
+                    >
+                      <img
+                        src="/assets/aistudio/81-811244_mute-unmute-icon-png-png-download-mute-unmute_320a2cc1.png"
+                        alt="Muted"
+                        className="w-3.5 h-3.5 object-contain"
+                      />
+                    </div>
+                  )}
+                  {act.kudos_count && act.kudos_count > 0 && (
+                    <div
+                      className={`px-2.5 py-1 rounded-br-2xl ${
+                        Boolean(act.hide_from_home || act.muted || (details?.activity as any)?.hide_from_home || (details?.activity as any)?.muted)
+                          ? 'border-t border-l'
+                          : 'rounded-tl-xl border-l border-t'
+                      } font-sans font-bold text-[11px] flex items-center gap-1 shadow-xs ${
+                        isLight
+                          ? 'bg-amber-100/70 border-amber-300/80 text-amber-800'
+                          : 'bg-amber-500/15 border-amber-500/25 text-amber-300'
+                      }`}
+                    >
+                      <ThumbsUp className={`w-3 h-3 ${isLight ? 'text-amber-600' : 'text-amber-400'}`} />
+                      <span>{act.kudos_count}</span>
+                    </div>
+                  )}
+                </div>
 
                 {/* Card Content with padding offset clearing the corner badges */}
                 <div className="pt-2.5 pb-8 pl-13 pr-3.5 flex flex-col gap-1.5">
@@ -1235,6 +1254,10 @@ export const StravaActivitiesTab: React.FC<StravaActivitiesTabProps> = ({
         onDeleteActivity={(actId) => {
           onDeleteActivity?.(actId);
           setActiveModalActivity(null);
+        }}
+        onRenameActivity={(actId, newName) => {
+          onRenameActivity?.(actId, newName);
+          setActiveModalActivity((prev) => (prev && String(prev.id) === String(actId) ? { ...prev, name: newName } : prev));
         }}
       />
 

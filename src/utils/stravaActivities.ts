@@ -29,6 +29,8 @@ export interface StravaActivity {
   calories?: number;
   suffer_score?: number;
   isDeleted?: boolean;
+  hide_from_home?: boolean;
+  muted?: boolean;
   laps?: any[];
   splits_metric?: any[];
 }
@@ -1172,6 +1174,15 @@ export function calculateActivityTSS(
   fallbackUserLthrRun = 168,
   fallbackUserLthrBike = 162
 ): TSSCalculationResult | null {
+  // If activity is marked as deleted, completely exclude from TSS calculations:
+  if (activity?.isDeleted) {
+    return {
+      tss: 0,
+      type: 'Ignored',
+      description: 'Activity deleted',
+    };
+  }
+
   // If user flagged this activity as ignored from training status/TSS:
   if (details?.calibration?.isIgnoredFromTrainingStatus) {
     return {
@@ -1911,6 +1922,8 @@ export function mergeStravaActivities(existing: StravaActivity[], incoming: Stra
       ...act,
       isDeleted: isDel,
       gear_id: act.gear_id ?? (act as any).gear?.id ?? null,
+      hide_from_home: act.hide_from_home ?? (act as any).muted ?? false,
+      muted: act.muted ?? act.hide_from_home ?? false,
     });
   }
 
@@ -1923,6 +1936,8 @@ export function mergeStravaActivities(existing: StravaActivity[], incoming: Stra
       ...act,
       isDeleted: isDel,
       gear_id: act.gear_id ?? (act as any).gear?.id ?? prev?.gear_id ?? null,
+      hide_from_home: act.hide_from_home ?? (act as any).muted ?? prev?.hide_from_home ?? false,
+      muted: act.muted ?? act.hide_from_home ?? prev?.muted ?? false,
     });
   }
   // Sort descending by date
@@ -1974,6 +1989,8 @@ export async function syncStravaActivitiesDelta(accessToken: string, customPerPa
           incoming = data.map((item: any) => ({
             ...item,
             gear_id: item.gear_id || item.gear?.id || null,
+            hide_from_home: Boolean(item.hide_from_home || item.muted),
+            muted: Boolean(item.muted || item.hide_from_home),
           }));
         }
       }
@@ -2009,6 +2026,8 @@ export async function syncStravaActivitiesDelta(accessToken: string, customPerPa
       incoming = data.map((item: any) => ({
         ...item,
         gear_id: item.gear_id || item.gear?.id || null,
+        hide_from_home: Boolean(item.hide_from_home || item.muted),
+        muted: Boolean(item.muted || item.hide_from_home),
       }));
     }
   }
@@ -2103,6 +2122,8 @@ export async function fetchOlderStravaActivities(
           olderData = data.map((item: any) => ({
             ...item,
             gear_id: item.gear_id || item.gear?.id || null,
+            hide_from_home: Boolean(item.hide_from_home || item.muted),
+            muted: Boolean(item.muted || item.hide_from_home),
           }));
         }
       }
@@ -2138,6 +2159,8 @@ export async function fetchOlderStravaActivities(
       olderData = data.map((item: any) => ({
         ...item,
         gear_id: item.gear_id || item.gear?.id || null,
+        hide_from_home: Boolean(item.hide_from_home || item.muted),
+        muted: Boolean(item.muted || item.hide_from_home),
       }));
     }
   }

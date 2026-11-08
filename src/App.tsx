@@ -518,6 +518,30 @@ export default function App() {
     );
   };
 
+  const handleRenameActivity = (activityId: string | number, newName: string) => {
+    const trimmed = newName.trim();
+    if (!trimmed) return;
+    setStravaActivities((prev) => {
+      const updated = prev.map((a) => (String(a.id) === String(activityId) ? { ...a, name: trimmed } : a));
+      saveCachedStravaActivities(updated);
+      return updated;
+    });
+    setStravaActivityDetails((prev) => {
+      const existing = prev[String(activityId)];
+      if (!existing) return prev;
+      return {
+        ...prev,
+        [String(activityId)]: {
+          ...existing,
+          activity: {
+            ...(existing.activity || {}),
+            name: trimmed,
+          },
+        },
+      };
+    });
+  };
+
   const handleActivityDetailsUpdated = (updatedRecord: StravaActivityDetailsRecord) => {
     if (!updatedRecord?.id) return;
     setStravaActivityDetails((prev) => ({
@@ -1073,7 +1097,13 @@ export default function App() {
       {/* ========================================================= */}
       {/* MAIN VIEW: STRAVA ACTIVITIES, READINESS, OR FITNESS */}
       {/* ========================================================= */}
-      <main className="flex-1 max-w-5xl xl:max-w-6xl 2xl:max-w-7xl w-full mx-auto p-4 sm:p-6 space-y-6">
+      <main
+        className={`flex-1 max-w-5xl xl:max-w-6xl 2xl:max-w-7xl w-full mx-auto space-y-6 ${
+          activeMainTab === 'activities'
+            ? 'px-1 sm:px-1.5 py-4 sm:py-6'
+            : 'p-4 sm:p-6'
+        }`}
+      >
         <ErrorBoundary fallbackTitle="Error loading view">
         {activeMainTab === 'activities' ? (
           <StravaActivitiesTab
@@ -1101,6 +1131,7 @@ export default function App() {
               setIsAthleteProfileOpen(true);
             }}
             onDeleteActivity={handleDeleteActivity}
+            onRenameActivity={handleRenameActivity}
           />
         ) : activeMainTab === 'recovery' ? (
           <RecoveryView

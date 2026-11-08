@@ -172,7 +172,7 @@ export const RecoveryView: React.FC<RecoveryViewProps> = ({
   const stravaTssByDate = useMemo(() => {
     const map: Record<string, number> = {};
     stravaActivities.forEach((act) => {
-      if (act && act.start_date) {
+      if (act && act.start_date && !act.isDeleted) {
         const d = act.start_date.split('T')[0];
         const rawSuffer = Number(act.suffer_score);
         const rawMoving = Number(act.moving_time);
@@ -192,7 +192,7 @@ export const RecoveryView: React.FC<RecoveryViewProps> = ({
   const fitTssByDate = useMemo(() => {
     const map: Record<string, number> = {};
     stravaActivities.forEach((act) => {
-      if (act && act.start_date) {
+      if (act && act.start_date && !act.isDeleted) {
         const d = act.start_date.split('T')[0];
         const details = effectiveActivityDetails[String(act.id)];
         const manualTss = details?.calibration?.manualTss;

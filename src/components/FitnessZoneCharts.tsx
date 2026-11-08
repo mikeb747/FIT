@@ -58,8 +58,7 @@ interface DayData {
   isToday: boolean;
   workouts: ProcessedWorkout[];
   dayZoneSec: number[];
-  cumZoneSec: number[];
-  cumTotalSec: number;
+  dayTotalSec: number;
 }
 
 export function formatHoursMinutes(totalSeconds: number): string {
@@ -170,8 +169,14 @@ export const FitnessZoneCharts: React.FC<FitnessZoneChartsProps> = ({
     };
   }, [matchingActivities, numWeeks]);
 
-  // 4. Build Days and Process Workouts
-  const { days, processedWorkouts, maxCumHours, maxWorkoutHours, totalSecAllZones, zoneTotalSeconds } = useMemo(() => {
+  // 4. Build Days and Process Workouts (Per-Day, Non-Cumulative)
+  const {
+    days,
+    processedWorkouts,
+    maxDayHours,
+    totalSecAllZones,
+    zoneTotalSeconds,
+  } = useMemo(() => {
     const totalDays = numWeeks * 7;
     const dayList: DayData[] = [];
     const workoutsList: ProcessedWorkout[] = [];
@@ -191,8 +196,7 @@ export const FitnessZoneCharts: React.FC<FitnessZoneChartsProps> = ({
       }
     }
 
-    const runningCum = new Array(numZones).fill(0);
-    let peakWorkoutHours = 1;
+    let peakDaySec = 0;
 
     for (let i = 0; i < totalDays; i++) {
       const currentDay = new Date(startDate);
@@ -212,7 +216,7 @@ export const FitnessZoneCharts: React.FC<FitnessZoneChartsProps> = ({
         else buckets = analysis.hrZones;
 
         const zoneDurations = new Array(numZones).fill(0);
-        let actDurationSec = act.moving_time || act.elapsed_time || 0;
+        const actDurationSec = act.moving_time || act.elapsed_time || 0;
 
         if (buckets && buckets.length > 0) {
           buckets.forEach((b, idx) => {
@@ -221,8 +225,7 @@ export const FitnessZoneCharts: React.FC<FitnessZoneChartsProps> = ({
             }
           });
         } else {
-          // Fallback if zone distribution is missing
-          // Allocate primary duration to Zone 2 (base endurance)
+          // Fallback if zone distribution is missing: allocate primary duration to Zone 2
           if (zoneDurations.length > 1) {
             zoneDurations[1] = Math.round(actDurationSec * 0.7);
             zoneDurations[0] = Math.round(actDurationSec * 0.15);
@@ -236,7 +239,6 @@ export const FitnessZoneCharts: React.FC<FitnessZoneChartsProps> = ({
         let primaryZIdx = 0;
         zoneDurations.forEach((sec, zIdx) => {
           dayZoneSec[zIdx] += sec;
-          runningCum[zIdx] += sec;
           zTotals[zIdx] += sec;
           if (sec > maxZSec) {
             maxZSec = sec;
@@ -245,9 +247,6 @@ export const FitnessZoneCharts: React.FC<FitnessZoneChartsProps> = ({
         });
 
         const totalHours = actDurationSec / 3600;
-        if (totalHours > peakWorkoutHours) {
-          peakWorkoutHours = totalHours;
-        }
 
         const pw: ProcessedWorkout = {
           id: String(act.id),
@@ -265,31 +264,42 @@ export const FitnessZoneCharts: React.FC<FitnessZoneChartsProps> = ({
         workoutsList.push(pw);
       }
 
-      const cumSnapshot = [...runningCum];
-      const cumTotalSec = cumSnapshot.reduce((a, b) => a + b, 0);
+      const dayTotalSec = dayZoneSec.reduce((a, b) => a + b, 0);
+      if (dayTotalSec > peakDaySec) {
+        peakDaySec = dayTotalSec;
+      }
 
       dayList.push({
         dayIndex: i,
         date: currentDay,
         dateStr,
-        dayLabel: currentDay.toLocaleDateString(undefined, { day: 'numeric', month: 'short' }),
+        dayLabel: currentDay.toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short' }),
         isToday: new Date().toISOString().split('T')[0] === dateStr,
         workouts: dayWorkouts,
         dayZoneSec,
-        cumZoneSec: cumSnapshot,
-        cumTotalSec,
+        dayTotalSec,
       });
     }
 
     const totalSecAll = zTotals.reduce((a, b) => a + b, 0);
-    const maxCumSec = runningCum.reduce((a, b) => a + b, 0);
-    const maxCumHrs = Math.max(1, Math.ceil(maxCumSec / 3600));
+    const peakDayHours = peakDaySec / 3600;
+    let maxDailyH = 2;
+    if (peakDayHours <= 1.2) {
+      maxDailyH = 1.5;
+    } else if (peakDayHours <= 2) {
+      maxDailyH = 2.5;
+    } else if (peakDayHours <= 3) {
+      maxDailyH = 3.5;
+    } else if (peakDayHours <= 5) {
+      maxDailyH = Math.ceil(peakDayHours * 1.15);
+    } else {
+      maxDailyH = Math.ceil(peakDayHours * 1.1);
+    }
 
     return {
       days: dayList,
       processedWorkouts: workoutsList,
-      maxCumHours: Math.max(5, Math.ceil(maxCumHrs * 1.1)),
-      maxWorkoutHours: Math.max(2, Math.ceil(peakWorkoutHours * 1.15)),
+      maxDayHours: maxDailyH,
       totalSecAllZones: totalSecAll,
       zoneTotalSeconds: zTotals,
     };
@@ -297,98 +307,26 @@ export const FitnessZoneCharts: React.FC<FitnessZoneChartsProps> = ({
 
   // Chart Dimensions & Grid
   const svgWidth = 800;
-  const areaHeight = 180;
-  const barHeight = 100;
+  const chartHeight = 220;
   const paddingRight = 45; // Space for Y-axis labels
   const paddingLeft = 10;
   const usableWidth = svgWidth - paddingLeft - paddingRight;
   const totalDays = numWeeks * 7;
   const dayStep = usableWidth / Math.max(1, totalDays - 1);
+  const barWidth = Math.max(3.5, Math.min(18, dayStep * 0.78));
 
-  // SVG Area Paths Generation
-  // High Intensity at Bottom, Low Intensity at Top!
-  // Layer k stacked from previous layer top.
-  const areaPaths = useMemo(() => {
-    if (days.length === 0) return [];
-
-    // cumulative baseline per day as we stack from bottom to top
-    const currentBaselineHours = new Array(days.length).fill(0);
-    const paths: { zoneIndex: number; color: string; d: string }[] = [];
-
-    // Iterate through zones from bottom to top
-    for (const zIdx of zoneIndicesBottomToTop) {
-      const color = zoneConfigs[zIdx]?.color || '#38bdf8';
-      const bottomPoints: { x: number; y: number }[] = [];
-      const topPoints: { x: number; y: number }[] = [];
-
-      for (let d = 0; d < days.length; d++) {
-        const x = paddingLeft + d * dayStep;
-        const baseH = currentBaselineHours[d];
-        const zoneH = days[d].cumZoneSec[zIdx] / 3600;
-        const topH = baseH + zoneH;
-
-        // Area Y coordinate: 0 at bottom (areaHeight), maxCumHours at top (0)
-        const yBottom = areaHeight - (baseH / maxCumHours) * areaHeight;
-        const yTop = areaHeight - (topH / maxCumHours) * areaHeight;
-
-        bottomPoints.push({ x, y: yBottom });
-        topPoints.push({ x, y: yTop });
-
-        currentBaselineHours[d] = topH;
-      }
-
-      // Build smooth / stepped SVG Path
-      // Forward along top points
-      let dStr = `M ${topPoints[0].x},${topPoints[0].y}`;
-      for (let i = 1; i < topPoints.length; i++) {
-        const prev = topPoints[i - 1];
-        const curr = topPoints[i];
-        const cx1 = prev.x + (curr.x - prev.x) * 0.5;
-        const cx2 = cx1;
-        dStr += ` C ${cx1},${prev.y} ${cx2},${curr.y} ${curr.x},${curr.y}`;
-      }
-
-      // Backward along bottom points
-      for (let i = bottomPoints.length - 1; i >= 0; i--) {
-        const pt = bottomPoints[i];
-        if (i === bottomPoints.length - 1) {
-          dStr += ` L ${pt.x},${pt.y}`;
-        } else {
-          const next = bottomPoints[i + 1];
-          const cx1 = next.x - (next.x - pt.x) * 0.5;
-          const cx2 = cx1;
-          dStr += ` C ${cx1},${next.y} ${cx2},${pt.y} ${pt.x},${pt.y}`;
-        }
-      }
-
-      dStr += ' Z';
-      paths.push({ zoneIndex: zIdx, color, d: dStr });
-    }
-
-    return paths;
-  }, [days, zoneIndicesBottomToTop, zoneConfigs, dayStep, paddingLeft, areaHeight, maxCumHours]);
-
-  // Area Chart Y-axis grid marks
-  const areaGridSteps = useMemo(() => {
-    const steps = 4;
-    const interval = Math.ceil(maxCumHours / steps);
+  // Y-axis grid marks for daily hours
+  const gridSteps = useMemo(() => {
+    if (maxDayHours <= 1.5) return [0.5, 1.0, 1.5];
+    if (maxDayHours <= 2.5) return [0.5, 1.0, 1.5, 2.0, 2.5];
+    if (maxDayHours <= 4) return [1, 2, 3, 4].filter((v) => v <= maxDayHours);
+    const step = Math.ceil(maxDayHours / 4);
     const marks: number[] = [];
-    for (let v = interval; v <= maxCumHours; v += interval) {
+    for (let v = step; v <= maxDayHours; v += step) {
       marks.push(v);
     }
     return marks;
-  }, [maxCumHours]);
-
-  // Workout Bar Chart Y-axis grid marks
-  const workoutGridSteps = useMemo(() => {
-    const marks: number[] = [];
-    const maxH = Math.max(2, Math.ceil(maxWorkoutHours));
-    const step = maxH <= 3 ? 1 : Math.ceil(maxH / 3);
-    for (let v = step; v <= maxH; v += step) {
-      marks.push(v);
-    }
-    return marks;
-  }, [maxWorkoutHours]);
+  }, [maxDayHours]);
 
   // Date Ticks along bottom (e.g. weekly on Mondays)
   const dateTicks = useMemo(() => {
@@ -421,7 +359,7 @@ export const FitnessZoneCharts: React.FC<FitnessZoneChartsProps> = ({
                 : 'bg-slate-800/80 text-cyan-400 border-cyan-500/20'
             }`}
           >
-            {modeLabel}
+            {modeLabel} (Per Day)
           </span>
         </div>
 
@@ -436,7 +374,7 @@ export const FitnessZoneCharts: React.FC<FitnessZoneChartsProps> = ({
         </div>
       </div>
 
-      {/* 2. Charts Stage: Cumulative Area Graph + Workout Distribution Bar Chart */}
+      {/* 2. Charts Stage: Daily Stacked Zone Graph */}
       <div
         className={`rounded-2xl p-4 sm:p-5 border transition-all ${
           isLight
@@ -451,7 +389,7 @@ export const FitnessZoneCharts: React.FC<FitnessZoneChartsProps> = ({
               No matching activities in this {numWeeks}-week window
             </p>
             <p className="text-xs text-slate-500 max-w-sm mx-auto">
-              Select a longer time frame (e.g. 12W or 24W) or record a new session to visualize cumulative zones.
+              Select a longer time frame (e.g. 12W or 24W) or record a new session to visualize daily training zones.
             </p>
           </div>
         ) : (
@@ -459,212 +397,181 @@ export const FitnessZoneCharts: React.FC<FitnessZoneChartsProps> = ({
             {/* SVG Visual Stage */}
             <div className="relative w-full overflow-hidden select-none">
               <svg
-                viewBox={`0 0 ${svgWidth} ${areaHeight + barHeight + 40}`}
+                viewBox={`0 0 ${svgWidth} ${chartHeight + 45}`}
                 className="w-full h-auto overflow-visible font-sans"
               >
-                {/* ---------------- AREA CHART (Cumulative) ---------------- */}
-                <g transform="translate(0, 0)">
-                  {/* Horizontal Grid Lines & Labels */}
-                  {areaGridSteps.map((val) => {
-                    const y = areaHeight - (val / maxCumHours) * areaHeight;
-                    return (
-                      <g key={`area-grid-${val}`}>
-                        <line
-                          x1={paddingLeft}
-                          y1={y}
-                          x2={svgWidth - paddingRight}
-                          y2={y}
-                          stroke={isLight ? '#e2e8f0' : '#1e293b'}
-                          strokeDasharray="3 3"
-                          strokeWidth="1"
-                        />
-                        <text
-                          x={svgWidth - paddingRight + 8}
-                          y={y + 4}
-                          fontSize="11"
-                          fill={isLight ? '#64748b' : '#64748b'}
-                          fontFamily="monospace"
-                          fontWeight="600"
-                        >
-                          {val}
-                        </text>
-                      </g>
-                    );
-                  })}
+                {/* Horizontal Gridlines & Y-axis labels */}
+                {gridSteps.map((val) => {
+                  const y = chartHeight - (val / maxDayHours) * chartHeight;
+                  return (
+                    <g key={`daily-grid-${val}`}>
+                      <line
+                        x1={paddingLeft}
+                        y1={y}
+                        x2={svgWidth - paddingRight}
+                        y2={y}
+                        stroke={isLight ? '#e2e8f0' : '#1e293b'}
+                        strokeDasharray="3 3"
+                        strokeWidth="1"
+                      />
+                      <text
+                        x={svgWidth - paddingRight + 8}
+                        y={y + 4}
+                        fontSize="11"
+                        fill={isLight ? '#64748b' : '#64748b'}
+                        fontFamily="monospace"
+                        fontWeight="600"
+                      >
+                        {val}h
+                      </text>
+                    </g>
+                  );
+                })}
 
-                  {/* Y-axis Unit Label "hr" */}
-                  <text
-                    x={svgWidth - paddingRight + 8}
-                    y={areaHeight - 4}
-                    fontSize="11"
-                    fill={isLight ? '#64748b' : '#64748b'}
-                    fontFamily="monospace"
-                    fontWeight="700"
-                  >
-                    hr
-                  </text>
+                {/* Y-axis Unit Label "hr/day" */}
+                <text
+                  x={svgWidth - paddingRight + 8}
+                  y={chartHeight - 4}
+                  fontSize="10"
+                  fill={isLight ? '#64748b' : '#64748b'}
+                  fontFamily="monospace"
+                  fontWeight="700"
+                >
+                  hr/day
+                </text>
 
-                  {/* Cumulative Area Paths (Stacked: High intensity at bottom, Zone 1 at top) */}
-                  {areaPaths.map((ap) => (
-                    <path
-                      key={`area-path-${ap.zoneIndex}`}
-                      d={ap.d}
-                      fill={ap.color}
-                      opacity={0.92}
-                      className="transition-all hover:opacity-100"
+                {/* Hover Highlight Column behind bars */}
+                {hoveredDayIndex !== null && days[hoveredDayIndex] && (() => {
+                  const xCenter = paddingLeft + hoveredDayIndex * dayStep;
+                  return (
+                    <rect
+                      x={xCenter - Math.max(8, barWidth)}
+                      y={0}
+                      width={Math.max(16, barWidth * 2)}
+                      height={chartHeight}
+                      fill="#38bdf8"
+                      opacity={0.12}
+                      rx={4}
+                      pointerEvents="none"
                     />
-                  ))}
+                  );
+                })()}
 
-                  {/* Bottom divider line */}
-                  <line
-                    x1={paddingLeft}
-                    y1={areaHeight}
-                    x2={svgWidth - paddingRight}
-                    y2={areaHeight}
-                    stroke={isLight ? '#cbd5e1' : '#334155'}
-                    strokeWidth="1"
-                  />
-                </g>
+                {/* Daily Stacked Zone Bars */}
+                {days.map((d) => {
+                  const xCenter = paddingLeft + d.dayIndex * dayStep;
 
-                {/* ---------------- WORKOUT BAR CHART (Distribution) ---------------- */}
-                <g transform={`translate(0, ${areaHeight + 15})`}>
-                  {/* Bar Grid Lines */}
-                  {workoutGridSteps.map((val) => {
-                    const y = barHeight - (val / maxWorkoutHours) * barHeight;
+                  if (d.dayTotalSec === 0) {
+                    // Rest day: faint baseline mark
                     return (
-                      <g key={`bar-grid-${val}`}>
-                        <line
-                          x1={paddingLeft}
-                          y1={y}
-                          x2={svgWidth - paddingRight}
-                          y2={y}
-                          stroke={isLight ? '#e2e8f0' : '#1e293b'}
-                          strokeDasharray="2 3"
-                          strokeWidth="0.8"
-                        />
-                        <text
-                          x={svgWidth - paddingRight + 8}
-                          y={y + 4}
-                          fontSize="10"
-                          fill={isLight ? '#64748b' : '#64748b'}
-                          fontFamily="monospace"
-                        >
-                          {val}
-                        </text>
-                      </g>
+                      <line
+                        key={`rest-${d.dayIndex}`}
+                        x1={xCenter - barWidth / 2}
+                        y1={chartHeight - 1}
+                        x2={xCenter + barWidth / 2}
+                        y2={chartHeight - 1}
+                        stroke={isLight ? '#e2e8f0' : '#1e293b'}
+                        strokeWidth="2"
+                        opacity="0.4"
+                      />
                     );
-                  })}
+                  }
 
-                  {/* Workout Y-axis Unit Label "hr" */}
-                  <text
-                    x={svgWidth - paddingRight + 8}
-                    y={barHeight - 2}
-                    fontSize="10"
-                    fill={isLight ? '#64748b' : '#64748b'}
-                    fontFamily="monospace"
-                    fontWeight="700"
-                  >
-                    hr
-                  </text>
+                  let currentStackSec = 0;
 
-                  {/* Stacked Bars for each workout */}
-                  {days.map((d) => {
-                    if (d.workouts.length === 0) return null;
-                    const xCenter = paddingLeft + d.dayIndex * dayStep;
-                    const barWidth = Math.max(5, Math.min(14, dayStep * 0.7));
+                  return (
+                    <g
+                      key={`day-bar-${d.dayIndex}`}
+                      className="cursor-pointer transition-opacity hover:opacity-90"
+                      onClick={() => {
+                        if (d.workouts.length > 0 && onSelectActivity) {
+                          onSelectActivity(d.workouts[0].id);
+                        }
+                      }}
+                      onMouseEnter={() => {
+                        setHoveredDayIndex(d.dayIndex);
+                        if (d.workouts.length > 0) {
+                          setHoveredWorkoutId(d.workouts[0].id);
+                        }
+                      }}
+                      onMouseLeave={() => {
+                        setHoveredDayIndex(null);
+                        setHoveredWorkoutId(null);
+                      }}
+                    >
+                      {zoneIndicesBottomToTop.map((zIdx) => {
+                        const zSec = d.dayZoneSec[zIdx];
+                        if (!zSec || zSec <= 0) return null;
+                        const zHours = zSec / 3600;
+                        const segHeight = Math.max(1.5, (zHours / maxDayHours) * chartHeight);
+                        const yPos = chartHeight - ((currentStackSec + zSec) / 3600 / maxDayHours) * chartHeight;
+                        currentStackSec += zSec;
 
-                    return d.workouts.map((w, wIdx) => {
-                      let segmentBaseline = 0;
-                      // Stacking order: bottom to top
-                      return (
-                        <g
-                          key={w.id}
-                          className="cursor-pointer transition-transform hover:scale-105"
-                          onClick={() => onSelectActivity && onSelectActivity(w.id)}
-                          onMouseEnter={() => {
-                            setHoveredDayIndex(d.dayIndex);
-                            setHoveredWorkoutId(w.id);
-                          }}
-                          onMouseLeave={() => {
-                            setHoveredDayIndex(null);
-                            setHoveredWorkoutId(null);
-                          }}
-                        >
-                          {zoneIndicesBottomToTop.map((zIdx) => {
-                            const zSec = w.zoneDurationsSec[zIdx];
-                            if (!zSec || zSec <= 0) return null;
-                            const zHours = zSec / 3600;
-                            const segHeight = Math.max(1.5, (zHours / maxWorkoutHours) * barHeight);
-                            const yPos = barHeight - ((segmentBaseline + zHours) / maxWorkoutHours) * barHeight;
-                            segmentBaseline += zHours;
+                        return (
+                          <rect
+                            key={`day-${d.dayIndex}-z-${zIdx}`}
+                            x={xCenter - barWidth / 2}
+                            y={yPos}
+                            width={barWidth}
+                            height={segHeight}
+                            fill={zoneConfigs[zIdx]?.color || '#38bdf8'}
+                            rx={1}
+                          />
+                        );
+                      })}
+                    </g>
+                  );
+                })}
 
-                            return (
-                              <rect
-                                key={`w-${w.id}-z-${zIdx}`}
-                                x={xCenter - barWidth / 2 + (wIdx > 0 ? (wIdx * 3) : 0)}
-                                y={yPos}
-                                width={barWidth}
-                                height={segHeight}
-                                fill={zoneConfigs[zIdx]?.color || '#38bdf8'}
-                                rx={1}
-                              />
-                            );
-                          })}
-                        </g>
-                      );
-                    });
-                  })}
+                {/* Bottom timeline baseline */}
+                <line
+                  x1={paddingLeft}
+                  y1={chartHeight}
+                  x2={svgWidth - paddingRight}
+                  y2={chartHeight}
+                  stroke={isLight ? '#cbd5e1' : '#334155'}
+                  strokeWidth="1.5"
+                />
 
-                  {/* Bottom timeline axis */}
-                  <line
-                    x1={paddingLeft}
-                    y1={barHeight}
-                    x2={svgWidth - paddingRight}
-                    y2={barHeight}
-                    stroke={isLight ? '#cbd5e1' : '#334155'}
-                    strokeWidth="1"
-                  />
+                {/* Date ticks along bottom */}
+                {dateTicks.map((t) => {
+                  const x = paddingLeft + t.dayIndex * dayStep;
+                  return (
+                    <g key={`dtick-${t.dayIndex}`} transform={`translate(${x}, ${chartHeight + 16})`}>
+                      <line x1="0" y1="-16" x2="0" y2="-12" stroke={isLight ? '#94a3b8' : '#475569'} strokeWidth="1" />
+                      <text
+                        textAnchor="middle"
+                        fontSize="10"
+                        fontFamily="monospace"
+                        fill={isLight ? '#64748b' : '#94a3b8'}
+                        fontWeight="500"
+                      >
+                        {t.date.getDate()}
+                      </text>
+                    </g>
+                  );
+                })}
 
-                  {/* Date labels along bottom */}
-                  {dateTicks.map((t) => {
-                    const x = paddingLeft + t.dayIndex * dayStep;
-                    return (
-                      <g key={`dtick-${t.dayIndex}`} transform={`translate(${x}, ${barHeight + 16})`}>
-                        <line x1="0" y1="-16" x2="0" y2="-12" stroke={isLight ? '#94a3b8' : '#475569'} strokeWidth="1" />
-                        <text
-                          textAnchor="middle"
-                          fontSize="10"
-                          fontFamily="monospace"
-                          fill={isLight ? '#64748b' : '#94a3b8'}
-                          fontWeight="500"
-                        >
-                          {t.date.getDate()}
-                        </text>
-                      </g>
-                    );
-                  })}
+                {/* Month Label */}
+                <text
+                  x={paddingLeft + 30}
+                  y={chartHeight + 30}
+                  fontSize="11"
+                  fontFamily="monospace"
+                  fill={isLight ? '#475569' : '#64748b'}
+                  fontWeight="700"
+                >
+                  {startDate.toLocaleDateString(undefined, { month: 'short' })}
+                </text>
 
-                  {/* Month Label */}
-                  <text
-                    x={paddingLeft + 30}
-                    y={barHeight + 30}
-                    fontSize="11"
-                    fontFamily="monospace"
-                    fill={isLight ? '#475569' : '#64748b'}
-                    fontWeight="700"
-                  >
-                    {startDate.toLocaleDateString(undefined, { month: 'short' })}
-                  </text>
-                </g>
-
-                {/* Interactive Crosshair when hovering */}
+                {/* Crosshair line when hovering */}
                 {hoveredDayIndex !== null && days[hoveredDayIndex] && (
                   <g pointerEvents="none">
                     <line
                       x1={paddingLeft + hoveredDayIndex * dayStep}
                       y1="0"
                       x2={paddingLeft + hoveredDayIndex * dayStep}
-                      y2={areaHeight + barHeight + 15}
+                      y2={chartHeight}
                       stroke="#38bdf8"
                       strokeWidth="1.5"
                       strokeDasharray="3 3"
@@ -675,7 +582,7 @@ export const FitnessZoneCharts: React.FC<FitnessZoneChartsProps> = ({
               </svg>
             </div>
 
-            {/* Hover Details Panel */}
+            {/* Hover Details Panel (Per-Day) */}
             {hoveredDayIndex !== null && days[hoveredDayIndex] && (
               <div
                 className={`p-3 rounded-xl border flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs transition-all ${
@@ -684,16 +591,42 @@ export const FitnessZoneCharts: React.FC<FitnessZoneChartsProps> = ({
                     : 'bg-slate-900/90 border-cyan-500/30 text-slate-200'
                 }`}
               >
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 flex-wrap">
                   <Calendar className="w-4 h-4 text-cyan-400" />
                   <span className="font-bold">
                     {days[hoveredDayIndex].dayLabel}
                   </span>
                   <span className="font-mono text-cyan-400 font-bold ml-1">
-                    Cumulative: {formatHoursMinutes(days[hoveredDayIndex].cumTotalSec)}
+                    Daily Total: {formatHoursMinutes(days[hoveredDayIndex].dayTotalSec)}
                   </span>
                 </div>
 
+                {/* Day Zone Breakdown */}
+                {days[hoveredDayIndex].dayTotalSec > 0 && (
+                  <div className="flex items-center gap-1.5 flex-wrap font-mono text-[11px]">
+                    {zoneIndicesBottomToTop.map((zIdx) => {
+                      const sec = days[hoveredDayIndex].dayZoneSec[zIdx];
+                      if (!sec || sec <= 0) return null;
+                      const zConfig = zoneConfigs[zIdx];
+                      return (
+                        <span
+                          key={`h-zone-${zIdx}`}
+                          className="px-1.5 py-0.5 rounded text-[10px] font-bold flex items-center gap-1 border"
+                          style={{
+                            backgroundColor: `${zConfig.color}20`,
+                            borderColor: `${zConfig.color}40`,
+                            color: zConfig.color,
+                          }}
+                        >
+                          <span>{zConfig.zone}:</span>
+                          <span>{formatHoursMinutes(sec)}</span>
+                        </span>
+                      );
+                    })}
+                  </div>
+                )}
+
+                {/* Workouts logged on this day */}
                 <div className="flex items-center gap-2 flex-wrap font-mono text-[11px]">
                   {days[hoveredDayIndex].workouts.length > 0 ? (
                     days[hoveredDayIndex].workouts.map((w) => (
