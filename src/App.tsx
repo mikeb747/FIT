@@ -80,6 +80,8 @@ import {
   setDemoModeActive,
   generateDemoActivities,
   generateDemoRecoveryLogs,
+  seedDemoActivityDetails,
+  isDemoActivityId,
 } from './utils/demoData';
 
 const STORAGE_KEYS = {
@@ -384,6 +386,10 @@ export default function App() {
     setDemoModeActive(true);
     setIsDemoActive(true);
     setGarminConnected(true);
+    // Seed high-fidelity stream data for all demo activities
+    void seedDemoActivityDetails().then((detailsMap) => {
+      setStravaActivityDetails((prev) => ({ ...prev, ...detailsMap }));
+    });
   }, []);
 
   const handleClearDemoData = useCallback(() => {
@@ -730,8 +736,20 @@ export default function App() {
 
     const loadCachedRecords = async () => {
       try {
-        const allCached = await getAllCachedStravaActivityRecords();
+        let allCached = await getAllCachedStravaActivityRecords();
         if (cancelled) return;
+
+        // If demo mode is active or demo activities exist, ensure streams are seeded
+        if (isDemoModeActive() || stravaActivities.some((a) => isDemoActivityId(a.id))) {
+          const hasMissingDemoStreams = stravaActivities
+            .filter((a) => isDemoActivityId(a.id))
+            .some((a) => !allCached[a.id]?.streams);
+          if (hasMissingDemoStreams || Object.keys(allCached).length === 0) {
+            const demoDetails = await seedDemoActivityDetails();
+            allCached = { ...allCached, ...demoDetails };
+          }
+        }
+
         if (allCached && Object.keys(allCached).length > 0) {
           setStravaActivityDetails((current) => ({ ...allCached, ...current }));
         }
@@ -742,7 +760,7 @@ export default function App() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [stravaActivities]);
 
   // Background stream downloader state & live progress subscription
   const [streamProgress, setStreamProgress] = useState<StreamDownloaderProgress>(() => getStreamDownloaderStatus());

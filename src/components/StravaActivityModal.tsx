@@ -65,6 +65,7 @@ import { MuteBadgeIcon } from './MuteBadgeIcon';
 import { ActivityCalibrationModal } from './ActivityCalibrationModal';
 import { appendActivityToTrainingLog } from '../utils/googleSheets';
 import { applyRenameRulesToName, updateStravaActivityName } from '../utils/activityRenameRules';
+import { isDemoActivityId, generateDemoActivityDetails } from '../utils/demoData';
 import { ErrorBoundary } from './ErrorBoundary';
 
 interface StravaActivityModalProps {
@@ -155,14 +156,24 @@ export const StravaActivityModal: React.FC<StravaActivityModalProps> = ({
   const [tssSaveSuccess, setTssSaveSuccess] = useState(false);
   const [showWorkCalc, setShowWorkCalc] = useState(false);
 
-  // Running 1km splits display mode: pace bar chart, HR bar chart, or cards grid
-  const [splitsDisplayMode, setSplitsDisplayMode] = useState<'pace' | 'hr' | 'cards'>('pace');
+  // Running 1km splits display mode: pace bar chart, GAP bar chart, HR bar chart, or cards grid
+  const [splitsDisplayMode, setSplitsDisplayMode] = useState<'pace' | 'gap' | 'hr' | 'cards'>('pace');
 
   const handleRecheckStreams = async () => {
-    if (!activity || !stravaToken) return;
+    if (!activity) return;
     setLoadingDetails(true);
     setDetailsError(null);
     try {
+      if (isDemoActivityId(activity.id)) {
+        const fresh = generateDemoActivityDetails(activity);
+        const saved = await saveStravaActivityDetails(activity.id, {
+          activity: fresh.activity || (activity as any),
+          streams: fresh.streams,
+        });
+        setDetailsRecord(saved);
+        return;
+      }
+      if (!stravaToken) return;
       const fresh = await fetchStravaActivityDetails(stravaToken, String(activity.id));
       const saved = await saveStravaActivityDetails(String(activity.id), fresh);
       setDetailsRecord(saved);
@@ -293,22 +304,34 @@ export const StravaActivityModal: React.FC<StravaActivityModalProps> = ({
       return;
     }
 
-    const activityId = String(activity.id);
+    const currentAct = activity;
+    const activityId = String(currentAct.id);
 
     // 1. Check if details already cached in IndexedDB
     let isCancelled = false;
     async function loadData() {
       try {
-        const cached = await getCachedStravaActivityRecord(activityId);
+        let cached = await getCachedStravaActivityRecord(activityId);
+
+        // If demo activity without cached streams, generate and cache realistic streams immediately
+        if (isDemoActivityId(activityId) && (!cached || !cached.streams)) {
+          const demoDetails = generateDemoActivityDetails(currentAct);
+          const savedDemo = await saveStravaActivityDetails(activityId, {
+            activity: demoDetails.activity || (currentAct as any),
+            streams: demoDetails.streams,
+          });
+          cached = savedDemo;
+        }
+
         if (cached && (cached.activity || cached.streams)) {
           if (!isCancelled) setDetailsRecord(cached);
           const cachedLaps = cached.activity?.laps;
           const hasCachedLaps = Array.isArray(cachedLaps) && cachedLaps.length > 0;
-          if (cached.lapsFetchedAt || hasCachedLaps || !stravaToken) return;
+          if (cached.lapsFetchedAt || hasCachedLaps || !stravaToken || isDemoActivityId(activityId)) return;
         }
 
         // Fetch missing lap button presses as well as detailed streams.
-        if (stravaToken) {
+        if (stravaToken && !isDemoActivityId(activityId)) {
           if (!isCancelled) setLoadingDetails(true);
           const fresh = await fetchStravaActivityDetails(stravaToken, activityId);
           const saved = await saveStravaActivityDetails(activityId, fresh);
@@ -1361,82 +1384,96 @@ export const StravaActivityModal: React.FC<StravaActivityModalProps> = ({
           {/* Running Kilometer Splits & Pacing Dynamics Breakdown */}
           {classification.category === 'Run' && runDetails && (
             <div className="p-3.5 rounded-2xl bg-slate-950/70 border border-slate-800 space-y-3 overflow-hidden">
-              <div className="flex items-center justify-between flex-wrap gap-2.5">
-                {/* Left side: Title & Left-Aligned Tabs Buttons */}
-                <div className="flex items-center gap-3 flex-wrap">
-                  <div className="flex items-center gap-2">
-                    <div className="w-7 h-7 rounded-lg bg-amber-500/15 border border-amber-500/30 flex items-center justify-center text-amber-400 shrink-0">
-                      <Footprints className="w-4 h-4" />
-                    </div>
-                    <div>
-                      <h4 className="text-xs font-bold text-amber-300 uppercase tracking-wider">
-                        Kilometer Splits ({runDetails.splits.length} Splits)
-                      </h4>
-                      <span className="text-[10px] text-slate-400">
-                        {runDetails.consistencySummary}
-                      </span>
-                    </div>
+              <div className="flex items-center justify-start flex-wrap gap-2.5">
+                {/* Title */}
+                <div className="flex items-center gap-2 mr-0.5">
+                  <div className="w-7 h-7 rounded-lg bg-amber-500/15 border border-amber-500/30 flex items-center justify-center text-amber-400 shrink-0">
+                    <Footprints className="w-4 h-4" />
                   </div>
-
-                  {/* View Mode Toggle: Left Aligned */}
-                  <div className="flex items-center gap-1 bg-slate-900 p-0.5 rounded-xl border border-slate-800 text-[11px] font-bold">
-                    <button
-                      type="button"
-                      onClick={() => setSplitsDisplayMode('pace')}
-                      className={`px-2.5 py-1 rounded-lg transition-colors cursor-pointer flex items-center gap-1 ${
-                        splitsDisplayMode === 'pace'
-                          ? 'bg-amber-500 text-slate-950 font-black'
-                          : 'text-slate-400 hover:text-white'
-                      }`}
-                      title="Display 1km splits as Pace bar chart"
-                    >
-                      <Gauge className="w-3 h-3" />
-                      <span>Pace Bar Chart</span>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setSplitsDisplayMode('hr')}
-                      className={`px-2.5 py-1 rounded-lg transition-colors cursor-pointer flex items-center gap-1 ${
-                        splitsDisplayMode === 'hr'
-                          ? 'bg-amber-500 text-slate-950 font-black'
-                          : 'text-slate-400 hover:text-white'
-                      }`}
-                      title="Display 1km splits as HR bar chart"
-                    >
-                      <Heart className="w-3 h-3 text-rose-400" />
-                      <span>HR Bar Chart</span>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setSplitsDisplayMode('cards')}
-                      className={`px-2.5 py-1 rounded-lg transition-colors cursor-pointer flex items-center gap-1 ${
-                        splitsDisplayMode === 'cards'
-                          ? 'bg-amber-500 text-slate-950 font-black'
-                          : 'text-slate-400 hover:text-white'
-                      }`}
-                      title="Display 1km splits as Cards"
-                    >
-                      <LayoutGrid className="w-3 h-3" />
-                      <span>Cards</span>
-                    </button>
+                  <div>
+                    <h4 className="text-xs font-bold text-amber-300 uppercase tracking-wider">
+                      Kilometer Splits ({runDetails.splits.length} Splits)
+                    </h4>
+                    <span className="text-[10px] text-slate-400">
+                      {runDetails.consistencySummary}
+                    </span>
                   </div>
                 </div>
 
-                {/* Right side: Summary Metric Badges */}
-                <div className="flex items-center gap-1.5 ml-auto sm:ml-0">
-                  <div className="px-2 py-0.5 rounded-md bg-slate-900 border border-slate-800 text-[11px] font-mono font-bold text-amber-400">
-                    Avg {runDetails.avgPaceFormatted}
+                {/* Left-Aligned Summary Metric Badges (Avg Pace, Cadence, GAP) */}
+                <div className="flex items-center gap-1.5 flex-wrap">
+                  <div className="px-2 py-0.5 rounded-md bg-slate-900 border border-slate-800 text-[11px] font-mono font-bold text-amber-400 flex items-center gap-1">
+                    <Gauge className="w-3 h-3 text-amber-400/80 inline" />
+                    <span>Avg {runDetails.avgPaceFormatted}</span>
                   </div>
                   {runDetails.avgCadence && (
-                    <div className="px-2 py-0.5 rounded-md bg-slate-900 border border-slate-800 text-[11px] font-mono text-slate-300">
-                      {runDetails.avgCadence} spm
+                    <div className="px-2 py-0.5 rounded-md bg-slate-900 border border-slate-800 text-[11px] font-mono text-slate-300 flex items-center gap-1">
+                      <Activity className="w-3 h-3 text-slate-400 inline" />
+                      <span>{runDetails.avgCadence} spm</span>
                     </div>
                   )}
                   {runDetails.gradeAdjustedPaceFormatted && (
-                    <div className="px-2 py-0.5 rounded-md bg-slate-900 border border-slate-800 text-[10px] font-mono text-emerald-400" title="Grade Adjusted Pace">
-                      GAP {runDetails.gradeAdjustedPaceFormatted}
+                    <div className="px-2 py-0.5 rounded-md bg-slate-900 border border-slate-800 text-[10px] font-mono text-emerald-400 flex items-center gap-1" title="Grade Adjusted Pace">
+                      <TrendingUp className="w-3 h-3 text-emerald-400 inline" />
+                      <span>GAP {runDetails.gradeAdjustedPaceFormatted}</span>
                     </div>
                   )}
+                </div>
+
+                {/* Left-Aligned View Mode Toggle Tabs (Pace, GAP, HR, Cards) */}
+                <div className="flex items-center gap-1 bg-slate-900 p-0.5 rounded-xl border border-slate-800 text-[11px] font-bold">
+                  <button
+                    type="button"
+                    onClick={() => setSplitsDisplayMode('pace')}
+                    className={`px-2.5 py-1 rounded-lg transition-colors cursor-pointer flex items-center gap-1 ${
+                      splitsDisplayMode === 'pace'
+                        ? 'bg-amber-500 text-slate-950 font-black'
+                        : 'text-slate-400 hover:text-white'
+                    }`}
+                    title="Display 1km splits as Pace bar chart"
+                  >
+                    <Gauge className="w-3 h-3" />
+                    <span>Pace Bar Chart</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setSplitsDisplayMode('gap')}
+                    className={`px-2.5 py-1 rounded-lg transition-colors cursor-pointer flex items-center gap-1 ${
+                      splitsDisplayMode === 'gap'
+                        ? 'bg-emerald-500 text-slate-950 font-black'
+                        : 'text-slate-400 hover:text-white'
+                    }`}
+                    title="Display 1km splits as Grade Adjusted Pace (GAP) bar chart"
+                  >
+                    <TrendingUp className="w-3 h-3 text-emerald-400" />
+                    <span>GAP Bar Chart</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setSplitsDisplayMode('hr')}
+                    className={`px-2.5 py-1 rounded-lg transition-colors cursor-pointer flex items-center gap-1 ${
+                      splitsDisplayMode === 'hr'
+                        ? 'bg-amber-500 text-slate-950 font-black'
+                        : 'text-slate-400 hover:text-white'
+                    }`}
+                    title="Display 1km splits as HR bar chart"
+                  >
+                    <Heart className="w-3 h-3 text-rose-400" />
+                    <span>HR Bar Chart</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setSplitsDisplayMode('cards')}
+                    className={`px-2.5 py-1 rounded-lg transition-colors cursor-pointer flex items-center gap-1 ${
+                      splitsDisplayMode === 'cards'
+                        ? 'bg-amber-500 text-slate-950 font-black'
+                        : 'text-slate-400 hover:text-white'
+                    }`}
+                    title="Display 1km splits as Cards"
+                  >
+                    <LayoutGrid className="w-3 h-3" />
+                    <span>Cards</span>
+                  </button>
                 </div>
               </div>
 
@@ -1487,6 +1524,76 @@ export const StravaActivityModal: React.FC<StravaActivityModalProps> = ({
                                 {split.avgHr ? (
                                   <span className="text-[9px] font-mono text-rose-400 mt-0.5 leading-none">
                                     {split.avgHr}
+                                  </span>
+                                ) : (
+                                  <span className="text-[9px] font-mono text-slate-500 mt-0.5 leading-none">
+                                    {split.distanceKm}k
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })()}
+
+              {/* GAP (Grade Adjusted Pace) Bar Chart View */}
+              {splitsDisplayMode === 'gap' && (() => {
+                const splitsWithGap = runDetails.splits.map((s) => ({
+                  ...s,
+                  gapSec: s.gapSecPerKm || s.paceSecPerKm || (s.movingTimeSec / Math.max(0.01, Number(s.distanceKm))),
+                }));
+                const minSec = Math.min(...splitsWithGap.map((s) => s.gapSec));
+                const maxSec = Math.max(...splitsWithGap.map((s) => s.gapSec));
+                const secRange = Math.max(1, maxSec - minSec);
+                const avgGapSec = splitsWithGap.reduce((acc, s) => acc + s.gapSec, 0) / Math.max(1, splitsWithGap.length);
+
+                return (
+                  <div className="space-y-1.5 pt-1 border-t border-slate-800/60">
+                    <div className="flex items-center justify-between text-[11px] text-slate-400 pb-0.5">
+                      <span className="font-semibold text-slate-300 flex items-center gap-1.5">
+                        <TrendingUp className="w-3.5 h-3.5 text-emerald-400" />
+                        Kilometer Grade Adjusted Pace (GAP /km)
+                      </span>
+                      <span className="font-mono text-emerald-400 text-[10px]">
+                        Flat-ground equivalent • Faster = Taller
+                      </span>
+                    </div>
+
+                    <div className="w-full overflow-x-auto pb-1 scrollbar-thin -mx-3.5 px-3.5">
+                      <div className="flex items-end gap-1.5 min-w-fit h-44 pt-4 px-0.5">
+                        {splitsWithGap.map((split) => {
+                          const heightPct = secRange === 0 ? 70 : 30 + ((maxSec - split.gapSec) / secRange) * 60;
+                          const isFasterThanAvgGap = split.gapSec < avgGapSec;
+                          return (
+                            <div
+                              key={split.splitIndex}
+                              className="flex flex-col items-center justify-end h-full min-w-[50px] sm:min-w-[56px] flex-1 group"
+                              title={`Km ${split.splitIndex}: GAP ${split.gapFormatted || split.paceFormatted} (Actual ${split.paceFormatted}) • ${split.distanceKm} km in ${formatDuration(split.movingTimeSec)}${split.elevationDiffM !== undefined ? ` • ${split.elevationDiffM > 0 ? `+${split.elevationDiffM}m climb` : `${split.elevationDiffM}m descent`}` : ''}${split.avgHr ? ` • ${split.avgHr} bpm` : ''}`}
+                            >
+                              <span className="text-[10px] font-mono font-bold text-emerald-300 whitespace-nowrap mb-1">
+                                {(split.gapFormatted || split.paceFormatted).replace('/km', '')}
+                              </span>
+
+                              <div
+                                style={{ height: `${Math.max(15, Math.min(100, heightPct))}%` }}
+                                className={`w-full rounded-t-lg transition-all group-hover:brightness-125 ${
+                                  isFasterThanAvgGap
+                                    ? 'bg-gradient-to-t from-emerald-600 to-emerald-400 border-t border-x border-emerald-300/40 shadow-xs shadow-emerald-500/20'
+                                    : 'bg-gradient-to-t from-teal-700/70 to-teal-400/80 border-t border-x border-teal-300/30'
+                                }`}
+                              />
+
+                              <div className="mt-1.5 flex flex-col items-center text-center">
+                                <span className="text-[11px] font-bold text-slate-200 font-mono leading-none">
+                                  Km {split.splitIndex}
+                                </span>
+                                {split.elevationDiffM !== undefined ? (
+                                  <span className={`text-[9px] font-mono mt-0.5 leading-none ${split.elevationDiffM > 0 ? 'text-amber-300' : 'text-sky-300'}`}>
+                                    {split.elevationDiffM > 0 ? `+${split.elevationDiffM}m` : `${split.elevationDiffM}m`}
                                   </span>
                                 ) : (
                                   <span className="text-[9px] font-mono text-slate-500 mt-0.5 leading-none">

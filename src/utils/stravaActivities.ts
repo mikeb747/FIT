@@ -736,6 +736,8 @@ export interface RunSplitItem {
   movingTimeSec: number;
   paceFormatted: string;
   paceSecPerKm?: number;
+  gapSecPerKm?: number;
+  gapFormatted?: string;
   avgHr?: number;
   elevationDiffM?: number;
   isFasterThanAvg?: boolean;
@@ -792,6 +794,29 @@ export interface BikeActivityDetails {
   hrZones: ZoneDistributionItem[];
 }
 
+export function computeSplitGapSec(paceSecPerKm: number, distanceM: number, elevationDiffM?: number): number {
+  if (!elevationDiffM || elevationDiffM === 0 || distanceM <= 0) return Math.round(paceSecPerKm);
+  const grade = elevationDiffM / distanceM;
+  const clampedGrade = Math.max(-0.30, Math.min(0.30, grade));
+  let costRatio = 1;
+  if (clampedGrade >= 0) {
+    // Uphill: costs more energy, flat equivalent pace is faster (lower seconds)
+    costRatio = 1 + 3.3 * clampedGrade + 4.0 * Math.pow(clampedGrade, 2);
+  } else {
+    // Downhill: runs faster, flat equivalent pace is slower (higher seconds)
+    const absG = Math.abs(clampedGrade);
+    costRatio = Math.max(0.75, 1 - 1.8 * absG + 3.5 * Math.pow(clampedGrade, 2));
+  }
+  return Math.max(90, Math.round(paceSecPerKm / costRatio));
+}
+
+export function formatPaceFromSeconds(secPerKm: number): string {
+  if (!secPerKm || secPerKm <= 0 || !Number.isFinite(secPerKm)) return '--:--/km';
+  const m = Math.floor(secPerKm / 60);
+  const s = Math.round(secPerKm % 60);
+  return `${m}:${s.toString().padStart(2, '0')}/km`;
+}
+
 export function getRunActivityDetails(
   activity: StravaActivity,
   details?: StravaActivityDetailsRecord,
@@ -827,14 +852,20 @@ export function getRunActivityDetails(
       const sSecPerKm = sDist > 0 ? sTime / (sDist / 1000) : secPerKm;
       const sm = Math.floor(sSecPerKm / 60);
       const ss = Math.round(sSecPerKm % 60);
+      const elevDiff = s.elevation_difference !== undefined ? Math.round(s.elevation_difference) : undefined;
+      const sGapSec = computeSplitGapSec(sSecPerKm, sDist, elevDiff);
+      const gm = Math.floor(sGapSec / 60);
+      const gs = Math.round(sGapSec % 60);
       splits.push({
         splitIndex: s.split || i + 1,
         distanceKm: (sDist / 1000).toFixed(2),
         movingTimeSec: sTime,
         paceFormatted: `${sm}:${ss.toString().padStart(2, '0')}/km`,
         paceSecPerKm: Math.round(sSecPerKm),
+        gapSecPerKm: sGapSec,
+        gapFormatted: `${gm}:${gs.toString().padStart(2, '0')}/km`,
         avgHr: s.average_heartrate ? Math.round(s.average_heartrate) : undefined,
-        elevationDiffM: s.elevation_difference !== undefined ? Math.round(s.elevation_difference) : undefined,
+        elevationDiffM: elevDiff,
         isFasterThanAvg: sSecPerKm < secPerKm,
       });
     }
@@ -853,6 +884,8 @@ export function getRunActivityDetails(
         movingTimeSec: Math.round(avgSecPerSplit),
         paceFormatted: `${sm}:${ss.toString().padStart(2, '0')}/km`,
         paceSecPerKm: Math.round(avgSecPerSplit),
+        gapSecPerKm: Math.round(avgSecPerSplit),
+        gapFormatted: `${sm}:${ss.toString().padStart(2, '0')}/km`,
         avgHr: activity.average_heartrate ? Math.round(activity.average_heartrate) : undefined,
         isFasterThanAvg: false,
       });
@@ -867,6 +900,8 @@ export function getRunActivityDetails(
         movingTimeSec: remTime,
         paceFormatted: `${sm}:${ss.toString().padStart(2, '0')}/km`,
         paceSecPerKm: Math.round(avgSecPerSplit),
+        gapSecPerKm: Math.round(avgSecPerSplit),
+        gapFormatted: `${sm}:${ss.toString().padStart(2, '0')}/km`,
         avgHr: activity.average_heartrate ? Math.round(activity.average_heartrate) : undefined,
         isFasterThanAvg: false,
       });
@@ -933,11 +968,23 @@ export function getRunActivityDetails(
 
   const elevGain = activity.total_elevation_gain ? Math.round(activity.total_elevation_gain) : 0;
   let gapFormatted: string | undefined;
-  if (elevGain > 10 && distanceM > 0) {
+
+  const splitsWithElev = splits.filter((s) => s.gapSecPerKm !== undefined && s.elevationDiffM !== undefined && s.elevationDiffM !== 0);
+  if (splitsWithElev.length > 0) {
+    const totalDist = splits.reduce((acc, s) => acc + (parseFloat(s.distanceKm) || 1), 0);
+    const weightedGapSec = splits.reduce((acc, s) => acc + (s.gapSecPerKm || secPerKm) * (parseFloat(s.distanceKm) || 1), 0) / Math.max(0.1, totalDist);
+    const gm = Math.floor(weightedGapSec / 60);
+    const gs = Math.round(weightedGapSec % 60);
+    gapFormatted = `${gm}:${gs.toString().padStart(2, '0')}/km`;
+  } else if (elevGain > 10 && distanceM > 0) {
     const grade = (elevGain / distanceM) * 100;
     const gapSec = Math.max(120, secPerKm * (1 - grade * 0.035));
     const gm = Math.floor(gapSec / 60);
     const gs = Math.round(gapSec % 60);
+    gapFormatted = `${gm}:${gs.toString().padStart(2, '0')}/km`;
+  } else {
+    const gm = Math.floor(secPerKm / 60);
+    const gs = Math.round(secPerKm % 60);
     gapFormatted = `${gm}:${gs.toString().padStart(2, '0')}/km`;
   }
 

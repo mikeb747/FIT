@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useRef } from 'react';
+import React, { useState, useMemo, useRef, useEffect } from 'react';
 import {
   Heart,
   Zap,
@@ -7,9 +7,10 @@ import {
   Gauge,
   Clock,
   Compass,
+  Waves,
 } from 'lucide-react';
 import type { StravaActivity } from '../utils/stravaActivities';
-import { classifyActivity, calculateNormalizedPower } from '../utils/stravaActivities';
+import { classifyActivity, calculateNormalizedPower, getRunActivityDetails } from '../utils/stravaActivities';
 import type { AthleteProfile } from '../types/athlete';
 import {
   getAthleteHeartRateZones,
@@ -42,24 +43,54 @@ export const StravaStreamPlot: React.FC<StravaStreamPlotProps> = ({
   activity,
   athleteProfile,
 }) => {
-  const [selectedMetric, setSelectedMetric] = useState<StreamMetricKey>('heartrate');
+  const classification = classifyActivity(activity);
+  const isBikeOrTurbo = classification.subType === 'Turbo Trainer' || classification.subType === 'Bike';
+  const isSwim = classification.category === 'Swim';
+  const isRun = classification.category === 'Run';
+
+  const [selectedMetric, setSelectedMetric] = useState<StreamMetricKey>(() => {
+    if (isBikeOrTurbo && streams?.watts?.data && streams.watts.data.length > 5) return 'watts';
+    if (streams?.velocity_smooth?.data && streams.velocity_smooth.data.length > 5) return 'velocity_smooth';
+    if (streams?.heartrate?.data && streams.heartrate.data.length > 5) return 'heartrate';
+    return 'heartrate';
+  });
   const [axisMode, setAxisMode] = useState<'distance' | 'time'>('time');
   const [hoverIndex, setHoverIndex] = useState<number | null>(null);
   const [selectedPointIndex, setSelectedPointIndex] = useState<number | null>(null);
 
   const containerRef = useRef<HTMLDivElement>(null);
-  const classification = classifyActivity(activity);
-  const isBikeOrTurbo = classification.subType === 'Turbo Trainer' || classification.subType === 'Bike';
 
-  // Available stream types
+  const runDetails = useMemo(() => {
+    if (!isRun) return null;
+    return getRunActivityDetails(activity, undefined, athleteProfile);
+  }, [activity, athleteProfile, isRun]);
+
+  // Available stream types strictly in user requested order:
+  // 1. Power / Pace first
+  // 2. Heart Rate
+  // 3. Speed (for Bike/Turbo where Power is primary and Speed is distinct)
+  // 4. Elevation (strictly excluded for Swim activities)
+  // 5. Cadence / Stroke (labelled "Stroke" for Swim)
   const availableMetrics = useMemo<MetricConfig[]>(() => {
     const list: MetricConfig[] = [];
 
-    if (streams?.velocity_smooth?.data && streams.velocity_smooth.data.length > 5) {
+    // 1. Power / Pace First
+    if (isBikeOrTurbo && streams?.watts?.data && streams.watts.data.length > 5) {
+      list.push({
+        key: 'watts',
+        label: 'Power',
+        unit: 'W',
+        color: '#f59e0b', // amber-500
+        gradientFrom: '#f59e0b',
+        gradientTo: '#78350f',
+        icon: <Zap className="w-3.5 h-3.5 text-amber-400" />,
+        formatValue: (v) => `${Math.round(v)} W`,
+      });
+    } else if ((isRun || isSwim) && streams?.velocity_smooth?.data && streams.velocity_smooth.data.length > 5) {
       list.push({
         key: 'velocity_smooth',
-        label: classification.category === 'Swim' ? 'Pace' : classification.category === 'Run' ? 'Pace' : 'Speed',
-        unit: classification.category === 'Swim' ? '/100m' : classification.category === 'Run' ? '/km' : 'kph',
+        label: 'Pace',
+        unit: isSwim ? '/100m' : '/km',
         color: '#38bdf8', // sky-400
         gradientFrom: '#38bdf8',
         gradientTo: '#0c4a6e',
@@ -78,8 +109,24 @@ export const StravaStreamPlot: React.FC<StravaStreamPlotProps> = ({
           return `${kph.toFixed(1)} kph`;
         },
       });
+    } else if (isBikeOrTurbo && streams?.velocity_smooth?.data && streams.velocity_smooth.data.length > 5 && (!streams?.watts?.data || streams.watts.data.length <= 5)) {
+      // Bike with no power meter -> Speed is primary
+      list.push({
+        key: 'velocity_smooth',
+        label: 'Speed',
+        unit: 'kph',
+        color: '#38bdf8',
+        gradientFrom: '#38bdf8',
+        gradientTo: '#0c4a6e',
+        icon: <Gauge className="w-3.5 h-3.5 text-sky-400" />,
+        formatValue: (v) => {
+          if (!v || v <= 0.1) return '--';
+          return `${(v * 3.6).toFixed(1)} kph`;
+        },
+      });
     }
 
+    // 2. Heart Rate Second
     if (streams?.heartrate?.data && streams.heartrate.data.length > 5) {
       list.push({
         key: 'heartrate',
@@ -93,21 +140,25 @@ export const StravaStreamPlot: React.FC<StravaStreamPlotProps> = ({
       });
     }
 
-    // Power: strictly gated for Turbo Trainer or Bike!
-    if (isBikeOrTurbo && streams?.watts?.data && streams.watts.data.length > 5) {
+    // 3. Speed Third (for Bike when Power was already added first)
+    if (isBikeOrTurbo && streams?.watts?.data && streams.watts.data.length > 5 && streams?.velocity_smooth?.data && streams.velocity_smooth.data.length > 5) {
       list.push({
-        key: 'watts',
-        label: 'Power',
-        unit: 'W',
-        color: '#f59e0b', // amber-500
-        gradientFrom: '#f59e0b',
-        gradientTo: '#78350f',
-        icon: <Zap className="w-3.5 h-3.5 text-amber-400" />,
-        formatValue: (v) => `${Math.round(v)} W`,
+        key: 'velocity_smooth',
+        label: 'Speed',
+        unit: 'kph',
+        color: '#38bdf8',
+        gradientFrom: '#38bdf8',
+        gradientTo: '#0c4a6e',
+        icon: <Gauge className="w-3.5 h-3.5 text-sky-400" />,
+        formatValue: (v) => {
+          if (!v || v <= 0.1) return '--';
+          return `${(v * 3.6).toFixed(1)} kph`;
+        },
       });
     }
 
-    if (streams?.altitude?.data && streams.altitude.data.length > 5) {
+    // 4. Elevation Fourth (strictly excluded for Swim activities!)
+    if (!isSwim && streams?.altitude?.data && streams.altitude.data.length > 5) {
       list.push({
         key: 'altitude',
         label: 'Elevation',
@@ -120,29 +171,44 @@ export const StravaStreamPlot: React.FC<StravaStreamPlotProps> = ({
       });
     }
 
+    // 5. Cadence / Stroke Fifth (labelled "Stroke" with spm for Swim)
     if (streams?.cadence?.data && streams.cadence.data.length > 5) {
-      const isRun = classification.category === 'Run';
+      const cadLabel = isSwim ? 'Stroke' : isRun ? 'Cadence (spm)' : 'Cadence';
+      const cadUnit = isSwim ? 'spm' : isRun ? 'spm' : 'rpm';
       list.push({
         key: 'cadence',
-        label: isRun ? 'Cadence (spm)' : 'Cadence',
-        unit: isRun ? 'spm' : 'rpm',
+        label: cadLabel,
+        unit: cadUnit,
         color: '#a855f7', // purple-500
         gradientFrom: '#a855f7',
         gradientTo: '#581c87',
-        icon: <TrendingUp className="w-3.5 h-3.5 text-purple-400" />,
-        formatValue: (v) => `${Math.round(v)} ${isRun ? 'spm' : 'rpm'}`,
+        icon: isSwim ? <Waves className="w-3.5 h-3.5 text-purple-400" /> : <TrendingUp className="w-3.5 h-3.5 text-purple-400" />,
+        formatValue: (v) => `${Math.round(v)} ${cadUnit}`,
       });
     }
 
     return list;
-  }, [streams, isBikeOrTurbo, classification.category]);
+  }, [streams, isBikeOrTurbo, isSwim, isRun]);
 
-  // Ensure current selected metric is valid
-  React.useEffect(() => {
-    if (availableMetrics.length > 0 && !availableMetrics.some((m) => m.key === selectedMetric)) {
-      setSelectedMetric(availableMetrics[0].key);
+  // Ensure current selected metric is valid and default to the first available metric
+  const initialMetricSetRef = useRef(false);
+  const prevActivityIdRef = useRef(activity.id);
+
+  useEffect(() => {
+    if (prevActivityIdRef.current !== activity.id) {
+      prevActivityIdRef.current = activity.id;
+      if (availableMetrics.length > 0) {
+        setSelectedMetric(availableMetrics[0].key);
+      }
+    } else if (availableMetrics.length > 0) {
+      if (!initialMetricSetRef.current) {
+        setSelectedMetric(availableMetrics[0].key);
+        initialMetricSetRef.current = true;
+      } else if (!availableMetrics.some((m) => m.key === selectedMetric)) {
+        setSelectedMetric(availableMetrics[0].key);
+      }
     }
-  }, [availableMetrics, selectedMetric]);
+  }, [activity.id, availableMetrics, selectedMetric]);
 
   const activeConfig = availableMetrics.find((m) => m.key === selectedMetric) || availableMetrics[0];
 
@@ -337,11 +403,10 @@ export const StravaStreamPlot: React.FC<StravaStreamPlotProps> = ({
     return Math.round(gain);
   }, [activity.total_elevation_gain, streams?.altitude?.data]);
 
-  // Active Minimum Cadence (for cycling: when power is in Zone 2+ >= 55% FTP and pedaling > 30 rpm; for running: active moving spm > 70)
+  // Active Minimum Cadence (for cycling: when power is in Zone 2+ >= 55% FTP and pedaling > 30 rpm; for running: active moving spm > 70; for swim: active stroke rate > 15 spm)
   const activeMinCadence = useMemo(() => {
     const rawCadData: number[] = streams?.cadence?.data || [];
     if (rawCadData.length === 0) return 0;
-    const isRun = classification.category === 'Run';
     const cadData = isRun ? rawCadData.map((c) => c * 2) : rawCadData;
     const wattsData: number[] = streams?.watts?.data || [];
     const z2ThresholdWatts = (athleteProfile.bikeFtp || 310) * 0.55;
@@ -352,10 +417,10 @@ export const StravaStreamPlot: React.FC<StravaStreamPlotProps> = ({
         return Math.min(...z2Cadences);
       }
     }
-    const minThreshold = isRun ? 70 : 35;
+    const minThreshold = isRun ? 70 : isSwim ? 15 : 35;
     const activeCad = cadData.filter((c) => c > minThreshold);
     return activeCad.length > 0 ? Math.min(...activeCad) : Math.round(chartData?.minVal || 0);
-  }, [streams?.cadence?.data, streams?.watts?.data, athleteProfile.bikeFtp, isBikeOrTurbo, classification.category, chartData?.minVal]);
+  }, [streams?.cadence?.data, streams?.watts?.data, athleteProfile.bikeFtp, isBikeOrTurbo, isRun, isSwim, chartData?.minVal]);
 
   // Active Minimum Speed (moving > 5 kph)
   const activeMinSpeedKph = useMemo(() => {
@@ -466,8 +531,31 @@ export const StravaStreamPlot: React.FC<StravaStreamPlotProps> = ({
     }
 
     if (selectedMetric === 'cadence') {
-      const isRun = classification.category === 'Run';
-      const cadenceUnit = isRun ? 'spm' : 'rpm';
+      const cadenceUnit = isSwim ? 'spm' : isRun ? 'spm' : 'rpm';
+
+      if (isSwim) {
+        return [
+          {
+            label: 'Min Stroke Rate',
+            value: activeMinCadence > 0 ? `${activeMinCadence} spm` : '--',
+            sub: 'While swimming (>15 spm)',
+            color: 'text-white',
+          },
+          {
+            label: 'Average Stroke Rate',
+            value: `${Math.round(chartData.avgVal)} spm`,
+            sub: 'Overall swim avg',
+            color: 'text-amber-300',
+          },
+          {
+            label: 'Max Stroke Rate',
+            value: `${Math.round(chartData.maxVal)} spm`,
+            sub: 'Peak stroke rate',
+            color: 'text-white',
+          },
+        ];
+      }
+
       return [
         {
           label: isBikeOrTurbo ? 'Active Min (Z2+)' : isRun ? 'Active Min (>70spm)' : 'Active Min',
@@ -629,29 +717,52 @@ export const StravaStreamPlot: React.FC<StravaStreamPlotProps> = ({
     <div className="flex flex-col gap-3 pt-1">
       {/* Stream Selector & Controls */}
       <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800/80 pb-3">
-        <div className="flex items-center gap-1.5 overflow-x-auto scrollbar-none">
-          {availableMetrics.map((metric) => {
-            const isActive = metric.key === selectedMetric;
-            return (
-              <button
-                key={metric.key}
-                type="button"
-                onClick={() => {
-                  setSelectedMetric(metric.key);
-                  setHoverIndex(null);
-                  setSelectedPointIndex(null);
-                }}
-                className={`px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer ${
-                  isActive
-                    ? 'bg-slate-800 text-white shadow-sm border border-slate-700 font-extrabold'
-                    : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900 border border-transparent'
-                }`}
-              >
-                {metric.icon}
-                <span>{metric.label}</span>
-              </button>
-            );
-          })}
+        <div className="flex items-center gap-2.5 flex-wrap">
+          <div className="flex items-center gap-1.5 overflow-x-auto scrollbar-none">
+            {availableMetrics.map((metric) => {
+              const isActive = metric.key === selectedMetric;
+              return (
+                <button
+                  key={metric.key}
+                  type="button"
+                  onClick={() => {
+                    setSelectedMetric(metric.key);
+                    setHoverIndex(null);
+                    setSelectedPointIndex(null);
+                  }}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer ${
+                    isActive
+                      ? 'bg-slate-800 text-white shadow-sm border border-slate-700 font-extrabold'
+                      : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900 border border-transparent'
+                  }`}
+                >
+                  {metric.icon}
+                  <span>{metric.label}</span>
+                </button>
+              );
+            })}
+          </div>
+
+          {/* Left-Aligned Run Badges: Avg Pace, Cadence, GAP */}
+          {classification.category === 'Run' && runDetails && (
+            <div className="flex items-center gap-1.5 flex-wrap">
+              <div className="px-2 py-0.5 rounded-md bg-slate-900 border border-slate-800 text-[11px] font-mono font-bold text-amber-400 flex items-center gap-1">
+                <Gauge className="w-3 h-3 text-amber-400/80 inline" />
+                <span>Avg {runDetails.avgPaceFormatted}</span>
+              </div>
+              {runDetails.avgCadence && (
+                <div className="px-2 py-0.5 rounded-md bg-slate-900 border border-slate-800 text-[11px] font-mono text-slate-300">
+                  {runDetails.avgCadence} spm
+                </div>
+              )}
+              {runDetails.gradeAdjustedPaceFormatted && (
+                <div className="px-2 py-0.5 rounded-md bg-slate-900 border border-slate-800 text-[10px] font-mono text-emerald-400 flex items-center gap-1" title="Grade Adjusted Pace">
+                  <TrendingUp className="w-3 h-3 text-emerald-400 inline" />
+                  <span>GAP {runDetails.gradeAdjustedPaceFormatted}</span>
+                </div>
+              )}
+            </div>
+          )}
         </div>
 
         {/* Axis Toggle: Distance vs Time */}
