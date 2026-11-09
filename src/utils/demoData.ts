@@ -116,6 +116,7 @@ export function generateDemoActivities(): StravaActivity[] {
       max_speed: 1.25,
       average_heartrate: 141,
       max_heartrate: 159,
+      average_cadence: 32,
       calories: 520,
       suffer_score: 65,
       laps: Array.from({ length: 20 }, (_, i) => ({
@@ -125,6 +126,9 @@ export function generateDemoActivities(): StravaActivity[] {
         distance: 100,
         moving_time: 96,
         elapsed_time: 100,
+        average_speed: 1.04,
+        average_heartrate: 136 + Math.round((i / 20) * 12),
+        average_cadence: 30 + (i % 4),
       })),
     },
     {
@@ -217,11 +221,12 @@ export function generateDemoActivities(): StravaActivity[] {
       max_speed: 1.2,
       average_heartrate: 136,
       max_heartrate: 152,
+      average_cadence: 32,
       calories: 430,
       suffer_score: 48,
       laps: [
-        { id: 8001, lap_index: 1, name: 'Main Outward Lap', distance: 1200, moving_time: 1180, elapsed_time: 1200 },
-        { id: 8002, lap_index: 2, name: 'Return Lap', distance: 1000, moving_time: 980, elapsed_time: 1000 },
+        { id: 8001, lap_index: 1, name: 'Main Outward Lap', distance: 1200, moving_time: 1180, elapsed_time: 1200, average_cadence: 31, average_heartrate: 134 },
+        { id: 8002, lap_index: 2, name: 'Return Lap', distance: 1000, moving_time: 980, elapsed_time: 1000, average_cadence: 33, average_heartrate: 138 },
       ],
     },
     {

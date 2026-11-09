@@ -14,7 +14,6 @@ import { classifyActivity, calculateNormalizedPower, getRunActivityDetails } fro
 import type { AthleteProfile } from '../types/athlete';
 import {
   getAthleteHeartRateZones,
-  getAthletePowerZones,
   formatSecondsToMinSec,
   formatDuration,
 } from '../types/athlete';
@@ -282,42 +281,6 @@ export const StravaStreamPlot: React.FC<StravaStreamPlotProps> = ({
       totalTime,
     };
   }, [streams, activeConfig]);
-
-  // HR Zones Breakdown if heart rate data available
-  // Power Zones Breakdown for Cycling activities (Turbo Trainer or Bike)
-  const powerZonesBreakdown = useMemo(() => {
-    if (!isBikeOrTurbo) return null;
-    const wData: number[] = streams?.watts?.data || [];
-    if (wData.length < 10) return null;
-
-    const zones = getAthletePowerZones(athleteProfile);
-    const counts = new Array(zones.length).fill(0);
-    let validCount = 0;
-
-    for (const w of wData) {
-      if (typeof w !== 'number' || w < 0 || w > 2000) continue;
-      validCount++;
-      let placed = false;
-      for (let i = 0; i < zones.length; i++) {
-        if (w <= zones[i].maxWatts) {
-          counts[i]++;
-          placed = true;
-          break;
-        }
-      }
-      if (!placed) {
-        counts[zones.length - 1]++;
-      }
-    }
-
-    if (validCount === 0) return null;
-
-    return zones.map((z, idx) => ({
-      ...z,
-      pct: Math.round((counts[idx] / validCount) * 100),
-      durationSec: Math.round((counts[idx] / validCount) * (activity.moving_time || 0)),
-    }));
-  }, [streams, athleteProfile, isBikeOrTurbo, activity.moving_time]);
 
   if (!streams || availableMetrics.length === 0) {
     return (
@@ -1038,52 +1001,6 @@ export const StravaStreamPlot: React.FC<StravaStreamPlotProps> = ({
           </div>
         ))}
       </div>
-
-      {/* Power Zone Distribution Bar (Strictly for Cycling Activities with Power Data) */}
-      {powerZonesBreakdown && (
-        <div className="pt-2 border-t border-slate-800/60 space-y-1.5">
-          <div className="flex items-center justify-between text-[11px]">
-            <span className="text-slate-300 font-bold flex items-center gap-1.5">
-              <Zap className="w-3.5 h-3.5 text-amber-400" />
-              <span>Power Zone Distribution</span>
-            </span>
-            <span className="text-slate-400 font-mono text-[10px]">
-              FTP: {athleteProfile.bikeFtp}W
-            </span>
-          </div>
-
-            {/* Stacked Percentage Bar */}
-            <div className="h-3 w-full rounded-full overflow-hidden bg-slate-900 flex shadow-inner">
-              {powerZonesBreakdown.map((z) =>
-                z.pct > 0 ? (
-                  <div
-                    key={z.zone}
-                    style={{ width: `${z.pct}%`, backgroundColor: z.color }}
-                    title={`Zone ${z.zone} (${z.name}): ${z.pct}% (${formatSecondsToMinSec(z.durationSec)}) [${z.rangeFormatted}]`}
-                    className="h-full transition-all relative group"
-                  />
-                ) : null
-              )}
-            </div>
-
-            {/* Zone Legend */}
-            <div className="grid grid-cols-6 gap-1 pt-0.5 text-[10px] font-mono">
-              {powerZonesBreakdown.map((z) => (
-                <div key={z.zone} className="flex flex-col items-center text-center">
-                  <span className="font-bold truncate" style={{ color: z.color }}>
-                    Z{z.zone} {z.pct}%
-                  </span>
-                  <span className="text-[9px] text-slate-400 truncate font-sans">
-                    {formatSecondsToMinSec(z.durationSec)}
-                  </span>
-                  <span className="text-[8px] text-slate-500 font-mono truncate">
-                    {z.rangeFormatted}
-                  </span>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
     </div>
   );
 };

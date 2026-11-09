@@ -15,7 +15,7 @@ import type { StravaActivity, StravaActivityDetailsRecord } from '../utils/strav
 import { classifyActivity } from '../utils/stravaActivities';
 import type { AthleteProfile } from '../types/athlete';
 
-export type WorkoutAnalysisMetric = 'pace' | 'swim_pace' | 'power' | 'heartrate' | 'speed';
+export type WorkoutAnalysisMetric = 'pace' | 'swim_pace' | 'stroke' | 'power' | 'heartrate' | 'speed';
 
 export interface WorkoutAnalysisLap {
   id: string | number;
@@ -35,6 +35,7 @@ export interface WorkoutAnalysisLap {
   avgWatts?: number;
   avgHr?: number;
   maxHr?: number;
+  avgCadence?: number; // Stroke rate for swim (spm), cadence for bike/run
   isRest?: boolean;
   isInterval?: boolean;
   zoneLabel: string;
@@ -175,6 +176,7 @@ export const WorkoutAnalysis: React.FC<WorkoutAnalysisProps> = ({
         const distM = lap.distanceM || 0;
         const durSec = lap.movingTimeSec || 0;
         const paceSec = !isRest && distM > 0 && durSec > 0 ? (durSec / distM) * 100 : 0;
+        const strokeRate = (lap as any).average_cadence || (lap as any).strokeRate || (activity.average_cadence ? Math.round(activity.average_cadence) : undefined);
 
         return {
           id: `calib-swim-${idx + 1}`,
@@ -189,6 +191,7 @@ export const WorkoutAnalysis: React.FC<WorkoutAnalysisProps> = ({
           swimPaceSecPer100m: paceSec,
           swimPaceFormatted: isRest ? 'Rest' : `${formatSwimPaceSec(paceSec)} /100m`,
           avgHr: activity.average_heartrate ? Math.round(activity.average_heartrate) : undefined,
+          avgCadence: isRest ? undefined : strokeRate,
           isRest,
           isInterval: !isRest && paceSec > 0 && paceSec <= thresholdSwimPaceSec,
           zoneLabel: isRest ? 'Rest' : getSwimPaceZone(paceSec, thresholdSwimPaceSec),
@@ -210,6 +213,20 @@ export const WorkoutAnalysis: React.FC<WorkoutAnalysisProps> = ({
         const swimPaceSec = distM > 0 && durSec > 0 ? (durSec / distM) * 100 : 0;
         const watts = lap.average_watts ? Math.round(lap.average_watts) : undefined;
         const hr = lap.average_heartrate ? Math.round(lap.average_heartrate) : undefined;
+
+        let strokeRate = lap.average_cadence ? Math.round(lap.average_cadence) : undefined;
+        const cadStream = (details?.streams as any)?.cadence?.data;
+        if (!strokeRate && category === 'Swim' && Array.isArray(cadStream)) {
+          if (typeof lap.start_index === 'number' && typeof lap.end_index === 'number' && cadStream.length > lap.start_index) {
+            const slice = cadStream.slice(lap.start_index, lap.end_index + 1).filter((c: number) => c > 15);
+            if (slice.length > 0) {
+              strokeRate = Math.round(slice.reduce((a: number, b: number) => a + b, 0) / slice.length);
+            }
+          }
+        }
+        if (!strokeRate && category === 'Swim' && activity.average_cadence) {
+          strokeRate = Math.round(activity.average_cadence);
+        }
 
         let zoneLabel = '';
         let isInterval = false;
@@ -245,6 +262,7 @@ export const WorkoutAnalysis: React.FC<WorkoutAnalysisProps> = ({
           avgWatts: category === 'Run' ? undefined : watts,
           avgHr: hr,
           maxHr: lap.max_heartrate ? Math.round(lap.max_heartrate) : undefined,
+          avgCadence: isRest ? undefined : strokeRate,
           isRest,
           isInterval,
           zoneLabel,
@@ -297,6 +315,7 @@ export const WorkoutAnalysis: React.FC<WorkoutAnalysisProps> = ({
     } else if (category === 'Swim') {
       list.push('swim_pace');
       if (hasHr) list.push('heartrate');
+      list.push('stroke');
     } else if (category === 'Bike') {
       if (hasWatts) list.push('power');
       if (hasHr) list.push('heartrate');
@@ -371,6 +390,14 @@ export const WorkoutAnalysis: React.FC<WorkoutAnalysisProps> = ({
       values = laps.map((l) => (l.swimPaceSecPer100m && l.swimPaceSecPer100m > 0 ? l.swimPaceSecPer100m : 180));
       const actDist100m = (activity.distance || 1) / 100;
       avgValue = activity.moving_time && actDist100m > 0 ? activity.moving_time / actDist100m : 105;
+    } else if (activeMetric === 'stroke') {
+      values = laps.map((l) => (l.avgCadence && l.avgCadence > 0 ? l.avgCadence : 0));
+      const nonZero = values.filter((v) => v > 0);
+      avgValue = activity.average_cadence
+        ? Math.round(activity.average_cadence)
+        : nonZero.length > 0
+        ? Math.round(nonZero.reduce((a, b) => a + b, 0) / nonZero.length)
+        : 32;
     } else if (activeMetric === 'power') {
       values = laps.map((l) => l.avgWatts || 0);
       avgValue = activity.average_watts || (values.length ? values.reduce((a, b) => a + b, 0) / values.length : 200);
@@ -411,6 +438,19 @@ export const WorkoutAnalysis: React.FC<WorkoutAnalysisProps> = ({
         const ratio = (s - yMin) / (yMax - yMin); // 0 at fastest (top), 1 at slowest (bottom)
         const label = activeMetric === 'pace' ? formatPaceSec(s) : formatSwimPaceSec(s);
         yTicks.push({ val: s, label, yRatio: ratio });
+      }
+    } else if (activeMetric === 'stroke') {
+      const strokeMin = Math.max(0, Math.floor((minVal - 3) / 5) * 5);
+      const strokeMax = Math.max(strokeMin + 20, Math.ceil((maxVal + 3) / 5) * 5);
+      yMin = strokeMin;
+      yMax = strokeMax;
+
+      const numTicks = 4;
+      const tickStep = (yMax - yMin) / numTicks;
+      for (let i = 0; i <= numTicks; i++) {
+        const val = Math.round(yMin + i * tickStep);
+        const ratio = 1 - (val - yMin) / (yMax - yMin);
+        yTicks.push({ val, label: String(val), yRatio: ratio });
       }
     } else {
       // Higher is taller (top of chart)
@@ -492,7 +532,9 @@ export const WorkoutAnalysis: React.FC<WorkoutAnalysisProps> = ({
       // Active fast interval vs recovery jog / slower pace:
       // Strava colors: active fast interval bouts are deep navy blue, recovery/slower are soft pastel blue
       const isSelected = lap.lapIndex === selectedLapIndex;
-      const isFastBout = lap.isInterval ?? (heightRatio >= 0.55);
+      const isFastBout = activeMetric === 'stroke'
+        ? (val >= (chartData?.avgValue || 30))
+        : (lap.isInterval ?? (heightRatio >= 0.55));
 
       return {
         lap,
@@ -505,7 +547,7 @@ export const WorkoutAnalysis: React.FC<WorkoutAnalysisProps> = ({
         isFastBout,
       };
     });
-  }, [chartData, laps, selectedLapIndex, PLOT_WIDTH, PLOT_HEIGHT, MARGIN_LEFT, MARGIN_TOP]);
+  }, [chartData, laps, selectedLapIndex, activeMetric, PLOT_WIDTH, PLOT_HEIGHT, MARGIN_LEFT, MARGIN_TOP]);
 
   // Selected Lap info formatted for the banner
   const activeMetricBannerText = useMemo<{
@@ -521,6 +563,11 @@ export const WorkoutAnalysis: React.FC<WorkoutAnalysisProps> = ({
       metricValStr = selectedLap.paceFormatted || '-- /km';
     } else if (activeMetric === 'swim_pace') {
       metricValStr = selectedLap.swimPaceFormatted || '-- /100m';
+    } else if (activeMetric === 'stroke') {
+      metricValStr = selectedLap.avgCadence ? `${selectedLap.avgCadence} spm` : '-- spm';
+      zoneStr = selectedLap.swimPaceFormatted && selectedLap.swimPaceFormatted !== 'Rest'
+        ? `${selectedLap.swimPaceFormatted} pace`
+        : selectedLap.zoneLabel || '';
     } else if (activeMetric === 'power') {
       metricValStr = selectedLap.avgWatts ? `${selectedLap.avgWatts} W` : '-- W';
       if (selectedLap.avgWatts && ftp > 0) {
@@ -617,6 +664,9 @@ export const WorkoutAnalysis: React.FC<WorkoutAnalysisProps> = ({
                 icon = <Footprints className="w-3 h-3" />;
               } else if (m === 'swim_pace') {
                 label = 'Swim Pace';
+                icon = <Gauge className="w-3 h-3" />;
+              } else if (m === 'stroke') {
+                label = 'Stroke';
                 icon = <Waves className="w-3 h-3" />;
               } else if (m === 'power') {
                 label = 'Power (W)';
@@ -734,6 +784,8 @@ export const WorkoutAnalysis: React.FC<WorkoutAnalysisProps> = ({
               ? '/km'
               : activeMetric === 'swim_pace'
               ? '/100m'
+              : activeMetric === 'stroke'
+              ? 'spm'
               : activeMetric === 'power'
               ? 'W'
               : activeMetric === 'heartrate'
@@ -907,6 +959,8 @@ export const WorkoutAnalysis: React.FC<WorkoutAnalysisProps> = ({
                     ? `${formatPaceSec(chartData.avgValue)}/km`
                     : activeMetric === 'swim_pace'
                     ? `${formatSwimPaceSec(chartData.avgValue)}/100m`
+                    : activeMetric === 'stroke'
+                    ? `${Math.round(chartData.avgValue)} spm`
                     : activeMetric === 'power'
                     ? `${Math.round(chartData.avgValue)}W`
                     : activeMetric === 'heartrate'
@@ -928,6 +982,8 @@ export const WorkoutAnalysis: React.FC<WorkoutAnalysisProps> = ({
                 let metricCellText = lap.paceFormatted || '--';
                 if (activeMetric === 'swim_pace') {
                   metricCellText = lap.swimPaceFormatted || '--';
+                } else if (activeMetric === 'stroke') {
+                  metricCellText = lap.avgCadence ? `${lap.avgCadence} spm` : '--';
                 } else if (activeMetric === 'power') {
                   metricCellText = lap.avgWatts ? `${lap.avgWatts} W` : '--';
                 } else if (activeMetric === 'heartrate') {
