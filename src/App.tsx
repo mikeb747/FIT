@@ -85,6 +85,7 @@ import {
 const STORAGE_KEYS = {
   STRAVA_TOKEN: 'ironfit_strava_token',
   STRAVA_ATHLETE: 'ironfit_strava_athlete',
+  STRAVA_AUTO_REFRESH_ON_OPEN: 'ironfit_strava_auto_refresh_on_open',
   BRAND_TITLE: 'ironfit_brand_title',
   BRAND_SUBTITLE: 'ironfit_brand_subtitle',
   DISPLAY_DENSITY: 'ironfit_display_density',
@@ -348,6 +349,23 @@ export default function App() {
   const [stravaActivitiesError, setStravaActivitiesError] = useState<string | null>(null);
 
   const [isStravaSettingsOpen, setIsStravaSettingsOpen] = useState(false);
+  const [autoRefreshOnOpen, setAutoRefreshOnOpen] = useState<boolean>(() => {
+    try {
+      const stored = localStorage.getItem(STORAGE_KEYS.STRAVA_AUTO_REFRESH_ON_OPEN);
+      return stored === 'true';
+    } catch {
+      return false;
+    }
+  });
+
+  const handleToggleAutoRefresh = (enabled: boolean) => {
+    setAutoRefreshOnOpen(enabled);
+    try {
+      localStorage.setItem(STORAGE_KEYS.STRAVA_AUTO_REFRESH_ON_OPEN, String(enabled));
+    } catch (err) {
+      console.warn('Failed to persist auto-refresh setting:', err);
+    }
+  };
 
   // AI Studio Preview Demo Mode
   const isAIStudioEnv = useMemo(() => isAIStudioEnvironment(), []);
@@ -689,6 +707,23 @@ export default function App() {
     }
   }, [stravaToken]);
 
+  // Auto-refresh on open: trigger delta sync whenever navigating to the Activities tab
+  const prevActiveTabRef = useRef<string | null>(null);
+  const lastAutoSyncTimeRef = useRef<number>(0);
+
+  useEffect(() => {
+    const isNavigatingToActivities = activeMainTab === 'activities' && prevActiveTabRef.current !== 'activities';
+    prevActiveTabRef.current = activeMainTab;
+
+    if (isNavigatingToActivities && autoRefreshOnOpen && stravaToken) {
+      const now = Date.now();
+      if (now - lastAutoSyncTimeRef.current > 5000 && !isLoadingStravaActivities) {
+        lastAutoSyncTimeRef.current = now;
+        void refreshStravaActivities();
+      }
+    }
+  }, [activeMainTab, autoRefreshOnOpen, stravaToken, isLoadingStravaActivities]);
+
   // Pre-load all existing IndexedDB activity records on startup
   useEffect(() => {
     let cancelled = false;
@@ -895,7 +930,16 @@ export default function App() {
           >
             <button
               type="button"
-              onClick={() => setActiveMainTab('activities')}
+              onClick={() => {
+                if (activeMainTab === 'activities' && autoRefreshOnOpen && stravaToken && !isLoadingStravaActivities) {
+                  const now = Date.now();
+                  if (now - lastAutoSyncTimeRef.current > 5000) {
+                    lastAutoSyncTimeRef.current = now;
+                    void refreshStravaActivities();
+                  }
+                }
+                setActiveMainTab('activities');
+              }}
               style={{ flexGrow: 1, flexShrink: 0 }}
               className={`split-pill-item ${buttonPaddingClass} h-full grow shrink-0 text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer rounded-none outline-none focus:outline-none focus:ring-0 ${
                 activeMainTab === 'activities'
@@ -1245,6 +1289,8 @@ export default function App() {
         stravaAccessToken={stravaToken}
         athleteName={athleteName}
         onTokenUpdated={handleTokenUpdated}
+        autoRefreshOnOpen={autoRefreshOnOpen}
+        onToggleAutoRefresh={handleToggleAutoRefresh}
       />
 
       <GarminSyncModal

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { X, ExternalLink, Unplug, ShieldAlert } from 'lucide-react';
+import { X, ExternalLink, Unplug, ShieldAlert, RefreshCw } from 'lucide-react';
 import { StravaIcon } from './StravaIcon';
 import {
   buildStravaAuthUrl,
@@ -13,6 +13,8 @@ interface StravaSettingsModalProps {
   stravaAccessToken: string | null;
   athleteName: string | null;
   onTokenUpdated: (token: string | null, tokenData?: StravaTokenResponse | null) => void;
+  autoRefreshOnOpen?: boolean;
+  onToggleAutoRefresh?: (enabled: boolean) => void;
 }
 
 export const StravaSettingsModal: React.FC<StravaSettingsModalProps> = ({
@@ -21,7 +23,26 @@ export const StravaSettingsModal: React.FC<StravaSettingsModalProps> = ({
   stravaAccessToken,
   athleteName,
   onTokenUpdated,
+  autoRefreshOnOpen,
+  onToggleAutoRefresh,
 }) => {
+  const [internalAutoRefresh, setInternalAutoRefresh] = useState(() => {
+    try {
+      return localStorage.getItem('ironfit_strava_auto_refresh_on_open') === 'true';
+    } catch {
+      return false;
+    }
+  });
+
+  const isAutoRefresh = autoRefreshOnOpen !== undefined ? autoRefreshOnOpen : internalAutoRefresh;
+
+  const handleToggleAutoRefresh = (val: boolean) => {
+    setInternalAutoRefresh(val);
+    try {
+      localStorage.setItem('ironfit_strava_auto_refresh_on_open', String(val));
+    } catch {}
+    onToggleAutoRefresh?.(val);
+  };
   const [isConnecting, setIsConnecting] = useState(false);
   const [authError, setAuthError] = useState<string | null>(null);
 
@@ -144,6 +165,38 @@ export const StravaSettingsModal: React.FC<StravaSettingsModalProps> = ({
               <span>Disconnect</span>
             </button>
           )}
+        </div>
+
+        {/* Auto-refresh on open toggle */}
+        <div className="p-4 rounded-2xl bg-slate-950 border border-slate-800 flex items-center justify-between gap-4">
+          <div className="flex-1 pr-2">
+            <div className="flex items-center gap-1.5 text-xs uppercase font-bold tracking-wider text-slate-400">
+              <RefreshCw className="w-3.5 h-3.5 text-[#FC5200]" />
+              <span>Sync Behavior</span>
+            </div>
+            <div className="text-sm font-bold text-white mt-1">Auto-refresh on open</div>
+            <p className="text-xs text-slate-400 mt-0.5 leading-relaxed">
+              Automatically trigger a delta sync whenever navigating to the Activities tab.
+            </p>
+          </div>
+
+          <button
+            type="button"
+            role="switch"
+            aria-checked={isAutoRefresh}
+            onClick={() => handleToggleAutoRefresh(!isAutoRefresh)}
+            className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-[#FC5200] focus:ring-offset-2 focus:ring-offset-slate-950 ${
+              isAutoRefresh ? 'bg-[#FC5200]' : 'bg-slate-700'
+            }`}
+            title={isAutoRefresh ? 'Disable auto-refresh on open' : 'Enable auto-refresh on open'}
+          >
+            <span
+              aria-hidden="true"
+              className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow-md ring-0 transition duration-200 ease-in-out ${
+                isAutoRefresh ? 'translate-x-5' : 'translate-x-0'
+              }`}
+            />
+          </button>
         </div>
 
         <p className="text-xs text-slate-400 leading-relaxed">

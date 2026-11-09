@@ -55,6 +55,31 @@ export const StravaStreamPlot: React.FC<StravaStreamPlotProps> = ({
   const availableMetrics = useMemo<MetricConfig[]>(() => {
     const list: MetricConfig[] = [];
 
+    if (streams?.velocity_smooth?.data && streams.velocity_smooth.data.length > 5) {
+      list.push({
+        key: 'velocity_smooth',
+        label: classification.category === 'Swim' ? 'Pace' : classification.category === 'Run' ? 'Pace' : 'Speed',
+        unit: classification.category === 'Swim' ? '/100m' : classification.category === 'Run' ? '/km' : 'kph',
+        color: '#38bdf8', // sky-400
+        gradientFrom: '#38bdf8',
+        gradientTo: '#0c4a6e',
+        icon: <Gauge className="w-3.5 h-3.5 text-sky-400" />,
+        formatValue: (v, cat) => {
+          if (!v || v <= 0.1) return '--';
+          if (cat === 'Run') {
+            const secPerKm = 1000 / v;
+            return `${formatSecondsToMinSec(secPerKm)}/km`;
+          }
+          if (cat === 'Swim') {
+            const secPer100m = 100 / v;
+            return `${formatSecondsToMinSec(secPer100m)}/100m`;
+          }
+          const kph = v * 3.6;
+          return `${kph.toFixed(1)} kph`;
+        },
+      });
+    }
+
     if (streams?.heartrate?.data && streams.heartrate.data.length > 5) {
       list.push({
         key: 'heartrate',
@@ -79,31 +104,6 @@ export const StravaStreamPlot: React.FC<StravaStreamPlotProps> = ({
         gradientTo: '#78350f',
         icon: <Zap className="w-3.5 h-3.5 text-amber-400" />,
         formatValue: (v) => `${Math.round(v)} W`,
-      });
-    }
-
-    if (streams?.velocity_smooth?.data && streams.velocity_smooth.data.length > 5) {
-      list.push({
-        key: 'velocity_smooth',
-        label: classification.category === 'Swim' ? 'Pace' : classification.category === 'Run' ? 'Pace' : 'Speed',
-        unit: classification.category === 'Swim' ? '/100m' : classification.category === 'Run' ? '/km' : 'kph',
-        color: '#38bdf8', // sky-400
-        gradientFrom: '#38bdf8',
-        gradientTo: '#0c4a6e',
-        icon: <Gauge className="w-3.5 h-3.5 text-sky-400" />,
-        formatValue: (v, cat) => {
-          if (!v || v <= 0.1) return '--';
-          if (cat === 'Run') {
-            const secPerKm = 1000 / v;
-            return `${formatSecondsToMinSec(secPerKm)}/km`;
-          }
-          if (cat === 'Swim') {
-            const secPer100m = 100 / v;
-            return `${formatSecondsToMinSec(secPer100m)}/100m`;
-          }
-          const kph = v * 3.6;
-          return `${kph.toFixed(1)} kph`;
-        },
       });
     }
 
@@ -670,17 +670,6 @@ export const StravaStreamPlot: React.FC<StravaStreamPlotProps> = ({
           <div className="flex items-center gap-1 bg-slate-900 p-0.5 rounded-xl border border-slate-800 text-[11px] font-bold">
             <button
               type="button"
-              onClick={() => setAxisMode('distance')}
-              className={`px-2.5 py-1 rounded-lg transition-colors cursor-pointer ${
-                axisMode === 'distance'
-                  ? 'bg-amber-500 text-slate-950 font-black'
-                  : 'text-slate-400 hover:text-white'
-              }`}
-            >
-              Distance
-            </button>
-            <button
-              type="button"
               onClick={() => setAxisMode('time')}
               className={`px-2.5 py-1 rounded-lg transition-colors cursor-pointer ${
                 axisMode === 'time'
@@ -689,6 +678,17 @@ export const StravaStreamPlot: React.FC<StravaStreamPlotProps> = ({
               }`}
             >
               Time
+            </button>
+            <button
+              type="button"
+              onClick={() => setAxisMode('distance')}
+              className={`px-2.5 py-1 rounded-lg transition-colors cursor-pointer ${
+                axisMode === 'distance'
+                  ? 'bg-amber-500 text-slate-950 font-black'
+                  : 'text-slate-400 hover:text-white'
+              }`}
+            >
+              Distance
             </button>
           </div>
         </div>

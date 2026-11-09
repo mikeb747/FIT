@@ -28,6 +28,9 @@ import {
   Watch,
   ChevronDown,
   Pencil,
+  RefreshCw,
+  BarChart2,
+  LayoutGrid,
 } from 'lucide-react';
 import type {
   StravaActivity,
@@ -151,6 +154,25 @@ export const StravaActivityModal: React.FC<StravaActivityModalProps> = ({
   const [isSavingTss, setIsSavingTss] = useState(false);
   const [tssSaveSuccess, setTssSaveSuccess] = useState(false);
   const [showWorkCalc, setShowWorkCalc] = useState(false);
+
+  // Running 1km splits display mode: pace bar chart, HR bar chart, or cards grid
+  const [splitsDisplayMode, setSplitsDisplayMode] = useState<'pace' | 'hr' | 'cards'>('pace');
+
+  const handleRecheckStreams = async () => {
+    if (!activity || !stravaToken) return;
+    setLoadingDetails(true);
+    setDetailsError(null);
+    try {
+      const fresh = await fetchStravaActivityDetails(stravaToken, String(activity.id));
+      const saved = await saveStravaActivityDetails(String(activity.id), fresh);
+      setDetailsRecord(saved);
+    } catch (err: any) {
+      console.error('[Recheck Streams Error]', err);
+      setDetailsError(err.message || 'Could not fetch detailed streams from Strava');
+    } finally {
+      setLoadingDetails(false);
+    }
+  };
 
   const currentActivityName = localName ?? (activity ? applyRenameRulesToName(activity.name).newName : '');
 
@@ -663,24 +685,6 @@ export const StravaActivityModal: React.FC<StravaActivityModalProps> = ({
               </span>
             )}
 
-            {/* Workout Analysis Jump Button */}
-            <button
-              type="button"
-              onClick={() => {
-                const el = document.getElementById('workout-analysis-section');
-                el?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-              }}
-              className={`inline-flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-xl border-2 transition-all cursor-pointer font-bold ${
-                isLight
-                  ? 'bg-blue-50 hover:bg-blue-100 text-blue-700 border-blue-400 hover:border-blue-500 shadow-xs'
-                  : 'bg-blue-600/15 hover:bg-blue-600/25 text-blue-300 border-blue-500/50 hover:border-blue-400 shadow-xs'
-              }`}
-              title="Jump to Workout Analysis"
-            >
-              <Activity className="w-3.5 h-3.5" />
-              <span>Workout Analysis</span>
-            </button>
-
             {/* Calibrate / Fix Data quick button with border */}
             <button
               type="button"
@@ -766,11 +770,21 @@ export const StravaActivityModal: React.FC<StravaActivityModalProps> = ({
               <span className="text-sm sm:text-base font-bold font-mono text-white mt-1">
                 {metrics.primaryMetricLabel}
               </span>
-              {/* Only show secondary metric if not Bike or Turbo Trainer, omitting speed/watts duplicate */}
-              {metrics.secondaryMetricLabel && !isBikeOrTurbo && (
-                <span className="text-[10px] text-amber-400 font-mono">
-                  {metrics.secondaryMetricLabel}
-                </span>
+              {/* For swim: show average Heart Rate instead of average pace/100m */}
+              {classification.category === 'Swim' ? (
+                activity.average_heartrate ? (
+                  <span className="text-[10px] text-rose-400 font-mono flex items-center gap-1">
+                    <Heart className="w-2.5 h-2.5" />
+                    <span>{Math.round(activity.average_heartrate)} bpm avg HR</span>
+                  </span>
+                ) : null
+              ) : (
+                /* Only show secondary metric if not Bike or Turbo Trainer, omitting speed/watts duplicate */
+                metrics.secondaryMetricLabel && !isBikeOrTurbo && (
+                  <span className="text-[10px] text-amber-400 font-mono">
+                    {metrics.secondaryMetricLabel}
+                  </span>
+                )
               )}
             </div>
 
@@ -944,7 +958,7 @@ export const StravaActivityModal: React.FC<StravaActivityModalProps> = ({
                       <span className="text-xs font-black text-amber-300 uppercase tracking-wider">
                         Training Stress Score
                       </span>
-                      <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-200">
+                      <span className="text-[10px] font-black px-2.5 py-0.5 rounded-full bg-amber-200/90 text-[#78350F] border border-amber-600/30">
                         {tssResult.type}
                       </span>
                       {detailsRecord?.calibration?.manualTss !== undefined && (
@@ -1373,59 +1387,236 @@ export const StravaActivityModal: React.FC<StravaActivityModalProps> = ({
                   </div>
                 </div>
 
-                <div className="flex items-center gap-2 text-right">
-                  <div className="px-2 py-0.5 rounded-md bg-slate-900 border border-slate-800 text-[11px] font-mono font-bold text-amber-400">
-                    Avg {runDetails.avgPaceFormatted}
+                <div className="flex items-center gap-2 flex-wrap justify-end">
+                  {/* View Mode Toggle: Pace Bar Chart, HR Bar Chart, Cards */}
+                  <div className="flex items-center gap-1 bg-slate-900 p-0.5 rounded-xl border border-slate-800 text-[11px] font-bold">
+                    <button
+                      type="button"
+                      onClick={() => setSplitsDisplayMode('pace')}
+                      className={`px-2.5 py-1 rounded-lg transition-colors cursor-pointer flex items-center gap-1 ${
+                        splitsDisplayMode === 'pace'
+                          ? 'bg-amber-500 text-slate-950 font-black'
+                          : 'text-slate-400 hover:text-white'
+                      }`}
+                      title="Display 1km splits as Pace bar chart"
+                    >
+                      <Gauge className="w-3 h-3" />
+                      <span>Pace Bar Chart</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setSplitsDisplayMode('hr')}
+                      className={`px-2.5 py-1 rounded-lg transition-colors cursor-pointer flex items-center gap-1 ${
+                        splitsDisplayMode === 'hr'
+                          ? 'bg-amber-500 text-slate-950 font-black'
+                          : 'text-slate-400 hover:text-white'
+                      }`}
+                      title="Display 1km splits as HR bar chart"
+                    >
+                      <Heart className="w-3 h-3 text-rose-400" />
+                      <span>HR Bar Chart</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setSplitsDisplayMode('cards')}
+                      className={`px-2.5 py-1 rounded-lg transition-colors cursor-pointer flex items-center gap-1 ${
+                        splitsDisplayMode === 'cards'
+                          ? 'bg-amber-500 text-slate-950 font-black'
+                          : 'text-slate-400 hover:text-white'
+                      }`}
+                      title="Display 1km splits as Cards"
+                    >
+                      <LayoutGrid className="w-3 h-3" />
+                      <span>Cards</span>
+                    </button>
                   </div>
-                  {runDetails.avgCadence && (
-                    <div className="px-2 py-0.5 rounded-md bg-slate-900 border border-slate-800 text-[11px] font-mono text-slate-300">
-                      {runDetails.avgCadence} spm
-                    </div>
-                  )}
-                  {runDetails.gradeAdjustedPaceFormatted && (
-                    <div className="px-2 py-0.5 rounded-md bg-slate-900 border border-slate-800 text-[10px] font-mono text-emerald-400" title="Grade Adjusted Pace">
-                      GAP {runDetails.gradeAdjustedPaceFormatted}
-                    </div>
-                  )}
-                </div>
-              </div>
 
-              {/* Splits Grid */}
-              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 max-h-52 overflow-y-auto pt-1">
-                {runDetails.splits.map((split) => (
-                  <div
-                    key={split.splitIndex}
-                    className="p-2.5 rounded-xl bg-slate-900 border border-slate-800/80 flex flex-col text-xs transition-colors hover:border-amber-500/30"
-                  >
-                    <div className="flex items-center justify-between text-slate-400 text-[10px]">
-                      <span className="font-semibold text-slate-300">Km {split.splitIndex}</span>
-                      <span>{split.distanceKm} km</span>
+                  <div className="flex items-center gap-1.5">
+                    <div className="px-2 py-0.5 rounded-md bg-slate-900 border border-slate-800 text-[11px] font-mono font-bold text-amber-400">
+                      Avg {runDetails.avgPaceFormatted}
                     </div>
-                    <div className="flex items-center justify-between font-mono font-bold text-white mt-1">
-                      <span className={split.isFasterThanAvg ? 'text-amber-400' : 'text-slate-200'}>
-                        {split.paceFormatted}
-                      </span>
-                      {split.avgHr ? (
-                        <span className="text-rose-400 text-[11px] flex items-center gap-0.5">
-                          <Heart className="w-2.5 h-2.5 inline" /> {split.avgHr}
-                        </span>
-                      ) : (
-                        <span className="text-slate-500 text-[10px]">
-                          {formatDuration(split.movingTimeSec)}
-                        </span>
-                      )}
-                    </div>
-                    {split.elevationDiffM !== undefined && (
-                      <div className="text-[10px] text-slate-400 mt-1 flex items-center justify-between pt-1 border-t border-slate-800/60">
-                        <span>Elevation:</span>
-                        <span className={split.elevationDiffM > 0 ? 'text-amber-300' : 'text-slate-400'}>
-                          {split.elevationDiffM > 0 ? `+${split.elevationDiffM}m` : `${split.elevationDiffM}m`}
-                        </span>
+                    {runDetails.avgCadence && (
+                      <div className="px-2 py-0.5 rounded-md bg-slate-900 border border-slate-800 text-[11px] font-mono text-slate-300">
+                        {runDetails.avgCadence} spm
+                      </div>
+                    )}
+                    {runDetails.gradeAdjustedPaceFormatted && (
+                      <div className="px-2 py-0.5 rounded-md bg-slate-900 border border-slate-800 text-[10px] font-mono text-emerald-400" title="Grade Adjusted Pace">
+                        GAP {runDetails.gradeAdjustedPaceFormatted}
                       </div>
                     )}
                   </div>
-                ))}
+                </div>
               </div>
+
+              {/* Pace Bar Chart View */}
+              {splitsDisplayMode === 'pace' && (() => {
+                const splitsWithPace = runDetails.splits.map((s) => ({
+                  ...s,
+                  paceSec: s.paceSecPerKm || (s.movingTimeSec / Math.max(0.01, Number(s.distanceKm))),
+                }));
+                const minSec = Math.min(...splitsWithPace.map((s) => s.paceSec));
+                const maxSec = Math.max(...splitsWithPace.map((s) => s.paceSec));
+                const secRange = Math.max(1, maxSec - minSec);
+
+                return (
+                  <div className="p-3 rounded-xl bg-slate-900/80 border border-slate-800/80 space-y-2">
+                    <div className="flex items-center justify-between text-[11px] text-slate-400 pb-1 border-b border-slate-800/60">
+                      <span className="font-semibold text-slate-300">Kilometer Pace Progression (/km)</span>
+                      <span className="font-mono text-amber-400 text-[10px]">Faster splits = Taller bars</span>
+                    </div>
+
+                    <div className="w-full overflow-x-auto pb-1 scrollbar-thin">
+                      <div className="flex items-end gap-2 min-w-fit h-44 pt-6 px-1">
+                        {splitsWithPace.map((split) => {
+                          const heightPct = secRange === 0 ? 70 : 30 + ((maxSec - split.paceSec) / secRange) * 60;
+                          return (
+                            <div
+                              key={split.splitIndex}
+                              className="flex flex-col items-center justify-end h-full min-w-[52px] sm:min-w-[58px] flex-1 group"
+                              title={`Km ${split.splitIndex}: ${split.paceFormatted} • ${split.distanceKm} km in ${formatDuration(split.movingTimeSec)}${split.avgHr ? ` • ${split.avgHr} bpm` : ''}${split.elevationDiffM ? ` • ${split.elevationDiffM > 0 ? '+' : ''}${split.elevationDiffM}m elev` : ''}`}
+                            >
+                              <span className="text-[10px] font-mono font-bold text-amber-300 whitespace-nowrap mb-1">
+                                {split.paceFormatted.replace('/km', '')}
+                              </span>
+
+                              <div
+                                style={{ height: `${Math.max(15, Math.min(100, heightPct))}%` }}
+                                className={`w-full rounded-t-lg transition-all group-hover:brightness-125 ${
+                                  split.isFasterThanAvg
+                                    ? 'bg-gradient-to-t from-amber-600 to-amber-400 border-t border-x border-amber-300/40 shadow-xs shadow-amber-500/20'
+                                    : 'bg-gradient-to-t from-sky-600/70 to-sky-400/80 border-t border-x border-sky-300/30'
+                                }`}
+                              />
+
+                              <div className="mt-1.5 flex flex-col items-center text-center">
+                                <span className="text-[11px] font-bold text-slate-200 font-mono leading-none">
+                                  Km {split.splitIndex}
+                                </span>
+                                {split.avgHr ? (
+                                  <span className="text-[9px] font-mono text-rose-400 mt-0.5 leading-none">
+                                    {split.avgHr}
+                                  </span>
+                                ) : (
+                                  <span className="text-[9px] font-mono text-slate-500 mt-0.5 leading-none">
+                                    {split.distanceKm}k
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })()}
+
+              {/* Heart Rate Bar Chart View */}
+              {splitsDisplayMode === 'hr' && (() => {
+                const hrValues = runDetails.splits
+                  .map((s) => s.avgHr)
+                  .filter((h): h is number => typeof h === 'number' && h > 0);
+                const hasHr = hrValues.length > 0;
+                const minHr = hasHr ? Math.min(...hrValues) : 100;
+                const maxHr = hasHr ? Math.max(...hrValues) : 180;
+                const hrRange = Math.max(1, maxHr - minHr);
+
+                return (
+                  <div className="p-3 rounded-xl bg-slate-900/80 border border-slate-800/80 space-y-2">
+                    <div className="flex items-center justify-between text-[11px] text-slate-400 pb-1 border-b border-slate-800/60">
+                      <span className="font-semibold text-slate-300 flex items-center gap-1">
+                        <Heart className="w-3 h-3 text-rose-400" />
+                        Kilometer Average Heart Rate (bpm)
+                      </span>
+                      {hasHr && (
+                        <span className="font-mono text-rose-400 text-[10px]">
+                          Avg {Math.round(hrValues.reduce((a, b) => a + b, 0) / hrValues.length)} bpm
+                        </span>
+                      )}
+                    </div>
+
+                    {!hasHr ? (
+                      <div className="py-8 text-center text-xs text-slate-400">
+                        No heart rate stream recorded for these 1km splits.
+                      </div>
+                    ) : (
+                      <div className="w-full overflow-x-auto pb-1 scrollbar-thin">
+                        <div className="flex items-end gap-2 min-w-fit h-44 pt-6 px-1">
+                          {runDetails.splits.map((split) => {
+                            const hr = split.avgHr || 0;
+                            const heightPct = hrRange === 0 || !hr ? 50 : 30 + ((hr - minHr) / hrRange) * 60;
+                            return (
+                              <div
+                                key={split.splitIndex}
+                                className="flex flex-col items-center justify-end h-full min-w-[52px] sm:min-w-[58px] flex-1 group"
+                                title={`Km ${split.splitIndex}: ${hr ? `${hr} bpm` : 'No HR'} • Pace ${split.paceFormatted} • ${split.distanceKm} km in ${formatDuration(split.movingTimeSec)}`}
+                              >
+                                <span className="text-[10px] font-mono font-bold text-rose-300 whitespace-nowrap mb-1">
+                                  {hr ? `${hr}` : '--'}
+                                </span>
+
+                                <div
+                                  style={{ height: `${Math.max(15, Math.min(100, heightPct))}%` }}
+                                  className="w-full rounded-t-lg transition-all group-hover:brightness-125 bg-gradient-to-t from-rose-600 to-rose-400 border-t border-x border-rose-300/40 shadow-xs shadow-rose-500/20"
+                                />
+
+                                <div className="mt-1.5 flex flex-col items-center text-center">
+                                  <span className="text-[11px] font-bold text-slate-200 font-mono leading-none">
+                                    Km {split.splitIndex}
+                                  </span>
+                                  <span className="text-[9px] font-mono text-slate-400 mt-0.5 leading-none">
+                                    {split.paceFormatted.replace('/km', '')}
+                                  </span>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
+
+              {/* Splits Grid (Cards View) */}
+              {splitsDisplayMode === 'cards' && (
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 max-h-52 overflow-y-auto pt-1">
+                  {runDetails.splits.map((split) => (
+                    <div
+                      key={split.splitIndex}
+                      className="p-2.5 rounded-xl bg-slate-900 border border-slate-800/80 flex flex-col text-xs transition-colors hover:border-amber-500/30"
+                    >
+                      <div className="flex items-center justify-between text-slate-400 text-[10px]">
+                        <span className="font-semibold text-slate-300">Km {split.splitIndex}</span>
+                        <span>{split.distanceKm} km</span>
+                      </div>
+                      <div className="flex items-center justify-between font-mono font-bold text-white mt-1">
+                        <span className={split.isFasterThanAvg ? 'text-amber-400' : 'text-slate-200'}>
+                          {split.paceFormatted}
+                        </span>
+                        {split.avgHr ? (
+                          <span className="text-rose-400 text-[11px] flex items-center gap-0.5">
+                            <Heart className="w-2.5 h-2.5 inline" /> {split.avgHr}
+                          </span>
+                        ) : (
+                          <span className="text-slate-500 text-[10px]">
+                            {formatDuration(split.movingTimeSec)}
+                          </span>
+                        )}
+                      </div>
+                      {split.elevationDiffM !== undefined && (
+                        <div className="text-[10px] text-slate-400 mt-1 flex items-center justify-between pt-1 border-t border-slate-800/60">
+                          <span>Elevation:</span>
+                          <span className={split.elevationDiffM > 0 ? 'text-amber-300' : 'text-slate-400'}>
+                            {split.elevationDiffM > 0 ? `+${split.elevationDiffM}m` : `${split.elevationDiffM}m`}
+                          </span>
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
 
               {/* Running Heart Rate Zone Distribution */}
               {runDetails.hrZones.some((z) => z.pct > 0) && (
@@ -1660,12 +1851,31 @@ export const StravaActivityModal: React.FC<StravaActivityModalProps> = ({
                 <p className="text-xs text-slate-400">Loading heart rate, pace, elevation, and sensor streams...</p>
               </div>
             ) : detailsError ? (
-              <div className="p-4 rounded-2xl bg-rose-500/10 border border-rose-500/20 text-rose-300 text-xs">
-                {detailsError}
+              <div className="p-4 rounded-2xl bg-rose-500/10 border border-rose-500/20 text-rose-300 text-xs flex flex-col sm:flex-row items-center justify-between gap-2.5">
+                <span>{detailsError}</span>
+                <button
+                  type="button"
+                  onClick={handleRecheckStreams}
+                  disabled={loadingDetails}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs font-bold transition shadow-xs cursor-pointer disabled:opacity-50 shrink-0"
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 ${loadingDetails ? 'animate-spin' : ''}`} />
+                  <span>Recheck</span>
+                </button>
               </div>
             ) : (
-              <div className="p-4 rounded-2xl bg-slate-900/60 border border-slate-800 text-center text-xs text-slate-400">
-                No streams recorded for this workout.
+              <div className="p-6 rounded-2xl bg-slate-900/60 border border-slate-800 text-center flex flex-col items-center justify-center gap-2.5">
+                <p className="text-xs text-slate-400">No streams recorded for this workout.</p>
+                <button
+                  type="button"
+                  onClick={handleRecheckStreams}
+                  disabled={loadingDetails}
+                  className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs font-bold transition shadow-xs cursor-pointer disabled:opacity-50"
+                  title="Query Strava API again to fetch stream telemetry"
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 ${loadingDetails ? 'animate-spin' : ''}`} />
+                  <span>Recheck</span>
+                </button>
               </div>
             )}
           </div>

@@ -730,6 +730,7 @@ export interface RunSplitItem {
   distanceKm: string;
   movingTimeSec: number;
   paceFormatted: string;
+  paceSecPerKm?: number;
   avgHr?: number;
   elevationDiffM?: number;
   isFasterThanAvg?: boolean;
@@ -826,6 +827,7 @@ export function getRunActivityDetails(
         distanceKm: (sDist / 1000).toFixed(2),
         movingTimeSec: sTime,
         paceFormatted: `${sm}:${ss.toString().padStart(2, '0')}/km`,
+        paceSecPerKm: Math.round(sSecPerKm),
         avgHr: s.average_heartrate ? Math.round(s.average_heartrate) : undefined,
         elevationDiffM: s.elevation_difference !== undefined ? Math.round(s.elevation_difference) : undefined,
         isFasterThanAvg: sSecPerKm < secPerKm,
@@ -845,6 +847,7 @@ export function getRunActivityDetails(
         distanceKm: '1.00',
         movingTimeSec: Math.round(avgSecPerSplit),
         paceFormatted: `${sm}:${ss.toString().padStart(2, '0')}/km`,
+        paceSecPerKm: Math.round(avgSecPerSplit),
         avgHr: activity.average_heartrate ? Math.round(activity.average_heartrate) : undefined,
         isFasterThanAvg: false,
       });
@@ -858,6 +861,7 @@ export function getRunActivityDetails(
         distanceKm: remainderKm.toFixed(2),
         movingTimeSec: remTime,
         paceFormatted: `${sm}:${ss.toString().padStart(2, '0')}/km`,
+        paceSecPerKm: Math.round(avgSecPerSplit),
         avgHr: activity.average_heartrate ? Math.round(activity.average_heartrate) : undefined,
         isFasterThanAvg: false,
       });
