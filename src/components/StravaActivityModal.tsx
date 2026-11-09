@@ -1360,24 +1360,25 @@ export const StravaActivityModal: React.FC<StravaActivityModalProps> = ({
 
           {/* Running Kilometer Splits & Pacing Dynamics Breakdown */}
           {classification.category === 'Run' && runDetails && (
-            <div className="p-3.5 rounded-2xl bg-slate-950/70 border border-slate-800 space-y-3">
-              <div className="flex items-center justify-between flex-wrap gap-2">
-                <div className="flex items-center gap-2">
-                  <div className="w-7 h-7 rounded-lg bg-amber-500/15 border border-amber-500/30 flex items-center justify-center text-amber-400">
-                    <Footprints className="w-4 h-4" />
+            <div className="p-3.5 rounded-2xl bg-slate-950/70 border border-slate-800 space-y-3 overflow-hidden">
+              <div className="flex items-center justify-between flex-wrap gap-2.5">
+                {/* Left side: Title & Left-Aligned Tabs Buttons */}
+                <div className="flex items-center gap-3 flex-wrap">
+                  <div className="flex items-center gap-2">
+                    <div className="w-7 h-7 rounded-lg bg-amber-500/15 border border-amber-500/30 flex items-center justify-center text-amber-400 shrink-0">
+                      <Footprints className="w-4 h-4" />
+                    </div>
+                    <div>
+                      <h4 className="text-xs font-bold text-amber-300 uppercase tracking-wider">
+                        Kilometer Splits ({runDetails.splits.length} Splits)
+                      </h4>
+                      <span className="text-[10px] text-slate-400">
+                        {runDetails.consistencySummary}
+                      </span>
+                    </div>
                   </div>
-                  <div>
-                    <h4 className="text-xs font-bold text-amber-300 uppercase tracking-wider">
-                      Kilometer Splits ({runDetails.splits.length} Splits)
-                    </h4>
-                    <span className="text-[10px] text-slate-400">
-                      {runDetails.consistencySummary}
-                    </span>
-                  </div>
-                </div>
 
-                <div className="flex items-center gap-2 flex-wrap justify-end">
-                  {/* View Mode Toggle: Pace Bar Chart, HR Bar Chart, Cards */}
+                  {/* View Mode Toggle: Left Aligned */}
                   <div className="flex items-center gap-1 bg-slate-900 p-0.5 rounded-xl border border-slate-800 text-[11px] font-bold">
                     <button
                       type="button"
@@ -1419,26 +1420,27 @@ export const StravaActivityModal: React.FC<StravaActivityModalProps> = ({
                       <span>Cards</span>
                     </button>
                   </div>
+                </div>
 
-                  <div className="flex items-center gap-1.5">
-                    <div className="px-2 py-0.5 rounded-md bg-slate-900 border border-slate-800 text-[11px] font-mono font-bold text-amber-400">
-                      Avg {runDetails.avgPaceFormatted}
-                    </div>
-                    {runDetails.avgCadence && (
-                      <div className="px-2 py-0.5 rounded-md bg-slate-900 border border-slate-800 text-[11px] font-mono text-slate-300">
-                        {runDetails.avgCadence} spm
-                      </div>
-                    )}
-                    {runDetails.gradeAdjustedPaceFormatted && (
-                      <div className="px-2 py-0.5 rounded-md bg-slate-900 border border-slate-800 text-[10px] font-mono text-emerald-400" title="Grade Adjusted Pace">
-                        GAP {runDetails.gradeAdjustedPaceFormatted}
-                      </div>
-                    )}
+                {/* Right side: Summary Metric Badges */}
+                <div className="flex items-center gap-1.5 ml-auto sm:ml-0">
+                  <div className="px-2 py-0.5 rounded-md bg-slate-900 border border-slate-800 text-[11px] font-mono font-bold text-amber-400">
+                    Avg {runDetails.avgPaceFormatted}
                   </div>
+                  {runDetails.avgCadence && (
+                    <div className="px-2 py-0.5 rounded-md bg-slate-900 border border-slate-800 text-[11px] font-mono text-slate-300">
+                      {runDetails.avgCadence} spm
+                    </div>
+                  )}
+                  {runDetails.gradeAdjustedPaceFormatted && (
+                    <div className="px-2 py-0.5 rounded-md bg-slate-900 border border-slate-800 text-[10px] font-mono text-emerald-400" title="Grade Adjusted Pace">
+                      GAP {runDetails.gradeAdjustedPaceFormatted}
+                    </div>
+                  )}
                 </div>
               </div>
 
-              {/* Pace Bar Chart View */}
+              {/* Pace Bar Chart View (Extra box removed, starts right out splits box) */}
               {splitsDisplayMode === 'pace' && (() => {
                 const splitsWithPace = runDetails.splits.map((s) => ({
                   ...s,
@@ -1449,20 +1451,20 @@ export const StravaActivityModal: React.FC<StravaActivityModalProps> = ({
                 const secRange = Math.max(1, maxSec - minSec);
 
                 return (
-                  <div className="p-3 rounded-xl bg-slate-900/80 border border-slate-800/80 space-y-2">
-                    <div className="flex items-center justify-between text-[11px] text-slate-400 pb-1 border-b border-slate-800/60">
+                  <div className="space-y-1.5 pt-1 border-t border-slate-800/60">
+                    <div className="flex items-center justify-between text-[11px] text-slate-400 pb-0.5">
                       <span className="font-semibold text-slate-300">Kilometer Pace Progression (/km)</span>
                       <span className="font-mono text-amber-400 text-[10px]">Faster splits = Taller bars</span>
                     </div>
 
-                    <div className="w-full overflow-x-auto pb-1 scrollbar-thin">
-                      <div className="flex items-end gap-2 min-w-fit h-44 pt-6 px-1">
+                    <div className="w-full overflow-x-auto pb-1 scrollbar-thin -mx-3.5 px-3.5">
+                      <div className="flex items-end gap-1.5 min-w-fit h-44 pt-4 px-0.5">
                         {splitsWithPace.map((split) => {
                           const heightPct = secRange === 0 ? 70 : 30 + ((maxSec - split.paceSec) / secRange) * 60;
                           return (
                             <div
                               key={split.splitIndex}
-                              className="flex flex-col items-center justify-end h-full min-w-[52px] sm:min-w-[58px] flex-1 group"
+                              className="flex flex-col items-center justify-end h-full min-w-[50px] sm:min-w-[56px] flex-1 group"
                               title={`Km ${split.splitIndex}: ${split.paceFormatted} • ${split.distanceKm} km in ${formatDuration(split.movingTimeSec)}${split.avgHr ? ` • ${split.avgHr} bpm` : ''}${split.elevationDiffM ? ` • ${split.elevationDiffM > 0 ? '+' : ''}${split.elevationDiffM}m elev` : ''}`}
                             >
                               <span className="text-[10px] font-mono font-bold text-amber-300 whitespace-nowrap mb-1">
@@ -1501,7 +1503,7 @@ export const StravaActivityModal: React.FC<StravaActivityModalProps> = ({
                 );
               })()}
 
-              {/* Heart Rate Bar Chart View */}
+              {/* Heart Rate Bar Chart View (Extra box removed, starts right out splits box) */}
               {splitsDisplayMode === 'hr' && (() => {
                 const hrValues = runDetails.splits
                   .map((s) => s.avgHr)
@@ -1512,8 +1514,8 @@ export const StravaActivityModal: React.FC<StravaActivityModalProps> = ({
                 const hrRange = Math.max(1, maxHr - minHr);
 
                 return (
-                  <div className="p-3 rounded-xl bg-slate-900/80 border border-slate-800/80 space-y-2">
-                    <div className="flex items-center justify-between text-[11px] text-slate-400 pb-1 border-b border-slate-800/60">
+                  <div className="space-y-1.5 pt-1 border-t border-slate-800/60">
+                    <div className="flex items-center justify-between text-[11px] text-slate-400 pb-0.5">
                       <span className="font-semibold text-slate-300 flex items-center gap-1">
                         <Heart className="w-3 h-3 text-rose-400" />
                         Kilometer Average Heart Rate (bpm)
@@ -1530,15 +1532,15 @@ export const StravaActivityModal: React.FC<StravaActivityModalProps> = ({
                         No heart rate stream recorded for these 1km splits.
                       </div>
                     ) : (
-                      <div className="w-full overflow-x-auto pb-1 scrollbar-thin">
-                        <div className="flex items-end gap-2 min-w-fit h-44 pt-6 px-1">
+                      <div className="w-full overflow-x-auto pb-1 scrollbar-thin -mx-3.5 px-3.5">
+                        <div className="flex items-end gap-1.5 min-w-fit h-44 pt-4 px-0.5">
                           {runDetails.splits.map((split) => {
                             const hr = split.avgHr || 0;
                             const heightPct = hrRange === 0 || !hr ? 50 : 30 + ((hr - minHr) / hrRange) * 60;
                             return (
                               <div
                                 key={split.splitIndex}
-                                className="flex flex-col items-center justify-end h-full min-w-[52px] sm:min-w-[58px] flex-1 group"
+                                className="flex flex-col items-center justify-end h-full min-w-[50px] sm:min-w-[56px] flex-1 group"
                                 title={`Km ${split.splitIndex}: ${hr ? `${hr} bpm` : 'No HR'} • Pace ${split.paceFormatted} • ${split.distanceKm} km in ${formatDuration(split.movingTimeSec)}`}
                               >
                                 <span className="text-[10px] font-mono font-bold text-rose-300 whitespace-nowrap mb-1">
@@ -1604,45 +1606,6 @@ export const StravaActivityModal: React.FC<StravaActivityModalProps> = ({
                       )}
                     </div>
                   ))}
-                </div>
-              )}
-
-              {/* Running Heart Rate Zone Distribution */}
-              {runDetails.hrZones.some((z) => z.pct > 0) && (
-                <div className="pt-2 border-t border-slate-800/80 space-y-1.5">
-                  <div className="flex items-center justify-between text-[11px]">
-                    <span className="font-bold text-slate-300 flex items-center gap-1">
-                      <Heart className="w-3 h-3 text-rose-400" />
-                      Running HR Zones
-                    </span>
-                    <span className="text-[10px] text-slate-400 font-mono">
-                      Max HR {runDetails?.maxHr || athleteProfile.maxHeartRate || 185} bpm
-                    </span>
-                  </div>
-
-                  {/* Horizontal stacked zone bar */}
-                  <div className="w-full bg-slate-900 rounded-full h-2.5 flex overflow-hidden">
-                    {runDetails.hrZones.map((z) => (
-                      z.pct > 0 ? (
-                        <div
-                          key={z.zone}
-                          className="h-full transition-all"
-                          style={{ width: `${z.pct}%`, backgroundColor: z.color }}
-                          title={`${z.name}: ${z.pct}% (${formatDuration(z.seconds)})`}
-                        />
-                      ) : null
-                    ))}
-                  </div>
-
-                  {/* Zone Legend */}
-                  <div className="grid grid-cols-5 gap-1 pt-1 text-[10px] font-mono text-center">
-                    {runDetails.hrZones.map((z) => (
-                      <div key={z.zone} className="flex flex-col items-center">
-                        <span className="font-bold" style={{ color: z.color }}>Z{z.zone}</span>
-                        <span className="text-slate-400">{z.pct}%</span>
-                      </div>
-                    ))}
-                  </div>
                 </div>
               )}
             </div>
@@ -1712,82 +1675,6 @@ export const StravaActivityModal: React.FC<StravaActivityModalProps> = ({
                   </div>
                 ))}
               </div>
-
-              {/* Cycling Power Zones Distribution (Coggan 7 Zones) */}
-              {bikeDetails.powerZones.some((z) => z.pct > 0) && (
-                <div className="pt-2 border-t border-slate-800/80 space-y-1.5">
-                  <div className="flex items-center justify-between text-[11px]">
-                    <span className="font-bold text-slate-300 flex items-center gap-1">
-                      <Zap className="w-3 h-3 text-amber-400" />
-                      Cycling Power Zones (Coggan 7-Zone)
-                    </span>
-                    <span className="text-[10px] text-slate-400 font-mono">
-                      FTP {athleteProfile.bikeFtp || 250}W
-                    </span>
-                  </div>
-
-                  {/* Horizontal stacked zone bar */}
-                  <div className="w-full bg-slate-900 rounded-full h-2.5 flex overflow-hidden">
-                    {bikeDetails.powerZones.map((z) => (
-                      z.pct > 0 ? (
-                        <div
-                          key={z.zone}
-                          className="h-full transition-all"
-                          style={{ width: `${z.pct}%`, backgroundColor: z.color }}
-                          title={`${z.name}: ${z.pct}% (${formatDuration(z.seconds)})`}
-                        />
-                      ) : null
-                    ))}
-                  </div>
-
-                  {/* Zone Legend */}
-                  <div className="grid grid-cols-7 gap-1 pt-1 text-[9px] font-mono text-center">
-                    {bikeDetails.powerZones.map((z) => (
-                      <div key={z.zone} className="flex flex-col items-center">
-                        <span className="font-bold" style={{ color: z.color }}>Z{z.zone}</span>
-                        <span className="text-slate-400">{z.pct}%</span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {/* Cycling Heart Rate Zones */}
-              {bikeDetails.hrZones.some((z) => z.pct > 0) && (
-                <div className="pt-2 border-t border-slate-800/80 space-y-1.5">
-                  <div className="flex items-center justify-between text-[11px]">
-                    <span className="font-bold text-slate-300 flex items-center gap-1">
-                      <Heart className="w-3 h-3 text-rose-400" />
-                      Cycling HR Zones (Joe Friel Model)
-                    </span>
-                    <span className="text-[10px] text-slate-400 font-mono">
-                      LTHR {athleteProfile.thresholdHeartRateBike || 162} bpm
-                    </span>
-                  </div>
-
-                  <div className="w-full bg-slate-900 rounded-full h-2.5 flex overflow-hidden">
-                    {bikeDetails.hrZones.map((z) => (
-                      z.pct > 0 ? (
-                        <div
-                          key={z.zone}
-                          className="h-full transition-all"
-                          style={{ width: `${z.pct}%`, backgroundColor: z.color }}
-                          title={`${z.name}: ${z.pct}% (${formatDuration(z.seconds)})`}
-                        />
-                      ) : null
-                    ))}
-                  </div>
-
-                  <div className="grid grid-cols-5 gap-1 pt-1 text-[10px] font-mono text-center">
-                    {bikeDetails.hrZones.map((z) => (
-                      <div key={z.zone} className="flex flex-col items-center">
-                        <span className="font-bold" style={{ color: z.color }}>Z{z.zone}</span>
-                        <span className="text-slate-400">{z.pct}%</span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
             </div>
           )}
 

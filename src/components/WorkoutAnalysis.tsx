@@ -242,7 +242,7 @@ export const WorkoutAnalysis: React.FC<WorkoutAnalysisProps> = ({
           paceFormatted: `${formatPaceSec(paceSec)} /km`,
           swimPaceSecPer100m: swimPaceSec,
           swimPaceFormatted: `${formatSwimPaceSec(swimPaceSec)} /100m`,
-          avgWatts: watts,
+          avgWatts: category === 'Run' ? undefined : watts,
           avgHr: hr,
           maxHr: lap.max_heartrate ? Math.round(lap.max_heartrate) : undefined,
           isRest,
@@ -274,7 +274,7 @@ export const WorkoutAnalysis: React.FC<WorkoutAnalysisProps> = ({
           avgSpeedKph: speedKph,
           paceSecPerKm: paceSec,
           paceFormatted: `${formatPaceSec(paceSec)} /km`,
-          avgWatts: watts,
+          avgWatts: category === 'Run' ? undefined : watts,
           avgHr: hr,
           zoneLabel: category === 'Run' ? getRunPaceZone(paceSec, thresholdRunPaceSec) : hr ? getHeartRateZone(hr, maxHr) : '',
         };
@@ -294,7 +294,6 @@ export const WorkoutAnalysis: React.FC<WorkoutAnalysisProps> = ({
     if (category === 'Run') {
       list.push('pace');
       if (hasHr) list.push('heartrate');
-      if (hasWatts) list.push('power');
     } else if (category === 'Swim') {
       list.push('swim_pace');
       if (hasHr) list.push('heartrate');
