@@ -1758,10 +1758,10 @@ export const StravaActivityModal: React.FC<StravaActivityModalProps> = ({
                   <div className="flex items-center justify-between text-[11px]">
                     <span className="font-bold text-slate-300 flex items-center gap-1">
                       <Heart className="w-3 h-3 text-rose-400" />
-                      Cycling HR Zones
+                      Cycling HR Zones (Joe Friel Model)
                     </span>
                     <span className="text-[10px] text-slate-400 font-mono">
-                      Max HR {bikeDetails?.maxHr || athleteProfile.maxHeartRate || 185} bpm
+                      LTHR {athleteProfile.thresholdHeartRateBike || 162} bpm
                     </span>
                   </div>
 

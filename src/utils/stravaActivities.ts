@@ -122,7 +122,12 @@ export interface StravaActivityDetailsRecord {
 }
 
 import type { AthleteProfile } from '../types/athlete';
-import { formatSecondsToMinSec } from '../types/athlete';
+import {
+  formatSecondsToMinSec,
+  getAthletePowerZones,
+  getAthleteHeartRateZones,
+  DEFAULT_ATHLETE_PROFILE,
+} from '../types/athlete';
 
 export interface StravaActivityDetailsResponse {
   activity: Record<string, unknown>;
@@ -1035,88 +1040,129 @@ export function getBikeActivityDetails(
     }
   }
 
+  const prof = athleteProfile || DEFAULT_ATHLETE_PROFILE;
+  const powerZonesConfig = getAthletePowerZones(prof);
+  const hrZonesConfig = getAthleteHeartRateZones(prof, 'bike');
+
   const streams = details?.streams as Record<string, { data?: any[] }> | undefined;
   const wattsData = streams?.watts?.data as number[] | undefined;
+  const hrData = streams?.heartrate?.data as number[] | undefined;
 
-  const powerZones: ZoneDistributionItem[] = [
-    { zone: 1, name: 'Z1 Active Recovery (<55%)', pct: 0, seconds: 0, color: '#38bdf8' },
-    { zone: 2, name: 'Z2 Endurance (56-75%)', pct: 0, seconds: 0, color: '#34d399' },
-    { zone: 3, name: 'Z3 Tempo (76-90%)', pct: 0, seconds: 0, color: '#a3e635' },
-    { zone: 4, name: 'Z4 Threshold (91-105%)', pct: 0, seconds: 0, color: '#facc15' },
-    { zone: 5, name: 'Z5 VO2 Max (106-120%)', pct: 0, seconds: 0, color: '#fb923c' },
-    { zone: 6, name: 'Z6 Anaerobic (121-150%)', pct: 0, seconds: 0, color: '#f87171' },
-    { zone: 7, name: 'Z7 Neuromuscular (>150%)', pct: 0, seconds: 0, color: '#c084fc' },
-  ];
+  let powerZones: ZoneDistributionItem[] = powerZonesConfig.map((z) => ({
+    zone: z.zone,
+    name: `Z${z.zone} ${z.name} (${z.rangeFormatted})`,
+    pct: 0,
+    seconds: 0,
+    color: z.color,
+  }));
 
   if (wattsData && wattsData.length > 0) {
-    const counts = [0, 0, 0, 0, 0, 0, 0];
+    const counts = new Array(powerZonesConfig.length).fill(0);
+    let validCount = 0;
     for (const w of wattsData) {
-      const pctFtp = (w / ftp) * 100;
-      if (pctFtp < 56) counts[0]++;
-      else if (pctFtp < 76) counts[1]++;
-      else if (pctFtp < 91) counts[2]++;
-      else if (pctFtp < 106) counts[3]++;
-      else if (pctFtp < 121) counts[4]++;
-      else if (pctFtp < 151) counts[5]++;
-      else counts[6]++;
+      if (typeof w !== 'number' || w < 0 || w > 2000) continue;
+      validCount++;
+      let placed = false;
+      for (let i = 0; i < powerZonesConfig.length; i++) {
+        if (w <= powerZonesConfig[i].maxWatts) {
+          counts[i]++;
+          placed = true;
+          break;
+        }
+      }
+      if (!placed) {
+        counts[powerZonesConfig.length - 1]++;
+      }
     }
-    const total = wattsData.length;
-    powerZones.forEach((z, idx) => {
-      z.pct = Math.round((counts[idx] / total) * 100);
-      z.seconds = Math.round((counts[idx] / total) * movingTimeSec);
-    });
-  } else if (avgWatts) {
-    const ratio = (avgWatts / ftp) * 100;
-    if (ratio < 65) {
-      powerZones[0].pct = 25; powerZones[1].pct = 65; powerZones[2].pct = 10;
-    } else if (ratio < 80) {
-      powerZones[0].pct = 15; powerZones[1].pct = 50; powerZones[2].pct = 30; powerZones[3].pct = 5;
-    } else if (ratio < 95) {
-      powerZones[1].pct = 20; powerZones[2].pct = 40; powerZones[3].pct = 35; powerZones[4].pct = 5;
-    } else {
-      powerZones[1].pct = 10; powerZones[2].pct = 25; powerZones[3].pct = 40; powerZones[4].pct = 20; powerZones[5].pct = 5;
+    if (validCount > 0) {
+      powerZones = powerZonesConfig.map((z, idx) => ({
+        zone: z.zone,
+        name: `Z${z.zone} ${z.name} (${z.rangeFormatted})`,
+        pct: Math.round((counts[idx] / validCount) * 100),
+        seconds: Math.round((counts[idx] / validCount) * movingTimeSec),
+        color: z.color,
+      }));
     }
-    powerZones.forEach((z) => {
-      z.seconds = Math.round((z.pct / 100) * movingTimeSec);
+  } else if (avgWatts && avgWatts > 0) {
+    let primaryZoneIdx = 0;
+    for (let i = 0; i < powerZonesConfig.length; i++) {
+      if (avgWatts <= powerZonesConfig[i].maxWatts) {
+        primaryZoneIdx = i;
+        break;
+      }
+      if (i === powerZonesConfig.length - 1) primaryZoneIdx = i;
+    }
+    powerZones = powerZonesConfig.map((z, idx) => {
+      const isPrimary = idx === primaryZoneIdx;
+      const pct = isPrimary ? 70 : idx === primaryZoneIdx - 1 ? 20 : idx === primaryZoneIdx + 1 ? 10 : 0;
+      return {
+        zone: z.zone,
+        name: `Z${z.zone} ${z.name} (${z.rangeFormatted})`,
+        pct,
+        seconds: Math.round((pct / 100) * movingTimeSec),
+        color: z.color,
+      };
     });
   }
 
-  const hrMax = athleteProfile?.maxHeartRate || (athleteProfile?.restingHeartRate ? 190 : 185);
-  const hrData = streams?.heartrate?.data as number[] | undefined;
-  const hrZones: ZoneDistributionItem[] = [
-    { zone: 1, name: 'Z1 Active Recovery (<68%)', pct: 0, seconds: 0, color: '#38bdf8' },
-    { zone: 2, name: 'Z2 Aerobic Base (69-83%)', pct: 0, seconds: 0, color: '#34d399' },
-    { zone: 3, name: 'Z3 Tempo (84-90%)', pct: 0, seconds: 0, color: '#fbbf24' },
-    { zone: 4, name: 'Z4 Threshold (91-95%)', pct: 0, seconds: 0, color: '#fb923c' },
-    { zone: 5, name: 'Z5 VO2 Max (>95%)', pct: 0, seconds: 0, color: '#f87171' },
-  ];
+  let hrZones: ZoneDistributionItem[] = hrZonesConfig.map((z) => ({
+    zone: z.zone,
+    name: `Z${z.zone} ${z.name} (${z.minHr}-${z.maxHr} bpm)`,
+    pct: 0,
+    seconds: 0,
+    color: z.color,
+  }));
+
+  const minAllowedHr = prof.restingHeartRate || 40;
+  const maxAllowedHr = Math.round((prof.maxHeartRate || 185) * 1.05);
 
   if (hrData && hrData.length > 0) {
-    const counts = [0, 0, 0, 0, 0];
+    const counts = new Array(hrZonesConfig.length).fill(0);
+    let validCount = 0;
     for (const hr of hrData) {
-      const pctMax = (hr / hrMax) * 100;
-      if (pctMax < 69) counts[0]++;
-      else if (pctMax < 84) counts[1]++;
-      else if (pctMax < 91) counts[2]++;
-      else if (pctMax <= 95) counts[3]++;
-      else counts[4]++;
+      if (typeof hr !== 'number' || hr < minAllowedHr || hr > maxAllowedHr) continue;
+      validCount++;
+      let placed = false;
+      for (let i = 0; i < hrZonesConfig.length; i++) {
+        if (hr <= hrZonesConfig[i].maxHr) {
+          counts[i]++;
+          placed = true;
+          break;
+        }
+      }
+      if (!placed) {
+        counts[hrZonesConfig.length - 1]++;
+      }
     }
-    const totalSamples = hrData.length;
-    hrZones.forEach((z, idx) => {
-      z.pct = Math.round((counts[idx] / totalSamples) * 100);
-      z.seconds = Math.round((counts[idx] / totalSamples) * movingTimeSec);
-    });
-  } else if (activity.average_heartrate) {
-    const avgPct = (activity.average_heartrate / hrMax) * 100;
-    if (avgPct < 75) {
-      hrZones[0].pct = 25; hrZones[1].pct = 65; hrZones[2].pct = 10;
-    } else if (avgPct < 85) {
-      hrZones[1].pct = 25; hrZones[2].pct = 50; hrZones[3].pct = 25;
-    } else {
-      hrZones[1].pct = 10; hrZones[2].pct = 35; hrZones[3].pct = 40; hrZones[4].pct = 15;
+    if (validCount > 0) {
+      hrZones = hrZonesConfig.map((z, idx) => ({
+        zone: z.zone,
+        name: `Z${z.zone} ${z.name} (${z.minHr}-${z.maxHr} bpm)`,
+        pct: Math.round((counts[idx] / validCount) * 100),
+        seconds: Math.round((counts[idx] / validCount) * movingTimeSec),
+        color: z.color,
+      }));
     }
-    hrZones.forEach((z) => {
-      z.seconds = Math.round((z.pct / 100) * movingTimeSec);
+  } else if (activity.average_heartrate && activity.average_heartrate > minAllowedHr) {
+    const avgHr = Math.round(activity.average_heartrate);
+    let primaryZoneIdx = 0;
+    for (let i = 0; i < hrZonesConfig.length; i++) {
+      if (avgHr <= hrZonesConfig[i].maxHr) {
+        primaryZoneIdx = i;
+        break;
+      }
+      if (i === hrZonesConfig.length - 1) primaryZoneIdx = i;
+    }
+    hrZones = hrZonesConfig.map((z, idx) => {
+      const isPrimary = idx === primaryZoneIdx;
+      const pct = isPrimary ? 70 : idx === primaryZoneIdx - 1 ? 20 : idx === primaryZoneIdx + 1 ? 10 : 0;
+      return {
+        zone: z.zone,
+        name: `Z${z.zone} ${z.name} (${z.minHr}-${z.maxHr} bpm)`,
+        pct,
+        seconds: Math.round((pct / 100) * movingTimeSec),
+        color: z.color,
+      };
     });
   }
 

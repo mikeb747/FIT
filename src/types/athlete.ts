@@ -45,6 +45,7 @@ export interface AthleteProfile {
   customPaceZones?: Record<number, { minPaceSec: number; maxPaceSec: number; rangeFormatted?: string }>;
   customPaceZonesTreadmill?: Record<number, { minPaceSec: number; maxPaceSec: number; rangeFormatted?: string }>;
   customHrZonesRun?: Record<number, { minHr: number; maxHr: number; rangeFormatted?: string }>;
+  customHrZonesBike?: Record<number, { minHr: number; maxHr: number; rangeFormatted?: string }>;
   customPowerZones?: Record<number, { minWatts: number; maxWatts: number; rangeFormatted?: string }>;
 
   // Active Injuries & Physical Limitations
@@ -393,33 +394,47 @@ export function getAthleteHeartRateZones(
   }
 
   // Contiguous cutoffs anchored on Lactate Threshold Heart Rate (no gaps, no overlaps):
-  // Z1: restHr to b1
-  // Z2: b1 + 1 to b2
-  // Z3: b2 + 1 to b3
-  // Z4: b3 + 1 to b4
-  // Z5: b4 + 1 to b5 (max Hr + 5% outlier ceiling)
-  const b1 = Math.round(lthr * 0.81);
-  const b2 = Math.round(lthr * 0.89);
-  const b3 = Math.round(lthr * 0.94);
-  const b4 = Math.round(lthr * 0.99);
+  // For cycling, standard Joe Friel / Coggan Cycling Heart Rate Zones:
+  // Z1: < 68% LTHR (Active Recovery)
+  // Z2: 69% - 83% LTHR (Aerobic / Endurance)
+  // Z3: 84% - 94% LTHR (Tempo)
+  // Z4: 95% - 105% LTHR (Sub-Threshold / Lactate Threshold)
+  // Z5: > 106% LTHR (VO2 Max / Anaerobic)
+  let b1: number;
+  let b2: number;
+  let b3: number;
+  let b4: number;
   const b5 = Math.round(maxHr * 1.05);
+
+  if (sport === 'bike') {
+    b1 = Math.round(lthr * 0.68);
+    b2 = Math.round(lthr * 0.83);
+    b3 = Math.round(lthr * 0.94);
+    b4 = Math.round(lthr * 1.05);
+  } else {
+    // Standard Running / General LTHR model
+    b1 = Math.round(lthr * 0.81);
+    b2 = Math.round(lthr * 0.89);
+    b3 = Math.round(lthr * 0.94);
+    b4 = Math.round(lthr * 0.99);
+  }
 
   const defaultZones: HeartRateZone[] = [
     {
       zone: 1,
-      name: 'Recovery',
+      name: sport === 'bike' ? 'Active Recovery' : 'Recovery',
       minHr: restHr,
       maxHr: b1,
       color: '#00e5ff', // Cyan
-      description: 'Active recovery, easy aerobic flushing',
+      description: sport === 'bike' ? '< 68% LTHR | Active recovery, light spinning' : 'Active recovery, easy aerobic flushing',
     },
     {
       zone: 2,
-      name: 'Aerobic / Base',
+      name: sport === 'bike' ? 'Aerobic / Endurance' : 'Aerobic / Base',
       minHr: b1 + 1,
       maxHr: b2,
       color: '#00b0ff', // Blue
-      description: 'Base endurance, fat oxidation, conversational',
+      description: sport === 'bike' ? '69 - 83% LTHR | Aerobic endurance, all-day pace' : 'Base endurance, fat oxidation, conversational',
     },
     {
       zone: 3,
@@ -427,7 +442,7 @@ export function getAthleteHeartRateZones(
       minHr: b2 + 1,
       maxHr: b3,
       color: '#ffea00', // Yellow
-      description: 'Aerobic power, marathon pace, sustainable effort',
+      description: sport === 'bike' ? '84 - 94% LTHR | Intensive aerobic, rhythm cadence' : 'Aerobic power, marathon pace, sustainable effort',
     },
     {
       zone: 4,
@@ -435,21 +450,35 @@ export function getAthleteHeartRateZones(
       minHr: b3 + 1,
       maxHr: b4,
       color: '#ff9100', // Orange
-      description: 'Lactate threshold, 1-hour race pace effort',
+      description: sport === 'bike' ? '95 - 105% LTHR | Lactate threshold, 1h time trial effort' : 'Lactate threshold, 1-hour race pace effort',
     },
     {
       zone: 5,
-      name: 'Threshold & VO2max',
+      name: sport === 'bike' ? 'VO2 Max / Anaerobic' : 'Threshold & VO2max',
       minHr: b4 + 1,
       maxHr: Math.max(b4 + 1, b5),
       color: '#ff1744', // Red
-      description: 'Above threshold, anaerobic capacity and neuromuscular power',
+      description: sport === 'bike' ? '> 106% LTHR | Maximal aerobic capacity & surges' : 'Above threshold, anaerobic capacity and neuromuscular power',
     },
   ];
 
   if (sport === 'run' && profile.customHrZonesRun) {
     return defaultZones.map((z) => {
       const custom = profile.customHrZonesRun?.[z.zone];
+      if (custom) {
+        return {
+          ...z,
+          minHr: custom.minHr,
+          maxHr: custom.maxHr,
+        };
+      }
+      return z;
+    });
+  }
+
+  if (sport === 'bike' && profile.customHrZonesBike) {
+    return defaultZones.map((z) => {
+      const custom = profile.customHrZonesBike?.[z.zone];
       if (custom) {
         return {
           ...z,

@@ -364,10 +364,26 @@ export function calculateActivityZonesTime(
   // -------------------------------------------------------------
   // 4. Polarized Distribution Summary (Z1-2 vs Z3 vs Z4+)
   // -------------------------------------------------------------
-  // For swims: use Pace Zones (not Heart Rate zones) as requested
-  const primaryBuckets = (isSwim && paceBuckets && paceBuckets.length >= 5)
-    ? paceBuckets
-    : (hrBuckets || powerBuckets || paceBuckets || []);
+  // Sport-specific discipline priority:
+  // - Bike workouts: based on Power (fallback to HR)
+  // - Run workouts: based on Pace (fallback to HR)
+  // - Swim workouts: based on Pace (fallback to HR)
+  let primaryBuckets: CalculatedZoneBucket[] = [];
+  if (isBike) {
+    primaryBuckets = (powerBuckets && powerBuckets.length >= 5)
+      ? powerBuckets
+      : (hrBuckets || paceBuckets || []);
+  } else if (isRun) {
+    primaryBuckets = (paceBuckets && paceBuckets.length >= 5)
+      ? paceBuckets
+      : (hrBuckets || powerBuckets || []);
+  } else if (isSwim) {
+    primaryBuckets = (paceBuckets && paceBuckets.length >= 5)
+      ? paceBuckets
+      : (hrBuckets || powerBuckets || []);
+  } else {
+    primaryBuckets = hrBuckets || powerBuckets || paceBuckets || [];
+  }
   let lowIntensityPct = 0;
   let tempoPct = 0;
   let highIntensityPct = 0;

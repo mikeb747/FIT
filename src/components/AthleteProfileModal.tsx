@@ -713,6 +713,67 @@ export const AthleteProfileModal: React.FC<AthleteProfileModalProps> = ({
     });
   }, [powerZonesState, profile, bikeFtp]);
 
+  // Cycling HR Zones state (Joe Friel / Coggan Standard Cycling Model)
+  const [hrZonesBikeState, setHrZonesBikeState] = useState<Array<{
+    zone: number;
+    name: string;
+    minHrStr: string;
+    maxHrStr: string;
+    color: string;
+    description: string;
+  }>>(() => {
+    const base = getAthleteHeartRateZones(profile, 'bike');
+    return base.map((z) => {
+      const custom = profile.customHrZonesBike?.[z.zone];
+      return {
+        zone: z.zone,
+        name: z.name,
+        minHrStr: String(custom ? custom.minHr : z.minHr),
+        maxHrStr: String(custom ? custom.maxHr : z.maxHr),
+        color: z.color,
+        description: z.description,
+      };
+    });
+  });
+
+  const handleResetHrZonesBike = () => {
+    const tempProf: AthleteProfile = {
+      ...profile,
+      maxHeartRate,
+      restingHeartRate,
+      thresholdHeartRateBike,
+    };
+    const base = getAthleteHeartRateZones(tempProf, 'bike');
+    setHrZonesBikeState(base.map((z) => ({
+      zone: z.zone,
+      name: z.name,
+      minHrStr: String(z.minHr),
+      maxHrStr: String(z.maxHr),
+      color: z.color,
+      description: z.description,
+    })));
+  };
+
+  const handleUpdateHrZoneBike = (zoneNumber: number, field: 'minHrStr' | 'maxHrStr', value: string) => {
+    setHrZonesBikeState((prev) =>
+      updateLinkedIntZones(prev, zoneNumber, field, value, 'minHrStr', 'maxHrStr')
+    );
+  };
+
+  const isBikeHrCustom = useMemo(() => {
+    const tempProf: AthleteProfile = {
+      ...profile,
+      maxHeartRate,
+      restingHeartRate,
+      thresholdHeartRateBike,
+    };
+    const defaultZones = getAthleteHeartRateZones(tempProf, 'bike');
+    return hrZonesBikeState.some((z, idx) => {
+      const def = defaultZones[idx];
+      return Number(z.minHrStr) !== def.minHr || Number(z.maxHrStr) !== def.maxHr;
+    });
+  }, [hrZonesBikeState, profile, maxHeartRate, restingHeartRate, thresholdHeartRateBike]);
+
 
   // Active Injuries & Physical Limitations
   const [injuries, setInjuries] = useState<AthleteInjury[]>(
@@ -1234,6 +1295,16 @@ export const AthleteProfileModal: React.FC<AthleteProfileModalProps> = ({
               max: custom ? String(custom.maxHr) : String(z.maxHr),
             };
           })
+        ) ||
+      JSON.stringify(hrZonesBikeState.map((z) => ({ min: z.minHrStr, max: z.maxHrStr }))) !==
+        JSON.stringify(
+          getAthleteHeartRateZones(profile, 'bike').map((z) => {
+            const custom = profile.customHrZonesBike?.[z.zone];
+            return {
+              min: custom ? String(custom.minHr) : String(z.minHr),
+              max: custom ? String(custom.maxHr) : String(z.maxHr),
+            };
+          })
         );
 
     const areInjuriesDirty =
@@ -1271,6 +1342,7 @@ export const AthleteProfileModal: React.FC<AthleteProfileModalProps> = ({
     paceZonesTreadmillState,
     paceZonesSwimState,
     hrZonesSwimState,
+    hrZonesBikeState,
     injuries,
     weeklyAvailability,
     goals,
@@ -1286,6 +1358,16 @@ export const AthleteProfileModal: React.FC<AthleteProfileModalProps> = ({
     });
     return res;
   }, [hrZonesRunState]);
+
+  const customHrZonesBikeToSave = useMemo(() => {
+    const res: Record<number, { minHr: number; maxHr: number; rangeFormatted: string }> = {};
+    hrZonesBikeState.forEach((z) => {
+      const min = Number(z.minHrStr) || 0;
+      const max = Number(z.maxHrStr) || 0;
+      res[z.zone] = { minHr: min, maxHr: max, rangeFormatted: `${min} - ${max} bpm` };
+    });
+    return res;
+  }, [hrZonesBikeState]);
 
   const customPowerZonesToSave = useMemo(() => {
     const res: Record<number, { minWatts: number; maxWatts: number; rangeFormatted: string }> = {};
@@ -1352,6 +1434,7 @@ export const AthleteProfileModal: React.FC<AthleteProfileModalProps> = ({
     thresholdHeartRateSwim: Number(thresholdHeartRateSwim) || 156,
     preferredSwimProtocol,
     customHrZonesRun: customHrZonesRunToSave,
+    customHrZonesBike: customHrZonesBikeToSave,
     customHrZonesSwim: customHrZonesSwimToSave,
     customPaceZonesSwim: customPaceZonesSwimToSave,
     customPowerZones: customPowerZonesToSave,
@@ -1413,6 +1496,7 @@ export const AthleteProfileModal: React.FC<AthleteProfileModalProps> = ({
       customPaceZonesTreadmill: customPaceZonesTreadmillToSave,
       customPaceZonesSwim: customPaceZonesSwimToSave,
       customHrZonesRun: customHrZonesRunToSave,
+      customHrZonesBike: customHrZonesBikeToSave,
       customHrZonesSwim: customHrZonesSwimToSave,
       customPowerZones: customPowerZonesToSave,
 
@@ -3592,7 +3676,27 @@ export const AthleteProfileModal: React.FC<AthleteProfileModalProps> = ({
                       min="100"
                       max="220"
                       value={thresholdHeartRateBike}
-                      onChange={(e) => setThresholdHeartRateBike(Number(e.target.value))}
+                      onChange={(e) => {
+                        const nextLthr = Number(e.target.value);
+                        setThresholdHeartRateBike(nextLthr);
+                        if (!isBikeHrCustom) {
+                          const tempProf: AthleteProfile = {
+                            ...profile,
+                            maxHeartRate,
+                            restingHeartRate,
+                            thresholdHeartRateBike: nextLthr,
+                          };
+                          const base = getAthleteHeartRateZones(tempProf, 'bike');
+                          setHrZonesBikeState(base.map((z) => ({
+                            zone: z.zone,
+                            name: z.name,
+                            minHrStr: String(z.minHr),
+                            maxHrStr: String(z.maxHr),
+                            color: z.color,
+                            description: z.description,
+                          })));
+                        }
+                      }}
                       className="w-full bg-slate-900 border border-slate-700 rounded-xl px-2.5 py-1.5 sm:px-3 sm:py-2 text-sm font-bold font-mono text-white focus:outline-none focus:border-amber-400"
                     />
                     <span className="text-xs text-slate-500 font-mono">bpm</span>
@@ -3959,6 +4063,75 @@ export const AthleteProfileModal: React.FC<AthleteProfileModalProps> = ({
                           className="w-16 bg-slate-950 border border-slate-700 rounded-lg px-1.5 py-1 text-xs font-bold text-white text-center focus:outline-none focus:border-orange-400"
                         />
                         <span className="text-slate-400 text-xs font-mono ml-0.5">W</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Cycling Heart Rate Zones (Standard Joe Friel Model) */}
+              <div className="p-3.5 rounded-2xl bg-slate-950 border border-slate-800 space-y-2.5">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <Heart className="w-4 h-4 text-rose-400" />
+                    <div>
+                      <span className="text-xs font-bold text-white uppercase tracking-wider block">
+                        Cycling Heart Rate Zones ({isBikeHrCustom ? 'Custom Model' : `Standard Model (LTHR ${thresholdHeartRateBike} bpm)`})
+                      </span>
+                      <span className="text-[10px] text-slate-400 font-mono">
+                        Joe Friel Cycling Model • Threshold: {thresholdHeartRateBike} bpm
+                      </span>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleResetHrZonesBike}
+                    className="px-2.5 py-1 rounded-xl text-[11px] font-bold bg-slate-800 hover:bg-slate-700 active:scale-95 text-slate-300 hover:text-white border border-slate-700 transition-all flex items-center gap-1.5 cursor-pointer shadow-xs"
+                    title="Reset Cycling HR Zones to default Joe Friel model"
+                  >
+                    <RotateCcw className="w-3 h-3 text-rose-400" />
+                    <span>Reset Model</span>
+                  </button>
+                </div>
+
+                <div className="space-y-1.5 pt-1">
+                  {hrZonesBikeState.map((z) => (
+                    <div
+                      key={z.zone}
+                      className="p-2.5 rounded-xl bg-slate-900/80 border border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs"
+                    >
+                      <div className="flex items-center gap-2.5 min-w-0">
+                        <span
+                          style={{ backgroundColor: z.color }}
+                          className="w-6 h-6 rounded-lg text-slate-950 font-black text-xs flex items-center justify-center shrink-0"
+                        >
+                          Z{z.zone}
+                        </span>
+                        <div className="min-w-0">
+                          <span className="font-bold text-white mr-1.5">{z.name}</span>
+                          <span className="text-[10px] text-slate-400 font-mono block sm:inline truncate">
+                            {z.description}
+                          </span>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-1.5 shrink-0 self-end sm:self-auto font-mono">
+                        <span className="text-[10px] text-slate-500 uppercase">Min:</span>
+                        <input
+                          type="number"
+                          value={z.minHrStr}
+                          onChange={(e) => handleUpdateHrZoneBike(z.zone, 'minHrStr', e.target.value)}
+                          className="w-16 bg-slate-950 border border-slate-700 rounded-lg px-1.5 py-1 text-xs font-bold text-white text-center focus:outline-none focus:border-rose-400"
+                        />
+                        <span className="text-slate-500 text-xs">to</span>
+                        <span className="text-[10px] text-slate-500 uppercase">Max:</span>
+                        <input
+                          type="number"
+                          value={z.maxHrStr}
+                          onChange={(e) => handleUpdateHrZoneBike(z.zone, 'maxHrStr', e.target.value)}
+                          className="w-16 bg-slate-950 border border-slate-700 rounded-lg px-1.5 py-1 text-xs font-bold text-white text-center focus:outline-none focus:border-rose-400"
+                        />
+                        <span className="text-slate-400 text-xs font-mono ml-0.5">bpm</span>
                       </div>
                     </div>
                   ))}

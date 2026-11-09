@@ -40,13 +40,32 @@ export const ActivityZoneChart: React.FC<ActivityZoneChartProps> = ({
     return calculateActivityZonesTime(activity, streams, athleteProfile);
   }, [activity, streams, athleteProfile]);
 
-  // Determine available zone types (for Swims, Pace Zones is prioritized first)
+  // Determine available zone types based on sport discipline
   const isSwim = analysis.category === 'Swim';
+  const isBike = analysis.category === 'Bike';
+  const isRun = analysis.category === 'Run';
 
   const availableTabs = useMemo(() => {
     const list: Array<{ id: 'hr' | 'pace' | 'power'; label: string; icon: React.ReactNode; color: string }> = [];
 
-    if (isSwim) {
+    if (isBike) {
+      if (analysis.powerZones && analysis.powerZones.length > 0) {
+        list.push({
+          id: 'power',
+          label: 'Power Zones',
+          icon: <Zap className="w-3.5 h-3.5 text-amber-400" />,
+          color: '#f59e0b',
+        });
+      }
+      if (analysis.hrZones && analysis.hrZones.length > 0) {
+        list.push({
+          id: 'hr',
+          label: 'Heart Rate Zones',
+          icon: <Heart className="w-3.5 h-3.5 text-rose-400" />,
+          color: '#f43f5e',
+        });
+      }
+    } else if (isRun || isSwim) {
       if (analysis.paceZones && analysis.paceZones.length > 0) {
         list.push({
           id: 'pace',
@@ -61,6 +80,14 @@ export const ActivityZoneChart: React.FC<ActivityZoneChartProps> = ({
           label: 'Heart Rate Zones',
           icon: <Heart className="w-3.5 h-3.5 text-rose-400" />,
           color: '#f43f5e',
+        });
+      }
+      if (analysis.powerZones && analysis.powerZones.length > 0) {
+        list.push({
+          id: 'power',
+          label: 'Power Zones',
+          icon: <Zap className="w-3.5 h-3.5 text-amber-400" />,
+          color: '#f59e0b',
         });
       }
     } else {
@@ -90,10 +117,11 @@ export const ActivityZoneChart: React.FC<ActivityZoneChartProps> = ({
       }
     }
     return list;
-  }, [analysis, isSwim]);
+  }, [analysis, isBike, isRun, isSwim]);
 
   const [activeTab, setActiveTab] = useState<'hr' | 'pace' | 'power'>(() => {
-    if (isSwim && analysis.paceZones && analysis.paceZones.length > 0) return 'pace';
+    if (isBike && analysis.powerZones && analysis.powerZones.length > 0) return 'power';
+    if ((isRun || isSwim) && analysis.paceZones && analysis.paceZones.length > 0) return 'pace';
     return availableTabs[0]?.id || 'hr';
   });
 
@@ -111,11 +139,23 @@ export const ActivityZoneChart: React.FC<ActivityZoneChartProps> = ({
     return null;
   }, [activeTab, analysis]);
 
-  // Intensity distribution: For swims, strictly use Pace Zones
+  // Intensity distribution:
+  // - Bike workouts: based on Power (powerZones)
+  // - Run workouts: based on Pace (paceZones)
+  // - Swim workouts: based on Pace (paceZones)
   const intensityDistribution = useMemo(() => {
-    const targetBuckets = (isSwim && analysis.paceZones && analysis.paceZones.length >= 5)
-      ? analysis.paceZones
-      : (activeBuckets && activeBuckets.length >= 5 ? activeBuckets : null);
+    let targetBuckets: CalculatedZoneBucket[] | null = null;
+    if (isBike && analysis.powerZones && analysis.powerZones.length >= 5) {
+      targetBuckets = analysis.powerZones;
+    } else if (isRun && analysis.paceZones && analysis.paceZones.length >= 5) {
+      targetBuckets = analysis.paceZones;
+    } else if (isSwim && analysis.paceZones && analysis.paceZones.length >= 5) {
+      targetBuckets = analysis.paceZones;
+    }
+
+    if (!targetBuckets && activeBuckets && activeBuckets.length >= 5) {
+      targetBuckets = activeBuckets;
+    }
 
     if (targetBuckets && targetBuckets.length >= 5) {
       const low = (targetBuckets[0]?.pct || 0) + (targetBuckets[1]?.pct || 0);
@@ -142,7 +182,7 @@ export const ActivityZoneChart: React.FC<ActivityZoneChartProps> = ({
     }
 
     return analysis.intensityDistribution;
-  }, [isSwim, analysis, activeBuckets]);
+  }, [isBike, isRun, isSwim, analysis, activeBuckets]);
 
   if (availableTabs.length === 0 || !activeBuckets || activeBuckets.length === 0) {
     return (
@@ -305,7 +345,13 @@ export const ActivityZoneChart: React.FC<ActivityZoneChartProps> = ({
               Training Intensity Distribution
             </span>
             <span className="text-[11px] text-slate-500">
-              {intensityDistribution.trainingStyle} Profile {isSwim ? '(Pace Zones)' : ''}
+              {intensityDistribution.trainingStyle} Profile {
+                isBike && analysis.powerZones
+                  ? '(Power Zones)'
+                  : (isRun || isSwim) && analysis.paceZones
+                  ? '(Pace Zones)'
+                  : '(Heart Rate Zones)'
+              }
             </span>
           </div>
         </div>

@@ -229,7 +229,7 @@ export const StravaStreamPlot: React.FC<StravaStreamPlotProps> = ({
     let validCount = 0;
 
     for (const w of wData) {
-      if (typeof w !== 'number' || w < 0) continue;
+      if (typeof w !== 'number' || w < 0 || w > 2000) continue;
       validCount++;
       let placed = false;
       for (let i = 0; i < zones.length; i++) {
