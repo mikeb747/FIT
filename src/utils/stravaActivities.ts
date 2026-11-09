@@ -841,6 +841,9 @@ export function getRunActivityDetails(
     avgCadence = Math.round(avgCadence);
   }
 
+  const { subType } = classifyActivity(activity);
+  const isTreadmill = subType === 'Treadmill Run';
+
   const rawSplits = (details?.activity?.splits_metric as any[]) || [];
   const splits: RunSplitItem[] = [];
 
@@ -852,10 +855,10 @@ export function getRunActivityDetails(
       const sSecPerKm = sDist > 0 ? sTime / (sDist / 1000) : secPerKm;
       const sm = Math.floor(sSecPerKm / 60);
       const ss = Math.round(sSecPerKm % 60);
-      const elevDiff = s.elevation_difference !== undefined ? Math.round(s.elevation_difference) : undefined;
-      const sGapSec = computeSplitGapSec(sSecPerKm, sDist, elevDiff);
-      const gm = Math.floor(sGapSec / 60);
-      const gs = Math.round(sGapSec % 60);
+      const elevDiff = !isTreadmill && s.elevation_difference !== undefined ? Math.round(s.elevation_difference) : undefined;
+      const sGapSec = !isTreadmill ? computeSplitGapSec(sSecPerKm, sDist, elevDiff) : undefined;
+      const gm = sGapSec !== undefined ? Math.floor(sGapSec / 60) : 0;
+      const gs = sGapSec !== undefined ? Math.round(sGapSec % 60) : 0;
       splits.push({
         splitIndex: s.split || i + 1,
         distanceKm: (sDist / 1000).toFixed(2),
@@ -863,7 +866,7 @@ export function getRunActivityDetails(
         paceFormatted: `${sm}:${ss.toString().padStart(2, '0')}/km`,
         paceSecPerKm: Math.round(sSecPerKm),
         gapSecPerKm: sGapSec,
-        gapFormatted: `${gm}:${gs.toString().padStart(2, '0')}/km`,
+        gapFormatted: sGapSec !== undefined ? `${gm}:${gs.toString().padStart(2, '0')}/km` : undefined,
         avgHr: s.average_heartrate ? Math.round(s.average_heartrate) : undefined,
         elevationDiffM: elevDiff,
         isFasterThanAvg: sSecPerKm < secPerKm,
@@ -966,26 +969,24 @@ export function getRunActivityDetails(
     });
   }
 
-  const elevGain = activity.total_elevation_gain ? Math.round(activity.total_elevation_gain) : 0;
+  const elevGain = !isTreadmill && activity.total_elevation_gain ? Math.round(activity.total_elevation_gain) : 0;
   let gapFormatted: string | undefined;
 
-  const splitsWithElev = splits.filter((s) => s.gapSecPerKm !== undefined && s.elevationDiffM !== undefined && s.elevationDiffM !== 0);
-  if (splitsWithElev.length > 0) {
-    const totalDist = splits.reduce((acc, s) => acc + (parseFloat(s.distanceKm) || 1), 0);
-    const weightedGapSec = splits.reduce((acc, s) => acc + (s.gapSecPerKm || secPerKm) * (parseFloat(s.distanceKm) || 1), 0) / Math.max(0.1, totalDist);
-    const gm = Math.floor(weightedGapSec / 60);
-    const gs = Math.round(weightedGapSec % 60);
-    gapFormatted = `${gm}:${gs.toString().padStart(2, '0')}/km`;
-  } else if (elevGain > 10 && distanceM > 0) {
-    const grade = (elevGain / distanceM) * 100;
-    const gapSec = Math.max(120, secPerKm * (1 - grade * 0.035));
-    const gm = Math.floor(gapSec / 60);
-    const gs = Math.round(gapSec % 60);
-    gapFormatted = `${gm}:${gs.toString().padStart(2, '0')}/km`;
-  } else {
-    const gm = Math.floor(secPerKm / 60);
-    const gs = Math.round(secPerKm % 60);
-    gapFormatted = `${gm}:${gs.toString().padStart(2, '0')}/km`;
+  if (!isTreadmill) {
+    const splitsWithElev = splits.filter((s) => s.gapSecPerKm !== undefined && s.elevationDiffM !== undefined && s.elevationDiffM !== 0);
+    if (splitsWithElev.length > 0) {
+      const totalDist = splits.reduce((acc, s) => acc + (parseFloat(s.distanceKm) || 1), 0);
+      const weightedGapSec = splits.reduce((acc, s) => acc + (s.gapSecPerKm || secPerKm) * (parseFloat(s.distanceKm) || 1), 0) / Math.max(0.1, totalDist);
+      const gm = Math.floor(weightedGapSec / 60);
+      const gs = Math.round(weightedGapSec % 60);
+      gapFormatted = `${gm}:${gs.toString().padStart(2, '0')}/km`;
+    } else if (elevGain > 10 && distanceM > 0) {
+      const grade = (elevGain / distanceM) * 100;
+      const gapSec = Math.max(120, secPerKm * (1 - grade * 0.035));
+      const gm = Math.floor(gapSec / 60);
+      const gs = Math.round(gapSec % 60);
+      gapFormatted = `${gm}:${gs.toString().padStart(2, '0')}/km`;
+    }
   }
 
   return {

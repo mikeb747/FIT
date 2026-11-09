@@ -286,13 +286,14 @@ export function generateDemoActivities(): StravaActivity[] {
     },
     {
       id: 'demo-act-12',
-      name: 'Easy Aerobic Recovery Run 🏃🏻‍♂️',
+      name: 'Indoor Treadmill Aerobic Run 🏃🏻‍♂️',
       type: 'Run',
       sport_type: 'Run',
+      trainer: true,
       distance: 7500,
       moving_time: 2250,
       elapsed_time: 2310,
-      total_elevation_gain: 35,
+      total_elevation_gain: 0,
       start_date: formatIso(11, 7, 15),
       start_date_local: formatIso(11, 7, 15),
       average_speed: 3.33, // 5:00/km

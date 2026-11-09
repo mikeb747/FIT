@@ -1381,104 +1381,110 @@ export const StravaActivityModal: React.FC<StravaActivityModalProps> = ({
             </div>
           )}
 
-          {/* Running Kilometer Splits & Pacing Dynamics Breakdown */}
-          {classification.category === 'Run' && runDetails && (
-            <div className="p-3.5 rounded-2xl bg-slate-950/70 border border-slate-800 space-y-3 overflow-hidden">
-              <div className="flex items-center justify-start flex-wrap gap-2.5">
-                {/* Title */}
-                <div className="flex items-center gap-2 mr-0.5">
-                  <div className="w-7 h-7 rounded-lg bg-amber-500/15 border border-amber-500/30 flex items-center justify-center text-amber-400 shrink-0">
-                    <Footprints className="w-4 h-4" />
-                  </div>
-                  <div>
-                    <h4 className="text-xs font-bold text-amber-300 uppercase tracking-wider">
-                      Kilometer Splits ({runDetails.splits.length} Splits)
-                    </h4>
-                    <span className="text-[10px] text-slate-400">
-                      {runDetails.consistencySummary}
-                    </span>
-                  </div>
-                </div>
+          {/* Running Splits Breakdown */}
+          {classification.category === 'Run' && runDetails && (() => {
+            const isTreadmill = classification.subType === 'Treadmill Run';
+            const effectiveSplitsMode = isTreadmill && splitsDisplayMode === 'gap' ? 'pace' : splitsDisplayMode;
 
-                {/* Left-Aligned Summary Metric Badges (Avg Pace, Cadence, GAP) */}
-                <div className="flex items-center gap-1.5 flex-wrap">
-                  <div className="px-2 py-0.5 rounded-md bg-slate-900 border border-slate-800 text-[11px] font-mono font-bold text-amber-400 flex items-center gap-1">
-                    <Gauge className="w-3 h-3 text-amber-400/80 inline" />
-                    <span>Avg {runDetails.avgPaceFormatted}</span>
-                  </div>
-                  {runDetails.avgCadence && (
-                    <div className="px-2 py-0.5 rounded-md bg-slate-900 border border-slate-800 text-[11px] font-mono text-slate-300 flex items-center gap-1">
-                      <Activity className="w-3 h-3 text-slate-400 inline" />
-                      <span>{runDetails.avgCadence} spm</span>
+            return (
+              <div className="p-3.5 rounded-2xl bg-slate-950/70 border border-slate-800 space-y-3 overflow-hidden">
+                <div className="flex items-center justify-start flex-wrap gap-2.5">
+                  {/* Title */}
+                  <div className="flex items-center gap-2 mr-0.5">
+                    <div className="w-7 h-7 rounded-lg bg-amber-500/15 border border-amber-500/30 flex items-center justify-center text-amber-400 shrink-0">
+                      <Footprints className="w-4 h-4" />
                     </div>
-                  )}
-                  {runDetails.gradeAdjustedPaceFormatted && (
-                    <div className="px-2 py-0.5 rounded-md bg-slate-900 border border-slate-800 text-[10px] font-mono text-emerald-400 flex items-center gap-1" title="Grade Adjusted Pace">
-                      <TrendingUp className="w-3 h-3 text-emerald-400 inline" />
-                      <span>GAP {runDetails.gradeAdjustedPaceFormatted}</span>
+                    <div>
+                      <h4 className="text-xs font-bold text-amber-300 uppercase tracking-wider">
+                        Splits ({runDetails.splits.length} Splits)
+                      </h4>
+                      <span className="text-[10px] text-slate-400">
+                        {runDetails.consistencySummary}
+                      </span>
                     </div>
-                  )}
+                  </div>
+
+                  {/* Left-Aligned Summary Metric Badges (Avg Pace, Cadence, GAP) */}
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    <div className="px-2 py-0.5 rounded-md bg-slate-900 border border-slate-800 text-[11px] font-mono font-bold text-amber-400 flex items-center gap-1">
+                      <Gauge className="w-3 h-3 text-amber-400/80 inline" />
+                      <span>Avg {runDetails.avgPaceFormatted}</span>
+                    </div>
+                    {runDetails.avgCadence && (
+                      <div className="px-2 py-0.5 rounded-md bg-slate-900 border border-slate-800 text-[11px] font-mono text-slate-300 flex items-center gap-1">
+                        <Activity className="w-3 h-3 text-slate-400 inline" />
+                        <span>{runDetails.avgCadence} spm</span>
+                      </div>
+                    )}
+                    {!isTreadmill && runDetails.gradeAdjustedPaceFormatted && (
+                      <div className="px-2 py-0.5 rounded-md bg-slate-900 border border-slate-800 text-[10px] font-mono text-emerald-400 flex items-center gap-1" title="Grade Adjusted Pace">
+                        <TrendingUp className="w-3 h-3 text-emerald-400 inline" />
+                        <span>GAP {runDetails.gradeAdjustedPaceFormatted}</span>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Left-Aligned View Mode Toggle Tabs (Pace, GAP, HR, Cards) */}
+                  <div className="flex items-center gap-1 bg-slate-900 p-0.5 rounded-xl border border-slate-800 text-[11px] font-bold">
+                    <button
+                      type="button"
+                      onClick={() => setSplitsDisplayMode('pace')}
+                      className={`px-2.5 py-1 rounded-lg transition-colors cursor-pointer flex items-center gap-1 ${
+                        effectiveSplitsMode === 'pace'
+                          ? 'bg-amber-500 text-slate-950 font-black'
+                          : 'text-slate-400 hover:text-white'
+                      }`}
+                      title="Display 1km splits as Pace bar chart"
+                    >
+                      <Gauge className="w-3 h-3" />
+                      <span>Pace Bar Chart</span>
+                    </button>
+                    {!isTreadmill && (
+                      <button
+                        type="button"
+                        onClick={() => setSplitsDisplayMode('gap')}
+                        className={`px-2.5 py-1 rounded-lg transition-colors cursor-pointer flex items-center gap-1 ${
+                          effectiveSplitsMode === 'gap'
+                            ? 'bg-emerald-500 text-slate-950 font-black'
+                            : 'text-slate-400 hover:text-white'
+                        }`}
+                        title="Display 1km splits as Grade Adjusted Pace (GAP) bar chart"
+                      >
+                        <TrendingUp className="w-3 h-3 text-emerald-400" />
+                        <span>GAP Bar Chart</span>
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => setSplitsDisplayMode('hr')}
+                      className={`px-2.5 py-1 rounded-lg transition-colors cursor-pointer flex items-center gap-1 ${
+                        effectiveSplitsMode === 'hr'
+                          ? 'bg-amber-500 text-slate-950 font-black'
+                          : 'text-slate-400 hover:text-white'
+                      }`}
+                      title="Display 1km splits as HR bar chart"
+                    >
+                      <Heart className="w-3 h-3 text-rose-400" />
+                      <span>HR Bar Chart</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setSplitsDisplayMode('cards')}
+                      className={`px-2.5 py-1 rounded-lg transition-colors cursor-pointer flex items-center gap-1 ${
+                        effectiveSplitsMode === 'cards'
+                          ? 'bg-amber-500 text-slate-950 font-black'
+                          : 'text-slate-400 hover:text-white'
+                      }`}
+                      title="Display 1km splits as Cards"
+                    >
+                      <LayoutGrid className="w-3 h-3" />
+                      <span>Cards</span>
+                    </button>
+                  </div>
                 </div>
 
-                {/* Left-Aligned View Mode Toggle Tabs (Pace, GAP, HR, Cards) */}
-                <div className="flex items-center gap-1 bg-slate-900 p-0.5 rounded-xl border border-slate-800 text-[11px] font-bold">
-                  <button
-                    type="button"
-                    onClick={() => setSplitsDisplayMode('pace')}
-                    className={`px-2.5 py-1 rounded-lg transition-colors cursor-pointer flex items-center gap-1 ${
-                      splitsDisplayMode === 'pace'
-                        ? 'bg-amber-500 text-slate-950 font-black'
-                        : 'text-slate-400 hover:text-white'
-                    }`}
-                    title="Display 1km splits as Pace bar chart"
-                  >
-                    <Gauge className="w-3 h-3" />
-                    <span>Pace Bar Chart</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setSplitsDisplayMode('gap')}
-                    className={`px-2.5 py-1 rounded-lg transition-colors cursor-pointer flex items-center gap-1 ${
-                      splitsDisplayMode === 'gap'
-                        ? 'bg-emerald-500 text-slate-950 font-black'
-                        : 'text-slate-400 hover:text-white'
-                    }`}
-                    title="Display 1km splits as Grade Adjusted Pace (GAP) bar chart"
-                  >
-                    <TrendingUp className="w-3 h-3 text-emerald-400" />
-                    <span>GAP Bar Chart</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setSplitsDisplayMode('hr')}
-                    className={`px-2.5 py-1 rounded-lg transition-colors cursor-pointer flex items-center gap-1 ${
-                      splitsDisplayMode === 'hr'
-                        ? 'bg-amber-500 text-slate-950 font-black'
-                        : 'text-slate-400 hover:text-white'
-                    }`}
-                    title="Display 1km splits as HR bar chart"
-                  >
-                    <Heart className="w-3 h-3 text-rose-400" />
-                    <span>HR Bar Chart</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setSplitsDisplayMode('cards')}
-                    className={`px-2.5 py-1 rounded-lg transition-colors cursor-pointer flex items-center gap-1 ${
-                      splitsDisplayMode === 'cards'
-                        ? 'bg-amber-500 text-slate-950 font-black'
-                        : 'text-slate-400 hover:text-white'
-                    }`}
-                    title="Display 1km splits as Cards"
-                  >
-                    <LayoutGrid className="w-3 h-3" />
-                    <span>Cards</span>
-                  </button>
-                </div>
-              </div>
-
-              {/* Pace Bar Chart View (Extra box removed, starts right out splits box) */}
-              {splitsDisplayMode === 'pace' && (() => {
+                {/* Pace Bar Chart View (Extra box removed, starts right out splits box) */}
+                {effectiveSplitsMode === 'pace' && (() => {
                 const splitsWithPace = runDetails.splits.map((s) => ({
                   ...s,
                   paceSec: s.paceSecPerKm || (s.movingTimeSec / Math.max(0.01, Number(s.distanceKm))),
@@ -1541,7 +1547,7 @@ export const StravaActivityModal: React.FC<StravaActivityModalProps> = ({
               })()}
 
               {/* GAP (Grade Adjusted Pace) Bar Chart View */}
-              {splitsDisplayMode === 'gap' && (() => {
+              {!isTreadmill && effectiveSplitsMode === 'gap' && (() => {
                 const splitsWithGap = runDetails.splits.map((s) => ({
                   ...s,
                   gapSec: s.gapSecPerKm || s.paceSecPerKm || (s.movingTimeSec / Math.max(0.01, Number(s.distanceKm))),
@@ -1611,7 +1617,7 @@ export const StravaActivityModal: React.FC<StravaActivityModalProps> = ({
               })()}
 
               {/* Heart Rate Bar Chart View (Extra box removed, starts right out splits box) */}
-              {splitsDisplayMode === 'hr' && (() => {
+              {effectiveSplitsMode === 'hr' && (() => {
                 const hrValues = runDetails.splits
                   .map((s) => s.avgHr)
                   .filter((h): h is number => typeof h === 'number' && h > 0);
@@ -1678,7 +1684,7 @@ export const StravaActivityModal: React.FC<StravaActivityModalProps> = ({
               })()}
 
               {/* Splits Grid (Cards View) */}
-              {splitsDisplayMode === 'cards' && (
+              {effectiveSplitsMode === 'cards' && (
                 <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 max-h-52 overflow-y-auto pt-1">
                   {runDetails.splits.map((split) => (
                     <div
@@ -1716,7 +1722,8 @@ export const StravaActivityModal: React.FC<StravaActivityModalProps> = ({
                 </div>
               )}
             </div>
-          )}
+          );
+        })()}
 
           {/* Cycling Laps & Power Dynamics Breakdown */}
           {classification.category === 'Bike' && bikeDetails && (
@@ -1728,7 +1735,7 @@ export const StravaActivityModal: React.FC<StravaActivityModalProps> = ({
                   </div>
                   <div>
                     <h4 className="text-xs font-bold text-orange-300 uppercase tracking-wider">
-                      Laps &amp; Power Intervals ({bikeDetails.laps.length} Laps)
+                      Splits ({bikeDetails.laps.length} Laps)
                     </h4>
                     <span className="text-[10px] text-slate-400">
                       {bikeDetails.intensityFactor ? `Intensity Factor: ${bikeDetails.intensityFactor}` : ''}
@@ -1803,7 +1810,7 @@ export const StravaActivityModal: React.FC<StravaActivityModalProps> = ({
               <div className="flex items-center gap-2">
                 <Zap className="w-4 h-4 text-amber-400" />
                 <h4 className="text-xs font-bold text-slate-200 uppercase tracking-wider">
-                  Interactive Streams & Plot
+                  Data Streams
                 </h4>
               </div>
 
