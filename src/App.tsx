@@ -1162,8 +1162,8 @@ export default function App() {
       <main
         className={`flex-1 max-w-5xl xl:max-w-6xl 2xl:max-w-7xl w-full mx-auto space-y-6 ${
           activeMainTab === 'activities'
-            ? 'px-1 sm:px-1.5 py-4 sm:py-6'
-            : 'p-4 sm:p-6'
+            ? 'px-0.5 sm:px-1 py-3 sm:py-4'
+            : 'px-2 sm:px-3 py-3 sm:py-4'
         }`}
       >
         <ErrorBoundary fallbackTitle="Error loading view">

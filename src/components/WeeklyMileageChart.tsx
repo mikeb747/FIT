@@ -25,6 +25,30 @@ import { FitnessZoneCharts, ZoneChartMode } from './FitnessZoneCharts';
 
 export type ChartDatasetTab = 'mileage' | 'swim_distance' | 'bike_hours' | 'cycling_power' | 'running_pace' | 'running_hr';
 
+/**
+ * Format a Monday date into a compact short code for 24W & 52W:
+ * Day of month + first letter of month (e.g. 26/10/2026 -> 26O, 09/11/2026 -> 9N)
+ */
+export function formatWeekShortCode(mondayDate: Date | string): string {
+  const d = new Date(mondayDate);
+  if (isNaN(d.getTime())) return '';
+  const day = d.getDate();
+  const monthLetters = ['J', 'F', 'M', 'A', 'M', 'J', 'J', 'A', 'S', 'O', 'N', 'D'];
+  const monthInitial = monthLetters[d.getMonth()] || '';
+  return `${day}${monthInitial}`;
+}
+
+/**
+ * Responsive & proportional bar width for 4W, 8W, 12W, 24W, and 52W
+ */
+export function getBarWidthClass(weeksCount: number): string {
+  if (weeksCount <= 4) return 'w-6 sm:w-9 max-w-[26px] sm:max-w-[36px]';
+  if (weeksCount <= 8) return 'w-4 sm:w-6 max-w-[18px] sm:max-w-[26px]';
+  if (weeksCount <= 12) return 'w-3 sm:w-4.5 max-w-[13px] sm:max-w-[18px]';
+  if (weeksCount <= 24) return 'w-full max-w-[9px] sm:max-w-[13px]';
+  return 'w-full min-w-[2px]';
+}
+
 interface WeeklyMileageChartProps {
   activities: StravaActivity[];
   activityDetails?: Record<string, StravaActivityDetailsRecord>;
@@ -274,20 +298,20 @@ export const WeeklyMileageChart: React.FC<WeeklyMileageChartProps> = ({
                 <span className="font-mono text-[11px]">Peak Scale: {maxSwimDist} km</span>
               </div>
 
-              <div className="overflow-x-auto scrollbar-thin pb-2" ref={scrollContainerRef}>
-                <div className="relative pt-6 pb-2 min-w-[520px]">
+              <div className="-mx-4 sm:-mx-5 overflow-x-auto scrollbar-thin pb-2" ref={scrollContainerRef}>
+                <div className={`relative pt-6 pb-2 ${numWeeks === 52 ? 'min-w-[560px] sm:min-w-full' : 'w-full'}`}>
                   {swimStats.averageWeeklyKm > 0 && (
                     <div
                       className="absolute left-0 right-0 border-b-2 border-dotted border-red-500 z-20 pointer-events-none"
                       style={{ bottom: `${Math.min(90, (swimStats.averageWeeklyKm / maxSwimDist) * 100)}%` }}
                     >
-                      <span className="absolute right-1 -top-4 text-[10px] font-mono font-bold text-black bg-white/95 border border-slate-300 px-1.5 py-0.5 rounded shadow-sm">
+                      <span className="absolute right-2 -top-4 text-[10px] font-mono font-bold text-black bg-white/95 border border-slate-300 px-1.5 py-0.5 rounded shadow-sm">
                         Avg: {swimStats.averageWeeklyKm} km
                       </span>
                     </div>
                   )}
 
-                  <div className="h-44 sm:h-52 w-full flex items-end gap-1 sm:gap-1.5 px-0.5 relative z-10">
+                  <div className={`h-44 sm:h-52 w-full flex items-end ${numWeeks === 52 ? 'gap-[1px] sm:gap-0.5' : 'gap-0.5 sm:gap-[3px]'} px-0 relative z-10`}>
                     {swimWeeks.map((w) => {
                       const val = w.distanceKm;
                       const heightPct = Math.min(100, Math.max(val > 0 ? 6 : 2, (val / maxSwimDist) * 100));
@@ -297,22 +321,37 @@ export const WeeklyMileageChart: React.FC<WeeklyMileageChartProps> = ({
                         <div
                           key={w.weekKey}
                           onClick={() => setSelectedSwimWeek(w)}
-                          className="flex-1 flex flex-col items-center h-full justify-end cursor-pointer group min-w-[28px]"
+                          className="flex-1 min-w-0 flex flex-col items-center h-full justify-end cursor-pointer group"
                         >
-                          <div className={`text-[10px] font-mono font-bold mb-1 transition-all whitespace-nowrap ${val > 0 ? (isSelected ? 'text-sky-400 scale-110' : 'text-slate-400') : 'opacity-0'}`}>
+                          <div
+                            className={`text-[10px] font-mono font-bold mb-1 transition-all whitespace-nowrap ${
+                              val > 0
+                                ? isSelected
+                                  ? 'text-sky-400 scale-110'
+                                  : 'text-slate-400 group-hover:text-sky-300'
+                                : 'opacity-0'
+                            } ${numWeeks >= 24 && !isSelected ? 'hidden sm:block opacity-0 group-hover:opacity-100' : ''}`}
+                          >
                             {val > 0 ? val : ''}
                           </div>
                           <div
-                            className="w-full relative rounded-t-md transition-all duration-300 border border-black box-border"
+                            className={`${getBarWidthClass(numWeeks)} relative rounded-t-md transition-all duration-300 border border-black box-border`}
                             style={{
                               height: `${heightPct}%`,
                               backgroundColor: val === 0 ? (isLight ? '#e2e8f0' : '#1e293b') : isSelected ? '#0ea5e9' : w.isCurrentWeek ? '#38bdf8' : '#0284c7',
                               opacity: val === 0 ? 0.35 : isSelected ? 1 : 0.85,
                             }}
                           />
-                          <div className="mt-2 text-center w-full">
-                            <span className={`text-[9px] font-mono block truncate ${isSelected ? 'text-sky-500 font-bold' : 'text-slate-400'}`}>
-                              {w.shortLabel.replace(/^[A-Za-z]+ /, '')}
+                          <div className="mt-2 text-center w-full px-0.5">
+                            <span
+                              className={`text-[9px] ${numWeeks >= 24 ? 'text-[8px] sm:text-[9px]' : ''} font-mono block truncate ${
+                                isSelected ? 'text-sky-500 font-bold' : 'text-slate-400'
+                              }`}
+                              title={w.weekLabel}
+                            >
+                              {numWeeks >= 24
+                                ? formatWeekShortCode(w.mondayDate)
+                                : w.shortLabel.replace(/^[A-Za-z]+ /, '')}
                             </span>
                           </div>
                         </div>
@@ -436,20 +475,20 @@ export const WeeklyMileageChart: React.FC<WeeklyMileageChartProps> = ({
                 <span className="font-mono text-[11px]">Peak Scale: {maxBikeHrs} hrs</span>
               </div>
 
-              <div className="overflow-x-auto scrollbar-thin pb-2" ref={scrollContainerRef}>
-                <div className="relative pt-6 pb-2 min-w-[520px]">
+              <div className="-mx-4 sm:-mx-5 overflow-x-auto scrollbar-thin pb-2" ref={scrollContainerRef}>
+                <div className={`relative pt-6 pb-2 ${numWeeks === 52 ? 'min-w-[560px] sm:min-w-full' : 'w-full'}`}>
                   {bikeStats.averageWeeklyHours > 0 && (
                     <div
                       className="absolute left-0 right-0 border-b-2 border-dotted border-red-500 z-20 pointer-events-none"
                       style={{ bottom: `${Math.min(90, (bikeStats.averageWeeklyHours / maxBikeHrs) * 100)}%` }}
                     >
-                      <span className="absolute right-1 -top-4 text-[10px] font-mono font-bold text-black bg-white/95 border border-slate-300 px-1.5 py-0.5 rounded shadow-sm">
+                      <span className="absolute right-2 -top-4 text-[10px] font-mono font-bold text-black bg-white/95 border border-slate-300 px-1.5 py-0.5 rounded shadow-sm">
                         Avg: {bikeStats.averageWeeklyHours} hrs
                       </span>
                     </div>
                   )}
 
-                  <div className="h-44 sm:h-52 w-full flex items-end gap-1 sm:gap-1.5 px-0.5 relative z-10">
+                  <div className={`h-44 sm:h-52 w-full flex items-end ${numWeeks === 52 ? 'gap-[1px] sm:gap-0.5' : 'gap-0.5 sm:gap-[3px]'} px-0 relative z-10`}>
                     {bikeWeeks.map((w) => {
                       const val = w.movingHours;
                       const heightPct = Math.min(100, Math.max(val > 0 ? 6 : 2, (val / maxBikeHrs) * 100));
@@ -459,22 +498,37 @@ export const WeeklyMileageChart: React.FC<WeeklyMileageChartProps> = ({
                         <div
                           key={w.weekKey}
                           onClick={() => setSelectedBikeWeek(w)}
-                          className="flex-1 flex flex-col items-center h-full justify-end cursor-pointer group min-w-[28px]"
+                          className="flex-1 min-w-0 flex flex-col items-center h-full justify-end cursor-pointer group"
                         >
-                          <div className={`text-[10px] font-mono font-bold mb-1 transition-all whitespace-nowrap ${val > 0 ? (isSelected ? 'text-orange-400 scale-110' : 'text-slate-400') : 'opacity-0'}`}>
+                          <div
+                            className={`text-[10px] font-mono font-bold mb-1 transition-all whitespace-nowrap ${
+                              val > 0
+                                ? isSelected
+                                  ? 'text-orange-400 scale-110'
+                                  : 'text-slate-400 group-hover:text-orange-300'
+                                : 'opacity-0'
+                            } ${numWeeks >= 24 && !isSelected ? 'hidden sm:block opacity-0 group-hover:opacity-100' : ''}`}
+                          >
                             {val > 0 ? val : ''}
                           </div>
                           <div
-                            className="w-full relative rounded-t-md transition-all duration-300 border border-black box-border"
+                            className={`${getBarWidthClass(numWeeks)} relative rounded-t-md transition-all duration-300 border border-black box-border`}
                             style={{
                               height: `${heightPct}%`,
                               backgroundColor: val === 0 ? (isLight ? '#e2e8f0' : '#1e293b') : isSelected ? '#f97316' : w.isCurrentWeek ? '#fb923c' : '#ea580c',
                               opacity: val === 0 ? 0.35 : isSelected ? 1 : 0.85,
                             }}
                           />
-                          <div className="mt-2 text-center w-full">
-                            <span className={`text-[9px] font-mono block truncate ${isSelected ? 'text-orange-500 font-bold' : 'text-slate-400'}`}>
-                              {w.shortLabel.replace(/^[A-Za-z]+ /, '')}
+                          <div className="mt-2 text-center w-full px-0.5">
+                            <span
+                              className={`text-[9px] ${numWeeks >= 24 ? 'text-[8px] sm:text-[9px]' : ''} font-mono block truncate ${
+                                isSelected ? 'text-orange-500 font-bold' : 'text-slate-400'
+                              }`}
+                              title={w.weekLabel}
+                            >
+                              {numWeeks >= 24
+                                ? formatWeekShortCode(w.mondayDate)
+                                : w.shortLabel.replace(/^[A-Za-z]+ /, '')}
                             </span>
                           </div>
                         </div>
@@ -696,8 +750,8 @@ export const WeeklyMileageChart: React.FC<WeeklyMileageChartProps> = ({
           </span>
         </div>
 
-        <div className="overflow-x-auto scrollbar-thin pb-2" ref={scrollContainerRef}>
-          <div className="relative pt-6 pb-2 min-w-[520px]">
+        <div className="-mx-4 sm:-mx-5 overflow-x-auto scrollbar-thin pb-2" ref={scrollContainerRef}>
+          <div className={`relative pt-6 pb-2 ${numWeeks === 52 ? 'min-w-[560px] sm:min-w-full' : 'w-full'}`}>
             {/* Average Reference Line */}
             {stats.averageWeeklyMiles > 0 && (
               <div
@@ -711,14 +765,14 @@ export const WeeklyMileageChart: React.FC<WeeklyMileageChartProps> = ({
                   )}%`,
                 }}
               >
-                <span className="absolute right-1 -top-4 text-[10px] font-mono font-bold text-black bg-white/95 border border-slate-300 px-1.5 py-0.5 rounded shadow-sm">
+                <span className="absolute right-2 -top-4 text-[10px] font-mono font-bold text-black bg-white/95 border border-slate-300 px-1.5 py-0.5 rounded shadow-sm">
                   Avg: {unit === 'miles' ? stats.averageWeeklyMiles : stats.averageWeeklyKm} {unit}
                 </span>
               </div>
             )}
 
             {/* Bar Chart Grid */}
-            <div className="h-44 sm:h-52 w-full flex items-end gap-1 sm:gap-1.5 px-0.5 relative z-10">
+            <div className={`h-44 sm:h-52 w-full flex items-end ${numWeeks === 52 ? 'gap-[1px] sm:gap-0.5' : 'gap-0.5 sm:gap-[3px]'} px-0 relative z-10`}>
               {weeks.map((w) => {
                 const val = unit === 'miles' ? w.distanceMiles : w.distanceKm;
                 const heightPct = Math.min(100, Math.max(val > 0 ? 6 : 2, (val / maxWeeklyDist) * 100));
@@ -728,7 +782,7 @@ export const WeeklyMileageChart: React.FC<WeeklyMileageChartProps> = ({
                   <div
                     key={w.weekKey}
                     onClick={() => setSelectedWeek(w)}
-                    className="flex-1 flex flex-col items-center h-full justify-end cursor-pointer group min-w-[28px]"
+                    className="flex-1 min-w-0 flex flex-col items-center h-full justify-end cursor-pointer group"
                   >
                     {/* Tooltip value on hover / select */}
                     <div
@@ -740,14 +794,14 @@ export const WeeklyMileageChart: React.FC<WeeklyMileageChartProps> = ({
                             ? 'text-slate-700 group-hover:text-amber-600'
                             : 'text-slate-400 group-hover:text-amber-400'
                           : 'opacity-0'
-                      }`}
+                      } ${numWeeks >= 24 && !isSelected ? 'hidden sm:block opacity-0 group-hover:opacity-100' : ''}`}
                     >
                       {val > 0 ? val : ''}
                     </div>
 
                     {/* Bar */}
                     <div
-                      className="w-full relative rounded-t-md transition-all duration-300 border border-black box-border"
+                      className={`${getBarWidthClass(numWeeks)} relative rounded-t-md transition-all duration-300 border border-black box-border`}
                       style={{
                         height: `${heightPct}%`,
                         backgroundColor:
@@ -768,9 +822,9 @@ export const WeeklyMileageChart: React.FC<WeeklyMileageChartProps> = ({
                     />
 
                     {/* Date label at bottom */}
-                    <div className="mt-2 text-center w-full">
+                    <div className="mt-2 text-center w-full px-0.5">
                       <span
-                        className={`text-[9px] font-mono block truncate ${
+                        className={`text-[9px] ${numWeeks >= 24 ? 'text-[8px] sm:text-[9px]' : ''} font-mono block truncate ${
                           isSelected
                             ? 'text-amber-500 font-bold'
                             : w.isCurrentWeek
@@ -781,7 +835,9 @@ export const WeeklyMileageChart: React.FC<WeeklyMileageChartProps> = ({
                         }`}
                         title={w.weekLabel}
                       >
-                        {w.shortLabel.replace(/^[A-Za-z]+ /, '')}
+                        {numWeeks >= 24
+                          ? formatWeekShortCode(w.mondayDate)
+                          : w.shortLabel.replace(/^[A-Za-z]+ /, '')}
                       </span>
                     </div>
                   </div>
