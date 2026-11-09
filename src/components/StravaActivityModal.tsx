@@ -615,17 +615,6 @@ export const StravaActivityModal: React.FC<StravaActivityModalProps> = ({
           <ErrorBoundary fallbackTitle="Unable to display this workout's details" onReset={onClose}>
           {/* Badges strip */}
           <div className="pt-0.5 pb-0.5 flex flex-wrap items-center gap-1.5 sm:gap-2">
-            <span
-              className={`px-2.5 py-1 rounded-xl text-xs font-bold flex items-center gap-1.5 border ${
-                isLight
-                  ? 'bg-slate-100 text-slate-700 border-slate-200'
-                  : 'bg-slate-800 text-slate-200 border-slate-700'
-              }`}
-            >
-              {getCategoryIcon(classification.category, 'w-3.5 h-3.5', isLight)}
-              <span>{classification.subType}</span>
-            </span>
-
             {/* Device Model Badge (e.g. Garmin Forerunner 255) */}
             {deviceName && (
               <span
@@ -1805,14 +1794,12 @@ export const StravaActivityModal: React.FC<StravaActivityModalProps> = ({
           {/* ======================================================= */}
           {/* WORKOUT ANALYSIS (INTERACTIVE LAPS CHART & SYNCED TABLE) */}
           {/* ======================================================= */}
-          <div id="workout-analysis-section">
-            <WorkoutAnalysis
-              activity={activity}
-              details={detailsRecord}
-              athleteProfile={athleteProfile}
-              theme={theme}
-            />
-          </div>
+          <WorkoutAnalysis
+            activity={activity}
+            details={detailsRecord}
+            athleteProfile={athleteProfile}
+            theme={theme}
+          />
 
           {/* ======================================================= */}
           {/* CACHED STREAMS INTERACTIVE PLOT & TELEMETRY             */}

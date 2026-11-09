@@ -40,37 +40,60 @@ export const ActivityZoneChart: React.FC<ActivityZoneChartProps> = ({
     return calculateActivityZonesTime(activity, streams, athleteProfile);
   }, [activity, streams, athleteProfile]);
 
-  // Determine available zone types
+  // Determine available zone types (for Swims, Pace Zones is prioritized first)
+  const isSwim = analysis.category === 'Swim';
+
   const availableTabs = useMemo(() => {
     const list: Array<{ id: 'hr' | 'pace' | 'power'; label: string; icon: React.ReactNode; color: string }> = [];
-    if (analysis.hrZones && analysis.hrZones.length > 0) {
-      list.push({
-        id: 'hr',
-        label: 'Heart Rate Zones',
-        icon: <Heart className="w-3.5 h-3.5 text-rose-400" />,
-        color: '#f43f5e',
-      });
-    }
-    if (analysis.paceZones && analysis.paceZones.length > 0) {
-      list.push({
-        id: 'pace',
-        label: 'Pace Zones',
-        icon: <Gauge className="w-3.5 h-3.5 text-sky-400" />,
-        color: '#38bdf8',
-      });
-    }
-    if (analysis.powerZones && analysis.powerZones.length > 0) {
-      list.push({
-        id: 'power',
-        label: 'Power Zones',
-        icon: <Zap className="w-3.5 h-3.5 text-amber-400" />,
-        color: '#f59e0b',
-      });
+
+    if (isSwim) {
+      if (analysis.paceZones && analysis.paceZones.length > 0) {
+        list.push({
+          id: 'pace',
+          label: 'Pace Zones',
+          icon: <Gauge className="w-3.5 h-3.5 text-sky-400" />,
+          color: '#38bdf8',
+        });
+      }
+      if (analysis.hrZones && analysis.hrZones.length > 0) {
+        list.push({
+          id: 'hr',
+          label: 'Heart Rate Zones',
+          icon: <Heart className="w-3.5 h-3.5 text-rose-400" />,
+          color: '#f43f5e',
+        });
+      }
+    } else {
+      if (analysis.hrZones && analysis.hrZones.length > 0) {
+        list.push({
+          id: 'hr',
+          label: 'Heart Rate Zones',
+          icon: <Heart className="w-3.5 h-3.5 text-rose-400" />,
+          color: '#f43f5e',
+        });
+      }
+      if (analysis.paceZones && analysis.paceZones.length > 0) {
+        list.push({
+          id: 'pace',
+          label: 'Pace Zones',
+          icon: <Gauge className="w-3.5 h-3.5 text-sky-400" />,
+          color: '#38bdf8',
+        });
+      }
+      if (analysis.powerZones && analysis.powerZones.length > 0) {
+        list.push({
+          id: 'power',
+          label: 'Power Zones',
+          icon: <Zap className="w-3.5 h-3.5 text-amber-400" />,
+          color: '#f59e0b',
+        });
+      }
     }
     return list;
-  }, [analysis]);
+  }, [analysis, isSwim]);
 
   const [activeTab, setActiveTab] = useState<'hr' | 'pace' | 'power'>(() => {
+    if (isSwim && analysis.paceZones && analysis.paceZones.length > 0) return 'pace';
     return availableTabs[0]?.id || 'hr';
   });
 
@@ -87,6 +110,39 @@ export const ActivityZoneChart: React.FC<ActivityZoneChartProps> = ({
     if (activeTab === 'power') return analysis.powerZones;
     return null;
   }, [activeTab, analysis]);
+
+  // Intensity distribution: For swims, strictly use Pace Zones
+  const intensityDistribution = useMemo(() => {
+    const targetBuckets = (isSwim && analysis.paceZones && analysis.paceZones.length >= 5)
+      ? analysis.paceZones
+      : (activeBuckets && activeBuckets.length >= 5 ? activeBuckets : null);
+
+    if (targetBuckets && targetBuckets.length >= 5) {
+      const low = (targetBuckets[0]?.pct || 0) + (targetBuckets[1]?.pct || 0);
+      const mid = targetBuckets[2]?.pct || 0;
+      const high = targetBuckets.slice(3).reduce((sum, b) => sum + b.pct, 0);
+
+      let style: 'Polarized (80/20)' | 'Pyramidal' | 'Threshold Heavy' | 'High Intensity' | 'Recovery' = 'Pyramidal';
+      if (low >= 75 && high >= 10 && mid <= 15) {
+        style = 'Polarized (80/20)';
+      } else if (low >= 85) {
+        style = 'Recovery';
+      } else if (mid >= 35) {
+        style = 'Threshold Heavy';
+      } else if (high >= 30) {
+        style = 'High Intensity';
+      }
+
+      return {
+        lowIntensityPct: low,
+        tempoPct: mid,
+        highIntensityPct: high,
+        trainingStyle: style,
+      };
+    }
+
+    return analysis.intensityDistribution;
+  }, [isSwim, analysis, activeBuckets]);
 
   if (availableTabs.length === 0 || !activeBuckets || activeBuckets.length === 0) {
     return (
@@ -249,7 +305,7 @@ export const ActivityZoneChart: React.FC<ActivityZoneChartProps> = ({
               Training Intensity Distribution
             </span>
             <span className="text-[11px] text-slate-500">
-              {analysis.intensityDistribution.trainingStyle} Profile
+              {intensityDistribution.trainingStyle} Profile {isSwim ? '(Pace Zones)' : ''}
             </span>
           </div>
         </div>
@@ -258,15 +314,15 @@ export const ActivityZoneChart: React.FC<ActivityZoneChartProps> = ({
         <div className="flex items-center gap-2 text-xs font-mono">
           <div className="px-2.5 py-1 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-emerald-600 dark:text-emerald-400 flex flex-col items-center text-center min-w-[70px]">
             <span className="text-[10px] font-bold leading-tight">Low (Z1-2)</span>
-            <span className="text-xs font-black font-mono mt-0.5">{analysis.intensityDistribution.lowIntensityPct}%</span>
+            <span className="text-xs font-black font-mono mt-0.5">{intensityDistribution.lowIntensityPct}%</span>
           </div>
           <div className="px-2.5 py-1 rounded-lg bg-amber-500/10 border border-amber-500/20 text-amber-600 dark:text-amber-400 flex flex-col items-center text-center min-w-[70px]">
             <span className="text-[10px] font-bold leading-tight">Mid (Z3)</span>
-            <span className="text-xs font-black font-mono mt-0.5">{analysis.intensityDistribution.tempoPct}%</span>
+            <span className="text-xs font-black font-mono mt-0.5">{intensityDistribution.tempoPct}%</span>
           </div>
           <div className="px-2.5 py-1 rounded-lg bg-rose-500/10 border border-rose-500/20 text-rose-600 dark:text-rose-400 flex flex-col items-center text-center min-w-[70px]">
             <span className="text-[10px] font-bold leading-tight">High (Z4+)</span>
-            <span className="text-xs font-black font-mono mt-0.5">{analysis.intensityDistribution.highIntensityPct}%</span>
+            <span className="text-xs font-black font-mono mt-0.5">{intensityDistribution.highIntensityPct}%</span>
           </div>
         </div>
       </div>

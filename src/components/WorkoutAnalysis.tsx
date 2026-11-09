@@ -281,32 +281,8 @@ export const WorkoutAnalysis: React.FC<WorkoutAnalysisProps> = ({
       });
     }
 
-    // 5. Ultimate single-lap fallback:
-    const totalDistM = Math.round(activity.distance || 0);
-    const totalSec = Math.round(activity.moving_time || 0);
-    const avgSpd = totalSec > 0 && totalDistM > 0 ? totalDistM / totalSec : 0;
-    const paceSec = avgSpd > 0 ? 1000 / avgSpd : 300;
-
-    return [
-      {
-        id: `activity-total`,
-        lapIndex: 1,
-        name: 'Lap 1',
-        distanceM: totalDistM,
-        distanceFormatted: category === 'Swim' ? `${totalDistM} m` : `${(totalDistM / 1000).toFixed(2)} km`,
-        movingTimeSec: totalSec,
-        durationFormatted: formatLapDuration(totalSec),
-        elapsedTimeSec: activity.elapsed_time || totalSec,
-        avgSpeedKph: Number((avgSpd * 3.6).toFixed(1)),
-        paceSecPerKm: paceSec,
-        paceFormatted: `${formatPaceSec(paceSec)} /km`,
-        swimPaceSecPer100m: totalDistM > 0 ? (totalSec / totalDistM) * 100 : 0,
-        swimPaceFormatted: `${formatSwimPaceSec(totalDistM > 0 ? (totalSec / totalDistM) * 100 : 0)} /100m`,
-        avgWatts: activity.average_watts ? Math.round(activity.average_watts) : undefined,
-        avgHr: activity.average_heartrate ? Math.round(activity.average_heartrate) : undefined,
-        zoneLabel: category === 'Run' ? getRunPaceZone(paceSec, thresholdRunPaceSec) : '',
-      },
-    ];
+    // 5. If no laps or splits: return empty array
+    return [];
   }, [activity, details, category, thresholdRunPaceSec, thresholdSwimPaceSec, ftp, maxHr]);
 
   // Determine available metrics for switching
@@ -586,8 +562,14 @@ export const WorkoutAnalysis: React.FC<WorkoutAnalysisProps> = ({
 
   const selectedLayout = barLayouts.find((b) => b.isSelected);
 
+  // If there is only 1 lap (or none) for an activity, do not display Workout Analysis
+  if (laps.length <= 1) {
+    return null;
+  }
+
   return (
     <div
+      id="workout-analysis-section"
       className={`rounded-2xl border overflow-hidden shadow-xs transition-colors ${
         isLight ? 'bg-white border-slate-200' : 'bg-slate-900 border-slate-800'
       }`}
