@@ -860,10 +860,17 @@ export const FitnessTab: React.FC<FitnessTabProps> = ({
               <div className="mt-3 space-y-1.5 text-xs">
                 <div className="flex justify-between text-slate-400">
                   <span>Preparedness</span>
-                  <span className="font-mono font-bold text-white">{Math.round(fitnessIndexResult.swimRatio * 100)}%</span>
+                  <span className={`font-mono font-bold ${isLight ? 'text-slate-900' : 'text-white'}`}>
+                    {Math.round(fitnessIndexResult.swimRatio <= 2 ? fitnessIndexResult.swimRatio * 100 : fitnessIndexResult.swimRatio)}%
+                  </span>
                 </div>
-                <div className="h-2 w-full rounded-full bg-slate-950 overflow-hidden">
-                  <div className="h-full bg-sky-400 rounded-full" style={{ width: `${Math.min(100, Math.round(fitnessIndexResult.swimRatio * 100))}%` }} />
+                <div className={`h-2 w-full rounded-full ${isLight ? 'bg-slate-100' : 'bg-slate-950'} overflow-hidden`}>
+                  <div
+                    className="h-full bg-sky-400 rounded-full transition-all duration-300"
+                    style={{
+                      width: `${Math.min(100, Math.max(0, Math.round(fitnessIndexResult.swimRatio <= 2 ? fitnessIndexResult.swimRatio * 100 : fitnessIndexResult.swimRatio)))}%`,
+                    }}
+                  />
                 </div>
               </div>
             </div>
@@ -885,10 +892,17 @@ export const FitnessTab: React.FC<FitnessTabProps> = ({
               <div className="mt-3 space-y-1.5 text-xs">
                 <div className="flex justify-between text-slate-400">
                   <span>Preparedness</span>
-                  <span className="font-mono font-bold text-white">{Math.round(fitnessIndexResult.bikeRatio * 100)}%</span>
+                  <span className={`font-mono font-bold ${isLight ? 'text-slate-900' : 'text-white'}`}>
+                    {Math.round(fitnessIndexResult.bikeRatio <= 2 ? fitnessIndexResult.bikeRatio * 100 : fitnessIndexResult.bikeRatio)}%
+                  </span>
                 </div>
-                <div className="h-2 w-full rounded-full bg-slate-950 overflow-hidden">
-                  <div className="h-full bg-orange-400 rounded-full" style={{ width: `${Math.min(100, Math.round(fitnessIndexResult.bikeRatio * 100))}%` }} />
+                <div className={`h-2 w-full rounded-full ${isLight ? 'bg-slate-100' : 'bg-slate-950'} overflow-hidden`}>
+                  <div
+                    className="h-full bg-orange-400 rounded-full transition-all duration-300"
+                    style={{
+                      width: `${Math.min(100, Math.max(0, Math.round(fitnessIndexResult.bikeRatio <= 2 ? fitnessIndexResult.bikeRatio * 100 : fitnessIndexResult.bikeRatio)))}%`,
+                    }}
+                  />
                 </div>
               </div>
             </div>
@@ -910,10 +924,17 @@ export const FitnessTab: React.FC<FitnessTabProps> = ({
               <div className="mt-3 space-y-1.5 text-xs">
                 <div className="flex justify-between text-slate-400">
                   <span>Preparedness</span>
-                  <span className="font-mono font-bold text-white">{Math.round(fitnessIndexResult.runRatio * 100)}%</span>
+                  <span className={`font-mono font-bold ${isLight ? 'text-slate-900' : 'text-white'}`}>
+                    {Math.round(fitnessIndexResult.runRatio <= 2 ? fitnessIndexResult.runRatio * 100 : fitnessIndexResult.runRatio)}%
+                  </span>
                 </div>
-                <div className="h-2 w-full rounded-full bg-slate-950 overflow-hidden">
-                  <div className="h-full bg-amber-400 rounded-full" style={{ width: `${Math.min(100, Math.round(fitnessIndexResult.runRatio * 100))}%` }} />
+                <div className={`h-2 w-full rounded-full ${isLight ? 'bg-slate-100' : 'bg-slate-950'} overflow-hidden`}>
+                  <div
+                    className="h-full bg-amber-400 rounded-full transition-all duration-300"
+                    style={{
+                      width: `${Math.min(100, Math.max(0, Math.round(fitnessIndexResult.runRatio <= 2 ? fitnessIndexResult.runRatio * 100 : fitnessIndexResult.runRatio)))}%`,
+                    }}
+                  />
                 </div>
               </div>
             </div>

@@ -484,9 +484,9 @@ export function calculateTriathlonFitnessIndex(
 
   return {
     tfi: Math.round(tfi * 10) / 10,
-    swimRatio: Math.round(rawSwimRatio * 100),
-    bikeRatio: Math.round(rawBikeRatio * 100),
-    runRatio: Math.round(rawRunRatio * 100),
+    swimRatio: Math.round(rawSwimRatio * 1000) / 1000,
+    bikeRatio: Math.round(rawBikeRatio * 1000) / 1000,
+    runRatio: Math.round(rawRunRatio * 1000) / 1000,
     currentSwimCtl: Math.round(currentSwimCtl * 10) / 10,
     currentBikeCtl: Math.round(currentBikeCtl * 10) / 10,
     currentRunCtl: Math.round(currentRunCtl * 10) / 10,

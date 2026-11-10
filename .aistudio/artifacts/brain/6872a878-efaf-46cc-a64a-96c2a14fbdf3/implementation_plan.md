@@ -1,32 +1,40 @@
-# Swim Pace & Heart Rate Zones Implementation
+# Performance Tab Implementation
 
 ## Summary of Completed Work
 
-### 1. Critical Swim Speed (CSS) Pace Zones
-- Implemented `getAthleteSwimPaceZones` in `src/types/athlete.ts` adhering to the exact requested CSS offsets:
-  - **Z1 (Recovery / Easy)**: CSS +15 to +25 seconds
-  - **Z2 (Endurance / Ironman)**: CSS +8 to +15 seconds
-  - **Z3 (Tempo / Steady aerobic)**: CSS +3 to +8 seconds
-  - **Z4 (Threshold / CSS)**: CSS -2 to +2 seconds
-  - **Z5 (VO2 Max)**: CSS -2 to -10 seconds
-- Added `customPaceZonesSwim`, `customHrZonesSwim`, `thresholdHeartRateSwim`, and `preferredSwimProtocol` to `AthleteProfile`.
+### 1. Dedicated "Performance" Tab
+- Added **"Performance"** as a top-level tab in the main header navigation alongside Activities, Readiness, Fitness, and Coach.
+- Kept the existing "Fitness" tab completely intact.
+- Designed with responsive spacing matching the global 50% border padding requirement (`px-2 sm:px-3 py-3 sm:py-4`).
 
-### 2. Settings Tab > Swim Configuration
-- Located directly below **Swim TSS Model**, added two dedicated configuration sections:
-  - **Swim Pace Zones (CSS Model)**: Displays current derived CSS (e.g. `1:30/100m`), full zone breakdown with offset badges, editable fast/slow inputs (`mm:ss/100m`), and a "Reset to CSS" button.
-  - **Swim Heart Rate Zones**: Displays Swim LTHR with an aquatic offset helper (Run LTHR minus 12 bpm), 5-zone HR table with editable min/max bpm inputs, a "Reset Model" button, and a "Protocols & Guide" launcher.
+### 2. Critical Physiological Thresholds & Engine (`src/utils/performanceEngine.ts`)
+- Implemented calculations for key physiological thresholds:
+  - **Cycling**: FTP (W and W/kg), Critical Power ($CP$), Anaerobic Work Capacity ($W'$ in kJ and Joules), Bike LTHR.
+  - **Running**: Lactate Threshold Pace ($\text{min/km}$ and $\text{min/mi}$), Critical Speed ($CS$ in m/s, $\text{min/km}$, $\text{min/mi}$), $D'$ (D-prime in meters), Run LTHR.
+  - **Swimming**: Critical Swim Speed (CSS in $\text{min/100m}$ & $\text{min/100yd}$), 400m test pace, 1000m baseline endurance, 1500m threshold pace.
 
-### 3. Swim Heart Rate Protocols & Zone Standards Modal
-- Created `src/components/SwimHeartRateProtocolsModal.tsx` documenting:
-  - **British Triathlon Federation (BTF)**: 5-zone aquatic model anchored on Swim LTHR.
-  - **US Masters Swimming (USMS / USA Swimming)**: Aerobic, Threshold, and VO2 Max protocols.
-  - **Joe Friel Triathlon Standards**: 5-zone LTHR model with aquatic offset (10–13 bpm lower than running).
-- Features an interactive calculator, scientific overview of the mammalian dive reflex & hydrostatic pressure, and an "Apply to Athlete Profile" button.
+### 3. Peak Performance Duration Modeling (10 Specific Durations)
+- Tracks peak performances across the exact durations requested:
+  - **3 min, 5 min, 8 min, 12 min, 20 min, 30 min, 45 min, 60 min, 90 min, 120 min**.
+- Calculates observed maximum power/pace from Strava activity records and high-resolution streams.
+- Fitted with 2-parameter hyperbolic critical models:
+  - Power: $P(t) = CP + \frac{W'}{t}$
+  - Speed: $S(t) = CS + \frac{D'}{t}$
+- Interactive SVG Power-Duration and Pace-Duration curves with asymptotic CP/CS threshold indicators, observed dots, and dynamic hover cards.
 
-### 4. Activity Telemetry & Zone Analysis
-- Extended `calculateActivityZonesTime` in `src/utils/trainingZones.ts` to compute both Pace Zones and Heart Rate Zones for swim activities from streams, swim laps, or average speed.
-- `ActivityZoneChart` automatically renders tabs for both "Heart Rate Zones" and "Pace Zones" for swimming activities.
+### 4. Swim Distance Performance Modeling
+- **Sprint Triathlon (750m)**: Modeled directly using athlete's **CSS pace** with minimal degradation.
+- **Olympic Distance (1500m)**: Modeled using **1000m and 1500m** continuous endurance performances and open-water sighting/turning dynamics.
+- **Middle / 70.3 Distance (1900m)**: Modeled from **1000m and 1500m** pacing degradation and sustained aerobic capacity.
+- **Ironman / Full Distance (3800m)**: Modeled from **1500m base endurance** factoring non-wetsuit / wetsuit buoyancy, feeding, and fatigue.
 
-### 5. Verification
-- Both `compile_applet` and `lint_applet` passed cleanly with 0 errors.
-- Dev server is running smoothly on port 3000.
+### 5. Race-Specific Weakness & Time-Gain Potential vs. Age-Grade Benchmarks
+- Benchmark comparison against competitive Age-Group standards (Top 20% finisher benchmarks across M35-44 competitive fields).
+- Computes athlete's projected splits vs benchmark for Swim, Bike, and Run.
+- Ranks disciplines by **Priority #1, #2, and #3** based on absolute time opportunity (minutes and seconds that can be gained on race day).
+- Provides actionable tactical coaching advice for where the athlete has the greatest potential to gain time relative to age-grade standards.
+
+### 6. Verification
+- `compile_applet` passed cleanly.
+- `lint_applet` verified with zero TypeScript or syntax errors (`tsc --noEmit`).
+- Dev server active and serving port 3000.

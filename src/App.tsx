@@ -60,9 +60,10 @@ import {
   getStreamDownloaderStatus,
   StreamDownloaderProgress,
 } from './utils/activityStreamDownloader';
-import { Settings, Activity, Moon, Heart, Zap, Sparkles, RotateCw, FileSpreadsheet, Loader2, CloudCheck, CheckCircle2 } from 'lucide-react';
+import { Settings, Activity, Moon, Heart, Zap, Sparkles, TrendingUp, RotateCw, FileSpreadsheet, Loader2, CloudCheck, CheckCircle2 } from 'lucide-react';
 import { RecoveryView } from './components/RecoveryView';
 import { FitnessTab } from './components/FitnessTab';
+import { PerformanceTab } from './components/PerformanceTab';
 import { CoachTab } from './components/CoachTab';
 import { computeFitnessTimeline, calculateTriathlonFitnessIndex } from './utils/fitnessEngine';
 import type { DailyRecoveryLog } from './types/recovery';
@@ -170,7 +171,7 @@ export default function App() {
   // -------------------------------------------------------------
   // Navigation & Recovery Tracking State
   // -------------------------------------------------------------
-  const [activeMainTab, setActiveMainTab] = useState<'activities' | 'recovery' | 'fitness' | 'coach'>('activities');
+  const [activeMainTab, setActiveMainTab] = useState<'activities' | 'recovery' | 'fitness' | 'performance' | 'coach'>('activities');
   
   // Garmin Connect state
   const [isGarminSyncOpen, setIsGarminSyncOpen] = useState(false);
@@ -1012,6 +1013,20 @@ export default function App() {
 
             <button
               type="button"
+              onClick={() => setActiveMainTab('performance')}
+              style={{ flexGrow: 1, flexShrink: 0 }}
+              className={`split-pill-item ${buttonPaddingClass} h-full grow shrink-0 text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer rounded-none outline-none focus:outline-none focus:ring-0 ${
+                activeMainTab === 'performance'
+                  ? 'bg-[#eeeeee] text-slate-900 font-extrabold shadow-[inset_0_2px_4px_rgba(0,0,0,0.18)]'
+                  : 'bg-white hover:bg-slate-50 text-slate-700 hover:text-slate-900 font-bold'
+              }`}
+            >
+              {showTabIcons && <TrendingUp className="w-3.5 h-3.5 text-cyan-600 shrink-0" />}
+              <span className="leading-none">Performance</span>
+            </button>
+
+            <button
+              type="button"
               onClick={() => setActiveMainTab('coach')}
               style={{ flexGrow: 1, flexShrink: 0 }}
               className={`split-pill-item-last ${buttonPaddingClass} h-full grow shrink-0 text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer rounded-none outline-none focus:outline-none focus:ring-0 ${
@@ -1232,6 +1247,18 @@ export default function App() {
               setIsAthleteProfileOpen(true);
             }}
             onDeleteActivity={handleDeleteActivity}
+          />
+        ) : activeMainTab === 'performance' ? (
+          <PerformanceTab
+            activities={stravaActivities}
+            activityDetails={stravaActivityDetails}
+            athleteProfile={athleteProfile}
+            goals={athleteGoals}
+            theme={theme}
+            onOpenSettings={(tab) => {
+              setProfileModalTab(tab || 'physiology');
+              setIsAthleteProfileOpen(true);
+            }}
           />
         ) : (
           <CoachTab
