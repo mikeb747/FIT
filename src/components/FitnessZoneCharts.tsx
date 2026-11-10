@@ -308,12 +308,12 @@ export const FitnessZoneCharts: React.FC<FitnessZoneChartsProps> = ({
   // Chart Dimensions & Grid
   const svgWidth = 800;
   const chartHeight = 220;
-  const paddingRight = 45; // Space for Y-axis labels
-  const paddingLeft = 10;
+  const paddingRight = 26; // Space for Y-axis labels & vertical HR/Day title
+  const paddingLeft = 6;
   const usableWidth = svgWidth - paddingLeft - paddingRight;
   const totalDays = numWeeks * 7;
   const dayStep = usableWidth / Math.max(1, totalDays - 1);
-  const barWidth = Math.max(3.5, Math.min(18, dayStep * 0.78));
+  const barWidth = Math.max(3.5, Math.min(18, dayStep * 0.82));
 
   // Y-axis grid marks for daily hours
   const gridSteps = useMemo(() => {
@@ -341,9 +341,9 @@ export const FitnessZoneCharts: React.FC<FitnessZoneChartsProps> = ({
   }, [mode]);
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       {/* 1. Header with Range and Date */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 px-1">
         <div className="flex items-center gap-2">
           <span
             className={`text-sm sm:text-base font-extrabold font-mono tracking-tight ${
@@ -374,16 +374,10 @@ export const FitnessZoneCharts: React.FC<FitnessZoneChartsProps> = ({
         </div>
       </div>
 
-      {/* 2. Charts Stage: Daily Stacked Zone Graph */}
-      <div
-        className={`rounded-2xl p-4 sm:p-5 border transition-all ${
-          isLight
-            ? 'bg-gradient-to-b from-slate-50 to-white border-slate-200 shadow-xs'
-            : 'bg-gradient-to-b from-[#091820] to-[#040d12] border-slate-800 shadow-xl'
-        }`}
-      >
+      {/* 2. Charts Stage: Daily Stacked Zone Graph (Moved outside nested box to expand full width) */}
+      <div className="-mx-4 sm:-mx-5 overflow-x-auto scrollbar-thin pb-2 pt-1">
         {processedWorkouts.length === 0 ? (
-          <div className="py-16 text-center space-y-2">
+          <div className="py-16 text-center space-y-2 px-4">
             <Info className="w-8 h-8 mx-auto text-slate-500 opacity-60" />
             <p className="text-sm font-bold text-slate-400">
               No matching activities in this {numWeeks}-week window
@@ -393,7 +387,7 @@ export const FitnessZoneCharts: React.FC<FitnessZoneChartsProps> = ({
             </p>
           </div>
         ) : (
-          <div className="space-y-4">
+          <div className="space-y-4 px-1">
             {/* SVG Visual Stage */}
             <div className="relative w-full overflow-hidden select-none">
               <svg
@@ -415,9 +409,9 @@ export const FitnessZoneCharts: React.FC<FitnessZoneChartsProps> = ({
                         strokeWidth="1"
                       />
                       <text
-                        x={svgWidth - paddingRight + 8}
-                        y={y + 4}
-                        fontSize="11"
+                        x={svgWidth - paddingRight + 4}
+                        y={y + 3.5}
+                        fontSize="10"
                         fill={isLight ? '#64748b' : '#64748b'}
                         fontFamily="monospace"
                         fontWeight="600"
@@ -428,16 +422,19 @@ export const FitnessZoneCharts: React.FC<FitnessZoneChartsProps> = ({
                   );
                 })}
 
-                {/* Y-axis Unit Label "hr/day" */}
+                {/* Y-axis Unit Label "HR/Day" written vertically to save horizontal space */}
                 <text
-                  x={svgWidth - paddingRight + 8}
-                  y={chartHeight - 4}
-                  fontSize="10"
-                  fill={isLight ? '#64748b' : '#64748b'}
+                  x={svgWidth - 6}
+                  y={chartHeight / 2}
+                  transform={`rotate(-90 ${svgWidth - 6} ${chartHeight / 2})`}
+                  textAnchor="middle"
+                  fontSize="9"
+                  fill={isLight ? '#64748b' : '#94a3b8'}
                   fontFamily="monospace"
                   fontWeight="700"
+                  letterSpacing="0.08em"
                 >
-                  hr/day
+                  HR/Day
                 </text>
 
                 {/* Hover Highlight Column behind bars */}

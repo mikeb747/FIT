@@ -17,6 +17,7 @@ import {
   WeeklySwimBucket,
   WeeklyBikeBucket,
   TimeGranularity,
+  getSameDayAccumulatedInPeriod,
 } from '../utils/mileageEngine';
 import { FitnessZoneCharts } from './FitnessZoneCharts';
 
@@ -33,6 +34,22 @@ export function formatWeekShortCode(mondayDate: Date | string): string {
   const monthLetters = ['J', 'F', 'M', 'A', 'M', 'J', 'J', 'A', 'S', 'O', 'N', 'D'];
   const monthInitial = monthLetters[d.getMonth()] || '';
   return `${day}${monthInitial}`;
+}
+
+/**
+ * Format month label for 24M & 36M:
+ * Shows month initial (e.g. O, N, D), and adds 2-digit year on January (e.g. J'26)
+ */
+export function formatMonthShortCode(date: Date | string): string {
+  const d = new Date(date);
+  if (isNaN(d.getTime())) return '';
+  const monthLetters = ['J', 'F', 'M', 'A', 'M', 'J', 'J', 'A', 'S', 'O', 'N', 'D'];
+  const m = d.getMonth();
+  const mInitial = monthLetters[m] || '';
+  if (m === 0) {
+    return `J'${String(d.getFullYear()).slice(-2)}`;
+  }
+  return mInitial;
 }
 
 interface WeeklyMileageChartProps {
@@ -56,7 +73,7 @@ export const WeeklyMileageChart: React.FC<WeeklyMileageChartProps> = ({
   const [activeTab, setActiveTab] = useState<ChartDatasetTab>(initialTab);
   const [granularity, setGranularity] = useState<TimeGranularity>('week');
   const [numWeeks, setNumWeeks] = useState<number>(12); // 8, 12, 24, 52 (4W removed)
-  const [numMonths, setNumMonths] = useState<number>(3); // 2, 3, 6, 12
+  const [numMonths, setNumMonths] = useState<number>(12); // 12, 24, 36 (2, 3, 6 removed, 24, 36 added)
   const [unit, setUnit] = useState<'miles' | 'km'>('miles');
   const [metricType, setMetricType] = useState<'distance' | 'time'>('distance');
 
@@ -119,40 +136,29 @@ export const WeeklyMileageChart: React.FC<WeeklyMileageChartProps> = ({
     return Math.ceil(highest * 1.15);
   }, [bikeWeeks, unit, metricType]);
 
-  // Helper renderer for inside-activity Controls (Miles/KM and Distance/Time)
+  // Previous period reference for same-day comparison & dark blue dotted line
+  const prevRunPeriod = weeks.length >= 2 ? weeks[weeks.length - 2] : null;
+  const prevSameDayRun = useMemo(() => {
+    if (!prevRunPeriod) return null;
+    return getSameDayAccumulatedInPeriod(prevRunPeriod.runs, granularity);
+  }, [prevRunPeriod, granularity]);
+
+  const prevSwimPeriod = swimWeeks.length >= 2 ? swimWeeks[swimWeeks.length - 2] : null;
+  const prevSameDaySwim = useMemo(() => {
+    if (!prevSwimPeriod) return null;
+    return getSameDayAccumulatedInPeriod(prevSwimPeriod.swims, granularity);
+  }, [prevSwimPeriod, granularity]);
+
+  const prevBikePeriod = bikeWeeks.length >= 2 ? bikeWeeks[bikeWeeks.length - 2] : null;
+  const prevSameDayBike = useMemo(() => {
+    if (!prevBikePeriod) return null;
+    return getSameDayAccumulatedInPeriod(prevBikePeriod.rides, granularity);
+  }, [prevBikePeriod, granularity]);
+
+  // Helper renderer for inside-activity Controls (Distance/Time FIRST, Miles/KM SECOND)
   const renderActivityControls = () => (
     <div className="flex items-center gap-1.5 flex-wrap">
-      {/* Unit Toggle: Miles / KM */}
-      <div className="flex items-center p-0.5 rounded-lg bg-slate-950/40 border border-slate-800 text-[11px] font-bold">
-        <button
-          type="button"
-          onClick={() => setUnit('miles')}
-          className={`px-2 py-0.5 sm:py-1 rounded-md transition-colors cursor-pointer ${
-            unit === 'miles'
-              ? 'bg-amber-500 text-slate-950 shadow-xs'
-              : isLight
-              ? 'text-slate-600 hover:text-slate-900'
-              : 'text-slate-400 hover:text-white'
-          }`}
-        >
-          Miles
-        </button>
-        <button
-          type="button"
-          onClick={() => setUnit('km')}
-          className={`px-2 py-0.5 sm:py-1 rounded-md transition-colors cursor-pointer ${
-            unit === 'km'
-              ? 'bg-amber-500 text-slate-950 shadow-xs'
-              : isLight
-              ? 'text-slate-600 hover:text-slate-900'
-              : 'text-slate-400 hover:text-white'
-          }`}
-        >
-          KM
-        </button>
-      </div>
-
-      {/* Metric Toggle: Distance / Time */}
+      {/* 1. Metric Toggle: Distance / Time */}
       <div className="flex items-center p-0.5 rounded-lg bg-slate-950/40 border border-slate-800 text-[11px] font-bold">
         <button
           type="button"
@@ -179,6 +185,49 @@ export const WeeklyMileageChart: React.FC<WeeklyMileageChartProps> = ({
           }`}
         >
           Time
+        </button>
+      </div>
+
+      {/* 2. Unit Toggle: Miles / KM (Greyed out when Time is selected) */}
+      <div
+        className={`flex items-center p-0.5 rounded-lg border text-[11px] font-bold transition-all ${
+          metricType === 'time'
+            ? 'opacity-35 pointer-events-none cursor-not-allowed bg-slate-950/20 border-slate-800/40 select-none'
+            : 'bg-slate-950/40 border-slate-800'
+        }`}
+        title={metricType === 'time' ? 'Distance units inactive when Time is selected' : 'Choose distance unit'}
+      >
+        <button
+          type="button"
+          disabled={metricType === 'time'}
+          onClick={() => setUnit('miles')}
+          className={`px-2 py-0.5 sm:py-1 rounded-md transition-colors ${
+            metricType === 'time'
+              ? 'text-slate-500 cursor-not-allowed'
+              : unit === 'miles'
+              ? 'bg-amber-500 text-slate-950 shadow-xs cursor-pointer'
+              : isLight
+              ? 'text-slate-600 hover:text-slate-900 cursor-pointer'
+              : 'text-slate-400 hover:text-white cursor-pointer'
+          }`}
+        >
+          Miles
+        </button>
+        <button
+          type="button"
+          disabled={metricType === 'time'}
+          onClick={() => setUnit('km')}
+          className={`px-2 py-0.5 sm:py-1 rounded-md transition-colors ${
+            metricType === 'time'
+              ? 'text-slate-500 cursor-not-allowed'
+              : unit === 'km'
+              ? 'bg-amber-500 text-slate-950 shadow-xs cursor-pointer'
+              : isLight
+              ? 'text-slate-600 hover:text-slate-900 cursor-pointer'
+              : 'text-slate-400 hover:text-white cursor-pointer'
+          }`}
+        >
+          KM
         </button>
       </div>
     </div>
@@ -245,7 +294,7 @@ export const WeeklyMileageChart: React.FC<WeeklyMileageChartProps> = ({
               </button>
             </div>
 
-            {/* Range Filter: 8W, 12W, 24W, 52W OR 2M, 3M, 6M, 12M */}
+            {/* Range Filter: 8W, 12W, 24W, 52W OR 12M, 24M, 36M (2, 3, 6 removed) */}
             <div className="flex items-center p-0.5 rounded-lg bg-slate-950/40 border border-slate-800 text-[11px] font-bold">
               {granularity === 'week'
                 ? [
@@ -270,10 +319,9 @@ export const WeeklyMileageChart: React.FC<WeeklyMileageChartProps> = ({
                     </button>
                   ))
                 : [
-                    { label: '2M', value: 2 },
-                    { label: '3M', value: 3 },
-                    { label: '6M', value: 6 },
                     { label: '12M', value: 12 },
+                    { label: '24M', value: 24 },
+                    { label: '36M', value: 36 },
                   ].map((option) => (
                     <button
                       key={option.value}
@@ -356,6 +404,22 @@ export const WeeklyMileageChart: React.FC<WeeklyMileageChartProps> = ({
             ? `${unit}/${granularity === 'month' ? 'mo' : 'wk'}`
             : `hrs/${granularity === 'month' ? 'mo' : 'wk'}`;
 
+        // Same-day previous period calculation
+        const prevSameDayVal = prevSameDaySwim
+          ? metricType === 'distance'
+            ? (unit === 'miles' ? prevSameDaySwim.distanceMiles : prevSameDaySwim.distanceKm)
+            : prevSameDaySwim.movingHours
+          : 0;
+
+        let sameDayChangePct: number | null = null;
+        if (prevSameDayVal > 0) {
+          sameDayChangePct = Math.round(((currentVal - prevSameDayVal) / prevSameDayVal) * 100);
+        } else if (currentVal > 0 && prevSwimPeriod) {
+          sameDayChangePct = 100;
+        }
+
+        const prevSameDayHeightPct = Math.min(100, Math.max(0, (prevSameDayVal / maxSwimScale) * 100));
+
         return (
           <div className="pt-2">
             {/* Subheader: Swim + Badge + Controls */}
@@ -378,10 +442,22 @@ export const WeeklyMileageChart: React.FC<WeeklyMileageChartProps> = ({
                   {granularity === 'month' ? 'This Month' : 'This Week'}
                 </span>
                 <div className="mt-1 flex items-baseline gap-1.5">
-                  <span className="text-xl sm:text-2xl font-black font-mono text-sky-500">{currentVal}</span>
+                  <span className="text-xl sm:text-2xl font-black font-mono text-amber-500">{currentVal}</span>
                   <span className="text-xs text-slate-500 font-bold">{metricUnitLabel}</span>
                 </div>
-                {swimStats.weekOverWeekChangePct !== null && (
+                {sameDayChangePct !== null ? (
+                  <div className="mt-1 flex items-center gap-1 text-[10px] font-semibold">
+                    {sameDayChangePct >= 0 ? (
+                      <span className="text-emerald-500 flex items-center">
+                        <ArrowUpRight className="w-3 h-3" />+{sameDayChangePct}% vs same day last {granularity === 'month' ? 'mo' : 'wk'}
+                      </span>
+                    ) : (
+                      <span className="text-rose-400 flex items-center">
+                        <ArrowDownRight className="w-3 h-3" />{sameDayChangePct}% vs same day last {granularity === 'month' ? 'mo' : 'wk'}
+                      </span>
+                    )}
+                  </div>
+                ) : swimStats.weekOverWeekChangePct !== null ? (
                   <div className="mt-1 flex items-center gap-1 text-[10px] font-semibold">
                     {swimStats.weekOverWeekChangePct >= 0 ? (
                       <span className="text-emerald-500 flex items-center">
@@ -393,7 +469,7 @@ export const WeeklyMileageChart: React.FC<WeeklyMileageChartProps> = ({
                       </span>
                     )}
                   </div>
-                )}
+                ) : null}
               </div>
 
               <div className={`p-3 rounded-xl border ${isLight ? 'bg-slate-50 border-slate-200' : 'bg-slate-950/40 border-slate-800/80'}`}>
@@ -405,7 +481,7 @@ export const WeeklyMileageChart: React.FC<WeeklyMileageChartProps> = ({
                   <span className="text-xs text-slate-500 font-bold">{rateUnitLabel}</span>
                 </div>
                 <span className="text-[10px] text-slate-500">
-                  Over {currentPeriodCount} {granularity === 'month' ? (currentPeriodCount === 1 ? 'month' : 'months') : 'weeks'}
+                  Over {currentPeriodCount} {granularity === 'month' ? 'months' : 'weeks'}
                 </span>
               </div>
 
@@ -441,7 +517,7 @@ export const WeeklyMileageChart: React.FC<WeeklyMileageChartProps> = ({
               </div>
 
               <div className="-mx-4 sm:-mx-5 overflow-x-auto scrollbar-thin pb-2" ref={scrollContainerRef}>
-                <div className={`relative pt-6 pb-2 ${currentPeriodCount === 52 ? 'min-w-[560px] sm:min-w-full' : 'w-full'}`}>
+                <div className={`relative pt-6 pb-2 ${currentPeriodCount >= 36 ? 'min-w-[620px] sm:min-w-full' : currentPeriodCount === 52 ? 'min-w-[560px] sm:min-w-full' : 'w-full'}`}>
                   {avgVal > 0 && (
                     <div
                       className="absolute left-0 right-0 border-b-2 border-dotted border-red-500 z-20 pointer-events-none"
@@ -453,32 +529,49 @@ export const WeeklyMileageChart: React.FC<WeeklyMileageChartProps> = ({
                     </div>
                   )}
 
-                  <div className={`h-44 sm:h-52 w-full flex items-end ${currentPeriodCount === 52 ? 'gap-[1.5px]' : 'gap-[3px]'} px-0 relative z-10`}>
-                    {swimWeeks.map((w) => {
+                  <div className={`h-44 sm:h-52 w-full flex items-end ${currentPeriodCount >= 36 ? 'gap-[1px] sm:gap-[1.5px]' : currentPeriodCount === 52 ? 'gap-[1.5px]' : 'gap-[3px]'} px-0 relative z-10`}>
+                    {swimWeeks.map((w, idx) => {
                       const val =
                         metricType === 'distance'
                           ? (unit === 'miles' ? w.distanceMiles : w.distanceKm)
                           : w.movingHours;
                       const heightPct = Math.min(100, Math.max(val > 0 ? 6 : 2, (val / maxSwimScale) * 100));
                       const isSelected = activeSwimWeek?.weekKey === w.weekKey;
+                      const isPrevPeriod = idx === swimWeeks.length - 2;
 
                       return (
                         <div
                           key={w.weekKey}
                           onClick={() => setSelectedSwimWeek(w)}
-                          className="flex-1 min-w-0 flex flex-col items-center h-full justify-end cursor-pointer group"
+                          className="flex-1 min-w-0 flex flex-col items-center h-full justify-end cursor-pointer group relative"
                         >
+                          {/* Value on hover / select */}
                           <div
                             className={`text-[10px] font-mono font-bold mb-1 transition-all whitespace-nowrap ${
                               val > 0
                                 ? isSelected
-                                  ? 'text-sky-400 scale-110'
-                                  : 'text-slate-400 group-hover:text-sky-300'
+                                  ? 'text-amber-400 scale-110'
+                                  : isLight
+                                  ? 'text-slate-700 group-hover:text-amber-600'
+                                  : 'text-slate-400 group-hover:text-amber-400'
                                 : 'opacity-0'
                             } ${currentPeriodCount >= 24 && !isSelected ? 'hidden sm:block opacity-0 group-hover:opacity-100' : ''}`}
                           >
                             {val > 0 ? val : ''}
                           </div>
+
+                          {/* Dark blue dotted line across previous period bar */}
+                          {isPrevPeriod && prevSameDayVal > 0 && (
+                            <div
+                              className="absolute left-0 right-0 z-30 pointer-events-none"
+                              style={{ bottom: `${prevSameDayHeightPct}%` }}
+                              title={`By same day last ${granularity === 'month' ? 'month' : 'week'}: ${prevSameDayVal} ${metricUnitLabel}`}
+                            >
+                              <div className="w-full border-b-2 border-dotted border-blue-900 dark:border-blue-400" />
+                            </div>
+                          )}
+
+                          {/* Bar: Yellow fill for current week, Blue background, Orange for selected (matches Run chart) */}
                           <div
                             className="w-full relative rounded-t-sm transition-all duration-300 border border-black box-border"
                             style={{
@@ -489,23 +582,35 @@ export const WeeklyMileageChart: React.FC<WeeklyMileageChartProps> = ({
                                     ? '#e2e8f0'
                                     : '#1e293b'
                                   : isSelected
-                                  ? '#0ea5e9'
+                                  ? '#f59e0b'
                                   : w.isCurrentWeek
+                                  ? '#fbbf24'
+                                  : isLight
                                   ? '#38bdf8'
                                   : '#0284c7',
                               opacity: val === 0 ? 0.35 : isSelected ? 1 : 0.85,
-                              boxShadow: isSelected ? '0 0 12px rgba(14, 165, 233, 0.45)' : undefined,
+                              boxShadow: isSelected ? '0 0 12px rgba(245, 158, 11, 0.45)' : undefined,
                             }}
                           />
+
+                          {/* Date label at bottom */}
                           <div className="mt-2 text-center w-full px-0.5">
                             <span
                               className={`text-[9px] ${currentPeriodCount >= 24 ? 'text-[8px] sm:text-[9px]' : ''} font-mono block truncate ${
-                                isSelected ? 'text-sky-500 font-bold' : 'text-slate-400'
+                                isSelected
+                                  ? 'text-amber-500 font-bold'
+                                  : w.isCurrentWeek
+                                  ? 'text-amber-400 font-semibold'
+                                  : isLight
+                                  ? 'text-slate-500'
+                                  : 'text-slate-400'
                               }`}
                               title={w.weekLabel}
                             >
                               {granularity === 'month'
-                                ? w.shortLabel
+                                ? currentPeriodCount > 12
+                                  ? formatMonthShortCode(w.mondayDate)
+                                  : w.shortLabel
                                 : currentPeriodCount >= 24
                                 ? formatWeekShortCode(w.mondayDate)
                                 : w.shortLabel.replace(/^[A-Za-z]+ /, '')}
@@ -599,6 +704,22 @@ export const WeeklyMileageChart: React.FC<WeeklyMileageChartProps> = ({
             ? `${unit}/${granularity === 'month' ? 'mo' : 'wk'}`
             : `hrs/${granularity === 'month' ? 'mo' : 'wk'}`;
 
+        // Same-day previous period calculation
+        const prevSameDayVal = prevSameDayBike
+          ? metricType === 'distance'
+            ? (unit === 'miles' ? prevSameDayBike.distanceMiles : prevSameDayBike.distanceKm)
+            : prevSameDayBike.movingHours
+          : 0;
+
+        let sameDayChangePct: number | null = null;
+        if (prevSameDayVal > 0) {
+          sameDayChangePct = Math.round(((currentVal - prevSameDayVal) / prevSameDayVal) * 100);
+        } else if (currentVal > 0 && prevBikePeriod) {
+          sameDayChangePct = 100;
+        }
+
+        const prevSameDayHeightPct = Math.min(100, Math.max(0, (prevSameDayVal / maxBikeScale) * 100));
+
         return (
           <div className="pt-2">
             {/* Subheader: Bike + Badge + Controls */}
@@ -621,10 +742,22 @@ export const WeeklyMileageChart: React.FC<WeeklyMileageChartProps> = ({
                   {granularity === 'month' ? 'This Month' : 'This Week'}
                 </span>
                 <div className="mt-1 flex items-baseline gap-1.5">
-                  <span className="text-xl sm:text-2xl font-black font-mono text-orange-500">{currentVal}</span>
+                  <span className="text-xl sm:text-2xl font-black font-mono text-amber-500">{currentVal}</span>
                   <span className="text-xs text-slate-500 font-bold">{metricUnitLabel}</span>
                 </div>
-                {bikeStats.weekOverWeekChangePct !== null && (
+                {sameDayChangePct !== null ? (
+                  <div className="mt-1 flex items-center gap-1 text-[10px] font-semibold">
+                    {sameDayChangePct >= 0 ? (
+                      <span className="text-emerald-500 flex items-center">
+                        <ArrowUpRight className="w-3 h-3" />+{sameDayChangePct}% vs same day last {granularity === 'month' ? 'mo' : 'wk'}
+                      </span>
+                    ) : (
+                      <span className="text-rose-400 flex items-center">
+                        <ArrowDownRight className="w-3 h-3" />{sameDayChangePct}% vs same day last {granularity === 'month' ? 'mo' : 'wk'}
+                      </span>
+                    )}
+                  </div>
+                ) : bikeStats.weekOverWeekChangePct !== null ? (
                   <div className="mt-1 flex items-center gap-1 text-[10px] font-semibold">
                     {bikeStats.weekOverWeekChangePct >= 0 ? (
                       <span className="text-emerald-500 flex items-center">
@@ -636,7 +769,7 @@ export const WeeklyMileageChart: React.FC<WeeklyMileageChartProps> = ({
                       </span>
                     )}
                   </div>
-                )}
+                ) : null}
               </div>
 
               <div className={`p-3 rounded-xl border ${isLight ? 'bg-slate-50 border-slate-200' : 'bg-slate-950/40 border-slate-800/80'}`}>
@@ -648,7 +781,7 @@ export const WeeklyMileageChart: React.FC<WeeklyMileageChartProps> = ({
                   <span className="text-xs text-slate-500 font-bold">{rateUnitLabel}</span>
                 </div>
                 <span className="text-[10px] text-slate-500">
-                  Over {currentPeriodCount} {granularity === 'month' ? (currentPeriodCount === 1 ? 'month' : 'months') : 'weeks'}
+                  Over {currentPeriodCount} {granularity === 'month' ? 'months' : 'weeks'}
                 </span>
               </div>
 
@@ -684,7 +817,7 @@ export const WeeklyMileageChart: React.FC<WeeklyMileageChartProps> = ({
               </div>
 
               <div className="-mx-4 sm:-mx-5 overflow-x-auto scrollbar-thin pb-2" ref={scrollContainerRef}>
-                <div className={`relative pt-6 pb-2 ${currentPeriodCount === 52 ? 'min-w-[560px] sm:min-w-full' : 'w-full'}`}>
+                <div className={`relative pt-6 pb-2 ${currentPeriodCount >= 36 ? 'min-w-[620px] sm:min-w-full' : currentPeriodCount === 52 ? 'min-w-[560px] sm:min-w-full' : 'w-full'}`}>
                   {avgVal > 0 && (
                     <div
                       className="absolute left-0 right-0 border-b-2 border-dotted border-red-500 z-20 pointer-events-none"
@@ -696,32 +829,49 @@ export const WeeklyMileageChart: React.FC<WeeklyMileageChartProps> = ({
                     </div>
                   )}
 
-                  <div className={`h-44 sm:h-52 w-full flex items-end ${currentPeriodCount === 52 ? 'gap-[1.5px]' : 'gap-[3px]'} px-0 relative z-10`}>
-                    {bikeWeeks.map((w) => {
+                  <div className={`h-44 sm:h-52 w-full flex items-end ${currentPeriodCount >= 36 ? 'gap-[1px] sm:gap-[1.5px]' : currentPeriodCount === 52 ? 'gap-[1.5px]' : 'gap-[3px]'} px-0 relative z-10`}>
+                    {bikeWeeks.map((w, idx) => {
                       const val =
                         metricType === 'distance'
                           ? (unit === 'miles' ? w.distanceMiles : w.distanceKm)
                           : w.movingHours;
                       const heightPct = Math.min(100, Math.max(val > 0 ? 6 : 2, (val / maxBikeScale) * 100));
                       const isSelected = activeBikeWeek?.weekKey === w.weekKey;
+                      const isPrevPeriod = idx === bikeWeeks.length - 2;
 
                       return (
                         <div
                           key={w.weekKey}
                           onClick={() => setSelectedBikeWeek(w)}
-                          className="flex-1 min-w-0 flex flex-col items-center h-full justify-end cursor-pointer group"
+                          className="flex-1 min-w-0 flex flex-col items-center h-full justify-end cursor-pointer group relative"
                         >
+                          {/* Value on hover / select */}
                           <div
                             className={`text-[10px] font-mono font-bold mb-1 transition-all whitespace-nowrap ${
                               val > 0
                                 ? isSelected
-                                  ? 'text-orange-400 scale-110'
-                                  : 'text-slate-400 group-hover:text-orange-300'
+                                  ? 'text-amber-400 scale-110'
+                                  : isLight
+                                  ? 'text-slate-700 group-hover:text-amber-600'
+                                  : 'text-slate-400 group-hover:text-amber-400'
                                 : 'opacity-0'
                             } ${currentPeriodCount >= 24 && !isSelected ? 'hidden sm:block opacity-0 group-hover:opacity-100' : ''}`}
                           >
                             {val > 0 ? val : ''}
                           </div>
+
+                          {/* Dark blue dotted line across previous period bar */}
+                          {isPrevPeriod && prevSameDayVal > 0 && (
+                            <div
+                              className="absolute left-0 right-0 z-30 pointer-events-none"
+                              style={{ bottom: `${prevSameDayHeightPct}%` }}
+                              title={`By same day last ${granularity === 'month' ? 'month' : 'week'}: ${prevSameDayVal} ${metricUnitLabel}`}
+                            >
+                              <div className="w-full border-b-2 border-dotted border-blue-900 dark:border-blue-400" />
+                            </div>
+                          )}
+
+                          {/* Bar: Yellow fill for current week, Blue background, Orange for selected (matches Run chart) */}
                           <div
                             className="w-full relative rounded-t-sm transition-all duration-300 border border-black box-border"
                             style={{
@@ -732,23 +882,35 @@ export const WeeklyMileageChart: React.FC<WeeklyMileageChartProps> = ({
                                     ? '#e2e8f0'
                                     : '#1e293b'
                                   : isSelected
-                                  ? '#f97316'
+                                  ? '#f59e0b'
                                   : w.isCurrentWeek
-                                  ? '#fb923c'
-                                  : '#ea580c',
+                                  ? '#fbbf24'
+                                  : isLight
+                                  ? '#38bdf8'
+                                  : '#0284c7',
                               opacity: val === 0 ? 0.35 : isSelected ? 1 : 0.85,
-                              boxShadow: isSelected ? '0 0 12px rgba(249, 115, 22, 0.45)' : undefined,
+                              boxShadow: isSelected ? '0 0 12px rgba(245, 158, 11, 0.45)' : undefined,
                             }}
                           />
+
+                          {/* Date label at bottom */}
                           <div className="mt-2 text-center w-full px-0.5">
                             <span
                               className={`text-[9px] ${currentPeriodCount >= 24 ? 'text-[8px] sm:text-[9px]' : ''} font-mono block truncate ${
-                                isSelected ? 'text-orange-500 font-bold' : 'text-slate-400'
+                                isSelected
+                                  ? 'text-amber-500 font-bold'
+                                  : w.isCurrentWeek
+                                  ? 'text-amber-400 font-semibold'
+                                  : isLight
+                                  ? 'text-slate-500'
+                                  : 'text-slate-400'
                               }`}
                               title={w.weekLabel}
                             >
                               {granularity === 'month'
-                                ? w.shortLabel
+                                ? currentPeriodCount > 12
+                                  ? formatMonthShortCode(w.mondayDate)
+                                  : w.shortLabel
                                 : currentPeriodCount >= 24
                                 ? formatWeekShortCode(w.mondayDate)
                                 : w.shortLabel.replace(/^[A-Za-z]+ /, '')}
@@ -811,13 +973,13 @@ export const WeeklyMileageChart: React.FC<WeeklyMileageChartProps> = ({
 
       {/* ZONE CHARTS */}
       {activeTab === 'cycling_power' && (
-        <div className="pt-4">
+        <div className="pt-2">
           <FitnessZoneCharts
             mode="cycling_power"
             activities={activities}
             activityDetails={activityDetails}
             athleteProfile={athleteProfile}
-            numWeeks={granularity === 'month' ? numMonths * 4 : numWeeks}
+            numWeeks={granularity === 'month' ? Math.round(numMonths * 4.33) : numWeeks}
             theme={theme}
             onSelectActivity={onSelectActivity}
           />
@@ -825,13 +987,13 @@ export const WeeklyMileageChart: React.FC<WeeklyMileageChartProps> = ({
       )}
 
       {activeTab === 'running_pace' && (
-        <div className="pt-4">
+        <div className="pt-2">
           <FitnessZoneCharts
             mode="running_pace"
             activities={activities}
             activityDetails={activityDetails}
             athleteProfile={athleteProfile}
-            numWeeks={granularity === 'month' ? numMonths * 4 : numWeeks}
+            numWeeks={granularity === 'month' ? Math.round(numMonths * 4.33) : numWeeks}
             theme={theme}
             onSelectActivity={onSelectActivity}
           />
@@ -839,13 +1001,13 @@ export const WeeklyMileageChart: React.FC<WeeklyMileageChartProps> = ({
       )}
 
       {activeTab === 'running_hr' && (
-        <div className="pt-4">
+        <div className="pt-2">
           <FitnessZoneCharts
             mode="running_hr"
             activities={activities}
             activityDetails={activityDetails}
             athleteProfile={athleteProfile}
-            numWeeks={granularity === 'month' ? numMonths * 4 : numWeeks}
+            numWeeks={granularity === 'month' ? Math.round(numMonths * 4.33) : numWeeks}
             theme={theme}
             onSelectActivity={onSelectActivity}
           />
@@ -886,6 +1048,22 @@ export const WeeklyMileageChart: React.FC<WeeklyMileageChartProps> = ({
             ? `${unit}/${granularity === 'month' ? 'mo' : 'wk'}`
             : `hrs/${granularity === 'month' ? 'mo' : 'wk'}`;
 
+        // Same-day previous period calculation
+        const prevSameDayVal = prevSameDayRun
+          ? metricType === 'distance'
+            ? (unit === 'miles' ? prevSameDayRun.distanceMiles : prevSameDayRun.distanceKm)
+            : prevSameDayRun.movingHours
+          : 0;
+
+        let sameDayChangePct: number | null = null;
+        if (prevSameDayVal > 0) {
+          sameDayChangePct = Math.round(((currentVal - prevSameDayVal) / prevSameDayVal) * 100);
+        } else if (currentVal > 0 && prevRunPeriod) {
+          sameDayChangePct = 100;
+        }
+
+        const prevSameDayHeightPct = Math.min(100, Math.max(0, (prevSameDayVal / maxWeeklyRun) * 100));
+
         return (
           <>
             {/* Subheader: Run + Badge + Controls */}
@@ -923,7 +1101,20 @@ export const WeeklyMileageChart: React.FC<WeeklyMileageChartProps> = ({
                   </span>
                   <span className="text-xs text-slate-500 font-bold">{metricUnitLabel}</span>
                 </div>
-                {stats.weekOverWeekChangePct !== null && (
+                {sameDayChangePct !== null ? (
+                  <div className="mt-1 flex items-center gap-1 text-[10px] font-semibold">
+                    {sameDayChangePct >= 0 ? (
+                      <span className="text-emerald-500 flex items-center">
+                        <ArrowUpRight className="w-3 h-3" />+{sameDayChangePct}% vs same day last {granularity === 'month' ? 'mo' : 'wk'}
+                      </span>
+                    ) : (
+                      <span className="text-rose-400 flex items-center">
+                        <ArrowDownRight className="w-3 h-3" />
+                        {sameDayChangePct}% vs same day last {granularity === 'month' ? 'mo' : 'wk'}
+                      </span>
+                    )}
+                  </div>
+                ) : stats.weekOverWeekChangePct !== null ? (
                   <div className="mt-1 flex items-center gap-1 text-[10px] font-semibold">
                     {stats.weekOverWeekChangePct >= 0 ? (
                       <span className="text-emerald-500 flex items-center">
@@ -936,7 +1127,7 @@ export const WeeklyMileageChart: React.FC<WeeklyMileageChartProps> = ({
                       </span>
                     )}
                   </div>
-                )}
+                ) : null}
               </div>
 
               <div
@@ -956,7 +1147,7 @@ export const WeeklyMileageChart: React.FC<WeeklyMileageChartProps> = ({
                   <span className="text-xs text-slate-500 font-bold">{rateUnitLabel}</span>
                 </div>
                 <span className="text-[10px] text-slate-500">
-                  Over {currentPeriodCount} {granularity === 'month' ? (currentPeriodCount === 1 ? 'month' : 'months') : 'weeks'}
+                  Over {currentPeriodCount} {granularity === 'month' ? 'months' : 'weeks'}
                 </span>
               </div>
 
@@ -1014,7 +1205,7 @@ export const WeeklyMileageChart: React.FC<WeeklyMileageChartProps> = ({
               </div>
 
               <div className="-mx-4 sm:-mx-5 overflow-x-auto scrollbar-thin pb-2" ref={scrollContainerRef}>
-                <div className={`relative pt-6 pb-2 ${currentPeriodCount === 52 ? 'min-w-[560px] sm:min-w-full' : 'w-full'}`}>
+                <div className={`relative pt-6 pb-2 ${currentPeriodCount >= 36 ? 'min-w-[620px] sm:min-w-full' : currentPeriodCount === 52 ? 'min-w-[560px] sm:min-w-full' : 'w-full'}`}>
                   {/* Average Reference Line */}
                   {avgVal > 0 && (
                     <div
@@ -1030,20 +1221,21 @@ export const WeeklyMileageChart: React.FC<WeeklyMileageChartProps> = ({
                   )}
 
                   {/* Bar Chart Grid: 3px gap, bars expand to fill available column width */}
-                  <div className={`h-44 sm:h-52 w-full flex items-end ${currentPeriodCount === 52 ? 'gap-[1.5px]' : 'gap-[3px]'} px-0 relative z-10`}>
-                    {weeks.map((w) => {
+                  <div className={`h-44 sm:h-52 w-full flex items-end ${currentPeriodCount >= 36 ? 'gap-[1px] sm:gap-[1.5px]' : currentPeriodCount === 52 ? 'gap-[1.5px]' : 'gap-[3px]'} px-0 relative z-10`}>
+                    {weeks.map((w, idx) => {
                       const val =
                         metricType === 'distance'
                           ? (unit === 'miles' ? w.distanceMiles : w.distanceKm)
                           : w.movingHours;
                       const heightPct = Math.min(100, Math.max(val > 0 ? 6 : 2, (val / maxWeeklyRun) * 100));
                       const isSelected = activeWeek?.weekKey === w.weekKey;
+                      const isPrevPeriod = idx === weeks.length - 2;
 
                       return (
                         <div
                           key={w.weekKey}
                           onClick={() => setSelectedWeek(w)}
-                          className="flex-1 min-w-0 flex flex-col items-center h-full justify-end cursor-pointer group"
+                          className="flex-1 min-w-0 flex flex-col items-center h-full justify-end cursor-pointer group relative"
                         >
                           {/* Value on hover / select */}
                           <div
@@ -1059,6 +1251,17 @@ export const WeeklyMileageChart: React.FC<WeeklyMileageChartProps> = ({
                           >
                             {val > 0 ? val : ''}
                           </div>
+
+                          {/* Dark blue dotted line across previous period bar */}
+                          {isPrevPeriod && prevSameDayVal > 0 && (
+                            <div
+                              className="absolute left-0 right-0 z-30 pointer-events-none"
+                              style={{ bottom: `${prevSameDayHeightPct}%` }}
+                              title={`By same day last ${granularity === 'month' ? 'month' : 'week'}: ${prevSameDayVal} ${metricUnitLabel}`}
+                            >
+                              <div className="w-full border-b-2 border-dotted border-blue-900 dark:border-blue-400" />
+                            </div>
+                          )}
 
                           {/* Bar: w-full fills the flex-1 column, gap-[3px] between bars */}
                           <div
@@ -1097,7 +1300,9 @@ export const WeeklyMileageChart: React.FC<WeeklyMileageChartProps> = ({
                               title={w.weekLabel}
                             >
                               {granularity === 'month'
-                                ? w.shortLabel
+                                ? currentPeriodCount > 12
+                                  ? formatMonthShortCode(w.mondayDate)
+                                  : w.shortLabel
                                 : currentPeriodCount >= 24
                                 ? formatWeekShortCode(w.mondayDate)
                                 : w.shortLabel.replace(/^[A-Za-z]+ /, '')}

@@ -821,3 +821,57 @@ export function computeWeeklyBikeHours(
     },
   };
 }
+
+/**
+ * Computes accumulated metrics in a period (e.g. previous week or month)
+ * up to the exact same day of the week or month relative to a reference date.
+ */
+export function getSameDayAccumulatedInPeriod(
+  items: { startDate: string; distanceMiles?: number; distanceKm?: number; movingTimeSec?: number; movingHours?: number }[],
+  granularity: TimeGranularity,
+  referenceDate: Date = new Date()
+): {
+  distanceMiles: number;
+  distanceKm: number;
+  movingHours: number;
+} {
+  let miles = 0;
+  let km = 0;
+  let sec = 0;
+
+  if (granularity === 'month') {
+    const curDayOfMonth = referenceDate.getDate(); // 1..31
+    for (const item of items) {
+      if (!item.startDate) continue;
+      const d = new Date(item.startDate);
+      if (isNaN(d.getTime())) continue;
+      if (d.getDate() <= curDayOfMonth) {
+        miles += item.distanceMiles || 0;
+        km += item.distanceKm || 0;
+        sec += item.movingTimeSec || ((item.movingHours || 0) * 3600);
+      }
+    }
+  } else {
+    // Week: Monday is 1, Tuesday 2, ..., Sunday 7
+    const curDay = referenceDate.getDay();
+    const curDayOfWeek = curDay === 0 ? 7 : curDay;
+    for (const item of items) {
+      if (!item.startDate) continue;
+      const d = new Date(item.startDate);
+      if (isNaN(d.getTime())) continue;
+      const itemDay = d.getDay() === 0 ? 7 : d.getDay();
+      if (itemDay <= curDayOfWeek) {
+        miles += item.distanceMiles || 0;
+        km += item.distanceKm || 0;
+        sec += item.movingTimeSec || ((item.movingHours || 0) * 3600);
+      }
+    }
+  }
+
+  return {
+    distanceMiles: Math.round(miles * 10) / 10,
+    distanceKm: Math.round(km * 10) / 10,
+    movingHours: Math.round((sec / 3600) * 10) / 10,
+  };
+}
+
