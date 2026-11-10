@@ -1,12 +1,8 @@
 import React, { useState, useMemo } from 'react';
 import {
-  Footprints,
   Calendar,
-  TrendingUp,
-  Award,
   ChevronRight,
   Flame,
-  Clock,
   ArrowUpRight,
   ArrowDownRight,
   BarChart2,
@@ -20,8 +16,9 @@ import {
   WeeklyMileageBucket,
   WeeklySwimBucket,
   WeeklyBikeBucket,
+  TimeGranularity,
 } from '../utils/mileageEngine';
-import { FitnessZoneCharts, ZoneChartMode } from './FitnessZoneCharts';
+import { FitnessZoneCharts } from './FitnessZoneCharts';
 
 export type ChartDatasetTab = 'mileage' | 'swim_distance' | 'bike_hours' | 'cycling_power' | 'running_pace' | 'running_hr';
 
@@ -36,17 +33,6 @@ export function formatWeekShortCode(mondayDate: Date | string): string {
   const monthLetters = ['J', 'F', 'M', 'A', 'M', 'J', 'J', 'A', 'S', 'O', 'N', 'D'];
   const monthInitial = monthLetters[d.getMonth()] || '';
   return `${day}${monthInitial}`;
-}
-
-/**
- * Responsive & proportional bar width for 4W, 8W, 12W, 24W, and 52W
- */
-export function getBarWidthClass(weeksCount: number): string {
-  if (weeksCount <= 4) return 'w-6 sm:w-9 max-w-[26px] sm:max-w-[36px]';
-  if (weeksCount <= 8) return 'w-4 sm:w-6 max-w-[18px] sm:max-w-[26px]';
-  if (weeksCount <= 12) return 'w-3 sm:w-4.5 max-w-[13px] sm:max-w-[18px]';
-  if (weeksCount <= 24) return 'w-full max-w-[9px] sm:max-w-[13px]';
-  return 'w-full min-w-[2px]';
 }
 
 interface WeeklyMileageChartProps {
@@ -68,43 +54,135 @@ export const WeeklyMileageChart: React.FC<WeeklyMileageChartProps> = ({
 }) => {
   const isLight = theme === 'light';
   const [activeTab, setActiveTab] = useState<ChartDatasetTab>(initialTab);
-  const [numWeeks, setNumWeeks] = useState<number>(12); // 4, 8, 12, 24, 52
+  const [granularity, setGranularity] = useState<TimeGranularity>('week');
+  const [numWeeks, setNumWeeks] = useState<number>(12); // 8, 12, 24, 52 (4W removed)
+  const [numMonths, setNumMonths] = useState<number>(3); // 2, 3, 6, 12
   const [unit, setUnit] = useState<'miles' | 'km'>('miles');
+  const [metricType, setMetricType] = useState<'distance' | 'time'>('distance');
+
   const [selectedWeek, setSelectedWeek] = useState<WeeklyMileageBucket | null>(null);
   const [selectedSwimWeek, setSelectedSwimWeek] = useState<WeeklySwimBucket | null>(null);
   const [selectedBikeWeek, setSelectedBikeWeek] = useState<WeeklyBikeBucket | null>(null);
   const scrollContainerRef = React.useRef<HTMLDivElement>(null);
 
-  // Compute Monday-to-Sunday weekly running mileage
+  const currentPeriodCount = granularity === 'month' ? numMonths : numWeeks;
+
+  // Compute Running volume
   const { weeks, stats } = useMemo(() => {
-    return computeWeeklyRunningMileage(activities, numWeeks);
-  }, [activities, numWeeks]);
+    return computeWeeklyRunningMileage(activities, currentPeriodCount, granularity);
+  }, [activities, currentPeriodCount, granularity]);
 
-  // Compute Monday-to-Sunday weekly swim distance
+  // Compute Swim volume
   const { weeks: swimWeeks, stats: swimStats } = useMemo(() => {
-    return computeWeeklySwimDistance(activities, numWeeks);
-  }, [activities, numWeeks]);
+    return computeWeeklySwimDistance(activities, currentPeriodCount, granularity);
+  }, [activities, currentPeriodCount, granularity]);
 
-  // Compute Monday-to-Sunday weekly bike hours
+  // Compute Bike volume
   const { weeks: bikeWeeks, stats: bikeStats } = useMemo(() => {
-    return computeWeeklyBikeHours(activities, numWeeks);
-  }, [activities, numWeeks]);
+    return computeWeeklyBikeHours(activities, currentPeriodCount, granularity);
+  }, [activities, currentPeriodCount, granularity]);
 
-  // Scroll to the right (current week) by default when weeks load or lookback changes
+  // Scroll to the right (current period) by default when data loads or lookback changes
   React.useEffect(() => {
     if (scrollContainerRef.current) {
       scrollContainerRef.current.scrollLeft = scrollContainerRef.current.scrollWidth;
     }
-  }, [weeks, numWeeks]);
+  }, [weeks, swimWeeks, bikeWeeks, currentPeriodCount, granularity]);
 
-  // Max value for scaling SVG bars
-  const maxWeeklyDist = useMemo(() => {
-    const values = weeks.map((w) => (unit === 'miles' ? w.distanceMiles : w.distanceKm));
-    const highest = Math.max(...values, 10);
-    return Math.ceil(highest * 1.15);
-  }, [weeks, unit]);
-
+  // Active selected period or default to the most recent period
   const activeWeek = selectedWeek || (weeks.length > 0 ? weeks[weeks.length - 1] : null);
+  const activeSwimWeek = selectedSwimWeek || (swimWeeks.length > 0 ? swimWeeks[swimWeeks.length - 1] : null);
+  const activeBikeWeek = selectedBikeWeek || (bikeWeeks.length > 0 ? bikeWeeks[bikeWeeks.length - 1] : null);
+
+  // Peak Scale calculations
+  const maxWeeklyRun = useMemo(() => {
+    const values = weeks.map((w) =>
+      metricType === 'distance' ? (unit === 'miles' ? w.distanceMiles : w.distanceKm) : w.movingHours
+    );
+    const highest = Math.max(...values, metricType === 'distance' ? 10 : 2);
+    return Math.ceil(highest * 1.15);
+  }, [weeks, unit, metricType]);
+
+  const maxSwimScale = useMemo(() => {
+    const values = swimWeeks.map((w) =>
+      metricType === 'distance' ? (unit === 'miles' ? w.distanceMiles : w.distanceKm) : w.movingHours
+    );
+    const highest = Math.max(...values, metricType === 'distance' ? 2 : 1);
+    return Math.ceil(highest * 1.15);
+  }, [swimWeeks, unit, metricType]);
+
+  const maxBikeScale = useMemo(() => {
+    const values = bikeWeeks.map((w) =>
+      metricType === 'distance' ? (unit === 'miles' ? w.distanceMiles : w.distanceKm) : w.movingHours
+    );
+    const highest = Math.max(...values, metricType === 'distance' ? 15 : 3);
+    return Math.ceil(highest * 1.15);
+  }, [bikeWeeks, unit, metricType]);
+
+  // Helper renderer for inside-activity Controls (Miles/KM and Distance/Time)
+  const renderActivityControls = () => (
+    <div className="flex items-center gap-1.5 flex-wrap">
+      {/* Unit Toggle: Miles / KM */}
+      <div className="flex items-center p-0.5 rounded-lg bg-slate-950/40 border border-slate-800 text-[11px] font-bold">
+        <button
+          type="button"
+          onClick={() => setUnit('miles')}
+          className={`px-2 py-0.5 sm:py-1 rounded-md transition-colors cursor-pointer ${
+            unit === 'miles'
+              ? 'bg-amber-500 text-slate-950 shadow-xs'
+              : isLight
+              ? 'text-slate-600 hover:text-slate-900'
+              : 'text-slate-400 hover:text-white'
+          }`}
+        >
+          Miles
+        </button>
+        <button
+          type="button"
+          onClick={() => setUnit('km')}
+          className={`px-2 py-0.5 sm:py-1 rounded-md transition-colors cursor-pointer ${
+            unit === 'km'
+              ? 'bg-amber-500 text-slate-950 shadow-xs'
+              : isLight
+              ? 'text-slate-600 hover:text-slate-900'
+              : 'text-slate-400 hover:text-white'
+          }`}
+        >
+          KM
+        </button>
+      </div>
+
+      {/* Metric Toggle: Distance / Time */}
+      <div className="flex items-center p-0.5 rounded-lg bg-slate-950/40 border border-slate-800 text-[11px] font-bold">
+        <button
+          type="button"
+          onClick={() => setMetricType('distance')}
+          className={`px-2 py-0.5 sm:py-1 rounded-md transition-colors cursor-pointer ${
+            metricType === 'distance'
+              ? 'bg-amber-500 text-slate-950 shadow-xs'
+              : isLight
+              ? 'text-slate-600 hover:text-slate-900'
+              : 'text-slate-400 hover:text-white'
+          }`}
+        >
+          Distance
+        </button>
+        <button
+          type="button"
+          onClick={() => setMetricType('time')}
+          className={`px-2 py-0.5 sm:py-1 rounded-md transition-colors cursor-pointer ${
+            metricType === 'time'
+              ? 'bg-amber-500 text-slate-950 shadow-xs'
+              : isLight
+              ? 'text-slate-600 hover:text-slate-900'
+              : 'text-slate-400 hover:text-white'
+          }`}
+        >
+          Time
+        </button>
+      </div>
+    </div>
+  );
 
   return (
     <div
@@ -130,69 +208,88 @@ export const WeeklyMileageChart: React.FC<WeeklyMileageChartProps> = ({
                 Charts
               </h2>
               <p className={`text-xs ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>
-                Visual analytics for running volume and multidimensional training zones
+                Visual analytics for multidimensional training volume and zones
               </p>
             </div>
           </div>
 
-          {/* Lookback & Unit Selectors */}
+          {/* Granularity (Week / Month) & Range Selectors */}
           <div className="flex items-center gap-2 self-start sm:self-auto flex-wrap">
-            {/* Unit Toggle: Miles vs KM (Shown when on Weekly Running Mileage) */}
-            {activeTab === 'mileage' && (
-              <div className="flex items-center p-0.5 rounded-lg bg-slate-950/40 border border-slate-800 text-[11px] font-bold">
-                <button
-                  type="button"
-                  onClick={() => setUnit('miles')}
-                  className={`px-2 py-1 rounded-md transition-colors cursor-pointer ${
-                    unit === 'miles'
-                      ? 'bg-amber-500 text-slate-950 shadow-xs'
-                      : isLight
-                      ? 'text-slate-600 hover:text-slate-900'
-                      : 'text-slate-400 hover:text-white'
-                  }`}
-                >
-                  Miles
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setUnit('km')}
-                  className={`px-2 py-1 rounded-md transition-colors cursor-pointer ${
-                    unit === 'km'
-                      ? 'bg-amber-500 text-slate-950 shadow-xs'
-                      : isLight
-                      ? 'text-slate-600 hover:text-slate-900'
-                      : 'text-slate-400 hover:text-white'
-                  }`}
-                >
-                  KM
-                </button>
-              </div>
-            )}
-
-            {/* Week Range Filter: 4W, 8W, 12W, 24W, 52W */}
+            {/* Week / Month Toggle */}
             <div className="flex items-center p-0.5 rounded-lg bg-slate-950/40 border border-slate-800 text-[11px] font-bold">
-              {[
-                { label: '4W', value: 4 },
-                { label: '8W', value: 8 },
-                { label: '12W', value: 12 },
-                { label: '24W', value: 24 },
-                { label: '52W', value: 52 },
-              ].map((option) => (
-                <button
-                  key={option.value}
-                  type="button"
-                  onClick={() => setNumWeeks(option.value)}
-                  className={`px-2 py-1 rounded-md transition-colors cursor-pointer ${
-                    numWeeks === option.value
-                      ? 'bg-amber-500 text-slate-950 shadow-xs'
-                      : isLight
-                      ? 'text-slate-600 hover:text-slate-900'
-                      : 'text-slate-400 hover:text-white'
-                  }`}
-                >
-                  {option.label}
-                </button>
-              ))}
+              <button
+                type="button"
+                onClick={() => setGranularity('week')}
+                className={`px-2 py-1 rounded-md transition-colors cursor-pointer ${
+                  granularity === 'week'
+                    ? 'bg-amber-500 text-slate-950 shadow-xs'
+                    : isLight
+                    ? 'text-slate-600 hover:text-slate-900'
+                    : 'text-slate-400 hover:text-white'
+                }`}
+              >
+                Week
+              </button>
+              <button
+                type="button"
+                onClick={() => setGranularity('month')}
+                className={`px-2 py-1 rounded-md transition-colors cursor-pointer ${
+                  granularity === 'month'
+                    ? 'bg-amber-500 text-slate-950 shadow-xs'
+                    : isLight
+                    ? 'text-slate-600 hover:text-slate-900'
+                    : 'text-slate-400 hover:text-white'
+                }`}
+              >
+                Month
+              </button>
+            </div>
+
+            {/* Range Filter: 8W, 12W, 24W, 52W OR 2M, 3M, 6M, 12M */}
+            <div className="flex items-center p-0.5 rounded-lg bg-slate-950/40 border border-slate-800 text-[11px] font-bold">
+              {granularity === 'week'
+                ? [
+                    { label: '8W', value: 8 },
+                    { label: '12W', value: 12 },
+                    { label: '24W', value: 24 },
+                    { label: '52W', value: 52 },
+                  ].map((option) => (
+                    <button
+                      key={option.value}
+                      type="button"
+                      onClick={() => setNumWeeks(option.value)}
+                      className={`px-2 py-1 rounded-md transition-colors cursor-pointer ${
+                        numWeeks === option.value
+                          ? 'bg-amber-500 text-slate-950 shadow-xs'
+                          : isLight
+                          ? 'text-slate-600 hover:text-slate-900'
+                          : 'text-slate-400 hover:text-white'
+                      }`}
+                    >
+                      {option.label}
+                    </button>
+                  ))
+                : [
+                    { label: '2M', value: 2 },
+                    { label: '3M', value: 3 },
+                    { label: '6M', value: 6 },
+                    { label: '12M', value: 12 },
+                  ].map((option) => (
+                    <button
+                      key={option.value}
+                      type="button"
+                      onClick={() => setNumMonths(option.value)}
+                      className={`px-2 py-1 rounded-md transition-colors cursor-pointer ${
+                        numMonths === option.value
+                          ? 'bg-amber-500 text-slate-950 shadow-xs'
+                          : isLight
+                          ? 'text-slate-600 hover:text-slate-900'
+                          : 'text-slate-400 hover:text-white'
+                      }`}
+                    >
+                      {option.label}
+                    </button>
+                  ))}
             </div>
           </div>
         </div>
@@ -200,9 +297,9 @@ export const WeeklyMileageChart: React.FC<WeeklyMileageChartProps> = ({
         {/* Dataset Switch Tabs */}
         <div className="flex items-center gap-1.5 overflow-x-auto scrollbar-none pt-1">
           {[
-            { id: 'mileage', label: 'Weekly Running Mileage' },
-            { id: 'swim_distance', label: 'Swim Distance' },
-            { id: 'bike_hours', label: 'Hours on the Bike' },
+            { id: 'mileage', label: 'Run' },
+            { id: 'swim_distance', label: 'Swim' },
+            { id: 'bike_hours', label: 'Bike' },
             { id: 'cycling_power', label: 'Cycling Power Zones' },
             { id: 'running_pace', label: 'Running Pace Zones' },
             { id: 'running_hr', label: 'Running Heart Rate Zones' },
@@ -225,96 +322,144 @@ export const WeeklyMileageChart: React.FC<WeeklyMileageChartProps> = ({
         </div>
       </div>
 
-      {/* Conditional Rendering of Selected Dataset */}
+      {/* SWIM SECTION */}
       {activeTab === 'swim_distance' && (() => {
-        const activeSwimWeek = selectedSwimWeek || (swimWeeks.length > 0 ? swimWeeks[swimWeeks.length - 1] : null);
-        const maxSwimDist = Math.ceil(Math.max(...swimWeeks.map((w) => w.distanceKm), 2) * 1.15);
+        const currentVal =
+          metricType === 'distance'
+            ? (unit === 'miles' ? activeSwimWeek?.distanceMiles : activeSwimWeek?.distanceKm) || 0
+            : activeSwimWeek?.movingHours || 0;
+
+        const avgVal =
+          metricType === 'distance'
+            ? unit === 'miles'
+              ? swimStats.averageWeeklyMiles
+              : swimStats.averageWeeklyKm
+            : swimStats.averageWeeklyHours;
+
+        const peakVal =
+          metricType === 'distance'
+            ? unit === 'miles'
+              ? swimStats.peakWeekMiles
+              : swimStats.peakWeekKm
+            : swimStats.peakWeekHours;
+
+        const totalVal =
+          metricType === 'distance'
+            ? unit === 'miles'
+              ? swimStats.totalMiles
+              : swimStats.totalKm
+            : swimStats.totalHours;
+
+        const metricUnitLabel = metricType === 'distance' ? unit : 'hrs';
+        const rateUnitLabel =
+          metricType === 'distance'
+            ? `${unit}/${granularity === 'month' ? 'mo' : 'wk'}`
+            : `hrs/${granularity === 'month' ? 'mo' : 'wk'}`;
 
         return (
           <div className="pt-2">
-            <div className="flex items-center justify-between gap-3 pt-4 pb-2">
-              <div className="flex items-center gap-2">
+            {/* Subheader: Swim + Badge + Controls */}
+            <div className="flex flex-wrap items-center justify-between gap-3 pt-4 pb-2">
+              <div className="flex flex-wrap items-center gap-2 sm:gap-2.5">
                 <h3 className={`text-sm sm:text-base font-extrabold tracking-tight ${isLight ? 'text-slate-900' : 'text-white'}`}>
-                  Swim Distance
+                  Swim
                 </h3>
                 <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-sky-500/15 text-sky-700 dark:text-sky-400 border border-sky-500/20">
-                  Mon – Sun
+                  {granularity === 'month' ? 'Monthly' : 'Mon – Sun'}
                 </span>
+                {renderActivityControls()}
               </div>
-              <p className={`text-xs ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>
-                Weekly aggregated swim distance in kilometers
-              </p>
             </div>
 
+            {/* KPI Cards */}
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 sm:gap-3 my-4">
               <div className={`p-3 rounded-xl border ${isLight ? 'bg-slate-50 border-slate-200' : 'bg-slate-950/40 border-slate-800/80'}`}>
-                <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 block">This Week</span>
+                <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 block">
+                  {granularity === 'month' ? 'This Month' : 'This Week'}
+                </span>
                 <div className="mt-1 flex items-baseline gap-1.5">
-                  <span className="text-xl sm:text-2xl font-black font-mono text-sky-500">{activeSwimWeek?.distanceKm || 0}</span>
-                  <span className="text-xs text-slate-500 font-bold">km</span>
+                  <span className="text-xl sm:text-2xl font-black font-mono text-sky-500">{currentVal}</span>
+                  <span className="text-xs text-slate-500 font-bold">{metricUnitLabel}</span>
                 </div>
                 {swimStats.weekOverWeekChangePct !== null && (
                   <div className="mt-1 flex items-center gap-1 text-[10px] font-semibold">
                     {swimStats.weekOverWeekChangePct >= 0 ? (
-                      <span className="text-emerald-500 flex items-center"><ArrowUpRight className="w-3 h-3" />+{swimStats.weekOverWeekChangePct}% vs last wk</span>
+                      <span className="text-emerald-500 flex items-center">
+                        <ArrowUpRight className="w-3 h-3" />+{swimStats.weekOverWeekChangePct}% vs last {granularity === 'month' ? 'mo' : 'wk'}
+                      </span>
                     ) : (
-                      <span className="text-rose-400 flex items-center"><ArrowDownRight className="w-3 h-3" />{swimStats.weekOverWeekChangePct}% vs last wk</span>
+                      <span className="text-rose-400 flex items-center">
+                        <ArrowDownRight className="w-3 h-3" />{swimStats.weekOverWeekChangePct}% vs last {granularity === 'month' ? 'mo' : 'wk'}
+                      </span>
                     )}
                   </div>
                 )}
               </div>
+
               <div className={`p-3 rounded-xl border ${isLight ? 'bg-slate-50 border-slate-200' : 'bg-slate-950/40 border-slate-800/80'}`}>
-                <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 block">Weekly Average</span>
+                <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 block">
+                  {granularity === 'month' ? 'Monthly Average' : 'Weekly Average'}
+                </span>
                 <div className="mt-1 flex items-baseline gap-1.5">
-                  <span className="text-xl sm:text-2xl font-black font-mono text-sky-400">{swimStats.averageWeeklyKm}</span>
-                  <span className="text-xs text-slate-500 font-bold">km/wk</span>
+                  <span className="text-xl sm:text-2xl font-black font-mono text-sky-400">{avgVal}</span>
+                  <span className="text-xs text-slate-500 font-bold">{rateUnitLabel}</span>
                 </div>
-                <span className="text-[10px] text-slate-500">Over {numWeeks} weeks</span>
+                <span className="text-[10px] text-slate-500">
+                  Over {currentPeriodCount} {granularity === 'month' ? (currentPeriodCount === 1 ? 'month' : 'months') : 'weeks'}
+                </span>
               </div>
+
               <div className={`p-3 rounded-xl border ${isLight ? 'bg-slate-50 border-slate-200' : 'bg-slate-950/40 border-slate-800/80'}`}>
-                <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 block">Peak Week</span>
+                <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 block">
+                  {granularity === 'month' ? 'Peak Month' : 'Peak Week'}
+                </span>
                 <div className="mt-1 flex items-baseline gap-1.5">
-                  <span className="text-xl sm:text-2xl font-black font-mono text-emerald-400">{swimStats.peakWeekKm}</span>
-                  <span className="text-xs text-slate-500 font-bold">km</span>
+                  <span className="text-xl sm:text-2xl font-black font-mono text-emerald-400">{peakVal}</span>
+                  <span className="text-xs text-slate-500 font-bold">{metricUnitLabel}</span>
                 </div>
                 <span className="text-[10px] text-slate-500 truncate block">{swimStats.peakWeekLabel || 'None'}</span>
               </div>
+
               <div className={`p-3 rounded-xl border ${isLight ? 'bg-slate-50 border-slate-200' : 'bg-slate-950/40 border-slate-800/80'}`}>
                 <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 block">Total Volume</span>
                 <div className="mt-1 flex items-baseline gap-1.5">
-                  <span className="text-xl sm:text-2xl font-black font-mono text-purple-400">{swimStats.totalKm}</span>
-                  <span className="text-xs text-slate-500 font-bold">km</span>
+                  <span className="text-xl sm:text-2xl font-black font-mono text-purple-400">{totalVal}</span>
+                  <span className="text-xs text-slate-500 font-bold">{metricUnitLabel}</span>
                 </div>
                 <span className="text-[10px] text-slate-500">{swimStats.totalSwims} total swims</span>
               </div>
             </div>
 
+            {/* Chart Area */}
             <div className="space-y-2 mt-4">
               <div className="flex items-center justify-between text-xs text-slate-500 px-1">
                 <span className="flex items-center gap-1.5 font-medium">
                   <BarChart2 className="w-3.5 h-3.5 text-sky-500" />
-                  Swim distance per week (km)
+                  Swim {metricType === 'distance' ? `distance (${unit})` : 'moving time (hours)'} per {granularity}
                 </span>
-                <span className="font-mono text-[11px]">Peak Scale: {maxSwimDist} km</span>
+                <span className="font-mono text-[11px]">Peak Scale: {maxSwimScale} {metricUnitLabel}</span>
               </div>
 
               <div className="-mx-4 sm:-mx-5 overflow-x-auto scrollbar-thin pb-2" ref={scrollContainerRef}>
-                <div className={`relative pt-6 pb-2 ${numWeeks === 52 ? 'min-w-[560px] sm:min-w-full' : 'w-full'}`}>
-                  {swimStats.averageWeeklyKm > 0 && (
+                <div className={`relative pt-6 pb-2 ${currentPeriodCount === 52 ? 'min-w-[560px] sm:min-w-full' : 'w-full'}`}>
+                  {avgVal > 0 && (
                     <div
                       className="absolute left-0 right-0 border-b-2 border-dotted border-red-500 z-20 pointer-events-none"
-                      style={{ bottom: `${Math.min(90, (swimStats.averageWeeklyKm / maxSwimDist) * 100)}%` }}
+                      style={{ bottom: `${Math.min(90, (avgVal / maxSwimScale) * 100)}%` }}
                     >
                       <span className="absolute right-2 -top-4 text-[10px] font-mono font-bold text-black bg-white/95 border border-slate-300 px-1.5 py-0.5 rounded shadow-sm">
-                        Avg: {swimStats.averageWeeklyKm} km
+                        Avg: {avgVal} {metricUnitLabel}
                       </span>
                     </div>
                   )}
 
-                  <div className={`h-44 sm:h-52 w-full flex items-end ${numWeeks === 52 ? 'gap-[1px] sm:gap-0.5' : 'gap-0.5 sm:gap-[3px]'} px-0 relative z-10`}>
+                  <div className={`h-44 sm:h-52 w-full flex items-end ${currentPeriodCount === 52 ? 'gap-[1.5px]' : 'gap-[3px]'} px-0 relative z-10`}>
                     {swimWeeks.map((w) => {
-                      const val = w.distanceKm;
-                      const heightPct = Math.min(100, Math.max(val > 0 ? 6 : 2, (val / maxSwimDist) * 100));
+                      const val =
+                        metricType === 'distance'
+                          ? (unit === 'miles' ? w.distanceMiles : w.distanceKm)
+                          : w.movingHours;
+                      const heightPct = Math.min(100, Math.max(val > 0 ? 6 : 2, (val / maxSwimScale) * 100));
                       const isSelected = activeSwimWeek?.weekKey === w.weekKey;
 
                       return (
@@ -330,26 +475,38 @@ export const WeeklyMileageChart: React.FC<WeeklyMileageChartProps> = ({
                                   ? 'text-sky-400 scale-110'
                                   : 'text-slate-400 group-hover:text-sky-300'
                                 : 'opacity-0'
-                            } ${numWeeks >= 24 && !isSelected ? 'hidden sm:block opacity-0 group-hover:opacity-100' : ''}`}
+                            } ${currentPeriodCount >= 24 && !isSelected ? 'hidden sm:block opacity-0 group-hover:opacity-100' : ''}`}
                           >
                             {val > 0 ? val : ''}
                           </div>
                           <div
-                            className={`${getBarWidthClass(numWeeks)} relative rounded-t-md transition-all duration-300 border border-black box-border`}
+                            className="w-full relative rounded-t-sm transition-all duration-300 border border-black box-border"
                             style={{
                               height: `${heightPct}%`,
-                              backgroundColor: val === 0 ? (isLight ? '#e2e8f0' : '#1e293b') : isSelected ? '#0ea5e9' : w.isCurrentWeek ? '#38bdf8' : '#0284c7',
+                              backgroundColor:
+                                val === 0
+                                  ? isLight
+                                    ? '#e2e8f0'
+                                    : '#1e293b'
+                                  : isSelected
+                                  ? '#0ea5e9'
+                                  : w.isCurrentWeek
+                                  ? '#38bdf8'
+                                  : '#0284c7',
                               opacity: val === 0 ? 0.35 : isSelected ? 1 : 0.85,
+                              boxShadow: isSelected ? '0 0 12px rgba(14, 165, 233, 0.45)' : undefined,
                             }}
                           />
                           <div className="mt-2 text-center w-full px-0.5">
                             <span
-                              className={`text-[9px] ${numWeeks >= 24 ? 'text-[8px] sm:text-[9px]' : ''} font-mono block truncate ${
+                              className={`text-[9px] ${currentPeriodCount >= 24 ? 'text-[8px] sm:text-[9px]' : ''} font-mono block truncate ${
                                 isSelected ? 'text-sky-500 font-bold' : 'text-slate-400'
                               }`}
                               title={w.weekLabel}
                             >
-                              {numWeeks >= 24
+                              {granularity === 'month'
+                                ? w.shortLabel
+                                : currentPeriodCount >= 24
                                 ? formatWeekShortCode(w.mondayDate)
                                 : w.shortLabel.replace(/^[A-Za-z]+ /, '')}
                             </span>
@@ -362,6 +519,7 @@ export const WeeklyMileageChart: React.FC<WeeklyMileageChartProps> = ({
               </div>
             </div>
 
+            {/* Selected Period Breakdown */}
             {activeSwimWeek && (
               <div className={`mt-4 p-3.5 rounded-xl border ${isLight ? 'bg-sky-50/50 border-sky-200 text-slate-900' : 'bg-slate-950/70 border-slate-800 text-slate-200'}`}>
                 <div className="flex items-center justify-between pb-2 border-b border-slate-200 dark:border-slate-800">
@@ -370,12 +528,14 @@ export const WeeklyMileageChart: React.FC<WeeklyMileageChartProps> = ({
                     <span className="text-xs font-bold">{activeSwimWeek.weekLabel}</span>
                   </div>
                   <div className="flex items-center gap-3 text-xs font-mono">
-                    <span className="font-bold text-sky-500">{activeSwimWeek.distanceKm} km ({activeSwimWeek.distanceMeters}m)</span>
+                    <span className="font-bold text-sky-500">
+                      {unit === 'miles' ? `${activeSwimWeek.distanceMiles} mi` : `${activeSwimWeek.distanceKm} km`} ({activeSwimWeek.movingHours} hrs)
+                    </span>
                     <span className="text-slate-400">{activeSwimWeek.swimsCount} swims</span>
                   </div>
                 </div>
                 {activeSwimWeek.swims.length === 0 ? (
-                  <p className="text-xs text-slate-400 py-3 text-center">No swim activities logged in this week.</p>
+                  <p className="text-xs text-slate-400 py-3 text-center">No swim activities logged in this period.</p>
                 ) : (
                   <div className="mt-2.5 divide-y divide-slate-200/60 dark:divide-slate-800/60">
                     {activeSwimWeek.swims.map((sw) => (
@@ -389,7 +549,9 @@ export const WeeklyMileageChart: React.FC<WeeklyMileageChartProps> = ({
                           <span className="font-medium truncate">{sw.name}</span>
                         </div>
                         <div className="flex items-center gap-3 font-mono shrink-0 text-[11px]">
-                          <span className="font-bold">{sw.distanceMeters}m</span>
+                          <span className="font-bold">
+                            {unit === 'miles' ? `${Math.round(sw.distanceKm * 0.621371 * 10) / 10} mi` : `${sw.distanceMeters}m`}
+                          </span>
                           <span className="text-slate-400">{sw.avgPaceFormatted}</span>
                           {onSelectActivity && <ChevronRight className="w-3.5 h-3.5 text-slate-400" />}
                         </div>
@@ -403,95 +565,144 @@ export const WeeklyMileageChart: React.FC<WeeklyMileageChartProps> = ({
         );
       })()}
 
+      {/* BIKE SECTION */}
       {activeTab === 'bike_hours' && (() => {
-        const activeBikeWeek = selectedBikeWeek || (bikeWeeks.length > 0 ? bikeWeeks[bikeWeeks.length - 1] : null);
-        const maxBikeHrs = Math.ceil(Math.max(...bikeWeeks.map((w) => w.movingHours), 5) * 1.15);
+        const currentVal =
+          metricType === 'distance'
+            ? (unit === 'miles' ? activeBikeWeek?.distanceMiles : activeBikeWeek?.distanceKm) || 0
+            : activeBikeWeek?.movingHours || 0;
+
+        const avgVal =
+          metricType === 'distance'
+            ? unit === 'miles'
+              ? bikeStats.averageWeeklyMiles
+              : bikeStats.averageWeeklyKm
+            : bikeStats.averageWeeklyHours;
+
+        const peakVal =
+          metricType === 'distance'
+            ? unit === 'miles'
+              ? bikeStats.peakWeekMiles
+              : bikeStats.peakWeekKm
+            : bikeStats.peakWeekHours;
+
+        const totalVal =
+          metricType === 'distance'
+            ? unit === 'miles'
+              ? bikeStats.totalMiles
+              : bikeStats.totalKm
+            : bikeStats.totalHours;
+
+        const metricUnitLabel = metricType === 'distance' ? unit : 'hrs';
+        const rateUnitLabel =
+          metricType === 'distance'
+            ? `${unit}/${granularity === 'month' ? 'mo' : 'wk'}`
+            : `hrs/${granularity === 'month' ? 'mo' : 'wk'}`;
 
         return (
           <div className="pt-2">
-            <div className="flex items-center justify-between gap-3 pt-4 pb-2">
-              <div className="flex items-center gap-2">
+            {/* Subheader: Bike + Badge + Controls */}
+            <div className="flex flex-wrap items-center justify-between gap-3 pt-4 pb-2">
+              <div className="flex flex-wrap items-center gap-2 sm:gap-2.5">
                 <h3 className={`text-sm sm:text-base font-extrabold tracking-tight ${isLight ? 'text-slate-900' : 'text-white'}`}>
-                  Hours on the Bike
+                  Bike
                 </h3>
                 <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-orange-500/15 text-orange-700 dark:text-orange-400 border border-orange-500/20">
-                  Mon – Sun
+                  {granularity === 'month' ? 'Monthly' : 'Mon – Sun'}
                 </span>
+                {renderActivityControls()}
               </div>
-              <p className={`text-xs ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>
-                Weekly aggregated cycling moving hours
-              </p>
             </div>
 
+            {/* KPI Cards */}
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 sm:gap-3 my-4">
               <div className={`p-3 rounded-xl border ${isLight ? 'bg-slate-50 border-slate-200' : 'bg-slate-950/40 border-slate-800/80'}`}>
-                <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 block">This Week</span>
+                <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 block">
+                  {granularity === 'month' ? 'This Month' : 'This Week'}
+                </span>
                 <div className="mt-1 flex items-baseline gap-1.5">
-                  <span className="text-xl sm:text-2xl font-black font-mono text-orange-500">{activeBikeWeek?.movingHours || 0}</span>
-                  <span className="text-xs text-slate-500 font-bold">hrs</span>
+                  <span className="text-xl sm:text-2xl font-black font-mono text-orange-500">{currentVal}</span>
+                  <span className="text-xs text-slate-500 font-bold">{metricUnitLabel}</span>
                 </div>
                 {bikeStats.weekOverWeekChangePct !== null && (
                   <div className="mt-1 flex items-center gap-1 text-[10px] font-semibold">
                     {bikeStats.weekOverWeekChangePct >= 0 ? (
-                      <span className="text-emerald-500 flex items-center"><ArrowUpRight className="w-3 h-3" />+{bikeStats.weekOverWeekChangePct}% vs last wk</span>
+                      <span className="text-emerald-500 flex items-center">
+                        <ArrowUpRight className="w-3 h-3" />+{bikeStats.weekOverWeekChangePct}% vs last {granularity === 'month' ? 'mo' : 'wk'}
+                      </span>
                     ) : (
-                      <span className="text-rose-400 flex items-center"><ArrowDownRight className="w-3 h-3" />{bikeStats.weekOverWeekChangePct}% vs last wk</span>
+                      <span className="text-rose-400 flex items-center">
+                        <ArrowDownRight className="w-3 h-3" />{bikeStats.weekOverWeekChangePct}% vs last {granularity === 'month' ? 'mo' : 'wk'}
+                      </span>
                     )}
                   </div>
                 )}
               </div>
+
               <div className={`p-3 rounded-xl border ${isLight ? 'bg-slate-50 border-slate-200' : 'bg-slate-950/40 border-slate-800/80'}`}>
-                <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 block">Weekly Average</span>
+                <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 block">
+                  {granularity === 'month' ? 'Monthly Average' : 'Weekly Average'}
+                </span>
                 <div className="mt-1 flex items-baseline gap-1.5">
-                  <span className="text-xl sm:text-2xl font-black font-mono text-orange-400">{bikeStats.averageWeeklyHours}</span>
-                  <span className="text-xs text-slate-500 font-bold">hrs/wk</span>
+                  <span className="text-xl sm:text-2xl font-black font-mono text-orange-400">{avgVal}</span>
+                  <span className="text-xs text-slate-500 font-bold">{rateUnitLabel}</span>
                 </div>
-                <span className="text-[10px] text-slate-500">Over {numWeeks} weeks</span>
+                <span className="text-[10px] text-slate-500">
+                  Over {currentPeriodCount} {granularity === 'month' ? (currentPeriodCount === 1 ? 'month' : 'months') : 'weeks'}
+                </span>
               </div>
+
               <div className={`p-3 rounded-xl border ${isLight ? 'bg-slate-50 border-slate-200' : 'bg-slate-950/40 border-slate-800/80'}`}>
-                <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 block">Peak Week</span>
+                <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 block">
+                  {granularity === 'month' ? 'Peak Month' : 'Peak Week'}
+                </span>
                 <div className="mt-1 flex items-baseline gap-1.5">
-                  <span className="text-xl sm:text-2xl font-black font-mono text-emerald-400">{bikeStats.peakWeekHours}</span>
-                  <span className="text-xs text-slate-500 font-bold">hrs</span>
+                  <span className="text-xl sm:text-2xl font-black font-mono text-emerald-400">{peakVal}</span>
+                  <span className="text-xs text-slate-500 font-bold">{metricUnitLabel}</span>
                 </div>
                 <span className="text-[10px] text-slate-500 truncate block">{bikeStats.peakWeekLabel || 'None'}</span>
               </div>
+
               <div className={`p-3 rounded-xl border ${isLight ? 'bg-slate-50 border-slate-200' : 'bg-slate-950/40 border-slate-800/80'}`}>
                 <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 block">Total Volume</span>
                 <div className="mt-1 flex items-baseline gap-1.5">
-                  <span className="text-xl sm:text-2xl font-black font-mono text-purple-400">{bikeStats.totalHours}</span>
-                  <span className="text-xs text-slate-500 font-bold">hrs</span>
+                  <span className="text-xl sm:text-2xl font-black font-mono text-purple-400">{totalVal}</span>
+                  <span className="text-xs text-slate-500 font-bold">{metricUnitLabel}</span>
                 </div>
                 <span className="text-[10px] text-slate-500">{bikeStats.totalRides} total rides</span>
               </div>
             </div>
 
+            {/* Chart Area */}
             <div className="space-y-2 mt-4">
               <div className="flex items-center justify-between text-xs text-slate-500 px-1">
                 <span className="flex items-center gap-1.5 font-medium">
-                  <Clock className="w-3.5 h-3.5 text-orange-500" />
-                  Cycling hours per week
+                  <BarChart2 className="w-3.5 h-3.5 text-orange-500" />
+                  Bike {metricType === 'distance' ? `distance (${unit})` : 'moving time (hours)'} per {granularity}
                 </span>
-                <span className="font-mono text-[11px]">Peak Scale: {maxBikeHrs} hrs</span>
+                <span className="font-mono text-[11px]">Peak Scale: {maxBikeScale} {metricUnitLabel}</span>
               </div>
 
               <div className="-mx-4 sm:-mx-5 overflow-x-auto scrollbar-thin pb-2" ref={scrollContainerRef}>
-                <div className={`relative pt-6 pb-2 ${numWeeks === 52 ? 'min-w-[560px] sm:min-w-full' : 'w-full'}`}>
-                  {bikeStats.averageWeeklyHours > 0 && (
+                <div className={`relative pt-6 pb-2 ${currentPeriodCount === 52 ? 'min-w-[560px] sm:min-w-full' : 'w-full'}`}>
+                  {avgVal > 0 && (
                     <div
                       className="absolute left-0 right-0 border-b-2 border-dotted border-red-500 z-20 pointer-events-none"
-                      style={{ bottom: `${Math.min(90, (bikeStats.averageWeeklyHours / maxBikeHrs) * 100)}%` }}
+                      style={{ bottom: `${Math.min(90, (avgVal / maxBikeScale) * 100)}%` }}
                     >
                       <span className="absolute right-2 -top-4 text-[10px] font-mono font-bold text-black bg-white/95 border border-slate-300 px-1.5 py-0.5 rounded shadow-sm">
-                        Avg: {bikeStats.averageWeeklyHours} hrs
+                        Avg: {avgVal} {metricUnitLabel}
                       </span>
                     </div>
                   )}
 
-                  <div className={`h-44 sm:h-52 w-full flex items-end ${numWeeks === 52 ? 'gap-[1px] sm:gap-0.5' : 'gap-0.5 sm:gap-[3px]'} px-0 relative z-10`}>
+                  <div className={`h-44 sm:h-52 w-full flex items-end ${currentPeriodCount === 52 ? 'gap-[1.5px]' : 'gap-[3px]'} px-0 relative z-10`}>
                     {bikeWeeks.map((w) => {
-                      const val = w.movingHours;
-                      const heightPct = Math.min(100, Math.max(val > 0 ? 6 : 2, (val / maxBikeHrs) * 100));
+                      const val =
+                        metricType === 'distance'
+                          ? (unit === 'miles' ? w.distanceMiles : w.distanceKm)
+                          : w.movingHours;
+                      const heightPct = Math.min(100, Math.max(val > 0 ? 6 : 2, (val / maxBikeScale) * 100));
                       const isSelected = activeBikeWeek?.weekKey === w.weekKey;
 
                       return (
@@ -507,26 +718,38 @@ export const WeeklyMileageChart: React.FC<WeeklyMileageChartProps> = ({
                                   ? 'text-orange-400 scale-110'
                                   : 'text-slate-400 group-hover:text-orange-300'
                                 : 'opacity-0'
-                            } ${numWeeks >= 24 && !isSelected ? 'hidden sm:block opacity-0 group-hover:opacity-100' : ''}`}
+                            } ${currentPeriodCount >= 24 && !isSelected ? 'hidden sm:block opacity-0 group-hover:opacity-100' : ''}`}
                           >
                             {val > 0 ? val : ''}
                           </div>
                           <div
-                            className={`${getBarWidthClass(numWeeks)} relative rounded-t-md transition-all duration-300 border border-black box-border`}
+                            className="w-full relative rounded-t-sm transition-all duration-300 border border-black box-border"
                             style={{
                               height: `${heightPct}%`,
-                              backgroundColor: val === 0 ? (isLight ? '#e2e8f0' : '#1e293b') : isSelected ? '#f97316' : w.isCurrentWeek ? '#fb923c' : '#ea580c',
+                              backgroundColor:
+                                val === 0
+                                  ? isLight
+                                    ? '#e2e8f0'
+                                    : '#1e293b'
+                                  : isSelected
+                                  ? '#f97316'
+                                  : w.isCurrentWeek
+                                  ? '#fb923c'
+                                  : '#ea580c',
                               opacity: val === 0 ? 0.35 : isSelected ? 1 : 0.85,
+                              boxShadow: isSelected ? '0 0 12px rgba(249, 115, 22, 0.45)' : undefined,
                             }}
                           />
                           <div className="mt-2 text-center w-full px-0.5">
                             <span
-                              className={`text-[9px] ${numWeeks >= 24 ? 'text-[8px] sm:text-[9px]' : ''} font-mono block truncate ${
+                              className={`text-[9px] ${currentPeriodCount >= 24 ? 'text-[8px] sm:text-[9px]' : ''} font-mono block truncate ${
                                 isSelected ? 'text-orange-500 font-bold' : 'text-slate-400'
                               }`}
                               title={w.weekLabel}
                             >
-                              {numWeeks >= 24
+                              {granularity === 'month'
+                                ? w.shortLabel
+                                : currentPeriodCount >= 24
                                 ? formatWeekShortCode(w.mondayDate)
                                 : w.shortLabel.replace(/^[A-Za-z]+ /, '')}
                             </span>
@@ -539,6 +762,7 @@ export const WeeklyMileageChart: React.FC<WeeklyMileageChartProps> = ({
               </div>
             </div>
 
+            {/* Selected Period Breakdown */}
             {activeBikeWeek && (
               <div className={`mt-4 p-3.5 rounded-xl border ${isLight ? 'bg-orange-50/50 border-orange-200 text-slate-900' : 'bg-slate-950/70 border-slate-800 text-slate-200'}`}>
                 <div className="flex items-center justify-between pb-2 border-b border-slate-200 dark:border-slate-800">
@@ -547,12 +771,14 @@ export const WeeklyMileageChart: React.FC<WeeklyMileageChartProps> = ({
                     <span className="text-xs font-bold">{activeBikeWeek.weekLabel}</span>
                   </div>
                   <div className="flex items-center gap-3 text-xs font-mono">
-                    <span className="font-bold text-orange-500">{activeBikeWeek.movingHours} hrs ({activeBikeWeek.distanceKm} km)</span>
+                    <span className="font-bold text-orange-500">
+                      {activeBikeWeek.movingHours} hrs ({unit === 'miles' ? `${activeBikeWeek.distanceMiles} mi` : `${activeBikeWeek.distanceKm} km`})
+                    </span>
                     <span className="text-slate-400">{activeBikeWeek.ridesCount} rides</span>
                   </div>
                 </div>
                 {activeBikeWeek.rides.length === 0 ? (
-                  <p className="text-xs text-slate-400 py-3 text-center">No cycling activities logged in this week.</p>
+                  <p className="text-xs text-slate-400 py-3 text-center">No cycling activities logged in this period.</p>
                 ) : (
                   <div className="mt-2.5 divide-y divide-slate-200/60 dark:divide-slate-800/60">
                     {activeBikeWeek.rides.map((rd) => (
@@ -567,7 +793,9 @@ export const WeeklyMileageChart: React.FC<WeeklyMileageChartProps> = ({
                         </div>
                         <div className="flex items-center gap-3 font-mono shrink-0 text-[11px]">
                           <span className="font-bold">{rd.movingHours} hrs</span>
-                          <span className="text-slate-400">{rd.distanceKm} km</span>
+                          <span className="text-slate-400">
+                            {unit === 'miles' ? `${Math.round(rd.distanceKm * 0.621371 * 10) / 10} mi` : `${rd.distanceKm} km`}
+                          </span>
                           {rd.averageWatts ? <span className="text-amber-400">{rd.averageWatts}W</span> : null}
                           {onSelectActivity && <ChevronRight className="w-3.5 h-3.5 text-slate-400" />}
                         </div>
@@ -581,6 +809,7 @@ export const WeeklyMileageChart: React.FC<WeeklyMileageChartProps> = ({
         );
       })()}
 
+      {/* ZONE CHARTS */}
       {activeTab === 'cycling_power' && (
         <div className="pt-4">
           <FitnessZoneCharts
@@ -588,7 +817,7 @@ export const WeeklyMileageChart: React.FC<WeeklyMileageChartProps> = ({
             activities={activities}
             activityDetails={activityDetails}
             athleteProfile={athleteProfile}
-            numWeeks={numWeeks}
+            numWeeks={granularity === 'month' ? numMonths * 4 : numWeeks}
             theme={theme}
             onSelectActivity={onSelectActivity}
           />
@@ -602,7 +831,7 @@ export const WeeklyMileageChart: React.FC<WeeklyMileageChartProps> = ({
             activities={activities}
             activityDetails={activityDetails}
             athleteProfile={athleteProfile}
-            numWeeks={numWeeks}
+            numWeeks={granularity === 'month' ? numMonths * 4 : numWeeks}
             theme={theme}
             onSelectActivity={onSelectActivity}
           />
@@ -616,317 +845,352 @@ export const WeeklyMileageChart: React.FC<WeeklyMileageChartProps> = ({
             activities={activities}
             activityDetails={activityDetails}
             athleteProfile={athleteProfile}
-            numWeeks={numWeeks}
+            numWeeks={granularity === 'month' ? numMonths * 4 : numWeeks}
             theme={theme}
             onSelectActivity={onSelectActivity}
           />
         </div>
       )}
 
-      {activeTab === 'mileage' && (
-        <>
-          {/* Subheader: Weekly Running Mileage */}
-          <div className="flex items-center justify-between gap-3 pt-4 pb-2">
-            <div className="flex items-center gap-2">
-              <h3
-                className={`text-sm sm:text-base font-extrabold tracking-tight ${
-                  isLight ? 'text-slate-900' : 'text-white'
-                }`}
-              >
-                Weekly Running Mileage
-              </h3>
-              <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-500/15 text-amber-700 dark:text-amber-400 border border-amber-500/20">
-                Mon – Sun
-              </span>
-            </div>
-            <p className={`text-xs ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>
-              Weekly aggregated distance strictly Monday through Sunday
-            </p>
-          </div>
+      {/* RUN SECTION */}
+      {activeTab === 'mileage' && (() => {
+        const currentVal =
+          metricType === 'distance'
+            ? (unit === 'miles' ? activeWeek?.distanceMiles : activeWeek?.distanceKm) || 0
+            : activeWeek?.movingHours || 0;
 
-      {/* KPI Stats Cards */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 sm:gap-3 my-4">
-        <div
-          className={`p-3 rounded-xl border ${
-            isLight
-              ? 'bg-slate-50 border-slate-200'
-              : 'bg-slate-950/40 border-slate-800/80'
-          }`}
-        >
-          <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 block">
-            This Week (Mon–Sun)
-          </span>
-          <div className="mt-1 flex items-baseline gap-1.5">
-            <span className="text-xl sm:text-2xl font-black font-mono text-amber-500">
-              {unit === 'miles' ? stats.currentWeekMiles : Math.round(stats.currentWeekMiles * 1.60934 * 10) / 10}
-            </span>
-            <span className="text-xs text-slate-500 font-bold">{unit}</span>
-          </div>
-          {stats.weekOverWeekChangePct !== null && (
-            <div className="mt-1 flex items-center gap-1 text-[10px] font-semibold">
-              {stats.weekOverWeekChangePct >= 0 ? (
-                <span className="text-emerald-500 flex items-center">
-                  <ArrowUpRight className="w-3 h-3" />+{stats.weekOverWeekChangePct}% vs last wk
-                </span>
-              ) : (
-                <span className="text-rose-400 flex items-center">
-                  <ArrowDownRight className="w-3 h-3" />
-                  {stats.weekOverWeekChangePct}% vs last wk
-                </span>
-              )}
-            </div>
-          )}
-        </div>
+        const avgVal =
+          metricType === 'distance'
+            ? unit === 'miles'
+              ? stats.averageWeeklyMiles
+              : stats.averageWeeklyKm
+            : stats.averageWeeklyHours;
 
-        <div
-          className={`p-3 rounded-xl border ${
-            isLight
-              ? 'bg-slate-50 border-slate-200'
-              : 'bg-slate-950/40 border-slate-800/80'
-          }`}
-        >
-          <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 block">
-            Weekly Average
-          </span>
-          <div className="mt-1 flex items-baseline gap-1.5">
-            <span className="text-xl sm:text-2xl font-black font-mono text-sky-400">
-              {unit === 'miles' ? stats.averageWeeklyMiles : stats.averageWeeklyKm}
-            </span>
-            <span className="text-xs text-slate-500 font-bold">{unit}/wk</span>
-          </div>
-          <span className="text-[10px] text-slate-500">Over {numWeeks} weeks</span>
-        </div>
+        const peakVal =
+          metricType === 'distance'
+            ? unit === 'miles'
+              ? stats.peakWeekMiles
+              : stats.peakWeekKm
+            : stats.peakWeekHours;
 
-        <div
-          className={`p-3 rounded-xl border ${
-            isLight
-              ? 'bg-slate-50 border-slate-200'
-              : 'bg-slate-950/40 border-slate-800/80'
-          }`}
-        >
-          <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 block">
-            Peak Week
-          </span>
-          <div className="mt-1 flex items-baseline gap-1.5">
-            <span className="text-xl sm:text-2xl font-black font-mono text-emerald-400">
-              {unit === 'miles' ? stats.peakWeekMiles : Math.round(stats.peakWeekMiles * 1.60934 * 10) / 10}
-            </span>
-            <span className="text-xs text-slate-500 font-bold">{unit}</span>
-          </div>
-          <span className="text-[10px] text-slate-500 truncate block">
-            {stats.peakWeekLabel || 'None'}
-          </span>
-        </div>
+        const totalVal =
+          metricType === 'distance'
+            ? unit === 'miles'
+              ? stats.totalMiles
+              : stats.totalKm
+            : stats.totalHours;
 
-        <div
-          className={`p-3 rounded-xl border ${
-            isLight
-              ? 'bg-slate-50 border-slate-200'
-              : 'bg-slate-950/40 border-slate-800/80'
-          }`}
-        >
-          <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 block">
-            Total Volume
-          </span>
-          <div className="mt-1 flex items-baseline gap-1.5">
-            <span className="text-xl sm:text-2xl font-black font-mono text-purple-400">
-              {unit === 'miles' ? stats.totalMiles : stats.totalKm}
-            </span>
-            <span className="text-xs text-slate-500 font-bold">{unit}</span>
-          </div>
-          <span className="text-[10px] text-slate-500">{stats.totalRuns} total runs</span>
-        </div>
-      </div>
+        const metricUnitLabel = metricType === 'distance' ? unit : 'hrs';
+        const rateUnitLabel =
+          metricType === 'distance'
+            ? `${unit}/${granularity === 'month' ? 'mo' : 'wk'}`
+            : `hrs/${granularity === 'month' ? 'mo' : 'wk'}`;
 
-      {/* SVG Bar Chart */}
-      <div className="space-y-2 mt-4">
-        <div className="flex items-center justify-between text-xs text-slate-500 px-1">
-          <span className="flex items-center gap-1.5 font-medium">
-            <BarChart2 className="w-3.5 h-3.5 text-amber-500" />
-            Distance per week (Mon to Sun)
-          </span>
-          <span className="font-mono text-[11px]">
-            Peak Scale: {maxWeeklyDist} {unit}
-          </span>
-        </div>
-
-        <div className="-mx-4 sm:-mx-5 overflow-x-auto scrollbar-thin pb-2" ref={scrollContainerRef}>
-          <div className={`relative pt-6 pb-2 ${numWeeks === 52 ? 'min-w-[560px] sm:min-w-full' : 'w-full'}`}>
-            {/* Average Reference Line */}
-            {stats.averageWeeklyMiles > 0 && (
-              <div
-                className="absolute left-0 right-0 border-b-2 border-dotted border-red-500 z-20 pointer-events-none"
-                style={{
-                  bottom: `${Math.min(
-                    90,
-                    ((unit === 'miles' ? stats.averageWeeklyMiles : stats.averageWeeklyKm) /
-                      maxWeeklyDist) *
-                      100
-                  )}%`,
-                }}
-              >
-                <span className="absolute right-2 -top-4 text-[10px] font-mono font-bold text-black bg-white/95 border border-slate-300 px-1.5 py-0.5 rounded shadow-sm">
-                  Avg: {unit === 'miles' ? stats.averageWeeklyMiles : stats.averageWeeklyKm} {unit}
-                </span>
-              </div>
-            )}
-
-            {/* Bar Chart Grid */}
-            <div className={`h-44 sm:h-52 w-full flex items-end ${numWeeks === 52 ? 'gap-[1px] sm:gap-0.5' : 'gap-0.5 sm:gap-[3px]'} px-0 relative z-10`}>
-              {weeks.map((w) => {
-                const val = unit === 'miles' ? w.distanceMiles : w.distanceKm;
-                const heightPct = Math.min(100, Math.max(val > 0 ? 6 : 2, (val / maxWeeklyDist) * 100));
-                const isSelected = activeWeek?.weekKey === w.weekKey;
-
-                return (
-                  <div
-                    key={w.weekKey}
-                    onClick={() => setSelectedWeek(w)}
-                    className="flex-1 min-w-0 flex flex-col items-center h-full justify-end cursor-pointer group"
-                  >
-                    {/* Tooltip value on hover / select */}
-                    <div
-                      className={`text-[10px] font-mono font-bold mb-1 transition-all whitespace-nowrap ${
-                        val > 0
-                          ? isSelected
-                            ? 'text-amber-400 scale-110'
-                            : isLight
-                            ? 'text-slate-700 group-hover:text-amber-600'
-                            : 'text-slate-400 group-hover:text-amber-400'
-                          : 'opacity-0'
-                      } ${numWeeks >= 24 && !isSelected ? 'hidden sm:block opacity-0 group-hover:opacity-100' : ''}`}
-                    >
-                      {val > 0 ? val : ''}
-                    </div>
-
-                    {/* Bar */}
-                    <div
-                      className={`${getBarWidthClass(numWeeks)} relative rounded-t-md transition-all duration-300 border border-black box-border`}
-                      style={{
-                        height: `${heightPct}%`,
-                        backgroundColor:
-                          val === 0
-                            ? isLight
-                              ? '#e2e8f0'
-                              : '#1e293b'
-                            : isSelected
-                            ? '#f59e0b'
-                            : w.isCurrentWeek
-                            ? '#fbbf24'
-                            : isLight
-                            ? '#38bdf8'
-                            : '#0284c7',
-                        opacity: val === 0 ? 0.35 : isSelected ? 1 : 0.85,
-                        boxShadow: isSelected ? '0 0 12px rgba(245, 158, 11, 0.45)' : undefined,
-                      }}
-                    />
-
-                    {/* Date label at bottom */}
-                    <div className="mt-2 text-center w-full px-0.5">
-                      <span
-                        className={`text-[9px] ${numWeeks >= 24 ? 'text-[8px] sm:text-[9px]' : ''} font-mono block truncate ${
-                          isSelected
-                            ? 'text-amber-500 font-bold'
-                            : w.isCurrentWeek
-                            ? 'text-amber-400 font-semibold'
-                            : isLight
-                            ? 'text-slate-500'
-                            : 'text-slate-400'
-                        }`}
-                        title={w.weekLabel}
-                      >
-                        {numWeeks >= 24
-                          ? formatWeekShortCode(w.mondayDate)
-                          : w.shortLabel.replace(/^[A-Za-z]+ /, '')}
-                      </span>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* Selected Week Detailed Run Breakdown */}
-      {activeWeek && (
-        <div
-          className={`mt-4 p-3.5 rounded-xl border transition-colors ${
-            isLight
-              ? 'bg-amber-50/50 border-amber-200 text-slate-900'
-              : 'bg-slate-950/70 border-slate-800 text-slate-200'
-          }`}
-        >
-          <div className="flex items-center justify-between pb-2 border-b border-slate-200 dark:border-slate-800">
-            <div className="flex items-center gap-2">
-              <Calendar className="w-4 h-4 text-amber-500" />
-              <span className="text-xs font-bold">
-                {activeWeek.weekLabel} {activeWeek.isCurrentWeek ? '(Current Week)' : ''}
-              </span>
-            </div>
-            <div className="flex items-center gap-3 text-xs font-mono">
-              <span className="font-bold text-amber-500">
-                {unit === 'miles' ? activeWeek.distanceMiles : activeWeek.distanceKm} {unit}
-              </span>
-              <span className="text-slate-400">
-                {activeWeek.runsCount} {activeWeek.runsCount === 1 ? 'run' : 'runs'}
-              </span>
-              {activeWeek.avgPaceFormatted !== '--' && (
-                <span className="text-sky-400 hidden sm:inline">
-                  Avg {activeWeek.avgPaceFormatted}
-                </span>
-              )}
-            </div>
-          </div>
-
-          {activeWeek.runs.length === 0 ? (
-            <p className="text-xs text-slate-400 py-3 text-center">
-              No running activities logged in this week.
-            </p>
-          ) : (
-            <div className="mt-2.5 divide-y divide-slate-200/60 dark:divide-slate-800/60">
-              {activeWeek.runs.map((run) => (
-                <div
-                  key={run.id}
-                  onClick={() => onSelectActivity && onSelectActivity(run.id)}
-                  className={`py-2 flex items-center justify-between text-xs transition-colors rounded-lg px-2 -mx-2 ${
-                    onSelectActivity ? 'hover:bg-amber-500/10 cursor-pointer' : ''
+        return (
+          <>
+            {/* Subheader: Run + Badge + Controls */}
+            <div className="flex flex-wrap items-center justify-between gap-3 pt-4 pb-2">
+              <div className="flex flex-wrap items-center gap-2 sm:gap-2.5">
+                <h3
+                  className={`text-sm sm:text-base font-extrabold tracking-tight ${
+                    isLight ? 'text-slate-900' : 'text-white'
                   }`}
                 >
-                  <div className="flex items-center gap-2.5 min-w-0">
-                    <span className="text-[11px] font-mono font-bold text-amber-500 shrink-0 w-8">
-                      {run.dayOfWeek}
-                    </span>
-                    <span className="font-medium truncate text-slate-800 dark:text-slate-200">
-                      {run.name}
+                  Run
+                </h3>
+                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-500/15 text-amber-700 dark:text-amber-400 border border-amber-500/20">
+                  {granularity === 'month' ? 'Monthly' : 'Mon – Sun'}
+                </span>
+                {renderActivityControls()}
+              </div>
+            </div>
+
+            {/* KPI Stats Cards */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 sm:gap-3 my-4">
+              <div
+                className={`p-3 rounded-xl border ${
+                  isLight
+                    ? 'bg-slate-50 border-slate-200'
+                    : 'bg-slate-950/40 border-slate-800/80'
+                }`}
+              >
+                <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 block">
+                  {granularity === 'month' ? 'This Month' : 'This Week'}
+                </span>
+                <div className="mt-1 flex items-baseline gap-1.5">
+                  <span className="text-xl sm:text-2xl font-black font-mono text-amber-500">
+                    {currentVal}
+                  </span>
+                  <span className="text-xs text-slate-500 font-bold">{metricUnitLabel}</span>
+                </div>
+                {stats.weekOverWeekChangePct !== null && (
+                  <div className="mt-1 flex items-center gap-1 text-[10px] font-semibold">
+                    {stats.weekOverWeekChangePct >= 0 ? (
+                      <span className="text-emerald-500 flex items-center">
+                        <ArrowUpRight className="w-3 h-3" />+{stats.weekOverWeekChangePct}% vs last {granularity === 'month' ? 'mo' : 'wk'}
+                      </span>
+                    ) : (
+                      <span className="text-rose-400 flex items-center">
+                        <ArrowDownRight className="w-3 h-3" />
+                        {stats.weekOverWeekChangePct}% vs last {granularity === 'month' ? 'mo' : 'wk'}
+                      </span>
+                    )}
+                  </div>
+                )}
+              </div>
+
+              <div
+                className={`p-3 rounded-xl border ${
+                  isLight
+                    ? 'bg-slate-50 border-slate-200'
+                    : 'bg-slate-950/40 border-slate-800/80'
+                }`}
+              >
+                <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 block">
+                  {granularity === 'month' ? 'Monthly Average' : 'Weekly Average'}
+                </span>
+                <div className="mt-1 flex items-baseline gap-1.5">
+                  <span className="text-xl sm:text-2xl font-black font-mono text-sky-400">
+                    {avgVal}
+                  </span>
+                  <span className="text-xs text-slate-500 font-bold">{rateUnitLabel}</span>
+                </div>
+                <span className="text-[10px] text-slate-500">
+                  Over {currentPeriodCount} {granularity === 'month' ? (currentPeriodCount === 1 ? 'month' : 'months') : 'weeks'}
+                </span>
+              </div>
+
+              <div
+                className={`p-3 rounded-xl border ${
+                  isLight
+                    ? 'bg-slate-50 border-slate-200'
+                    : 'bg-slate-950/40 border-slate-800/80'
+                }`}
+              >
+                <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 block">
+                  {granularity === 'month' ? 'Peak Month' : 'Peak Week'}
+                </span>
+                <div className="mt-1 flex items-baseline gap-1.5">
+                  <span className="text-xl sm:text-2xl font-black font-mono text-emerald-400">
+                    {peakVal}
+                  </span>
+                  <span className="text-xs text-slate-500 font-bold">{metricUnitLabel}</span>
+                </div>
+                <span className="text-[10px] text-slate-500 truncate block">
+                  {stats.peakWeekLabel || 'None'}
+                </span>
+              </div>
+
+              <div
+                className={`p-3 rounded-xl border ${
+                  isLight
+                    ? 'bg-slate-50 border-slate-200'
+                    : 'bg-slate-950/40 border-slate-800/80'
+                }`}
+              >
+                <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 block">
+                  Total Volume
+                </span>
+                <div className="mt-1 flex items-baseline gap-1.5">
+                  <span className="text-xl sm:text-2xl font-black font-mono text-purple-400">
+                    {totalVal}
+                  </span>
+                  <span className="text-xs text-slate-500 font-bold">{metricUnitLabel}</span>
+                </div>
+                <span className="text-[10px] text-slate-500">{stats.totalRuns} total runs</span>
+              </div>
+            </div>
+
+            {/* SVG / Flex Bar Chart */}
+            <div className="space-y-2 mt-4">
+              <div className="flex items-center justify-between text-xs text-slate-500 px-1">
+                <span className="flex items-center gap-1.5 font-medium">
+                  <BarChart2 className="w-3.5 h-3.5 text-amber-500" />
+                  Run {metricType === 'distance' ? `distance (${unit})` : 'moving time (hours)'} per {granularity}
+                </span>
+                <span className="font-mono text-[11px]">
+                  Peak Scale: {maxWeeklyRun} {metricUnitLabel}
+                </span>
+              </div>
+
+              <div className="-mx-4 sm:-mx-5 overflow-x-auto scrollbar-thin pb-2" ref={scrollContainerRef}>
+                <div className={`relative pt-6 pb-2 ${currentPeriodCount === 52 ? 'min-w-[560px] sm:min-w-full' : 'w-full'}`}>
+                  {/* Average Reference Line */}
+                  {avgVal > 0 && (
+                    <div
+                      className="absolute left-0 right-0 border-b-2 border-dotted border-red-500 z-20 pointer-events-none"
+                      style={{
+                        bottom: `${Math.min(90, (avgVal / maxWeeklyRun) * 100)}%`,
+                      }}
+                    >
+                      <span className="absolute right-2 -top-4 text-[10px] font-mono font-bold text-black bg-white/95 border border-slate-300 px-1.5 py-0.5 rounded shadow-sm">
+                        Avg: {avgVal} {metricUnitLabel}
+                      </span>
+                    </div>
+                  )}
+
+                  {/* Bar Chart Grid: 3px gap, bars expand to fill available column width */}
+                  <div className={`h-44 sm:h-52 w-full flex items-end ${currentPeriodCount === 52 ? 'gap-[1.5px]' : 'gap-[3px]'} px-0 relative z-10`}>
+                    {weeks.map((w) => {
+                      const val =
+                        metricType === 'distance'
+                          ? (unit === 'miles' ? w.distanceMiles : w.distanceKm)
+                          : w.movingHours;
+                      const heightPct = Math.min(100, Math.max(val > 0 ? 6 : 2, (val / maxWeeklyRun) * 100));
+                      const isSelected = activeWeek?.weekKey === w.weekKey;
+
+                      return (
+                        <div
+                          key={w.weekKey}
+                          onClick={() => setSelectedWeek(w)}
+                          className="flex-1 min-w-0 flex flex-col items-center h-full justify-end cursor-pointer group"
+                        >
+                          {/* Value on hover / select */}
+                          <div
+                            className={`text-[10px] font-mono font-bold mb-1 transition-all whitespace-nowrap ${
+                              val > 0
+                                ? isSelected
+                                  ? 'text-amber-400 scale-110'
+                                  : isLight
+                                  ? 'text-slate-700 group-hover:text-amber-600'
+                                  : 'text-slate-400 group-hover:text-amber-400'
+                                : 'opacity-0'
+                            } ${currentPeriodCount >= 24 && !isSelected ? 'hidden sm:block opacity-0 group-hover:opacity-100' : ''}`}
+                          >
+                            {val > 0 ? val : ''}
+                          </div>
+
+                          {/* Bar: w-full fills the flex-1 column, gap-[3px] between bars */}
+                          <div
+                            className="w-full relative rounded-t-sm transition-all duration-300 border border-black box-border"
+                            style={{
+                              height: `${heightPct}%`,
+                              backgroundColor:
+                                val === 0
+                                  ? isLight
+                                    ? '#e2e8f0'
+                                    : '#1e293b'
+                                  : isSelected
+                                  ? '#f59e0b'
+                                  : w.isCurrentWeek
+                                  ? '#fbbf24'
+                                  : isLight
+                                  ? '#38bdf8'
+                                  : '#0284c7',
+                              opacity: val === 0 ? 0.35 : isSelected ? 1 : 0.85,
+                              boxShadow: isSelected ? '0 0 12px rgba(245, 158, 11, 0.45)' : undefined,
+                            }}
+                          />
+
+                          {/* Date label at bottom */}
+                          <div className="mt-2 text-center w-full px-0.5">
+                            <span
+                              className={`text-[9px] ${currentPeriodCount >= 24 ? 'text-[8px] sm:text-[9px]' : ''} font-mono block truncate ${
+                                isSelected
+                                  ? 'text-amber-500 font-bold'
+                                  : w.isCurrentWeek
+                                  ? 'text-amber-400 font-semibold'
+                                  : isLight
+                                  ? 'text-slate-500'
+                                  : 'text-slate-400'
+                              }`}
+                              title={w.weekLabel}
+                            >
+                              {granularity === 'month'
+                                ? w.shortLabel
+                                : currentPeriodCount >= 24
+                                ? formatWeekShortCode(w.mondayDate)
+                                : w.shortLabel.replace(/^[A-Za-z]+ /, '')}
+                            </span>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Selected Period Detailed Run Breakdown */}
+            {activeWeek && (
+              <div
+                className={`mt-4 p-3.5 rounded-xl border transition-colors ${
+                  isLight
+                    ? 'bg-amber-50/50 border-amber-200 text-slate-900'
+                    : 'bg-slate-950/70 border-slate-800 text-slate-200'
+                }`}
+              >
+                <div className="flex items-center justify-between pb-2 border-b border-slate-200 dark:border-slate-800">
+                  <div className="flex items-center gap-2">
+                    <Calendar className="w-4 h-4 text-amber-500" />
+                    <span className="text-xs font-bold">
+                      {activeWeek.weekLabel} {activeWeek.isCurrentWeek ? '(Current)' : ''}
                     </span>
                   </div>
-
-                  <div className="flex items-center gap-3 font-mono shrink-0 text-[11px]">
-                    <span className="font-bold text-slate-900 dark:text-white">
-                      {unit === 'miles' ? run.distanceMiles : run.distanceKm} {unit}
+                  <div className="flex items-center gap-3 text-xs font-mono">
+                    <span className="font-bold text-amber-500">
+                      {unit === 'miles' ? `${activeWeek.distanceMiles} mi` : `${activeWeek.distanceKm} km`} ({activeWeek.movingHours} hrs)
                     </span>
-                    <span className="text-slate-400 hidden sm:inline">
-                      {run.avgPaceFormatted}
+                    <span className="text-slate-400">
+                      {activeWeek.runsCount} {activeWeek.runsCount === 1 ? 'run' : 'runs'}
                     </span>
-                    {run.sufferScore ? (
-                      <span className="text-rose-400 flex items-center gap-0.5">
-                        <Flame className="w-3 h-3" />
-                        {run.sufferScore}
+                    {activeWeek.avgPaceFormatted !== '--' && (
+                      <span className="text-sky-400 hidden sm:inline">
+                        Avg {activeWeek.avgPaceFormatted}
                       </span>
-                    ) : null}
-                    {onSelectActivity && (
-                      <ChevronRight className="w-3.5 h-3.5 text-slate-400" />
                     )}
                   </div>
                 </div>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
-        </>
-      )}
+
+                {activeWeek.runs.length === 0 ? (
+                  <p className="text-xs text-slate-400 py-3 text-center">
+                    No running activities logged in this period.
+                  </p>
+                ) : (
+                  <div className="mt-2.5 divide-y divide-slate-200/60 dark:divide-slate-800/60">
+                    {activeWeek.runs.map((run) => (
+                      <div
+                        key={run.id}
+                        onClick={() => onSelectActivity && onSelectActivity(run.id)}
+                        className={`py-2 flex items-center justify-between text-xs transition-colors rounded-lg px-2 -mx-2 ${
+                          onSelectActivity ? 'hover:bg-amber-500/10 cursor-pointer' : ''
+                        }`}
+                      >
+                        <div className="flex items-center gap-2.5 min-w-0">
+                          <span className="text-[11px] font-mono font-bold text-amber-500 shrink-0 w-8">
+                            {run.dayOfWeek}
+                          </span>
+                          <span className="font-medium truncate text-slate-800 dark:text-slate-200">
+                            {run.name}
+                          </span>
+                        </div>
+
+                        <div className="flex items-center gap-3 font-mono shrink-0 text-[11px]">
+                          <span className="font-bold text-slate-900 dark:text-white">
+                            {unit === 'miles' ? `${run.distanceMiles} mi` : `${run.distanceKm} km`}
+                          </span>
+                          <span className="text-slate-400 hidden sm:inline">
+                            {run.avgPaceFormatted}
+                          </span>
+                          {run.sufferScore ? (
+                            <span className="text-rose-400 flex items-center gap-0.5">
+                              <Flame className="w-3 h-3" />
+                              {run.sufferScore}
+                            </span>
+                          ) : null}
+                          {onSelectActivity && (
+                            <ChevronRight className="w-3.5 h-3.5 text-slate-400" />
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+          </>
+        );
+      })()}
     </div>
   );
 };

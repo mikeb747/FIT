@@ -25,6 +25,7 @@ export interface WeeklyMileageBucket {
   distanceMiles: number;
   distanceKm: number;
   movingTimeSec: number;
+  movingHours: number;
   runsCount: number;
   elevationGainMeters: number;
   avgPaceSecPerKm: number;
@@ -32,16 +33,26 @@ export interface WeeklyMileageBucket {
   runs: WeeklyRunRecord[];
 }
 
+export type TimeGranularity = 'week' | 'month';
+
 export interface MileageSummaryStats {
   totalMiles: number;
   totalKm: number;
+  totalHours: number;
   totalRuns: number;
   averageWeeklyMiles: number;
   averageWeeklyKm: number;
+  averageWeeklyHours: number;
   peakWeekMiles: number;
+  peakWeekKm: number;
+  peakWeekHours: number;
   peakWeekLabel: string;
   currentWeekMiles: number;
+  currentWeekKm: number;
+  currentWeekHours: number;
   previousWeekMiles: number;
+  previousWeekKm: number;
+  previousWeekHours: number;
   weekOverWeekChangePct: number | null;
 }
 
@@ -84,11 +95,12 @@ export function formatWeekRange(monday: Date): { weekLabel: string; shortLabel: 
 }
 
 /**
- * Computes weekly running mileage strictly Monday to Sunday for the specified lookback weeks.
+ * Computes running mileage and volume for the specified lookback weeks or months.
  */
 export function computeWeeklyRunningMileage(
   activities: StravaActivity[],
-  numWeeks: number = 12
+  numPeriods: number = 12,
+  granularity: TimeGranularity = 'week'
 ): {
   weeks: WeeklyMileageBucket[];
   stats: MileageSummaryStats;
@@ -105,57 +117,94 @@ export function computeWeeklyRunningMileage(
     );
   });
 
-  // 2. Determine target weeks range (Monday to Sunday)
   const now = new Date();
-  const currentMonday = getMondayOfWeek(now);
-
-  // Build the complete list of consecutive weeks
   const weeksMap = new Map<string, WeeklyMileageBucket>();
-  const weekMondays: Date[] = [];
+  const bucketKeys: string[] = [];
 
-  for (let i = numWeeks - 1; i >= 0; i--) {
-    const mon = new Date(currentMonday);
-    mon.setDate(currentMonday.getDate() - i * 7);
-    mon.setHours(0, 0, 0, 0);
-    const key = mon.toISOString().split('T')[0];
-    const sunday = new Date(mon);
-    sunday.setDate(mon.getDate() + 6);
-    sunday.setHours(23, 59, 59, 999);
+  if (granularity === 'month') {
+    const curYear = now.getFullYear();
+    const curMonth = now.getMonth();
+    for (let i = numPeriods - 1; i >= 0; i--) {
+      const d = new Date(curYear, curMonth - i, 1);
+      const year = d.getFullYear();
+      const month = d.getMonth();
+      const firstDay = new Date(year, month, 1, 0, 0, 0, 0);
+      const lastDay = new Date(year, month + 1, 0, 23, 59, 59, 999);
+      const key = `${year}-${String(month + 1).padStart(2, '0')}`;
+      const shortLabel = firstDay.toLocaleDateString(undefined, { month: 'short' });
+      const weekLabel = firstDay.toLocaleDateString(undefined, { month: 'long', year: 'numeric' });
+      const isCurrentWeek = year === curYear && month === curMonth;
 
-    const { weekLabel, shortLabel } = formatWeekRange(mon);
-    const isCurrentWeek = key === currentMonday.toISOString().split('T')[0];
+      weeksMap.set(key, {
+        weekKey: key,
+        mondayDate: firstDay,
+        sundayDate: lastDay,
+        weekLabel,
+        shortLabel,
+        isCurrentWeek,
+        distanceMiles: 0,
+        distanceKm: 0,
+        movingTimeSec: 0,
+        movingHours: 0,
+        runsCount: 0,
+        elevationGainMeters: 0,
+        avgPaceSecPerKm: 0,
+        avgPaceFormatted: '--',
+        runs: [],
+      });
+      bucketKeys.push(key);
+    }
+  } else {
+    const currentMonday = getMondayOfWeek(now);
+    for (let i = numPeriods - 1; i >= 0; i--) {
+      const mon = new Date(currentMonday);
+      mon.setDate(currentMonday.getDate() - i * 7);
+      mon.setHours(0, 0, 0, 0);
+      const key = mon.toISOString().split('T')[0];
+      const sunday = new Date(mon);
+      sunday.setDate(mon.getDate() + 6);
+      sunday.setHours(23, 59, 59, 999);
 
-    weeksMap.set(key, {
-      weekKey: key,
-      mondayDate: mon,
-      sundayDate: sunday,
-      weekLabel,
-      shortLabel,
-      isCurrentWeek,
-      distanceMiles: 0,
-      distanceKm: 0,
-      movingTimeSec: 0,
-      runsCount: 0,
-      elevationGainMeters: 0,
-      avgPaceSecPerKm: 0,
-      avgPaceFormatted: '--',
-      runs: [],
-    });
-    weekMondays.push(mon);
+      const { weekLabel, shortLabel } = formatWeekRange(mon);
+      const isCurrentWeek = key === currentMonday.toISOString().split('T')[0];
+
+      weeksMap.set(key, {
+        weekKey: key,
+        mondayDate: mon,
+        sundayDate: sunday,
+        weekLabel,
+        shortLabel,
+        isCurrentWeek,
+        distanceMiles: 0,
+        distanceKm: 0,
+        movingTimeSec: 0,
+        movingHours: 0,
+        runsCount: 0,
+        elevationGainMeters: 0,
+        avgPaceSecPerKm: 0,
+        avgPaceFormatted: '--',
+        runs: [],
+      });
+      bucketKeys.push(key);
+    }
   }
 
-  // 3. Bucket running activities into their Monday week
+  // 3. Bucket running activities into their period
   runningActivities.forEach((act) => {
     if (!act.start_date) return;
     const actDate = new Date(act.start_date);
     if (isNaN(actDate.getTime())) return;
 
-    const actMonday = getMondayOfWeek(actDate);
-    const key = actMonday.toISOString().split('T')[0];
+    let key: string;
+    if (granularity === 'month') {
+      key = `${actDate.getFullYear()}-${String(actDate.getMonth() + 1).padStart(2, '0')}`;
+    } else {
+      const actMonday = getMondayOfWeek(actDate);
+      key = actMonday.toISOString().split('T')[0];
+    }
 
     const bucket = weeksMap.get(key);
     if (!bucket) {
-      // Activity is outside our current lookback window
       return;
     }
 
@@ -192,64 +241,86 @@ export function computeWeeklyRunningMileage(
   const resultWeeks: WeeklyMileageBucket[] = [];
   let totalPeriodMiles = 0;
   let totalPeriodKm = 0;
+  let totalPeriodTimeSec = 0;
   let totalPeriodRuns = 0;
   let peakWeekMiles = 0;
+  let peakWeekKm = 0;
+  let peakWeekHours = 0;
   let peakWeekLabel = '';
 
-  for (const mon of weekMondays) {
-    const key = mon.toISOString().split('T')[0];
+  for (const key of bucketKeys) {
     const b = weeksMap.get(key)!;
 
     b.distanceMiles = Math.round(b.distanceMiles * 10) / 10;
     b.distanceKm = Math.round(b.distanceKm * 10) / 10;
+    b.movingHours = Math.round((b.movingTimeSec / 3600) * 10) / 10;
 
     if (b.distanceKm > 0 && b.movingTimeSec > 0) {
       b.avgPaceSecPerKm = Math.round(b.movingTimeSec / b.distanceKm);
       b.avgPaceFormatted = `${formatSecondsToMinSec(b.avgPaceSecPerKm)}/km`;
     }
 
-    // Sort runs chronologically within week
     b.runs.sort((a, bRun) => new Date(a.startDate).getTime() - new Date(bRun.startDate).getTime());
 
     totalPeriodMiles += b.distanceMiles;
     totalPeriodKm += b.distanceKm;
+    totalPeriodTimeSec += b.movingTimeSec;
     totalPeriodRuns += b.runsCount;
 
+    const bHours = Math.round((b.movingTimeSec / 3600) * 10) / 10;
     if (b.distanceMiles > peakWeekMiles) {
       peakWeekMiles = b.distanceMiles;
+      peakWeekKm = b.distanceKm;
+      peakWeekHours = bHours;
       peakWeekLabel = b.shortLabel;
     }
 
     resultWeeks.push(b);
   }
 
-  // Current week & previous week
+  // Current period & previous period
   const currentWeek = resultWeeks[resultWeeks.length - 1];
   const prevWeek = resultWeeks.length >= 2 ? resultWeeks[resultWeeks.length - 2] : null;
 
   const currentWeekMiles = currentWeek?.distanceMiles || 0;
+  const currentWeekKm = currentWeek?.distanceKm || 0;
+  const currentWeekHours = currentWeek ? Math.round((currentWeek.movingTimeSec / 3600) * 10) / 10 : 0;
+
   const previousWeekMiles = prevWeek?.distanceMiles || 0;
+  const previousWeekKm = prevWeek?.distanceKm || 0;
+  const previousWeekHours = prevWeek ? Math.round((prevWeek.movingTimeSec / 3600) * 10) / 10 : 0;
 
   let weekOverWeekChangePct: number | null = null;
   if (previousWeekMiles > 0) {
     weekOverWeekChangePct = Math.round(((currentWeekMiles - previousWeekMiles) / previousWeekMiles) * 100);
   }
 
-  const averageWeeklyMiles = Math.round((totalPeriodMiles / (resultWeeks.length || 1)) * 10) / 10;
-  const averageWeeklyKm = Math.round((totalPeriodKm / (resultWeeks.length || 1)) * 10) / 10;
+  const count = resultWeeks.length || 1;
+  const averageWeeklyMiles = Math.round((totalPeriodMiles / count) * 10) / 10;
+  const averageWeeklyKm = Math.round((totalPeriodKm / count) * 10) / 10;
+  const totalHours = Math.round((totalPeriodTimeSec / 3600) * 10) / 10;
+  const averageWeeklyHours = Math.round((totalHours / count) * 10) / 10;
 
   return {
     weeks: resultWeeks,
     stats: {
       totalMiles: Math.round(totalPeriodMiles * 10) / 10,
       totalKm: Math.round(totalPeriodKm * 10) / 10,
+      totalHours,
       totalRuns: totalPeriodRuns,
       averageWeeklyMiles,
       averageWeeklyKm,
+      averageWeeklyHours,
       peakWeekMiles,
+      peakWeekKm,
+      peakWeekHours,
       peakWeekLabel,
       currentWeekMiles,
+      currentWeekKm,
+      currentWeekHours,
       previousWeekMiles,
+      previousWeekKm,
+      previousWeekHours,
       weekOverWeekChangePct,
     },
   };
@@ -264,7 +335,9 @@ export interface WeeklySwimBucket {
   isCurrentWeek: boolean;
   distanceMeters: number;
   distanceKm: number;
+  distanceMiles: number;
   movingTimeSec: number;
+  movingHours: number;
   swimsCount: number;
   swims: {
     id: string | number;
@@ -280,19 +353,30 @@ export interface WeeklySwimBucket {
 
 export interface SwimSummaryStats {
   totalKm: number;
+  totalMiles: number;
+  totalHours: number;
   totalMeters: number;
   totalSwims: number;
   averageWeeklyKm: number;
+  averageWeeklyMiles: number;
+  averageWeeklyHours: number;
   peakWeekKm: number;
+  peakWeekMiles: number;
+  peakWeekHours: number;
   peakWeekLabel: string;
   currentWeekKm: number;
+  currentWeekMiles: number;
+  currentWeekHours: number;
   previousWeekKm: number;
+  previousWeekMiles: number;
+  previousWeekHours: number;
   weekOverWeekChangePct: number | null;
 }
 
 export function computeWeeklySwimDistance(
   activities: StravaActivity[],
-  numWeeks: number = 12
+  numPeriods: number = 12,
+  granularity: TimeGranularity = 'week'
 ): { weeks: WeeklySwimBucket[]; stats: SwimSummaryStats } {
   const swimActivities = activities.filter((act) => {
     if (act.isDeleted) return false;
@@ -301,37 +385,71 @@ export function computeWeeklySwimDistance(
   });
 
   const now = new Date();
-  const currentMonday = getMondayOfWeek(now);
-
   const weeksMap = new Map<string, WeeklySwimBucket>();
-  const weekMondays: Date[] = [];
+  const bucketKeys: string[] = [];
 
-  for (let i = numWeeks - 1; i >= 0; i--) {
-    const mon = new Date(currentMonday);
-    mon.setDate(currentMonday.getDate() - i * 7);
-    mon.setHours(0, 0, 0, 0);
-    const key = mon.toISOString().split('T')[0];
-    const sunday = new Date(mon);
-    sunday.setDate(mon.getDate() + 6);
-    sunday.setHours(23, 59, 59, 999);
+  if (granularity === 'month') {
+    const curYear = now.getFullYear();
+    const curMonth = now.getMonth();
+    for (let i = numPeriods - 1; i >= 0; i--) {
+      const d = new Date(curYear, curMonth - i, 1);
+      const year = d.getFullYear();
+      const month = d.getMonth();
+      const firstDay = new Date(year, month, 1, 0, 0, 0, 0);
+      const lastDay = new Date(year, month + 1, 0, 23, 59, 59, 999);
+      const key = `${year}-${String(month + 1).padStart(2, '0')}`;
+      const shortLabel = firstDay.toLocaleDateString(undefined, { month: 'short' });
+      const weekLabel = firstDay.toLocaleDateString(undefined, { month: 'long', year: 'numeric' });
+      const isCurrentWeek = year === curYear && month === curMonth;
 
-    const { weekLabel, shortLabel } = formatWeekRange(mon);
-    const isCurrentWeek = key === currentMonday.toISOString().split('T')[0];
+      weeksMap.set(key, {
+        weekKey: key,
+        mondayDate: firstDay,
+        sundayDate: lastDay,
+        weekLabel,
+        shortLabel,
+        isCurrentWeek,
+        distanceMeters: 0,
+        distanceKm: 0,
+        distanceMiles: 0,
+        movingTimeSec: 0,
+        movingHours: 0,
+        swimsCount: 0,
+        swims: [],
+      });
+      bucketKeys.push(key);
+    }
+  } else {
+    const currentMonday = getMondayOfWeek(now);
+    for (let i = numPeriods - 1; i >= 0; i--) {
+      const mon = new Date(currentMonday);
+      mon.setDate(currentMonday.getDate() - i * 7);
+      mon.setHours(0, 0, 0, 0);
+      const key = mon.toISOString().split('T')[0];
+      const sunday = new Date(mon);
+      sunday.setDate(mon.getDate() + 6);
+      sunday.setHours(23, 59, 59, 999);
 
-    weeksMap.set(key, {
-      weekKey: key,
-      mondayDate: mon,
-      sundayDate: sunday,
-      weekLabel,
-      shortLabel,
-      isCurrentWeek,
-      distanceMeters: 0,
-      distanceKm: 0,
-      movingTimeSec: 0,
-      swimsCount: 0,
-      swims: [],
-    });
-    weekMondays.push(mon);
+      const { weekLabel, shortLabel } = formatWeekRange(mon);
+      const isCurrentWeek = key === currentMonday.toISOString().split('T')[0];
+
+      weeksMap.set(key, {
+        weekKey: key,
+        mondayDate: mon,
+        sundayDate: sunday,
+        weekLabel,
+        shortLabel,
+        isCurrentWeek,
+        distanceMeters: 0,
+        distanceKm: 0,
+        distanceMiles: 0,
+        movingTimeSec: 0,
+        movingHours: 0,
+        swimsCount: 0,
+        swims: [],
+      });
+      bucketKeys.push(key);
+    }
   }
 
   swimActivities.forEach((act) => {
@@ -339,8 +457,13 @@ export function computeWeeklySwimDistance(
     const actDate = new Date(act.start_date);
     if (isNaN(actDate.getTime())) return;
 
-    const actMonday = getMondayOfWeek(actDate);
-    const key = actMonday.toISOString().split('T')[0];
+    let key: string;
+    if (granularity === 'month') {
+      key = `${actDate.getFullYear()}-${String(actDate.getMonth() + 1).padStart(2, '0')}`;
+    } else {
+      const actMonday = getMondayOfWeek(actDate);
+      key = actMonday.toISOString().split('T')[0];
+    }
 
     const bucket = weeksMap.get(key);
     if (!bucket) return;
@@ -372,24 +495,30 @@ export function computeWeeklySwimDistance(
   const resultWeeks: WeeklySwimBucket[] = [];
   let totalPeriodKm = 0;
   let totalPeriodMeters = 0;
+  let totalPeriodTimeSec = 0;
   let totalPeriodSwims = 0;
   let peakWeekKm = 0;
+  let peakWeekHours = 0;
   let peakWeekLabel = '';
 
-  for (const mon of weekMondays) {
-    const key = mon.toISOString().split('T')[0];
+  for (const key of bucketKeys) {
     const b = weeksMap.get(key)!;
 
     b.distanceKm = Math.round(b.distanceKm * 10) / 10;
+    b.distanceMiles = Math.round((b.distanceKm * 0.621371) * 10) / 10;
+    b.movingHours = Math.round((b.movingTimeSec / 3600) * 10) / 10;
     b.distanceMeters = Math.round(b.distanceMeters);
     b.swims.sort((a, bSwim) => new Date(a.startDate).getTime() - new Date(bSwim.startDate).getTime());
 
     totalPeriodKm += b.distanceKm;
     totalPeriodMeters += b.distanceMeters;
+    totalPeriodTimeSec += b.movingTimeSec;
     totalPeriodSwims += b.swimsCount;
 
+    const bHours = Math.round((b.movingTimeSec / 3600) * 10) / 10;
     if (b.distanceKm > peakWeekKm) {
       peakWeekKm = b.distanceKm;
+      peakWeekHours = bHours;
       peakWeekLabel = b.shortLabel;
     }
 
@@ -400,26 +529,47 @@ export function computeWeeklySwimDistance(
   const prevWeek = resultWeeks.length >= 2 ? resultWeeks[resultWeeks.length - 2] : null;
 
   const currentWeekKm = currentWeek?.distanceKm || 0;
+  const currentWeekMiles = Math.round(currentWeekKm * 0.621371 * 10) / 10;
+  const currentWeekHours = currentWeek ? Math.round((currentWeek.movingTimeSec / 3600) * 10) / 10 : 0;
+
   const previousWeekKm = prevWeek?.distanceKm || 0;
+  const previousWeekMiles = Math.round(previousWeekKm * 0.621371 * 10) / 10;
+  const previousWeekHours = prevWeek ? Math.round((prevWeek.movingTimeSec / 3600) * 10) / 10 : 0;
 
   let weekOverWeekChangePct: number | null = null;
   if (previousWeekKm > 0) {
     weekOverWeekChangePct = Math.round(((currentWeekKm - previousWeekKm) / previousWeekKm) * 100);
   }
 
-  const averageWeeklyKm = Math.round((totalPeriodKm / (resultWeeks.length || 1)) * 10) / 10;
+  const count = resultWeeks.length || 1;
+  const averageWeeklyKm = Math.round((totalPeriodKm / count) * 10) / 10;
+  const totalMiles = Math.round((totalPeriodKm * 0.621371) * 10) / 10;
+  const averageWeeklyMiles = Math.round((totalMiles / count) * 10) / 10;
+  const peakWeekMiles = Math.round((peakWeekKm * 0.621371) * 10) / 10;
+  const totalHours = Math.round((totalPeriodTimeSec / 3600) * 10) / 10;
+  const averageWeeklyHours = Math.round((totalHours / count) * 10) / 10;
 
   return {
     weeks: resultWeeks,
     stats: {
       totalKm: Math.round(totalPeriodKm * 10) / 10,
+      totalMiles,
+      totalHours,
       totalMeters: Math.round(totalPeriodMeters),
       totalSwims: totalPeriodSwims,
       averageWeeklyKm,
+      averageWeeklyMiles,
+      averageWeeklyHours,
       peakWeekKm,
+      peakWeekMiles,
+      peakWeekHours,
       peakWeekLabel,
       currentWeekKm,
+      currentWeekMiles,
+      currentWeekHours,
       previousWeekKm,
+      previousWeekMiles,
+      previousWeekHours,
       weekOverWeekChangePct,
     },
   };
@@ -435,6 +585,7 @@ export interface WeeklyBikeBucket {
   movingHours: number;
   movingTimeSec: number;
   distanceKm: number;
+  distanceMiles: number;
   elevationGainMeters: number;
   ridesCount: number;
   rides: {
@@ -452,18 +603,28 @@ export interface WeeklyBikeBucket {
 export interface BikeSummaryStats {
   totalHours: number;
   totalKm: number;
+  totalMiles: number;
   totalRides: number;
   averageWeeklyHours: number;
+  averageWeeklyKm: number;
+  averageWeeklyMiles: number;
   peakWeekHours: number;
+  peakWeekKm: number;
+  peakWeekMiles: number;
   peakWeekLabel: string;
   currentWeekHours: number;
+  currentWeekKm: number;
+  currentWeekMiles: number;
   previousWeekHours: number;
+  previousWeekKm: number;
+  previousWeekMiles: number;
   weekOverWeekChangePct: number | null;
 }
 
 export function computeWeeklyBikeHours(
   activities: StravaActivity[],
-  numWeeks: number = 12
+  numPeriods: number = 12,
+  granularity: TimeGranularity = 'week'
 ): { weeks: WeeklyBikeBucket[]; stats: BikeSummaryStats } {
   const bikeActivities = activities.filter((act) => {
     if (act.isDeleted) return false;
@@ -472,38 +633,71 @@ export function computeWeeklyBikeHours(
   });
 
   const now = new Date();
-  const currentMonday = getMondayOfWeek(now);
-
   const weeksMap = new Map<string, WeeklyBikeBucket>();
-  const weekMondays: Date[] = [];
+  const bucketKeys: string[] = [];
 
-  for (let i = numWeeks - 1; i >= 0; i--) {
-    const mon = new Date(currentMonday);
-    mon.setDate(currentMonday.getDate() - i * 7);
-    mon.setHours(0, 0, 0, 0);
-    const key = mon.toISOString().split('T')[0];
-    const sunday = new Date(mon);
-    sunday.setDate(mon.getDate() + 6);
-    sunday.setHours(23, 59, 59, 999);
+  if (granularity === 'month') {
+    const curYear = now.getFullYear();
+    const curMonth = now.getMonth();
+    for (let i = numPeriods - 1; i >= 0; i--) {
+      const d = new Date(curYear, curMonth - i, 1);
+      const year = d.getFullYear();
+      const month = d.getMonth();
+      const firstDay = new Date(year, month, 1, 0, 0, 0, 0);
+      const lastDay = new Date(year, month + 1, 0, 23, 59, 59, 999);
+      const key = `${year}-${String(month + 1).padStart(2, '0')}`;
+      const shortLabel = firstDay.toLocaleDateString(undefined, { month: 'short' });
+      const weekLabel = firstDay.toLocaleDateString(undefined, { month: 'long', year: 'numeric' });
+      const isCurrentWeek = year === curYear && month === curMonth;
 
-    const { weekLabel, shortLabel } = formatWeekRange(mon);
-    const isCurrentWeek = key === currentMonday.toISOString().split('T')[0];
+      weeksMap.set(key, {
+        weekKey: key,
+        mondayDate: firstDay,
+        sundayDate: lastDay,
+        weekLabel,
+        shortLabel,
+        isCurrentWeek,
+        movingHours: 0,
+        movingTimeSec: 0,
+        distanceKm: 0,
+        distanceMiles: 0,
+        elevationGainMeters: 0,
+        ridesCount: 0,
+        rides: [],
+      });
+      bucketKeys.push(key);
+    }
+  } else {
+    const currentMonday = getMondayOfWeek(now);
+    for (let i = numPeriods - 1; i >= 0; i--) {
+      const mon = new Date(currentMonday);
+      mon.setDate(currentMonday.getDate() - i * 7);
+      mon.setHours(0, 0, 0, 0);
+      const key = mon.toISOString().split('T')[0];
+      const sunday = new Date(mon);
+      sunday.setDate(mon.getDate() + 6);
+      sunday.setHours(23, 59, 59, 999);
 
-    weeksMap.set(key, {
-      weekKey: key,
-      mondayDate: mon,
-      sundayDate: sunday,
-      weekLabel,
-      shortLabel,
-      isCurrentWeek,
-      movingHours: 0,
-      movingTimeSec: 0,
-      distanceKm: 0,
-      elevationGainMeters: 0,
-      ridesCount: 0,
-      rides: [],
-    });
-    weekMondays.push(mon);
+      const { weekLabel, shortLabel } = formatWeekRange(mon);
+      const isCurrentWeek = key === currentMonday.toISOString().split('T')[0];
+
+      weeksMap.set(key, {
+        weekKey: key,
+        mondayDate: mon,
+        sundayDate: sunday,
+        weekLabel,
+        shortLabel,
+        isCurrentWeek,
+        movingHours: 0,
+        movingTimeSec: 0,
+        distanceKm: 0,
+        distanceMiles: 0,
+        elevationGainMeters: 0,
+        ridesCount: 0,
+        rides: [],
+      });
+      bucketKeys.push(key);
+    }
   }
 
   bikeActivities.forEach((act) => {
@@ -511,8 +705,13 @@ export function computeWeeklyBikeHours(
     const actDate = new Date(act.start_date);
     if (isNaN(actDate.getTime())) return;
 
-    const actMonday = getMondayOfWeek(actDate);
-    const key = actMonday.toISOString().split('T')[0];
+    let key: string;
+    if (granularity === 'month') {
+      key = `${actDate.getFullYear()}-${String(actDate.getMonth() + 1).padStart(2, '0')}`;
+    } else {
+      const actMonday = getMondayOfWeek(actDate);
+      key = actMonday.toISOString().split('T')[0];
+    }
 
     const bucket = weeksMap.get(key);
     if (!bucket) return;
@@ -547,14 +746,15 @@ export function computeWeeklyBikeHours(
   let totalPeriodKm = 0;
   let totalPeriodRides = 0;
   let peakWeekSec = 0;
+  let peakWeekKm = 0;
   let peakWeekLabel = '';
 
-  for (const mon of weekMondays) {
-    const key = mon.toISOString().split('T')[0];
+  for (const key of bucketKeys) {
     const b = weeksMap.get(key)!;
 
     b.movingHours = Math.round((b.movingTimeSec / 3600) * 10) / 10;
     b.distanceKm = Math.round(b.distanceKm * 10) / 10;
+    b.distanceMiles = Math.round((b.distanceKm * 0.621371) * 10) / 10;
     b.rides.sort((a, bRide) => new Date(a.startDate).getTime() - new Date(bRide.startDate).getTime());
 
     totalPeriodSec += b.movingTimeSec;
@@ -563,6 +763,7 @@ export function computeWeeklyBikeHours(
 
     if (b.movingTimeSec > peakWeekSec) {
       peakWeekSec = b.movingTimeSec;
+      peakWeekKm = b.distanceKm;
       peakWeekLabel = b.shortLabel;
     }
 
@@ -573,28 +774,49 @@ export function computeWeeklyBikeHours(
   const prevWeek = resultWeeks.length >= 2 ? resultWeeks[resultWeeks.length - 2] : null;
 
   const currentWeekHours = currentWeek?.movingHours || 0;
+  const currentWeekKm = currentWeek?.distanceKm || 0;
+  const currentWeekMiles = Math.round(currentWeekKm * 0.621371 * 10) / 10;
+
   const previousWeekHours = prevWeek?.movingHours || 0;
+  const previousWeekKm = prevWeek?.distanceKm || 0;
+  const previousWeekMiles = Math.round(previousWeekKm * 0.621371 * 10) / 10;
 
   let weekOverWeekChangePct: number | null = null;
   if (previousWeekHours > 0) {
     weekOverWeekChangePct = Math.round(((currentWeekHours - previousWeekHours) / previousWeekHours) * 100);
   }
 
+  const count = resultWeeks.length || 1;
   const totalHours = Math.round((totalPeriodSec / 3600) * 10) / 10;
-  const averageWeeklyHours = Math.round((totalHours / (resultWeeks.length || 1)) * 10) / 10;
+  const averageWeeklyHours = Math.round((totalHours / count) * 10) / 10;
   const peakWeekHours = Math.round((peakWeekSec / 3600) * 10) / 10;
+
+  const roundedTotalKm = Math.round(totalPeriodKm * 10) / 10;
+  const totalMiles = Math.round((totalPeriodKm * 0.621371) * 10) / 10;
+  const averageWeeklyKm = Math.round((totalPeriodKm / count) * 10) / 10;
+  const averageWeeklyMiles = Math.round((totalMiles / count) * 10) / 10;
+  const peakWeekMiles = Math.round((peakWeekKm * 0.621371) * 10) / 10;
 
   return {
     weeks: resultWeeks,
     stats: {
       totalHours,
-      totalKm: Math.round(totalPeriodKm * 10) / 10,
+      totalKm: roundedTotalKm,
+      totalMiles,
       totalRides: totalPeriodRides,
       averageWeeklyHours,
+      averageWeeklyKm,
+      averageWeeklyMiles,
       peakWeekHours,
+      peakWeekKm,
+      peakWeekMiles,
       peakWeekLabel,
       currentWeekHours,
+      currentWeekKm,
+      currentWeekMiles,
       previousWeekHours,
+      previousWeekKm,
+      previousWeekMiles,
       weekOverWeekChangePct,
     },
   };
