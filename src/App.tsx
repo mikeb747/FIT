@@ -65,7 +65,6 @@ import { RecoveryView } from './components/RecoveryView';
 import { FitnessTab } from './components/FitnessTab';
 import { PerformanceTab } from './components/PerformanceTab';
 import { CoachTab } from './components/CoachTab';
-import { computeFitnessTimeline, calculateTriathlonFitnessIndex } from './utils/fitnessEngine';
 import type { DailyRecoveryLog } from './types/recovery';
 import {
   loadRecoveryLogs,
@@ -337,13 +336,7 @@ export default function App() {
   const [stravaActivities, setStravaActivities] = useState<StravaActivity[]>(() => getCachedStravaActivities());
   const [stravaActivityDetails, setStravaActivityDetails] = useState<Record<string, StravaActivityDetailsRecord>>({});
 
-  const headerFitnessIndex = useMemo(() => {
-    const timeline = computeFitnessTimeline(stravaActivities, stravaActivityDetails, athleteProfile, 45);
-    const latest = timeline.length > 0 ? timeline[timeline.length - 1] : null;
-    if (!latest) return 85;
-    const res = calculateTriathlonFitnessIndex(latest.swimCtl, latest.bikeCtl, latest.runCtl, 'middle_70_3', athleteGoals);
-    return Math.round(res.tfi);
-  }, [stravaActivities, stravaActivityDetails, athleteProfile, athleteGoals]);
+
 
   const activityDetailsInProgress = useRef(new Set<string>());
   const [isLoadingStravaActivities, setIsLoadingStravaActivities] = useState(false);
@@ -1003,12 +996,6 @@ export default function App() {
             >
               {showTabIcons && <Zap className="w-3.5 h-3.5 text-indigo-500 shrink-0" />}
               <span className="leading-none">Fitness</span>
-              <span
-                className="inline-flex items-center justify-center h-[22px] px-2 rounded-[6px] border-[0.8px] border-[#1a7ec1] bg-[#defffc] text-[#051e98] text-xs font-extrabold leading-none"
-                title="Triathlon Fitness Index"
-              >
-                {headerFitnessIndex}
-              </span>
             </button>
 
             <button

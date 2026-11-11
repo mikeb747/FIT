@@ -420,6 +420,13 @@ export const WeeklyMileageChart: React.FC<WeeklyMileageChartProps> = ({
 
         const prevSameDayHeightPct = Math.min(100, Math.max(0, (prevSameDayVal / maxSwimScale) * 100));
 
+        const shortUnitLabel = metricType === 'distance' ? (unit === 'miles' ? 'Mi' : 'KM') : 'h';
+        const avgPerSwim = swimStats.totalSwims > 0
+          ? (metricType === 'distance'
+              ? (unit === 'miles' ? swimStats.totalMiles / swimStats.totalSwims : swimStats.totalKm / swimStats.totalSwims)
+              : swimStats.totalHours / swimStats.totalSwims)
+          : 0;
+
         return (
           <div className="pt-2">
             {/* Subheader: Swim + Badge + Controls */}
@@ -445,31 +452,39 @@ export const WeeklyMileageChart: React.FC<WeeklyMileageChartProps> = ({
                   <span className="text-xl sm:text-2xl font-black font-mono text-amber-500">{currentVal}</span>
                   <span className="text-xs text-slate-500 font-bold">{metricUnitLabel}</span>
                 </div>
-                {sameDayChangePct !== null ? (
+                {prevSameDayVal > 0 ? (
                   <div className="mt-1 flex items-center gap-1 text-[10px] font-semibold">
-                    {sameDayChangePct >= 0 ? (
-                      <span className="text-emerald-500 flex items-center">
-                        <ArrowUpRight className="w-3 h-3" />+{sameDayChangePct}% vs same day last {granularity === 'month' ? 'mo' : 'wk'}
+                    {sameDayChangePct !== null && sameDayChangePct >= 0 ? (
+                      <span className="text-emerald-500 flex items-center gap-0.5">
+                        <ArrowUpRight className="w-3 h-3 shrink-0" />
+                        {prevSameDayVal}{shortUnitLabel} by same day last {granularity === 'month' ? 'mo' : 'wk'} (+{sameDayChangePct}%)
                       </span>
                     ) : (
-                      <span className="text-rose-400 flex items-center">
-                        <ArrowDownRight className="w-3 h-3" />{sameDayChangePct}% vs same day last {granularity === 'month' ? 'mo' : 'wk'}
+                      <span className="text-rose-400 flex items-center gap-0.5">
+                        <ArrowDownRight className="w-3 h-3 shrink-0" />
+                        {prevSameDayVal}{shortUnitLabel} by same day last {granularity === 'month' ? 'mo' : 'wk'} ({sameDayChangePct}%)
                       </span>
                     )}
                   </div>
                 ) : swimStats.weekOverWeekChangePct !== null ? (
                   <div className="mt-1 flex items-center gap-1 text-[10px] font-semibold">
                     {swimStats.weekOverWeekChangePct >= 0 ? (
-                      <span className="text-emerald-500 flex items-center">
-                        <ArrowUpRight className="w-3 h-3" />+{swimStats.weekOverWeekChangePct}% vs last {granularity === 'month' ? 'mo' : 'wk'}
+                      <span className="text-emerald-500 flex items-center gap-0.5">
+                        <ArrowUpRight className="w-3 h-3 shrink-0" />
+                        0{shortUnitLabel} by same day last {granularity === 'month' ? 'mo' : 'wk'} (+{swimStats.weekOverWeekChangePct}%)
                       </span>
                     ) : (
-                      <span className="text-rose-400 flex items-center">
-                        <ArrowDownRight className="w-3 h-3" />{swimStats.weekOverWeekChangePct}% vs last {granularity === 'month' ? 'mo' : 'wk'}
+                      <span className="text-rose-400 flex items-center gap-0.5">
+                        <ArrowDownRight className="w-3 h-3 shrink-0" />
+                        0{shortUnitLabel} by same day last {granularity === 'month' ? 'mo' : 'wk'} ({swimStats.weekOverWeekChangePct}%)
                       </span>
                     )}
                   </div>
-                ) : null}
+                ) : (
+                  <div className="mt-1 text-[10px] text-slate-500 font-semibold">
+                    0{shortUnitLabel} by same day last {granularity === 'month' ? 'mo' : 'wk'}
+                  </div>
+                )}
               </div>
 
               <div className={`p-3 rounded-xl border ${isLight ? 'bg-slate-50 border-slate-200' : 'bg-slate-950/40 border-slate-800/80'}`}>
@@ -481,7 +496,9 @@ export const WeeklyMileageChart: React.FC<WeeklyMileageChartProps> = ({
                   <span className="text-xs text-slate-500 font-bold">{rateUnitLabel}</span>
                 </div>
                 <span className="text-[10px] text-slate-500">
-                  Over {currentPeriodCount} {granularity === 'month' ? 'months' : 'weeks'}
+                  {avgPerSwim > 0
+                    ? `${avgPerSwim.toFixed(2)}${shortUnitLabel} average per swim`
+                    : `Over ${currentPeriodCount} ${granularity === 'month' ? 'months' : 'weeks'}`}
                 </span>
               </div>
 
@@ -720,6 +737,13 @@ export const WeeklyMileageChart: React.FC<WeeklyMileageChartProps> = ({
 
         const prevSameDayHeightPct = Math.min(100, Math.max(0, (prevSameDayVal / maxBikeScale) * 100));
 
+        const shortUnitLabel = metricType === 'distance' ? (unit === 'miles' ? 'Mi' : 'KM') : 'h';
+        const avgPerRide = bikeStats.totalRides > 0
+          ? (metricType === 'distance'
+              ? (unit === 'miles' ? bikeStats.totalMiles / bikeStats.totalRides : bikeStats.totalKm / bikeStats.totalRides)
+              : bikeStats.totalHours / bikeStats.totalRides)
+          : 0;
+
         return (
           <div className="pt-2">
             {/* Subheader: Bike + Badge + Controls */}
@@ -745,31 +769,39 @@ export const WeeklyMileageChart: React.FC<WeeklyMileageChartProps> = ({
                   <span className="text-xl sm:text-2xl font-black font-mono text-amber-500">{currentVal}</span>
                   <span className="text-xs text-slate-500 font-bold">{metricUnitLabel}</span>
                 </div>
-                {sameDayChangePct !== null ? (
+                {prevSameDayVal > 0 ? (
                   <div className="mt-1 flex items-center gap-1 text-[10px] font-semibold">
-                    {sameDayChangePct >= 0 ? (
-                      <span className="text-emerald-500 flex items-center">
-                        <ArrowUpRight className="w-3 h-3" />+{sameDayChangePct}% vs same day last {granularity === 'month' ? 'mo' : 'wk'}
+                    {sameDayChangePct !== null && sameDayChangePct >= 0 ? (
+                      <span className="text-emerald-500 flex items-center gap-0.5">
+                        <ArrowUpRight className="w-3 h-3 shrink-0" />
+                        {prevSameDayVal}{shortUnitLabel} by same day last {granularity === 'month' ? 'mo' : 'wk'} (+{sameDayChangePct}%)
                       </span>
                     ) : (
-                      <span className="text-rose-400 flex items-center">
-                        <ArrowDownRight className="w-3 h-3" />{sameDayChangePct}% vs same day last {granularity === 'month' ? 'mo' : 'wk'}
+                      <span className="text-rose-400 flex items-center gap-0.5">
+                        <ArrowDownRight className="w-3 h-3 shrink-0" />
+                        {prevSameDayVal}{shortUnitLabel} by same day last {granularity === 'month' ? 'mo' : 'wk'} ({sameDayChangePct}%)
                       </span>
                     )}
                   </div>
                 ) : bikeStats.weekOverWeekChangePct !== null ? (
                   <div className="mt-1 flex items-center gap-1 text-[10px] font-semibold">
                     {bikeStats.weekOverWeekChangePct >= 0 ? (
-                      <span className="text-emerald-500 flex items-center">
-                        <ArrowUpRight className="w-3 h-3" />+{bikeStats.weekOverWeekChangePct}% vs last {granularity === 'month' ? 'mo' : 'wk'}
+                      <span className="text-emerald-500 flex items-center gap-0.5">
+                        <ArrowUpRight className="w-3 h-3 shrink-0" />
+                        0{shortUnitLabel} by same day last {granularity === 'month' ? 'mo' : 'wk'} (+{bikeStats.weekOverWeekChangePct}%)
                       </span>
                     ) : (
-                      <span className="text-rose-400 flex items-center">
-                        <ArrowDownRight className="w-3 h-3" />{bikeStats.weekOverWeekChangePct}% vs last {granularity === 'month' ? 'mo' : 'wk'}
+                      <span className="text-rose-400 flex items-center gap-0.5">
+                        <ArrowDownRight className="w-3 h-3 shrink-0" />
+                        0{shortUnitLabel} by same day last {granularity === 'month' ? 'mo' : 'wk'} ({bikeStats.weekOverWeekChangePct}%)
                       </span>
                     )}
                   </div>
-                ) : null}
+                ) : (
+                  <div className="mt-1 text-[10px] text-slate-500 font-semibold">
+                    0{shortUnitLabel} by same day last {granularity === 'month' ? 'mo' : 'wk'}
+                  </div>
+                )}
               </div>
 
               <div className={`p-3 rounded-xl border ${isLight ? 'bg-slate-50 border-slate-200' : 'bg-slate-950/40 border-slate-800/80'}`}>
@@ -781,7 +813,9 @@ export const WeeklyMileageChart: React.FC<WeeklyMileageChartProps> = ({
                   <span className="text-xs text-slate-500 font-bold">{rateUnitLabel}</span>
                 </div>
                 <span className="text-[10px] text-slate-500">
-                  Over {currentPeriodCount} {granularity === 'month' ? 'months' : 'weeks'}
+                  {avgPerRide > 0
+                    ? `${avgPerRide.toFixed(2)}${shortUnitLabel} average per ride`
+                    : `Over ${currentPeriodCount} ${granularity === 'month' ? 'months' : 'weeks'}`}
                 </span>
               </div>
 
@@ -1064,6 +1098,13 @@ export const WeeklyMileageChart: React.FC<WeeklyMileageChartProps> = ({
 
         const prevSameDayHeightPct = Math.min(100, Math.max(0, (prevSameDayVal / maxWeeklyRun) * 100));
 
+        const shortUnitLabel = metricType === 'distance' ? (unit === 'miles' ? 'Mi' : 'KM') : 'h';
+        const avgPerRun = stats.totalRuns > 0
+          ? (metricType === 'distance'
+              ? (unit === 'miles' ? stats.totalMiles / stats.totalRuns : stats.totalKm / stats.totalRuns)
+              : stats.totalHours / stats.totalRuns)
+          : 0;
+
         return (
           <>
             {/* Subheader: Run + Badge + Controls */}
@@ -1101,33 +1142,39 @@ export const WeeklyMileageChart: React.FC<WeeklyMileageChartProps> = ({
                   </span>
                   <span className="text-xs text-slate-500 font-bold">{metricUnitLabel}</span>
                 </div>
-                {sameDayChangePct !== null ? (
+                {prevSameDayVal > 0 ? (
                   <div className="mt-1 flex items-center gap-1 text-[10px] font-semibold">
-                    {sameDayChangePct >= 0 ? (
-                      <span className="text-emerald-500 flex items-center">
-                        <ArrowUpRight className="w-3 h-3" />+{sameDayChangePct}% vs same day last {granularity === 'month' ? 'mo' : 'wk'}
+                    {sameDayChangePct !== null && sameDayChangePct >= 0 ? (
+                      <span className="text-emerald-500 flex items-center gap-0.5">
+                        <ArrowUpRight className="w-3 h-3 shrink-0" />
+                        {prevSameDayVal}{shortUnitLabel} by same day last {granularity === 'month' ? 'mo' : 'wk'} (+{sameDayChangePct}%)
                       </span>
                     ) : (
-                      <span className="text-rose-400 flex items-center">
-                        <ArrowDownRight className="w-3 h-3" />
-                        {sameDayChangePct}% vs same day last {granularity === 'month' ? 'mo' : 'wk'}
+                      <span className="text-rose-400 flex items-center gap-0.5">
+                        <ArrowDownRight className="w-3 h-3 shrink-0" />
+                        {prevSameDayVal}{shortUnitLabel} by same day last {granularity === 'month' ? 'mo' : 'wk'} ({sameDayChangePct}%)
                       </span>
                     )}
                   </div>
                 ) : stats.weekOverWeekChangePct !== null ? (
                   <div className="mt-1 flex items-center gap-1 text-[10px] font-semibold">
                     {stats.weekOverWeekChangePct >= 0 ? (
-                      <span className="text-emerald-500 flex items-center">
-                        <ArrowUpRight className="w-3 h-3" />+{stats.weekOverWeekChangePct}% vs last {granularity === 'month' ? 'mo' : 'wk'}
+                      <span className="text-emerald-500 flex items-center gap-0.5">
+                        <ArrowUpRight className="w-3 h-3 shrink-0" />
+                        0{shortUnitLabel} by same day last {granularity === 'month' ? 'mo' : 'wk'} (+{stats.weekOverWeekChangePct}%)
                       </span>
                     ) : (
-                      <span className="text-rose-400 flex items-center">
-                        <ArrowDownRight className="w-3 h-3" />
-                        {stats.weekOverWeekChangePct}% vs last {granularity === 'month' ? 'mo' : 'wk'}
+                      <span className="text-rose-400 flex items-center gap-0.5">
+                        <ArrowDownRight className="w-3 h-3 shrink-0" />
+                        0{shortUnitLabel} by same day last {granularity === 'month' ? 'mo' : 'wk'} ({stats.weekOverWeekChangePct}%)
                       </span>
                     )}
                   </div>
-                ) : null}
+                ) : (
+                  <div className="mt-1 text-[10px] text-slate-500 font-semibold">
+                    0{shortUnitLabel} by same day last {granularity === 'month' ? 'mo' : 'wk'}
+                  </div>
+                )}
               </div>
 
               <div
@@ -1147,7 +1194,9 @@ export const WeeklyMileageChart: React.FC<WeeklyMileageChartProps> = ({
                   <span className="text-xs text-slate-500 font-bold">{rateUnitLabel}</span>
                 </div>
                 <span className="text-[10px] text-slate-500">
-                  Over {currentPeriodCount} {granularity === 'month' ? 'months' : 'weeks'}
+                  {avgPerRun > 0
+                    ? `${avgPerRun.toFixed(2)}${shortUnitLabel} average per run`
+                    : `Over ${currentPeriodCount} ${granularity === 'month' ? 'months' : 'weeks'}`}
                 </span>
               </div>
 

@@ -22,11 +22,15 @@
   - Speed: $S(t) = CS + \frac{D'}{t}$
 - Interactive SVG Power-Duration and Pace-Duration curves with asymptotic CP/CS threshold indicators, observed dots, and dynamic hover cards.
 
-### 4. Swim Distance Performance Modeling
-- **Sprint Triathlon (750m)**: Modeled directly using athlete's **CSS pace** with minimal degradation.
+### 4. Swim Distance Performance Modeling & Sprint (400m Pool Swim)
+- **Sprint Triathlon (400m Pool Swim)**:
+  - Tracks very closely with CSS time (`1:36/100m`), slightly slower than an all-out standalone 400m swim (`6:12` / `1:33/100m`) to prevent excessive lactate production prior to mounting the bike (`6:34` / `1:38/100m`, +2.5% tactical reserve).
+  - Highest confidence score (95%) anchored directly on 400m & 100m pool test data.
+- **Sprint Triathlon (750m Open Water)**: Modeled using athlete's **CSS pace** with open-water sighting factor (`12:00`–`12:30`, 92% confidence).
 - **Olympic Distance (1500m)**: Modeled using **1000m and 1500m** continuous endurance performances and open-water sighting/turning dynamics.
 - **Middle / 70.3 Distance (1900m)**: Modeled from **1000m and 1500m** pacing degradation and sustained aerobic capacity.
 - **Ironman / Full Distance (3800m)**: Modeled from **1500m base endurance** factoring non-wetsuit / wetsuit buoyancy, feeding, and fatigue.
+- **Goal Presets**: Added `Sprint (400m Pool)` and `Sprint (750m Open Water)` to `TRIATHLON_DISTANCE_PRESETS` and `SWIM_DISTANCE_PRESETS` in Goals configuration with auto-computed target split times.
 
 ### 5. Race-Specific Weakness & Time-Gain Potential vs. Age-Grade Benchmarks
 - Benchmark comparison against competitive Age-Group standards (Top 20% finisher benchmarks across M35-44 competitive fields).

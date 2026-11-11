@@ -342,12 +342,21 @@ export const PerformanceTab: React.FC<PerformanceTabProps> = ({
             <div className="flex items-center gap-1 p-1 rounded-xl bg-slate-950/40 border border-slate-800 text-xs font-bold self-start md:self-auto overflow-x-auto">
               <button
                 type="button"
-                onClick={() => setSelectedTriDistance('sprint')}
-                className={`px-2.5 py-1 rounded-lg transition-colors cursor-pointer ${
-                  selectedTriDistance === 'sprint' ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:text-white'
+                onClick={() => setSelectedTriDistance('sprint_400m')}
+                className={`px-2.5 py-1 rounded-lg transition-colors cursor-pointer shrink-0 ${
+                  selectedTriDistance === 'sprint_400m' ? 'bg-indigo-600 text-white font-black' : 'text-slate-400 hover:text-white'
                 }`}
               >
-                Sprint
+                Sprint (400m Pool)
+              </button>
+              <button
+                type="button"
+                onClick={() => setSelectedTriDistance('sprint')}
+                className={`px-2.5 py-1 rounded-lg transition-colors cursor-pointer shrink-0 ${
+                  selectedTriDistance === 'sprint' ? 'bg-indigo-600 text-white font-black' : 'text-slate-400 hover:text-white'
+                }`}
+              >
+                Sprint (750m O.W.)
               </button>
               <button
                 type="button"

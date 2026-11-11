@@ -1025,16 +1025,36 @@ const GoalEditorModal: React.FC<GoalEditorModalProps> = ({ goal, onClose, onSave
           runDistanceKm: 0,
           runTargetTimeSec: 0,
         };
+        const isPool = found.label.includes('Pool');
+        const defaultSwimTime =
+          found.swimMeters === 400
+            ? 394 // 6:34 (tracks closely with CSS pace 1:36 + 2.5% tactical triathlon reserve)
+            : Math.round((found.swimMeters / 100) * 98);
+        const defaultBikeTime = Math.round((found.bikeKm / 35.5) * 3600);
+        const defaultRunTime = Math.round(found.runKm * 240);
+
         const updatedSplits = {
           ...splits,
           swimDistanceMeters: found.swimMeters,
+          swimTargetTimeSec: splits.swimTargetTimeSec > 0 ? splits.swimTargetTimeSec : defaultSwimTime,
           bikeDistanceKm: found.bikeKm,
+          bikeTargetTimeSec: splits.bikeTargetTimeSec > 0 ? splits.bikeTargetTimeSec : defaultBikeTime,
           runDistanceKm: found.runKm,
+          runTargetTimeSec: splits.runTargetTimeSec > 0 ? splits.runTargetTimeSec : defaultRunTime,
         };
+        const totalCalculatedSec =
+          updatedSplits.swimTargetTimeSec +
+          updatedSplits.t1TargetTimeSec +
+          updatedSplits.bikeTargetTimeSec +
+          updatedSplits.t2TargetTimeSec +
+          updatedSplits.runTargetTimeSec;
+
         setDraft((prev) => ({
           ...prev,
           distancePreset: found.label,
           totalDistanceKm: found.totalDistanceKm,
+          swimWaterType: isPool ? 'pool' : 'open_water',
+          totalTargetTimeSec: totalCalculatedSec,
           triathlonSplits: updatedSplits,
         }));
       } else {

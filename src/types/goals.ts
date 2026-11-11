@@ -86,7 +86,14 @@ export const RUN_DISTANCE_PRESETS = [
 
 export const TRIATHLON_DISTANCE_PRESETS = [
   {
-    label: 'Sprint',
+    label: 'Sprint (400m Pool)',
+    swimMeters: 400,
+    bikeKm: 20.0,
+    runKm: 5.0,
+    totalDistanceKm: 25.4,
+  },
+  {
+    label: 'Sprint (750m Open Water)',
     swimMeters: 750,
     bikeKm: 20.0,
     runKm: 5.0,
@@ -133,7 +140,8 @@ export const BIKE_DISTANCE_PRESETS = [
 ];
 
 export const SWIM_DISTANCE_PRESETS = [
-  { label: '750m Sprint', distanceMeters: 750 },
+  { label: '400m Sprint Pool', distanceMeters: 400 },
+  { label: '750m Sprint Open Water', distanceMeters: 750 },
   { label: '1500m Olympic', distanceMeters: 1500 },
   { label: '1.9km 70.3 Half', distanceMeters: 1900 },
   { label: '3.8km Full Ironman', distanceMeters: 3800 },

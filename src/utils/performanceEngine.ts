@@ -72,7 +72,7 @@ export interface CriticalParameters {
 }
 
 export type PerformanceEventCategory = 'triathlon' | 'running' | 'cycling';
-export type TriathlonEventDistance = 'sprint' | 'olympic' | 'middle_70_3' | 'ironman';
+export type TriathlonEventDistance = 'sprint_400m' | 'sprint' | 'olympic' | 'middle_70_3' | 'ironman';
 export type RunningEventDistance = 'five_k' | 'ten_k' | 'ten_miler' | 'half_marathon' | 'marathon';
 export type CyclingEventDistance = 'ten_m_tt' | 'twenty_five_m_tt' | 'fifty_m_tt' | 'century';
 
@@ -635,24 +635,46 @@ export function computeSwimRacePredictions(params: CriticalParameters): SwimRace
   const pace1500Per100 = p1500 / 15;
   const hasDirectLong = params.hasDirectLongSwimPace;
 
-  // 1. Sprint (750m): Pure CSS pace
+  // 1. Sprint (400m Pool Swim): CSS pace + tactical pacing reserve (+2.5% over CSS)
+  // Not quite as fast as an all-out standalone 400m swim (which produces heavy lactate before T1),
+  // but tracks very closely with CSS time!
+  const sprint400mPace = Math.round(css * 1.025);
+  const sprint400mSec = Math.round(4 * sprint400mPace);
+
+  // 2. Sprint (750m Open Water): Pure CSS pace
   const sprintSec = Math.round(css * 7.5);
 
-  // 2. Olympic (1500m): Based on 1500m benchmark
+  // 3. Olympic (1500m): Based on 1500m benchmark
   const olympicSec = p1500;
 
-  // 3. Middle / 70.3 (1900m): 1500m pace + 2% open water endurance factor
+  // 4. Middle / 70.3 (1900m): 1500m pace + 2% open water endurance factor
   const halfSec = Math.round(pace1500Per100 * 1.025 * 19);
 
-  // 4. Ironman (3800m): 1500m pace + 5.5% aerobic degradation
+  // 5. Ironman (3800m): 1500m pace + 5.5% aerobic degradation
   const fullSec = Math.round(pace1500Per100 * 1.060 * 38);
 
   const races: SwimRacePredictionItem[] = [
     {
+      distanceId: 'sprint_400m',
+      name: 'Sprint Triathlon (400m Pool Swim)',
+      distanceM: 400,
+      modelingBasis: 'CSS Pace + Tactical Triathlon Reserve (+2.5% over CSS)',
+      predictedTimeSec: sprint400mSec,
+      predictedTimeFormatted: formatDurationHMS(sprint400mSec),
+      pacePer100mFormatted: formatSwimPace(sprint400mPace),
+      targetAgeGroupTop20TimeSec: 6 * 60 + 40, // 6:40 (1:40/100m)
+      targetAgeGroupTop20TimeFormatted: '6:40',
+      confidenceLevel: 'high',
+      confidenceScore: 95,
+      confidenceExplanation:
+        'Highest confidence (95%). CSS is anchored directly on your 400m pool TT (6:12) and 100m pool TT (1:24). The swim leg tracks closely with CSS time (6:24–6:35), slightly slower than a standalone 400m swim to manage lactate accumulation before the bike.',
+      dataAnchorsUsed: ['400m Pool TT (6:12)', '100m Pool TT (1:24)', 'Derived CSS (1:36/100m)'],
+    },
+    {
       distanceId: 'sprint',
-      name: 'Sprint Triathlon (750m)',
+      name: 'Sprint Triathlon (750m Open Water)',
       distanceM: 750,
-      modelingBasis: 'Direct CSS Pace (Aerobic Threshold)',
+      modelingBasis: 'Direct CSS Pace + Open Water Sighting',
       predictedTimeSec: sprintSec,
       predictedTimeFormatted: formatDurationHMS(sprintSec),
       pacePer100mFormatted: formatSwimPace(css),
@@ -660,7 +682,7 @@ export function computeSwimRacePredictions(params: CriticalParameters): SwimRace
       targetAgeGroupTop20TimeFormatted: '12:30',
       confidenceLevel: 'high',
       confidenceScore: 92,
-      confidenceExplanation: 'High confidence. CSS is physiologically calibrated for ~750m race distance.',
+      confidenceExplanation: 'High confidence. CSS is physiologically calibrated for ~750m open water race distance.',
       dataAnchorsUsed: ['100m TT (1:24)', '400m TT (6:12)', 'Derived CSS (1:36/100m)'],
     },
     {
@@ -1008,7 +1030,15 @@ export function computeRaceWeaknessAnalysis(
     let benchBikeSec = 2 * 3600 + 32 * 60; // 2:32:00
     let benchRunSec = 1 * 3600 + 34 * 60; // 1:34:00
 
-    if (triDistance === 'sprint') {
+    if (triDistance === 'sprint_400m') {
+      eventName = 'Sprint Triathlon (400m Pool / 20k / 5k)';
+      swimDistM = 400;
+      bikeDistKm = 20;
+      runDistKm = 5;
+      benchSwimSec = 6 * 60 + 40; // 6:40 (1:40/100m)
+      benchBikeSec = 33 * 60; // 33:00 (36.4 km/h)
+      benchRunSec = 20 * 60; // 20:00 (4:00/km)
+    } else if (triDistance === 'sprint') {
       eventName = 'Sprint Triathlon (750m / 20k / 5k)';
       swimDistM = 750;
       bikeDistKm = 20;
@@ -1047,12 +1077,26 @@ export function computeRaceWeaknessAnalysis(
     // 1. Swim: based on CSS + distance pacing
     const swimPace100m =
       params.cssSecPer100m *
-      (triDistance === 'sprint' ? 1.0 : triDistance === 'olympic' ? 1.03 : triDistance === 'middle_70_3' ? 1.05 : 1.085);
+      (triDistance === 'sprint_400m'
+        ? 1.025
+        : triDistance === 'sprint'
+        ? 1.0
+        : triDistance === 'olympic'
+        ? 1.03
+        : triDistance === 'middle_70_3'
+        ? 1.05
+        : 1.085);
     const athleteSwimSec = Math.round((swimDistM / 100) * swimPace100m);
 
     // 2. Bike: pacing at ~78-84% FTP for 70.3, ~88-92% for Olympic, ~72-74% for Ironman
     const bikeIntensity =
-      triDistance === 'sprint' ? 0.95 : triDistance === 'olympic' ? 0.90 : triDistance === 'middle_70_3' ? 0.82 : 0.73;
+      (triDistance === 'sprint_400m' || triDistance === 'sprint')
+        ? 0.95
+        : triDistance === 'olympic'
+        ? 0.90
+        : triDistance === 'middle_70_3'
+        ? 0.82
+        : 0.73;
     const raceWatts = params.ftpWatts * bikeIntensity;
     const raceWkg = raceWatts / weightKg;
     // Speed estimation from Watts/kg adjusted for course elevation
@@ -1062,7 +1106,7 @@ export function computeRaceWeaknessAnalysis(
 
     // 3. Run: running off the bike with Riegel durability decay
     const runPacingFactor =
-      triDistance === 'sprint'
+      (triDistance === 'sprint_400m' || triDistance === 'sprint')
         ? 1.03
         : triDistance === 'olympic'
         ? 1.06
@@ -1081,7 +1125,7 @@ export function computeRaceWeaknessAnalysis(
       {
         discipline: 'swim',
         name: 'Swim Leg',
-        distanceLabel: `${(swimDistM / 1000).toFixed(1)} km`,
+        distanceLabel: `${swimDistM}m (${triDistance === 'sprint_400m' ? 'Pool' : 'Open Water'})`,
         athleteTimeSec: athleteSwimSec,
         athleteTimeFormatted: formatDurationHMS(athleteSwimSec),
         benchmarkTimeSec: benchSwimSec,
@@ -1092,7 +1136,10 @@ export function computeRaceWeaknessAnalysis(
         ageGroupPercentile: Math.min(96, Math.max(20, Math.round(100 - (athleteSwimSec / benchSwimSec - 0.85) * 60))),
         currentPaceOrPower: formatSwimPace(swimPace100m),
         targetPaceOrPower: formatSwimPace(benchSwimSec / (swimDistM / 100)),
-        coachingInsight: 'Lowest time sensitivity (~12% of race time). Focus on drafting efficiency and arriving fresh in T1.',
+        coachingInsight:
+          triDistance === 'sprint_400m'
+            ? 'In a 400m pool sprint, the swim is ~10% of total race duration (~6.5m). Squeezing an extra 5 seconds by sprinting causes severe lactate penalty in T1. Swim controlled at CSS.'
+            : 'Lowest time sensitivity (~12% of race time). Focus on drafting efficiency and arriving fresh in T1.',
       },
       {
         discipline: 'bike',

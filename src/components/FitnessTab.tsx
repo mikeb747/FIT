@@ -34,7 +34,6 @@ import { AthleteProfile, formatSecondsToMinSec } from '../types/athlete';
 import { TrainingGoal } from '../types/goals';
 import {
   computeFitnessTimeline,
-  calculateTriathlonFitnessIndex,
   TriathlonDistanceModel,
   DISTANCE_MODEL_PROFILES,
   DailyFitnessRecord,
@@ -128,17 +127,6 @@ export const FitnessTab: React.FC<FitnessTabProps> = ({
     return fitnessTimeline[fitnessTimeline.length - 1];
   }, [fitnessTimeline]);
 
-  // Compute Triathlon Fitness Index
-  const fitnessIndexResult = useMemo(() => {
-    return calculateTriathlonFitnessIndex(
-      latestRecord.swimCtl,
-      latestRecord.bikeCtl,
-      latestRecord.runCtl,
-      selectedModel,
-      goals
-    );
-  }, [latestRecord, selectedModel, goals]);
-
   // Dynamic Discipline-specific metrics
   const disciplineFitness = useMemo(() => {
     if (selectedSport === 'run') {
@@ -200,19 +188,19 @@ export const FitnessTab: React.FC<FitnessTabProps> = ({
 
     // Default: Triathlon
     return {
-      title: 'Triathlon Performance Readiness',
+      title: 'Triathlon Training Load',
       headerTitle: 'Triathlon Readiness & Training Load',
-      subtitle: 'Running 42d CTL, 7d ATL, and Form (TSB) split between Swim, Bike, and Run with race-weighted geometric preparation index.',
-      score: Math.round(fitnessIndexResult.tfi),
-      target: fitnessIndexResult.weights.targetTriCtl,
+      subtitle: 'Combined 42d CTL, 7d ATL, and Form (TSB) across Swim, Bike, and Run.',
+      score: Math.round(latestRecord.triCtl),
+      target: 160,
       ctl: latestRecord.triCtl,
       atl: latestRecord.triAtl,
       tsb: latestRecord.triTsb,
-      label: fitnessIndexResult.weights.label,
-      formula: `S^${fitnessIndexResult.weights.swimWeight} · B^${fitnessIndexResult.weights.bikeWeight} · R^${fitnessIndexResult.weights.runWeight}`,
-      badge: fitnessIndexResult.weights.label,
+      label: `${latestRecord.triCtl} Total CTL`,
+      formula: `Swim + Bike + Run Rolling Training Load`,
+      badge: 'Triathlon',
     };
-  }, [selectedSport, selectedRunningModel, selectedCyclingModel, selectedSwimmingModel, latestRecord, fitnessIndexResult]);
+  }, [selectedSport, selectedRunningModel, selectedCyclingModel, selectedSwimmingModel, latestRecord]);
 
   // Active A-Goal Triathlon for custom display
   const activeTriGoal = useMemo(() => {
@@ -683,57 +671,12 @@ export const FitnessTab: React.FC<FitnessTabProps> = ({
       </div>
 
       {/* ========================================================= */}
-      {/* 2. HERO METRICS CLUSTER: DYNAMIC FITNESS INDEX + CTL + FORM */}
+      {/* 2. HERO METRICS CLUSTER: CTL + ATL + FORM (TSB)           */}
       {/* ========================================================= */}
-      <div className="grid grid-cols-1 md:grid-cols-12 gap-5">
-        {/* Main Fitness Index Card (Dynamic Header and Value) */}
-        <div
-          className={`md:col-span-5 rounded-2xl p-5 border relative overflow-hidden flex flex-col justify-between ${
-            isLight
-              ? 'bg-gradient-to-br from-amber-50/90 to-emerald-50/70 border-amber-300 shadow-sm text-slate-900'
-              : 'bg-gradient-to-br from-[#121624] via-[#0d101a] to-[#07090f] border-amber-500/30 text-white shadow-xl'
-          }`}
-        >
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-black uppercase tracking-wider text-amber-500 flex items-center gap-1.5">
-              <Award className="w-4 h-4 text-amber-500" />
-              {disciplineFitness.title}
-            </span>
-            <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-amber-500/20 text-amber-700 dark:text-amber-300 border border-amber-500/30">
-              {disciplineFitness.badge}
-            </span>
-          </div>
-
-          <div className="my-4 flex items-baseline gap-3">
-            <span className="text-5xl sm:text-6xl font-black font-mono text-amber-500 tracking-tight">
-              {disciplineFitness.score}
-            </span>
-            <div className="space-y-0.5">
-              <span className="text-xs font-bold text-slate-500 uppercase block">Fitness Index</span>
-              <span className="text-xs font-semibold text-emerald-600 dark:text-emerald-400">
-                {disciplineFitness.score}% of preparation target
-              </span>
-            </div>
-          </div>
-
-          <div className="space-y-2 pt-2 border-t border-slate-200 dark:border-slate-800 text-xs">
-            <div className="flex items-center justify-between text-slate-600 dark:text-slate-400 text-[11px]">
-              <span>Formula</span>
-              <span className="font-mono font-bold text-amber-500">
-                {disciplineFitness.formula}
-              </span>
-            </div>
-            <p className="text-[11px] text-slate-500 leading-relaxed">
-              {selectedSport === 'triathlon'
-                ? 'Geometric weighting prevents superior fitness in one discipline from completely masking weakness in another.'
-                : `Target anchored on ${disciplineFitness.target} CTL for high performance race capacity.`}
-            </p>
-          </div>
-        </div>
-
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
         {/* Current CTL & ATL Card */}
         <div
-          className={`md:col-span-4 rounded-2xl p-5 border flex flex-col justify-between ${
+          className={`rounded-2xl p-5 border flex flex-col justify-between ${
             isLight
               ? 'bg-white border-slate-200 shadow-sm text-slate-900'
               : 'bg-slate-900/60 border-slate-800 text-white'
@@ -772,7 +715,7 @@ export const FitnessTab: React.FC<FitnessTabProps> = ({
 
         {/* Form (TSB = CTL - ATL) Card */}
         <div
-          className={`md:col-span-3 rounded-2xl p-5 border flex flex-col justify-between ${
+          className={`rounded-2xl p-5 border flex flex-col justify-between ${
             isLight
               ? 'bg-white border-slate-200 shadow-sm text-slate-900'
               : 'bg-slate-900/60 border-slate-800 text-white'
@@ -828,119 +771,7 @@ export const FitnessTab: React.FC<FitnessTabProps> = ({
         }}
       />
 
-      {/* ========================================================= */}
-      {/* 4. DISCIPLINE CTL BREAKDOWN CARDS (SWIM / BIKE / RUN)     */}
-      {/* ========================================================= */}
-      {selectedSport === 'triathlon' && (
-        <div className="space-y-3">
-          <div className="flex items-center justify-between">
-            <h3 className={`text-sm font-bold uppercase tracking-wider ${isLight ? 'text-slate-800' : 'text-slate-300'}`}>
-              Triathlon Discipline Breakdown
-            </h3>
-            <span className="text-xs text-slate-500 font-mono">
-              Geometric Limiting Factor: <strong className="text-amber-400 uppercase">{fitnessIndexResult.limitingFactor.name}</strong>
-            </span>
-          </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            {/* Swim Card */}
-            <div className={`p-4 rounded-2xl border ${isLight ? 'bg-white border-slate-200 shadow-sm' : 'bg-slate-900/60 border-slate-800'}`}>
-              <div className="flex items-center justify-between pb-3 border-b border-slate-200 dark:border-slate-800">
-                <div className="flex items-center gap-2">
-                  <div className="p-2 rounded-xl bg-sky-500/10 text-sky-400">
-                    <Waves className="w-4 h-4" />
-                  </div>
-                  <div>
-                    <h4 className="text-xs font-bold text-sky-400 uppercase">Swim CTL (sTSS)</h4>
-                    <span className="text-[10px] text-slate-500">Target: {fitnessIndexResult.weights.targetSwimCtl} CTL</span>
-                  </div>
-                </div>
-                <span className="font-mono font-bold text-xl text-sky-400">{latestRecord.swimCtl}</span>
-              </div>
-              <div className="mt-3 space-y-1.5 text-xs">
-                <div className="flex justify-between text-slate-400">
-                  <span>Preparedness</span>
-                  <span className={`font-mono font-bold ${isLight ? 'text-slate-900' : 'text-white'}`}>
-                    {Math.round(fitnessIndexResult.swimRatio <= 2 ? fitnessIndexResult.swimRatio * 100 : fitnessIndexResult.swimRatio)}%
-                  </span>
-                </div>
-                <div className={`h-2 w-full rounded-full ${isLight ? 'bg-slate-100' : 'bg-slate-950'} overflow-hidden`}>
-                  <div
-                    className="h-full bg-sky-400 rounded-full transition-all duration-300"
-                    style={{
-                      width: `${Math.min(100, Math.max(0, Math.round(fitnessIndexResult.swimRatio <= 2 ? fitnessIndexResult.swimRatio * 100 : fitnessIndexResult.swimRatio)))}%`,
-                    }}
-                  />
-                </div>
-              </div>
-            </div>
-
-            {/* Bike Card */}
-            <div className={`p-4 rounded-2xl border ${isLight ? 'bg-white border-slate-200 shadow-sm' : 'bg-slate-900/60 border-slate-800'}`}>
-              <div className="flex items-center justify-between pb-3 border-b border-slate-200 dark:border-slate-800">
-                <div className="flex items-center gap-2">
-                  <div className="p-2 rounded-xl bg-orange-500/10 text-orange-400">
-                    <Bike className="w-4 h-4" />
-                  </div>
-                  <div>
-                    <h4 className="text-xs font-bold text-orange-400 uppercase">Bike CTL (Power TSS)</h4>
-                    <span className="text-[10px] text-slate-500">Target: {fitnessIndexResult.weights.targetBikeCtl} CTL</span>
-                  </div>
-                </div>
-                <span className="font-mono font-bold text-xl text-orange-400">{latestRecord.bikeCtl}</span>
-              </div>
-              <div className="mt-3 space-y-1.5 text-xs">
-                <div className="flex justify-between text-slate-400">
-                  <span>Preparedness</span>
-                  <span className={`font-mono font-bold ${isLight ? 'text-slate-900' : 'text-white'}`}>
-                    {Math.round(fitnessIndexResult.bikeRatio <= 2 ? fitnessIndexResult.bikeRatio * 100 : fitnessIndexResult.bikeRatio)}%
-                  </span>
-                </div>
-                <div className={`h-2 w-full rounded-full ${isLight ? 'bg-slate-100' : 'bg-slate-950'} overflow-hidden`}>
-                  <div
-                    className="h-full bg-orange-400 rounded-full transition-all duration-300"
-                    style={{
-                      width: `${Math.min(100, Math.max(0, Math.round(fitnessIndexResult.bikeRatio <= 2 ? fitnessIndexResult.bikeRatio * 100 : fitnessIndexResult.bikeRatio)))}%`,
-                    }}
-                  />
-                </div>
-              </div>
-            </div>
-
-            {/* Run Card */}
-            <div className={`p-4 rounded-2xl border ${isLight ? 'bg-white border-slate-200 shadow-sm' : 'bg-slate-900/60 border-slate-800'}`}>
-              <div className="flex items-center justify-between pb-3 border-b border-slate-200 dark:border-slate-800">
-                <div className="flex items-center gap-2">
-                  <div className="p-2 rounded-xl bg-amber-500/10 text-amber-400">
-                    <Footprints className="w-4 h-4" />
-                  </div>
-                  <div>
-                    <h4 className="text-xs font-bold text-amber-400 uppercase">Run CTL (rTSS)</h4>
-                    <span className="text-[10px] text-slate-500">Target: {fitnessIndexResult.weights.targetRunCtl} CTL</span>
-                  </div>
-                </div>
-                <span className="font-mono font-bold text-xl text-amber-400">{latestRecord.runCtl}</span>
-              </div>
-              <div className="mt-3 space-y-1.5 text-xs">
-                <div className="flex justify-between text-slate-400">
-                  <span>Preparedness</span>
-                  <span className={`font-mono font-bold ${isLight ? 'text-slate-900' : 'text-white'}`}>
-                    {Math.round(fitnessIndexResult.runRatio <= 2 ? fitnessIndexResult.runRatio * 100 : fitnessIndexResult.runRatio)}%
-                  </span>
-                </div>
-                <div className={`h-2 w-full rounded-full ${isLight ? 'bg-slate-100' : 'bg-slate-950'} overflow-hidden`}>
-                  <div
-                    className="h-full bg-amber-400 rounded-full transition-all duration-300"
-                    style={{
-                      width: `${Math.min(100, Math.max(0, Math.round(fitnessIndexResult.runRatio <= 2 ? fitnessIndexResult.runRatio * 100 : fitnessIndexResult.runRatio)))}%`,
-                    }}
-                  />
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* ========================================================= */}
       {/* 5. WEEKLY TRAINING VOLUME (RECHARTS - TOTAL HOURS/KM)     */}
