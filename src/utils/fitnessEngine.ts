@@ -915,7 +915,8 @@ export function deriveEventCtlTargetAndFeasibility(params: {
     fLow: number;
     fMid: number;
     fHigh: number;
-    capHours: number; // cap_d
+    minLongHours: number; // realistic floor for L_d
+    capHours: number; // cap_d ceiling for L_d
     sLow: number; // higher share = fewer weekly hours
     sMid: number;
     sHigh: number; // lower share = more weekly hours
@@ -929,64 +930,112 @@ export function deriveEventCtlTargetAndFeasibility(params: {
 
   if (sport === 'triathlon') {
     const effModel = triModel === 'custom_goal' ? 'middle_70_3' : triModel;
-    matchedGoal = goals.find((g) => g.eventType === 'triathlon' && g.status === 'upcoming');
+    const upcomingTriGoals = goals.filter((g) => g.eventType === 'triathlon' && g.status === 'upcoming');
 
     if (effModel === 'sprint') {
+      matchedGoal = upcomingTriGoals.find(
+        (g) =>
+          g.distancePreset?.toLowerCase().includes('sprint') ||
+          (g.totalDistanceKm > 0 && g.totalDistanceKm <= 38)
+      );
       eventLabel = 'Sprint Triathlon (750m / 20km / 5km)';
       taperWeeks = 1;
-      const tSwim = (7.5 * swimCssSecPer100m * 1.03) / 3600;
-      const tBike = 20 / estimateBikeSpeedKmh(0.90);
-      const tRun = (5 * runThresholdSecPerKm * 1.02) / 3600;
+      const tSwim = Math.max(0.22, (7.5 * swimCssSecPer100m * 1.03) / 3600);
+      const tBike = Math.max(0.58, 20 / estimateBikeSpeedKmh(0.88));
+      const tRun = Math.max(0.32, (5 * runThresholdSecPerKm * 1.02) / 3600);
       legSpecs.push(
-        { discipline: 'swim', label: 'Swimming', expectedRaceHours: Math.max(0.2, tSwim), fLow: 2.2, fMid: 2.6, fHigh: 3.0, capHours: 0.75, sLow: 0.38, sMid: 0.35, sHigh: 0.32, maxSafeRamp: 3.5 },
-        { discipline: 'bike', label: 'Cycling', expectedRaceHours: Math.max(0.5, tBike), fLow: 2.0, fMid: 2.3, fHigh: 2.6, capHours: 1.6, sLow: 0.48, sMid: 0.44, sHigh: 0.40, maxSafeRamp: 5.5 },
-        { discipline: 'run', label: 'Running', expectedRaceHours: Math.max(0.3, tRun), fLow: 2.0, fMid: 2.4, fHigh: 2.7, capHours: 1.0, sLow: 0.46, sMid: 0.42, sHigh: 0.38, maxSafeRamp: 3.0 }
+        { discipline: 'swim', label: 'Swimming', expectedRaceHours: tSwim, fLow: 2.3, fMid: 2.6, fHigh: 2.9, minLongHours: 0.60, capHours: 0.75, sLow: 0.38, sMid: 0.35, sHigh: 0.32, maxSafeRamp: 3.5 },
+        { discipline: 'bike', label: 'Cycling', expectedRaceHours: tBike, fLow: 2.1, fMid: 2.35, fHigh: 2.6, minLongHours: 1.35, capHours: 1.65, sLow: 0.48, sMid: 0.44, sHigh: 0.40, maxSafeRamp: 5.5 },
+        { discipline: 'run', label: 'Running', expectedRaceHours: tRun, fLow: 2.0, fMid: 2.3, fHigh: 2.6, minLongHours: 0.72, capHours: 0.95, sLow: 0.46, sMid: 0.42, sHigh: 0.38, maxSafeRamp: 3.0 }
       );
     } else if (effModel === 'olympic') {
+      matchedGoal = upcomingTriGoals.find(
+        (g) =>
+          g.distancePreset?.toLowerCase().includes('olympic') ||
+          (g.totalDistanceKm > 38 && g.totalDistanceKm <= 75)
+      );
       eventLabel = 'Olympic Triathlon (1.5km / 40km / 10km)';
       taperWeeks = 2;
-      const tSwim = (15 * swimCssSecPer100m * 1.05) / 3600;
-      const tBike = 40 / estimateBikeSpeedKmh(0.84);
-      const tRun = (10 * runThresholdSecPerKm * 1.06) / 3600;
+      const tSwim = Math.max(0.42, (15 * swimCssSecPer100m * 1.05) / 3600);
+      const tBike = Math.max(1.12, 40 / estimateBikeSpeedKmh(0.82));
+      const tRun = Math.max(0.65, (10 * runThresholdSecPerKm * 1.06) / 3600);
       legSpecs.push(
-        { discipline: 'swim', label: 'Swimming', expectedRaceHours: Math.max(0.38, tSwim), fLow: 1.6, fMid: 1.85, fHigh: 2.1, capHours: 0.9, sLow: 0.35, sMid: 0.32, sHigh: 0.29, maxSafeRamp: 3.5 },
-        { discipline: 'bike', label: 'Cycling', expectedRaceHours: Math.max(1.0, tBike), fLow: 1.6, fMid: 1.8, fHigh: 2.0, capHours: 2.3, sLow: 0.44, sMid: 0.40, sHigh: 0.37, maxSafeRamp: 6.0 },
-        { discipline: 'run', label: 'Running', expectedRaceHours: Math.max(0.6, tRun), fLow: 1.5, fMid: 1.7, fHigh: 1.9, capHours: 1.35, sLow: 0.42, sMid: 0.38, sHigh: 0.35, maxSafeRamp: 3.5 }
+        { discipline: 'swim', label: 'Swimming', expectedRaceHours: tSwim, fLow: 1.65, fMid: 1.85, fHigh: 2.05, minLongHours: 0.76, capHours: 0.90, sLow: 0.35, sMid: 0.32, sHigh: 0.29, maxSafeRamp: 3.5 },
+        { discipline: 'bike', label: 'Cycling', expectedRaceHours: tBike, fLow: 1.60, fMid: 1.80, fHigh: 2.00, minLongHours: 1.95, capHours: 2.30, sLow: 0.44, sMid: 0.40, sHigh: 0.37, maxSafeRamp: 6.0 },
+        { discipline: 'run', label: 'Running', expectedRaceHours: tRun, fLow: 1.45, fMid: 1.65, fHigh: 1.85, minLongHours: 1.05, capHours: 1.35, sLow: 0.42, sMid: 0.38, sHigh: 0.35, maxSafeRamp: 3.5 }
       );
     } else if (effModel === 'middle_70_3') {
+      matchedGoal = upcomingTriGoals.find(
+        (g) =>
+          g.distancePreset?.includes('70.3') ||
+          (g.totalDistanceKm > 75 && g.totalDistanceKm <= 155) ||
+          (g.triathlonSplits && g.triathlonSplits.bikeDistanceKm >= 75 && g.triathlonSplits.bikeDistanceKm <= 115)
+      );
       eventLabel = 'Half IRONMAN 70.3 (1.9km / 90km / 21.1km)';
       taperWeeks = 2;
-      const splitSwimSec = matchedGoal?.triathlonSplits?.swimTargetTimeSec;
-      const splitBikeSec = matchedGoal?.triathlonSplits?.bikeTargetTimeSec;
-      const splitRunSec = matchedGoal?.triathlonSplits?.runTargetTimeSec;
+      const splitSwimSec =
+        matchedGoal?.triathlonSplits && matchedGoal.triathlonSplits.swimDistanceMeters >= 1500 && matchedGoal.triathlonSplits.swimDistanceMeters <= 2500
+          ? matchedGoal.triathlonSplits.swimTargetTimeSec
+          : undefined;
+      const splitBikeSec =
+        matchedGoal?.triathlonSplits && matchedGoal.triathlonSplits.bikeDistanceKm >= 75 && matchedGoal.triathlonSplits.bikeDistanceKm <= 115
+          ? matchedGoal.triathlonSplits.bikeTargetTimeSec
+          : undefined;
+      const splitRunSec =
+        matchedGoal?.triathlonSplits && matchedGoal.triathlonSplits.runDistanceKm >= 18 && matchedGoal.triathlonSplits.runDistanceKm <= 25
+          ? matchedGoal.triathlonSplits.runTargetTimeSec
+          : undefined;
 
-      const tSwim = splitSwimSec ? splitSwimSec / 3600 : Math.max(0.5, (19 * swimCssSecPer100m * 1.07) / 3600);
-      const tBike = splitBikeSec ? splitBikeSec / 3600 : Math.max(2.3, 90 / estimateBikeSpeedKmh(0.78));
-      const tRun = splitRunSec ? splitRunSec / 3600 : Math.max(1.35, (21.0975 * runThresholdSecPerKm * 1.10) / 3600);
+      const rawSwimH = splitSwimSec && splitSwimSec > 1200 ? splitSwimSec / 3600 : (19 * swimCssSecPer100m * 1.08) / 3600;
+      const rawBikeH = splitBikeSec && splitBikeSec > 6500 ? splitBikeSec / 3600 : 90 / (estimateBikeSpeedKmh(0.76) * 0.94);
+      const rawRunH = splitRunSec && splitRunSec > 4200 ? splitRunSec / 3600 : (21.0975 * runThresholdSecPerKm * 1.12) / 3600;
 
-      // Matches Claude's worked 70.3 parameters: ~1.0h long swim (s=0.30 -> 3.3h), ~3.0h long ride (s=0.40 -> 7.5h), ~1.5h long run (s=0.38 -> 3.9h)
+      const tSwim = Math.min(0.85, Math.max(0.54, rawSwimH));
+      const tBike = Math.min(3.20, Math.max(2.45, rawBikeH));
+      const tRun = Math.min(2.10, Math.max(1.42, rawRunH));
+
+      // Matches Claude's worked 70.3 parameters: ~1.0h long swim (s=0.30 -> 3.3h), ~3.0h long ride (s=0.40 -> 7.5h), ~1.5h long run (s=0.38 -> 3.9h) => ~14.7h/wk, ~110 CTL
       legSpecs.push(
-        { discipline: 'swim', label: 'Swimming', expectedRaceHours: tSwim, fLow: 1.55, fMid: 1.75, fHigh: 1.95, capHours: 1.05, sLow: 0.33, sMid: 0.30, sHigh: 0.28, maxSafeRamp: 4.0 },
-        { discipline: 'bike', label: 'Cycling', expectedRaceHours: tBike, fLow: 1.10, fMid: 1.22, fHigh: 1.35, capHours: 3.2, sLow: 0.43, sMid: 0.40, sHigh: 0.37, maxSafeRamp: 6.0 },
-        { discipline: 'run', label: 'Running', expectedRaceHours: tRun, fLow: 0.95, fMid: 1.05, fHigh: 1.15, capHours: 1.65, sLow: 0.41, sMid: 0.38, sHigh: 0.35, maxSafeRamp: 3.5 }
+        { discipline: 'swim', label: 'Swimming', expectedRaceHours: tSwim, fLow: 1.55, fMid: 1.75, fHigh: 1.95, minLongHours: 0.96, capHours: 1.05, sLow: 0.33, sMid: 0.30, sHigh: 0.28, maxSafeRamp: 4.0 },
+        { discipline: 'bike', label: 'Cycling', expectedRaceHours: tBike, fLow: 1.10, fMid: 1.22, fHigh: 1.35, minLongHours: 2.95, capHours: 3.15, sLow: 0.43, sMid: 0.40, sHigh: 0.37, maxSafeRamp: 6.0 },
+        { discipline: 'run', label: 'Running', expectedRaceHours: tRun, fLow: 0.95, fMid: 1.05, fHigh: 1.15, minLongHours: 1.48, capHours: 1.60, sLow: 0.41, sMid: 0.38, sHigh: 0.35, maxSafeRamp: 3.5 }
       );
     } else {
-      // Full Ironman
+      // Full Ironman 140.6
+      matchedGoal = upcomingTriGoals.find(
+        (g) =>
+          (g.distancePreset?.toLowerCase().includes('ironman') && !g.distancePreset?.includes('70.3')) ||
+          g.totalDistanceKm > 155 ||
+          (g.triathlonSplits && g.triathlonSplits.bikeDistanceKm >= 150)
+      );
       eventLabel = 'Full IRONMAN 140.6 (3.8km / 180km / 42.2km)';
       taperWeeks = 3;
-      const splitSwimSec = matchedGoal?.triathlonSplits?.swimTargetTimeSec;
-      const splitBikeSec = matchedGoal?.triathlonSplits?.bikeTargetTimeSec;
-      const splitRunSec = matchedGoal?.triathlonSplits?.runTargetTimeSec;
+      const splitSwimSec =
+        matchedGoal?.triathlonSplits && matchedGoal.triathlonSplits.swimDistanceMeters >= 3200
+          ? matchedGoal.triathlonSplits.swimTargetTimeSec
+          : undefined;
+      const splitBikeSec =
+        matchedGoal?.triathlonSplits && matchedGoal.triathlonSplits.bikeDistanceKm >= 150
+          ? matchedGoal.triathlonSplits.bikeTargetTimeSec
+          : undefined;
+      const splitRunSec =
+        matchedGoal?.triathlonSplits && matchedGoal.triathlonSplits.runDistanceKm >= 36
+          ? matchedGoal.triathlonSplits.runTargetTimeSec
+          : undefined;
 
-      const tSwim = splitSwimSec ? splitSwimSec / 3600 : Math.max(1.05, (38 * swimCssSecPer100m * 1.10) / 3600);
-      const tBike = splitBikeSec ? splitBikeSec / 3600 : Math.max(5.0, 180 / estimateBikeSpeedKmh(0.70));
-      const tRun = splitRunSec ? splitRunSec / 3600 : Math.max(3.2, (42.195 * runThresholdSecPerKm * 1.18) / 3600);
+      const rawSwimH = splitSwimSec && splitSwimSec > 2700 ? splitSwimSec / 3600 : (38 * swimCssSecPer100m * 1.12) / 3600;
+      const rawBikeH = splitBikeSec && splitBikeSec > 15000 ? splitBikeSec / 3600 : 180 / (estimateBikeSpeedKmh(0.68) * 0.92);
+      const rawRunH = splitRunSec && splitRunSec > 9600 ? splitRunSec / 3600 : (42.195 * runThresholdSecPerKm * 1.24) / 3600;
 
-      // Matches Claude's worked Ironman parameters: ~1.2h long swim (s=0.30 -> 4.0h), ~5.0h long ride (s=0.50 -> 10.0h), ~2.25h long run (s=0.45 -> 5.0h)
+      const tSwim = Math.min(1.65, Math.max(1.12, rawSwimH));
+      const tBike = Math.min(6.40, Math.max(5.30, rawBikeH));
+      const tRun = Math.min(4.50, Math.max(3.65, rawRunH));
+
+      // Matches Claude's worked Ironman parameters: ~1.2h long swim (s=0.30 -> 4.0h), ~5.0h long ride (s=0.50 -> 10.0h), ~2.25h long run (s=0.45 -> 5.0h) => ~19.0h/wk, ~143 CTL
       legSpecs.push(
-        { discipline: 'swim', label: 'Swimming', expectedRaceHours: tSwim, fLow: 0.95, fMid: 1.05, fHigh: 1.15, capHours: 1.25, sLow: 0.33, sMid: 0.30, sHigh: 0.28, maxSafeRamp: 4.0 },
-        { discipline: 'bike', label: 'Cycling', expectedRaceHours: tBike, fLow: 0.82, fMid: 0.92, fHigh: 1.00, capHours: 5.2, sLow: 0.53, sMid: 0.50, sHigh: 0.46, maxSafeRamp: 6.5 },
-        { discipline: 'run', label: 'Running', expectedRaceHours: tRun, fLow: 0.52, fMid: 0.60, fHigh: 0.66, capHours: 2.25, sLow: 0.48, sMid: 0.45, sHigh: 0.42, maxSafeRamp: 3.5 }
+        { discipline: 'swim', label: 'Swimming', expectedRaceHours: tSwim, fLow: 0.95, fMid: 1.05, fHigh: 1.15, minLongHours: 1.18, capHours: 1.25, sLow: 0.33, sMid: 0.30, sHigh: 0.28, maxSafeRamp: 4.0 },
+        { discipline: 'bike', label: 'Cycling', expectedRaceHours: tBike, fLow: 0.85, fMid: 0.94, fHigh: 1.02, minLongHours: 4.95, capHours: 5.25, sLow: 0.53, sMid: 0.50, sHigh: 0.46, maxSafeRamp: 6.5 },
+        { discipline: 'run', label: 'Running', expectedRaceHours: tRun, fLow: 0.54, fMid: 0.61, fHigh: 0.67, minLongHours: 2.20, capHours: 2.30, sLow: 0.48, sMid: 0.45, sHigh: 0.42, maxSafeRamp: 3.5 }
       );
     }
   } else if (sport === 'run') {
@@ -1020,6 +1069,7 @@ export function deriveEventCtlTargetAndFeasibility(params: {
       fLow: fMid * 0.92,
       fMid,
       fHigh: fMid * 1.08,
+      minLongHours: runProf.longRunHours * 0.95,
       capHours: runModel === 'marathon_26_2' ? 2.5 : 2.1,
       sLow: sMid * 1.08,
       sMid,
@@ -1047,6 +1097,7 @@ export function deriveEventCtlTargetAndFeasibility(params: {
       fLow: fMid * 0.90,
       fMid,
       fHigh: fMid * 1.10,
+      minLongHours: bikeProf.longRideHours * 0.95,
       capHours: 5.5,
       sLow: sMid * 1.08,
       sMid,
@@ -1077,6 +1128,7 @@ export function deriveEventCtlTargetAndFeasibility(params: {
       fLow: fMid * 0.90,
       fMid,
       fHigh: fMid * 1.10,
+      minLongHours: swimProf.longSwimHours * 0.95,
       capHours: 2.5,
       sLow: sMid * 1.08,
       sMid,
@@ -1090,9 +1142,9 @@ export function deriveEventCtlTargetAndFeasibility(params: {
     const ifStats = ifMap[spec.discipline];
     const p = ifStats.exponent;
 
-    const lLow = Math.min(spec.fLow * spec.expectedRaceHours, spec.capHours * 0.92);
-    const lMid = Math.min(spec.fMid * spec.expectedRaceHours, spec.capHours);
-    const lHigh = Math.min(spec.fHigh * spec.expectedRaceHours, spec.capHours * 1.06);
+    const lMid = Math.min(spec.capHours, Math.max(spec.minLongHours, spec.fMid * spec.expectedRaceHours));
+    const lLow = Math.min(spec.capHours * 0.93, Math.max(spec.minLongHours * 0.90, spec.fLow * spec.expectedRaceHours));
+    const lHigh = Math.min(spec.capHours * 1.06, Math.max(lMid * 1.04, spec.fHigh * spec.expectedRaceHours));
 
     const hLow = Math.round((lLow / spec.sLow) * 10) / 10;
     const hMid = Math.round((lMid / spec.sMid) * 10) / 10;
