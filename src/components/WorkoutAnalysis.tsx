@@ -740,7 +740,7 @@ export const WorkoutAnalysis: React.FC<WorkoutAnalysisProps> = ({
       <div className="relative w-full overflow-x-auto select-none pt-2 pb-1">
         <svg
           viewBox={`0 0 ${VIEW_WIDTH} ${VIEW_HEIGHT}`}
-          className="w-full h-auto min-w-[520px] block"
+          className={`w-full h-auto block ${laps.length > 10 ? 'min-w-[520px]' : ''}`}
           style={{ maxHeight: '240px' }}
         >
           {/* Horizontal Gridlines & Y-Axis Labels */}

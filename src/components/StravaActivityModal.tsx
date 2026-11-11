@@ -510,7 +510,7 @@ export const StravaActivityModal: React.FC<StravaActivityModalProps> = ({
             >
               {getCategoryIcon(classification.category, 'w-6 h-6', isLight)}
             </div>
-            <div className="min-w-0 flex-1 h-11 flex flex-col justify-between">
+            <div className="min-w-0 flex-1 min-h-11 flex flex-col justify-between gap-0.5">
               {isEditingName ? (
                 <form
                   onSubmit={(e) => {
@@ -1425,59 +1425,62 @@ export const StravaActivityModal: React.FC<StravaActivityModalProps> = ({
                   </div>
 
                   {/* Left-Aligned View Mode Toggle Tabs (Pace, GAP, HR, Cards) */}
-                  <div className="flex items-center gap-1 bg-slate-900 p-0.5 rounded-xl border border-slate-800 text-[11px] font-bold">
+                  <div className="flex items-center gap-1 bg-slate-900 p-0.5 rounded-xl border border-slate-800 text-[11px] font-bold max-w-full overflow-x-auto scrollbar-none">
                     <button
                       type="button"
                       onClick={() => setSplitsDisplayMode('pace')}
-                      className={`px-2.5 py-1 rounded-lg transition-colors cursor-pointer flex items-center gap-1 ${
+                      className={`px-2 sm:px-2.5 py-1 rounded-lg transition-colors cursor-pointer flex items-center gap-1 whitespace-nowrap shrink-0 ${
                         effectiveSplitsMode === 'pace'
                           ? 'bg-amber-500 text-slate-950 font-black'
                           : 'text-slate-400 hover:text-white'
                       }`}
                       title="Display 1km splits as Pace bar chart"
                     >
-                      <Gauge className="w-3 h-3" />
-                      <span>Pace Bar Chart</span>
+                      <Gauge className="w-3 h-3 shrink-0" />
+                      <span className="sm:hidden">Pace</span>
+                      <span className="hidden sm:inline">Pace Bar Chart</span>
                     </button>
                     {!isTreadmill && (
                       <button
                         type="button"
                         onClick={() => setSplitsDisplayMode('gap')}
-                        className={`px-2.5 py-1 rounded-lg transition-colors cursor-pointer flex items-center gap-1 ${
+                        className={`px-2 sm:px-2.5 py-1 rounded-lg transition-colors cursor-pointer flex items-center gap-1 whitespace-nowrap shrink-0 ${
                           effectiveSplitsMode === 'gap'
                             ? 'bg-emerald-500 text-slate-950 font-black'
                             : 'text-slate-400 hover:text-white'
                         }`}
                         title="Display 1km splits as Grade Adjusted Pace (GAP) bar chart"
                       >
-                        <TrendingUp className="w-3 h-3 text-emerald-400" />
-                        <span>GAP Bar Chart</span>
+                        <TrendingUp className="w-3 h-3 text-emerald-400 shrink-0" />
+                        <span className="sm:hidden">GAP</span>
+                        <span className="hidden sm:inline">GAP Bar Chart</span>
                       </button>
                     )}
                     <button
                       type="button"
                       onClick={() => setSplitsDisplayMode('hr')}
-                      className={`px-2.5 py-1 rounded-lg transition-colors cursor-pointer flex items-center gap-1 ${
+                      className={`px-2 sm:px-2.5 py-1 rounded-lg transition-colors cursor-pointer flex items-center gap-1 whitespace-nowrap shrink-0 ${
                         effectiveSplitsMode === 'hr'
                           ? 'bg-amber-500 text-slate-950 font-black'
                           : 'text-slate-400 hover:text-white'
                       }`}
                       title="Display 1km splits as HR bar chart"
                     >
-                      <Heart className="w-3 h-3 text-rose-400" />
-                      <span>HR Bar Chart</span>
+                      <Heart className="w-3 h-3 text-rose-400 shrink-0" />
+                      <span className="sm:hidden">HR</span>
+                      <span className="hidden sm:inline">HR Bar Chart</span>
                     </button>
                     <button
                       type="button"
                       onClick={() => setSplitsDisplayMode('cards')}
-                      className={`px-2.5 py-1 rounded-lg transition-colors cursor-pointer flex items-center gap-1 ${
+                      className={`px-2 sm:px-2.5 py-1 rounded-lg transition-colors cursor-pointer flex items-center gap-1 whitespace-nowrap shrink-0 ${
                         effectiveSplitsMode === 'cards'
                           ? 'bg-amber-500 text-slate-950 font-black'
                           : 'text-slate-400 hover:text-white'
                       }`}
                       title="Display 1km splits as Cards"
                     >
-                      <LayoutGrid className="w-3 h-3" />
+                      <LayoutGrid className="w-3 h-3 shrink-0" />
                       <span>Cards</span>
                     </button>
                   </div>

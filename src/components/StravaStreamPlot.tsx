@@ -952,9 +952,9 @@ export const StravaStreamPlot: React.FC<StravaStreamPlotProps> = ({
         {/* Selected or Hover Floating Details Card (White background & grey border) */}
         {activeInspectPoint && (
           <div
-            className="absolute top-2 pointer-events-none transform -translate-x-1/2 border border-slate-300 rounded-xl px-3 py-1.5 shadow-xl bg-white/95 text-slate-900 z-10 flex items-center gap-3 backdrop-blur-md"
+            className="absolute top-2 pointer-events-none transform -translate-x-1/2 border border-slate-300 rounded-xl px-2.5 py-1.5 shadow-xl bg-white/95 text-slate-900 z-10 flex items-center gap-2 backdrop-blur-md whitespace-nowrap max-w-[86%]"
             style={{
-              left: `${Math.max(12, Math.min(88, (activeInspectPoint.x / width) * 100))}%`,
+              left: `${Math.max(24, Math.min(76, (activeInspectPoint.x / width) * 100))}%`,
             }}
           >
             <div className="flex flex-col">

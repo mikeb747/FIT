@@ -134,9 +134,17 @@ html[data-theme="light"] .border-slate-900\/60 {
   border-color: #cbd5e1 !important;
 }
 
-/* Text colors in light mode */
-html[data-theme="light"] .text-white {
+/* Text colors in light mode (preserve white text on solid saturated buttons/badges) */
+html[data-theme="light"] .text-white:not(.bg-indigo-600):not(.bg-indigo-500):not(.bg-blue-600):not(.bg-blue-500):not(.bg-sky-600):not(.bg-emerald-600):not(.bg-rose-500):not(.bg-rose-600):not(.bg-\[\#FC5200\]) {
   color: #0f172a !important;
+}
+
+.scrollbar-none {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+.scrollbar-none::-webkit-scrollbar {
+  display: none;
 }
 
 html[data-theme="light"] .text-slate-100 {

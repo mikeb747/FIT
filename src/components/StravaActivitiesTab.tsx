@@ -582,7 +582,7 @@ export const StravaActivitiesTab: React.FC<StravaActivitiesTabProps> = ({
       {/* CATEGORY FILTER TABS: All, Swim, Bike, Run, Gym (EXACT ORDER) */}
       {/* ========================================================= */}
       <div className="w-full">
-        <div className="w-full flex items-center h-[34px] rounded-[12px] border-[0.8px] border-[#324158] overflow-hidden">
+        <div className="w-full flex items-center h-[36px] rounded-[12px] border-[0.8px] border-[#324158] overflow-hidden">
           {(['All', 'Swim', 'Bike', 'Run', 'Gym'] as const).map((cat, idx) => {
             const count = categoryCounts[cat] || 0;
             const isActive = selectedCategory === cat;
@@ -591,7 +591,7 @@ export const StravaActivitiesTab: React.FC<StravaActivitiesTabProps> = ({
                 key={cat}
                 type="button"
                 onClick={() => setSelectedCategory(cat)}
-                className={`split-pill-item flex-1 min-w-[60px] sm:min-w-0 h-full px-1.5 sm:px-3 text-xs font-bold whitespace-nowrap flex items-center justify-center gap-1.5 transition-all cursor-pointer rounded-none outline-none focus:outline-none focus:ring-0 ${
+                className={`split-pill-item flex-1 min-w-0 h-full px-1 sm:px-3 text-[11px] sm:text-xs font-bold whitespace-nowrap flex items-center justify-center gap-1 sm:gap-1.5 transition-all cursor-pointer rounded-none outline-none focus:outline-none focus:ring-0 ${
                   idx > 0 ? 'border-l-[0.8px] border-l-[#0f172b]' : ''
                 } ${
                   isActive
@@ -600,23 +600,23 @@ export const StravaActivitiesTab: React.FC<StravaActivitiesTabProps> = ({
                 }`}
               >
                 {cat === 'All' && (
-                  <InfinityIcon className="w-3.5 h-3.5 shrink-0 text-amber-500" strokeWidth={2.5} />
+                  <InfinityIcon className="hidden min-[420px]:block w-3.5 h-3.5 shrink-0 text-amber-500" strokeWidth={2.5} />
                 )}
                 {cat === 'Swim' && (
-                  <Waves className="w-3.5 h-3.5 shrink-0 text-sky-400" />
+                  <Waves className="hidden min-[420px]:block w-3.5 h-3.5 shrink-0 text-sky-400" />
                 )}
                 {cat === 'Bike' && (
-                  <Bike className="w-3.5 h-3.5 shrink-0 text-amber-500" />
+                  <Bike className="hidden min-[420px]:block w-3.5 h-3.5 shrink-0 text-amber-500" />
                 )}
                 {cat === 'Run' && (
-                  <Footprints className="w-3.5 h-3.5 shrink-0 text-emerald-500" />
+                  <Footprints className="hidden min-[420px]:block w-3.5 h-3.5 shrink-0 text-emerald-500" />
                 )}
                 {cat === 'Gym' && (
-                  <Dumbbell className="w-3.5 h-3.5 shrink-0 text-indigo-400" />
+                  <Dumbbell className="hidden min-[420px]:block w-3.5 h-3.5 shrink-0 text-indigo-400" />
                 )}
                 <span>{cat}</span>
                 <span
-                  className="inline-flex items-center justify-center text-[10px] px-1 pt-[1px] h-[18px] min-w-[24px] rounded-[8px] font-mono leading-[12px] border-[0.8px] border-[#8b8c97] bg-slate-100 text-slate-700"
+                  className="inline-flex items-center justify-center text-[9px] sm:text-[10px] px-1 pt-[1px] h-[17px] sm:h-[18px] min-w-[18px] sm:min-w-[24px] rounded-[7px] sm:rounded-[8px] font-mono tabular-nums leading-[12px] border-[0.8px] border-[#8b8c97] bg-slate-100 text-slate-700"
                 >
                   {count}
                 </span>
@@ -1422,7 +1422,7 @@ export const StravaActivitiesTab: React.FC<StravaActivitiesTabProps> = ({
                       )}
                     </div>
                     <div className="grid grid-cols-5 gap-1">
-                      {(['All', 'Bike', 'Run', 'Swim', 'Gym'] as const).map((cat) => {
+                      {(['All', 'Swim', 'Bike', 'Run', 'Gym'] as const).map((cat) => {
                         const isActive = selectedCategory === cat;
                         return (
                           <button
@@ -1438,9 +1438,9 @@ export const StravaActivitiesTab: React.FC<StravaActivitiesTabProps> = ({
                             }`}
                           >
                             {cat === 'All' && <InfinityIcon className="w-3.5 h-3.5" />}
+                            {cat === 'Swim' && <Waves className="w-3.5 h-3.5" />}
                             {cat === 'Bike' && <Bike className="w-3.5 h-3.5" />}
                             {cat === 'Run' && <Footprints className="w-3.5 h-3.5" />}
-                            {cat === 'Swim' && <Waves className="w-3.5 h-3.5" />}
                             {cat === 'Gym' && <Dumbbell className="w-3.5 h-3.5" />}
                             <span className="text-[11px] leading-tight">{cat}</span>
                           </button>

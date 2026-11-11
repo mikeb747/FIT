@@ -575,7 +575,7 @@ export const ActivityCalibrationModal: React.FC<ActivityCalibrationModalProps> =
   // Upload Corrected Run to Strava
   const handleUploadToStrava = async () => {
     if (!stravaToken) {
-      alert('Strava access token is not available. Please connect or refresh your Strava account in Settings.');
+      setStravaUploadError('Strava access token is not available. Please connect or refresh your Strava account in Settings.');
       return;
     }
 
@@ -712,11 +712,15 @@ export const ActivityCalibrationModal: React.FC<ActivityCalibrationModalProps> =
     }
   };
 
+  const [confirmingReset, setConfirmingReset] = useState(false);
+
   const handleResetToStrava = async () => {
-    if (!window.confirm('Reset this activity to original Strava data and remove all custom calibrations?')) {
+    if (!confirmingReset) {
+      setConfirmingReset(true);
       return;
     }
     setIsSaving(true);
+    setConfirmingReset(false);
     try {
       const updated = await clearActivityCalibration(activity.id);
       onCalibrationSaved(updated);
@@ -1361,17 +1365,32 @@ export const ActivityCalibrationModal: React.FC<ActivityCalibrationModalProps> =
         </div>
 
         {/* Footer */}
-        <div className="p-4 sm:p-5 border-t border-slate-800 bg-slate-950/80 flex items-center justify-between gap-3 shrink-0">
+        <div className="p-3.5 sm:p-5 border-t border-slate-800 bg-slate-950/80 flex flex-wrap items-center justify-between gap-2.5 shrink-0">
           {existingCalib ? (
-            <button
-              type="button"
-              onClick={handleResetToStrava}
-              disabled={isSaving}
-              className="px-3.5 py-2.5 rounded-xl bg-slate-800 hover:bg-rose-900/40 text-slate-400 hover:text-rose-300 text-xs font-bold transition-colors cursor-pointer flex items-center gap-1.5"
-            >
-              <RotateCcw className="w-3.5 h-3.5" />
-              <span>Reset to Original</span>
-            </button>
+            <div className="flex items-center gap-1.5">
+              <button
+                type="button"
+                onClick={handleResetToStrava}
+                disabled={isSaving}
+                className={`px-3 py-2.5 rounded-xl text-xs font-bold transition-colors cursor-pointer flex items-center gap-1.5 ${
+                  confirmingReset
+                    ? 'bg-rose-600 hover:bg-rose-500 text-white'
+                    : 'bg-slate-800 hover:bg-rose-900/40 text-slate-400 hover:text-rose-300'
+                }`}
+              >
+                <RotateCcw className="w-3.5 h-3.5 shrink-0" />
+                <span>{confirmingReset ? 'Confirm Reset?' : 'Reset'}</span>
+              </button>
+              {confirmingReset && (
+                <button
+                  type="button"
+                  onClick={() => setConfirmingReset(false)}
+                  className="px-2.5 py-2.5 rounded-xl bg-slate-800 text-slate-300 text-xs font-bold cursor-pointer"
+                >
+                  Cancel
+                </button>
+              )}
+            </div>
           ) : (
             <button
               type="button"
@@ -1386,17 +1405,18 @@ export const ActivityCalibrationModal: React.FC<ActivityCalibrationModalProps> =
             type="button"
             onClick={handleSave}
             disabled={isSaving}
-            className="px-5 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-xs flex items-center gap-2 shadow-lg shadow-amber-500/20 transition-all cursor-pointer active:scale-95 disabled:opacity-50"
+            className="px-4 sm:px-5 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-xs flex items-center gap-2 shadow-lg shadow-amber-500/20 transition-all cursor-pointer active:scale-95 disabled:opacity-50 ml-auto"
           >
             {saveSuccessMsg ? (
               <>
-                <Check className="w-4 h-4 stroke-[3]" />
+                <Check className="w-4 h-4 stroke-[3] shrink-0" />
                 <span>Saved & Applied!</span>
               </>
             ) : (
               <>
-                <Save className="w-4 h-4" />
-                <span>Save Calibration & Rebuild Streams</span>
+                <Save className="w-4 h-4 shrink-0" />
+                <span className="sm:hidden">Save Calibration</span>
+                <span className="hidden sm:inline">Save Calibration & Rebuild Streams</span>
               </>
             )}
           </button>

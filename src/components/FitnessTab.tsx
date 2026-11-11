@@ -610,12 +610,12 @@ export const FitnessTab: React.FC<FitnessTabProps> = ({
         </div>
 
         {/* Discipline / Sport View Toggle */}
-        <div className="flex items-center gap-2 flex-wrap">
-          <div className="flex items-center gap-1.5 p-0.5 text-xs font-bold">
+        <div className="flex items-center gap-2 flex-wrap max-w-full min-w-0">
+          <div className="flex items-center gap-1 sm:gap-1.5 p-0.5 text-[11px] sm:text-xs font-bold max-w-full overflow-x-auto scrollbar-none">
             <button
               type="button"
               onClick={() => setSelectedSport('triathlon')}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl transition-all cursor-pointer whitespace-nowrap ${
+              className={`flex items-center gap-1 sm:gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-xl transition-all cursor-pointer whitespace-nowrap shrink-0 ${
                 selectedSport === 'triathlon'
                   ? 'bg-amber-500 text-slate-950 shadow-sm border-2 border-slate-400'
                   : isLight
@@ -623,14 +623,14 @@ export const FitnessTab: React.FC<FitnessTabProps> = ({
                   : 'text-slate-400 hover:text-white hover:bg-slate-800/50 border border-transparent'
               }`}
             >
-              <Award className="w-3.5 h-3.5" />
+              <Award className="w-3.5 h-3.5 shrink-0" />
               <span>Triathlon</span>
             </button>
 
             <button
               type="button"
               onClick={() => setSelectedSport('run')}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl transition-all cursor-pointer whitespace-nowrap ${
+              className={`flex items-center gap-1 sm:gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-xl transition-all cursor-pointer whitespace-nowrap shrink-0 ${
                 selectedSport === 'run'
                   ? 'bg-amber-500 text-slate-950 shadow-sm border-2 border-slate-400'
                   : isLight
@@ -638,14 +638,14 @@ export const FitnessTab: React.FC<FitnessTabProps> = ({
                   : 'text-slate-400 hover:text-white hover:bg-slate-800/50 border border-transparent'
               }`}
             >
-              <Footprints className="w-3.5 h-3.5 text-amber-400" />
+              <Footprints className="w-3.5 h-3.5 text-amber-400 shrink-0" />
               <span>Running</span>
             </button>
 
             <button
               type="button"
               onClick={() => setSelectedSport('bike')}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl transition-all cursor-pointer whitespace-nowrap ${
+              className={`flex items-center gap-1 sm:gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-xl transition-all cursor-pointer whitespace-nowrap shrink-0 ${
                 selectedSport === 'bike'
                   ? 'bg-amber-500 text-slate-950 shadow-sm border-2 border-slate-400'
                   : isLight
@@ -653,14 +653,14 @@ export const FitnessTab: React.FC<FitnessTabProps> = ({
                   : 'text-slate-400 hover:text-white hover:bg-slate-800/50 border border-transparent'
               }`}
             >
-              <Bike className="w-3.5 h-3.5 text-orange-400" />
+              <Bike className="w-3.5 h-3.5 text-orange-400 shrink-0" />
               <span>Cycling</span>
             </button>
 
             <button
               type="button"
               onClick={() => setSelectedSport('swim')}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl transition-all cursor-pointer whitespace-nowrap ${
+              className={`flex items-center gap-1 sm:gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-xl transition-all cursor-pointer whitespace-nowrap shrink-0 ${
                 selectedSport === 'swim'
                   ? 'bg-amber-500 text-slate-950 shadow-sm border-2 border-slate-400'
                   : isLight
@@ -668,14 +668,14 @@ export const FitnessTab: React.FC<FitnessTabProps> = ({
                   : 'text-slate-400 hover:text-white hover:bg-slate-800/50 border border-transparent'
               }`}
             >
-              <Waves className="w-3.5 h-3.5 text-sky-400" />
+              <Waves className="w-3.5 h-3.5 text-sky-400 shrink-0" />
               <span>Swim</span>
             </button>
           </div>
 
           {/* Triathlon Performance Readiness Presets */}
           {selectedSport === 'triathlon' && (
-            <div className="flex items-center gap-1 p-0.5 text-xs">
+            <div className="flex items-center gap-1 p-0.5 text-xs max-w-full overflow-x-auto scrollbar-none">
               {[
                 { id: 'sprint' as const, label: 'Sprint' },
                 { id: 'olympic' as const, label: 'Olympic' },
@@ -686,7 +686,7 @@ export const FitnessTab: React.FC<FitnessTabProps> = ({
                   key={m.id}
                   type="button"
                   onClick={() => setSelectedModel(m.id)}
-                  className={`px-2.5 py-1.5 rounded-lg font-bold transition-all cursor-pointer text-xs whitespace-nowrap ${
+                  className={`px-2.5 py-1.5 rounded-lg font-bold transition-all cursor-pointer text-[11px] sm:text-xs whitespace-nowrap shrink-0 ${
                     selectedModel === m.id
                       ? isLight
                         ? 'bg-white text-amber-700 border-2 border-slate-400 shadow-xs'
@@ -704,7 +704,7 @@ export const FitnessTab: React.FC<FitnessTabProps> = ({
 
           {/* Running Performance Readiness Presets (26.2M down to 5K) */}
           {selectedSport === 'run' && (
-            <div className="flex items-center gap-1 p-0.5 text-xs">
+            <div className="flex items-center gap-1 p-0.5 text-xs max-w-full overflow-x-auto scrollbar-none">
               {[
                 { id: 'marathon_26_2' as const, label: '26.2M' },
                 { id: 'half_13_1' as const, label: '13.1M' },
@@ -716,7 +716,7 @@ export const FitnessTab: React.FC<FitnessTabProps> = ({
                   key={m.id}
                   type="button"
                   onClick={() => setSelectedRunningModel(m.id)}
-                  className={`px-2.5 py-1.5 rounded-lg font-bold transition-all cursor-pointer text-xs whitespace-nowrap ${
+                  className={`px-2.5 py-1.5 rounded-lg font-bold transition-all cursor-pointer text-[11px] sm:text-xs whitespace-nowrap shrink-0 ${
                     selectedRunningModel === m.id
                       ? isLight
                         ? 'bg-white text-amber-700 border-2 border-slate-400 shadow-xs'
@@ -735,7 +735,7 @@ export const FitnessTab: React.FC<FitnessTabProps> = ({
 
           {/* Cycling Performance Readiness Presets (Century down to 10M TT) */}
           {selectedSport === 'bike' && (
-            <div className="flex items-center gap-1 p-0.5 text-xs">
+            <div className="flex items-center gap-1 p-0.5 text-xs max-w-full overflow-x-auto scrollbar-none">
               {[
                 { id: 'century_100' as const, label: 'Century' },
                 { id: 'fifty_m_50' as const, label: '50M' },
@@ -746,7 +746,7 @@ export const FitnessTab: React.FC<FitnessTabProps> = ({
                   key={m.id}
                   type="button"
                   onClick={() => setSelectedCyclingModel(m.id)}
-                  className={`px-2.5 py-1.5 rounded-lg font-bold transition-all cursor-pointer text-xs whitespace-nowrap ${
+                  className={`px-2.5 py-1.5 rounded-lg font-bold transition-all cursor-pointer text-[11px] sm:text-xs whitespace-nowrap shrink-0 ${
                     selectedCyclingModel === m.id
                       ? isLight
                         ? 'bg-white text-amber-700 border-2 border-slate-400 shadow-xs'
@@ -765,7 +765,7 @@ export const FitnessTab: React.FC<FitnessTabProps> = ({
 
           {/* Swimming Performance Readiness Presets (50m down to 10k) */}
           {selectedSport === 'swim' && (
-            <div className="flex items-center gap-1 p-0.5 text-xs">
+            <div className="flex items-center gap-1 p-0.5 text-xs max-w-full overflow-x-auto scrollbar-none">
               {[
                 { id: 'swim_50m' as const, label: '50m' },
                 { id: 'swim_100m' as const, label: '100m' },
@@ -779,7 +779,7 @@ export const FitnessTab: React.FC<FitnessTabProps> = ({
                   key={m.id}
                   type="button"
                   onClick={() => setSelectedSwimmingModel(m.id)}
-                  className={`px-2 py-1.5 rounded-lg font-bold transition-all cursor-pointer text-xs whitespace-nowrap ${
+                  className={`px-2 py-1.5 rounded-lg font-bold transition-all cursor-pointer text-[11px] sm:text-xs whitespace-nowrap shrink-0 ${
                     selectedSwimmingModel === m.id
                       ? isLight
                         ? 'bg-white text-amber-700 border-2 border-slate-400 shadow-xs'

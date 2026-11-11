@@ -366,12 +366,15 @@ export const CoachTab: React.FC<CoachTabProps> = ({
     window.speechSynthesis.speak(utterance);
   };
 
+  const [voiceSupportNotice, setVoiceSupportNotice] = useState<string | null>(null);
+
   const handleToggleListen = () => {
     if (typeof window === 'undefined') return;
     const SpeechRecognition =
       (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
     if (!SpeechRecognition) {
-      alert('Voice dictation is not supported in this browser. You can type directly.');
+      setVoiceSupportNotice('Voice dictation is not supported in this browser. Please type your message directly.');
+      setTimeout(() => setVoiceSupportNotice(null), 4500);
       return;
     }
 
@@ -805,18 +808,18 @@ ${todayWorkout.structure.map((s) => `• [${s.phase}] (${s.duration}): ${s.descr
         <div className="w-full rounded-[12px] border-[0.8px] border-[#324158] bg-white overflow-hidden">
           <div className="flex min-h-[40px] overflow-hidden rounded-[11px]">
             {([
-              { id: 'chat', label: 'Ask Coach', icon: MessageSquare, iconColor: 'text-indigo-500' },
-              { id: 'today', label: "Today's Workout", icon: Flame, iconColor: 'text-orange-500' },
-              { id: 'reviews', label: 'Review Workouts', icon: FileText, iconColor: 'text-sky-500' },
-              { id: 'benchmarks', label: 'Benchmarks & Sub-Goals', icon: Award, iconColor: 'text-amber-500' },
-              { id: 'plan', label: 'Adaptive Plan', icon: Calendar, iconColor: 'text-emerald-500' },
-            ] as const).map(({ id, label, icon: Icon, iconColor }, index) => (
+              { id: 'chat', label: 'Ask Coach', shortLabel: 'Chat', icon: MessageSquare, iconColor: 'text-indigo-500' },
+              { id: 'today', label: "Today's Workout", shortLabel: 'Today', icon: Flame, iconColor: 'text-orange-500' },
+              { id: 'reviews', label: 'Review Workouts', shortLabel: 'Reviews', icon: FileText, iconColor: 'text-sky-500' },
+              { id: 'benchmarks', label: 'Benchmarks & Sub-Goals', shortLabel: 'Goals', icon: Award, iconColor: 'text-amber-500' },
+              { id: 'plan', label: 'Adaptive Plan', shortLabel: 'Plan', icon: Calendar, iconColor: 'text-emerald-500' },
+            ] as const).map(({ id, label, shortLabel, icon: Icon, iconColor }, index) => (
               <button
                 key={id}
                 type="button"
                 aria-pressed={activeSubTab === id}
                 onClick={() => setActiveSubTab(id)}
-                className={`flex-1 min-w-0 px-1.5 sm:px-2 py-2 text-[10px] sm:text-xs font-bold flex flex-col sm:flex-row items-center justify-center gap-1 sm:gap-1.5 transition-all cursor-pointer first:rounded-l-[11px] last:rounded-r-[11px] ${
+                className={`flex-1 min-w-0 px-1 sm:px-2 py-2 text-[11px] sm:text-xs font-bold flex flex-col sm:flex-row items-center justify-center gap-1 sm:gap-1.5 transition-all cursor-pointer first:rounded-l-[11px] last:rounded-r-[11px] ${
                   index > 0 ? 'border-l-[0.8px] border-l-[#0f172b]' : ''
                 } ${
                   activeSubTab === id
@@ -825,7 +828,8 @@ ${todayWorkout.structure.map((s) => `• [${s.phase}] (${s.duration}): ${s.descr
                 }`}
               >
                 <Icon className={`w-3.5 h-3.5 shrink-0 ${iconColor}`} />
-                <span className="text-center leading-tight">{label}</span>
+                <span className="sm:hidden text-center leading-tight whitespace-nowrap">{shortLabel}</span>
+                <span className="hidden sm:inline text-center leading-tight">{label}</span>
               </button>
             ))}
           </div>
@@ -976,7 +980,7 @@ ${todayWorkout.structure.map((s) => `• [${s.phase}] (${s.duration}): ${s.descr
             <div className="flex items-start gap-2.5">
               <Briefcase className="w-4 h-4 text-sky-400 shrink-0 mt-0.5" />
               <div className="space-y-0.5">
-                <div className="font-bold flex items-center gap-2">
+                <div className="font-bold flex flex-wrap items-center gap-2">
                   <span>
                     Today's Training Availability ({todayDayName}):{' '}
                     <strong>
@@ -985,7 +989,13 @@ ${todayWorkout.structure.map((s) => `• [${s.phase}] (${s.duration}): ${s.descr
                         : 'Off-Day / Weekend'}
                     </strong>
                   </span>
-                  <span className="px-2 py-0.2 rounded-full bg-sky-500/20 text-sky-300 font-black uppercase text-[10px]">
+                  <span
+                    className={`px-2 py-0.5 rounded-full font-black uppercase text-[10px] ${
+                      theme === 'light'
+                        ? 'bg-sky-100 text-sky-800 border border-sky-200'
+                        : 'bg-sky-500/20 text-sky-300'
+                    }`}
+                  >
                     {todayAvailability?.availableWindows?.join(' & ') || 'Anytime'} Window
                   </span>
                 </div>
@@ -998,7 +1008,7 @@ ${todayWorkout.structure.map((s) => `• [${s.phase}] (${s.duration}): ${s.descr
             <button
               type="button"
               onClick={() => onOpenSettings('physiology')}
-              className="text-sky-400 hover:underline font-bold text-[11px] shrink-0 self-end sm:self-auto cursor-pointer"
+              className="text-sky-600 dark:text-sky-400 hover:underline font-bold text-[11px] shrink-0 self-end sm:self-auto cursor-pointer"
             >
               Adjust Schedule
             </button>
@@ -1006,14 +1016,20 @@ ${todayWorkout.structure.map((s) => `• [${s.phase}] (${s.duration}): ${s.descr
 
           {/* Active Injury Advisory Banner */}
           {activeInjuries.length > 0 && (
-            <div className="p-3.5 rounded-2xl border bg-rose-500/10 border-rose-500/30 text-rose-300 text-xs flex items-start justify-between gap-3">
+            <div
+              className={`p-3.5 rounded-2xl border text-xs flex items-start justify-between gap-3 ${
+                theme === 'light'
+                  ? 'bg-rose-50 border-rose-200 text-rose-900'
+                  : 'bg-rose-500/10 border-rose-500/30 text-rose-300'
+              }`}
+            >
               <div className="flex items-start gap-2.5">
-                <AlertTriangle className="w-4 h-4 text-rose-400 shrink-0 mt-0.5" />
+                <AlertTriangle className="w-4 h-4 text-rose-500 dark:text-rose-400 shrink-0 mt-0.5" />
                 <div className="space-y-0.5">
-                  <div className="font-bold text-rose-300">
+                  <div className={`font-bold ${theme === 'light' ? 'text-rose-900' : 'text-rose-300'}`}>
                     Active Injury Guard Active: {activeInjuries.map((i) => `${i.name} (${i.bodyArea})`).join(', ')}
                   </div>
-                  <p className="text-[11px] opacity-90 text-rose-200">
+                  <p className={`text-[11px] opacity-90 ${theme === 'light' ? 'text-rose-800' : 'text-rose-200'}`}>
                     {activeInjuries[0].sportModifications || 'Restricted impact and low torque enforced.'}
                   </p>
                 </div>
@@ -1991,12 +2007,31 @@ ${todayWorkout.structure.map((s) => `• [${s.phase}] (${s.duration}): ${s.descr
       {activeSubTab === 'chat' && (
         <div className="relative space-y-4">
           {/* Runvia Pill Input Bar */}
+          {voiceSupportNotice && (
+            <div
+              className={`px-3 py-2 rounded-xl border text-xs flex items-center justify-between gap-2 ${
+                theme === 'light'
+                  ? 'bg-amber-50 border-amber-200 text-amber-900'
+                  : 'bg-amber-500/15 border-amber-500/30 text-amber-200'
+              }`}
+            >
+              <span>{voiceSupportNotice}</span>
+              <button
+                type="button"
+                onClick={() => setVoiceSupportNotice(null)}
+                className="p-0.5 rounded hover:opacity-80 cursor-pointer shrink-0"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          )}
+
           <form
             onSubmit={(e) => {
               e.preventDefault();
               handleSendMessage();
             }}
-            className="flex items-center gap-2 p-1.5 pl-3 bg-white border border-slate-300 rounded-full shadow-sm transition-all focus-within:border-amber-400"
+            className="flex items-center gap-1.5 sm:gap-2 p-1.5 pl-3 bg-white border border-slate-300 rounded-full shadow-sm transition-all focus-within:border-amber-400"
           >
             <button
               type="button"

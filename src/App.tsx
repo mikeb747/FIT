@@ -826,7 +826,9 @@ export default function App() {
       if (!container) return;
       const width = Math.min(container.clientWidth, typeof window !== 'undefined' ? window.innerWidth : container.clientWidth);
       let targetLevel = 0;
-      if (width < 540) {
+      if (width < 420) {
+        targetLevel = 4;
+      } else if (width < 540) {
         targetLevel = 3;
       } else if (width < 640) {
         targetLevel = 2;
@@ -837,8 +839,8 @@ export default function App() {
       setNavLayoutLevel((prev) => {
         // If overflowing beyond available viewport width, increase layout level
         const maxAvail = Math.min(container.clientWidth, typeof window !== 'undefined' ? window.innerWidth : container.clientWidth);
-        if (container.scrollWidth > maxAvail + 2 && prev < 3) {
-          return Math.min(3, Math.max(prev + 1, targetLevel));
+        if (container.scrollWidth > maxAvail + 2 && prev < 4) {
+          return Math.min(4, Math.max(prev + 1, targetLevel));
         }
         return targetLevel;
       });
@@ -863,16 +865,19 @@ export default function App() {
     const container = headerNavRef.current;
     if (!container) return;
     const maxAvail = Math.min(container.clientWidth, typeof window !== 'undefined' ? window.innerWidth : container.clientWidth);
-    if (container.scrollWidth > maxAvail + 2 && navLayoutLevel < 3) {
-      setNavLayoutLevel((l) => Math.min(3, l + 1));
+    if (container.scrollWidth > maxAvail + 2 && navLayoutLevel < 4) {
+      setNavLayoutLevel((l) => Math.min(4, l + 1));
     }
   }, [navLayoutLevel]);
 
   const showSettingsSyncText = navLayoutLevel === 0;
   const showActivityCount = navLayoutLevel < 2;
   const showTabIcons = navLayoutLevel < 3;
+  const isUltraCompactNav = navLayoutLevel >= 4;
   const buttonPaddingClass =
-    navLayoutLevel >= 3
+    navLayoutLevel >= 4
+      ? 'px-1.5 py-1.5'
+      : navLayoutLevel >= 3
       ? 'px-2 py-1.5'
       : navLayoutLevel >= 2
       ? 'px-2.5 py-1.5'
@@ -925,7 +930,7 @@ export default function App() {
       {/* Top Application Bar */}
       {/* ========================================================= */}
       <header
-        className={`sticky top-0 z-40 backdrop-blur-md border-b px-2 sm:px-4 py-2 transition-colors overflow-x-auto scrollbar-none ${
+        className={`sticky top-0 z-40 backdrop-blur-md border-b px-1.5 sm:px-4 py-2 transition-colors overflow-x-auto scrollbar-none ${
           theme === 'light'
             ? 'bg-white/90 border-slate-200/80 shadow-xs'
             : 'bg-[#090A0F]/90 border-slate-800/80'
@@ -933,12 +938,12 @@ export default function App() {
       >
         <div
           ref={headerNavRef}
-          className="max-w-5xl xl:max-w-6xl mx-auto flex items-center justify-between gap-1.5 sm:gap-2 whitespace-nowrap"
+          className="max-w-5xl xl:max-w-6xl mx-auto flex items-center justify-between gap-1 sm:gap-2 whitespace-nowrap"
         >
           {/* Navigation Switcher */}
           <div
-            className="flex items-center h-[34px] rounded-[12px] border-[0.8px] border-[#324158] overflow-hidden grow shrink-0"
-            style={{ flexGrow: 1, flexShrink: 0 }}
+            className="flex items-center h-[38px] sm:h-[36px] rounded-[12px] border-[0.8px] border-[#324158] overflow-hidden grow min-w-0"
+            style={{ flexGrow: 1 }}
           >
             <button
               type="button"
@@ -952,8 +957,8 @@ export default function App() {
                 }
                 setActiveMainTab('activities');
               }}
-              style={{ flexGrow: 1, flexShrink: 0 }}
-              className={`split-pill-item ${buttonPaddingClass} h-full grow shrink-0 text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer rounded-none outline-none focus:outline-none focus:ring-0 ${
+              style={{ flexGrow: 1 }}
+              className={`split-pill-item ${buttonPaddingClass} h-full grow min-w-0 ${isUltraCompactNav ? 'text-[11px]' : 'text-xs'} font-bold transition-all flex items-center justify-center gap-1 sm:gap-1.5 cursor-pointer rounded-none outline-none focus:outline-none focus:ring-0 ${
                 activeMainTab === 'activities'
                   ? 'bg-[#eeeeee] text-slate-900 font-extrabold shadow-[inset_0_2px_4px_rgba(0,0,0,0.18)]'
                   : 'bg-white hover:bg-slate-50 text-slate-700 hover:text-slate-900 font-bold'
@@ -966,8 +971,8 @@ export default function App() {
             <button
               type="button"
               onClick={() => setActiveMainTab('recovery')}
-              style={{ flexGrow: 1, flexShrink: 0 }}
-              className={`split-pill-item ${buttonPaddingClass} h-full grow shrink-0 text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer rounded-none outline-none focus:outline-none focus:ring-0 ${
+              style={{ flexGrow: 1 }}
+              className={`split-pill-item ${buttonPaddingClass} h-full grow min-w-0 ${isUltraCompactNav ? 'text-[11px]' : 'text-xs'} font-bold transition-all flex items-center justify-center gap-1 sm:gap-1.5 cursor-pointer rounded-none outline-none focus:outline-none focus:ring-0 ${
                 activeMainTab === 'recovery'
                   ? 'bg-[#eeeeee] text-slate-900 font-extrabold shadow-[inset_0_2px_4px_rgba(0,0,0,0.18)]'
                   : 'bg-white hover:bg-slate-50 text-slate-700 hover:text-slate-900 font-bold'
@@ -977,7 +982,9 @@ export default function App() {
               <span className="leading-none">Readiness</span>
               {headerReadiness && Number.isFinite(headerReadiness.score) && (
                 <span
-                  className="inline-flex items-center justify-center h-[22px] px-2 rounded-[6px] border-[0.8px] border-[#9d5454] bg-[#ffcfc3] text-[#492929] text-xs font-extrabold leading-none"
+                  className={`inline-flex items-center justify-center rounded-[6px] border-[0.8px] border-[#9d5454] bg-[#ffcfc3] text-[#492929] font-extrabold leading-none tabular-nums ${
+                    isUltraCompactNav ? 'h-[18px] px-1 text-[10px]' : 'h-[22px] px-1.5 sm:px-2 text-[11px] sm:text-xs'
+                  }`}
                 >
                   {headerReadiness.score}%
                 </span>
@@ -987,8 +994,8 @@ export default function App() {
             <button
               type="button"
               onClick={() => setActiveMainTab('fitness')}
-              style={{ flexGrow: 1, flexShrink: 0 }}
-              className={`split-pill-item ${buttonPaddingClass} h-full grow shrink-0 text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer rounded-none outline-none focus:outline-none focus:ring-0 ${
+              style={{ flexGrow: 1 }}
+              className={`split-pill-item ${buttonPaddingClass} h-full grow min-w-0 ${isUltraCompactNav ? 'text-[11px]' : 'text-xs'} font-bold transition-all flex items-center justify-center gap-1 sm:gap-1.5 cursor-pointer rounded-none outline-none focus:outline-none focus:ring-0 ${
                 activeMainTab === 'fitness'
                   ? 'bg-[#eeeeee] text-slate-900 font-extrabold shadow-[inset_0_2px_4px_rgba(0,0,0,0.18)]'
                   : 'bg-white hover:bg-slate-50 text-slate-700 hover:text-slate-900 font-bold'
@@ -1001,22 +1008,22 @@ export default function App() {
             <button
               type="button"
               onClick={() => setActiveMainTab('performance')}
-              style={{ flexGrow: 1, flexShrink: 0 }}
-              className={`split-pill-item ${buttonPaddingClass} h-full grow shrink-0 text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer rounded-none outline-none focus:outline-none focus:ring-0 ${
+              style={{ flexGrow: 1 }}
+              className={`split-pill-item ${buttonPaddingClass} h-full grow min-w-0 ${isUltraCompactNav ? 'text-[11px]' : 'text-xs'} font-bold transition-all flex items-center justify-center gap-1 sm:gap-1.5 cursor-pointer rounded-none outline-none focus:outline-none focus:ring-0 ${
                 activeMainTab === 'performance'
                   ? 'bg-[#eeeeee] text-slate-900 font-extrabold shadow-[inset_0_2px_4px_rgba(0,0,0,0.18)]'
                   : 'bg-white hover:bg-slate-50 text-slate-700 hover:text-slate-900 font-bold'
               }`}
             >
               {showTabIcons && <TrendingUp className="w-3.5 h-3.5 text-cyan-600 shrink-0" />}
-              <span className="leading-none">Performance</span>
+              <span className="leading-none">{isUltraCompactNav ? 'Perform' : 'Performance'}</span>
             </button>
 
             <button
               type="button"
               onClick={() => setActiveMainTab('coach')}
-              style={{ flexGrow: 1, flexShrink: 0 }}
-              className={`split-pill-item-last ${buttonPaddingClass} h-full grow shrink-0 text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer rounded-none outline-none focus:outline-none focus:ring-0 ${
+              style={{ flexGrow: 1 }}
+              className={`split-pill-item-last ${buttonPaddingClass} h-full grow min-w-0 ${isUltraCompactNav ? 'text-[11px]' : 'text-xs'} font-bold transition-all flex items-center justify-center gap-1 sm:gap-1.5 cursor-pointer rounded-none outline-none focus:outline-none focus:ring-0 ${
                 activeMainTab === 'coach'
                   ? 'bg-[#eeeeee] text-slate-900 font-extrabold shadow-[inset_0_2px_4px_rgba(0,0,0,0.18)]'
                   : 'bg-white hover:bg-slate-50 text-slate-700 hover:text-slate-900 font-bold'
@@ -1028,7 +1035,7 @@ export default function App() {
           </div>
 
           {/* Action cluster: Settings, Strava Sync */}
-          <div className="flex items-center h-[34px] rounded-[12px] border-[0.8px] border-[#324158] overflow-hidden shrink-0">
+          <div className="flex items-center h-[38px] sm:h-[36px] rounded-[12px] border-[0.8px] border-[#324158] overflow-hidden shrink-0">
             {/* Settings & Athlete Profile Button */}
             <button
               type="button"
@@ -1037,7 +1044,7 @@ export default function App() {
                 setIsAthleteProfileOpen(true);
               }}
               title="Settings & Athlete Profile"
-              className={`split-pill-item ${buttonPaddingClass} h-full text-xs font-bold flex items-center justify-center gap-1.5 transition-all active:scale-95 cursor-pointer outline-none focus:outline-none focus:ring-0 shrink-0 bg-white hover:bg-slate-50 text-slate-700 hover:text-slate-900`}
+              className={`split-pill-item ${isUltraCompactNav ? 'px-2 py-1.5' : buttonPaddingClass} h-full text-xs font-bold flex items-center justify-center gap-1.5 transition-all active:scale-95 cursor-pointer outline-none focus:outline-none focus:ring-0 shrink-0 bg-white hover:bg-slate-50 text-slate-700 hover:text-slate-900`}
             >
               <Settings className="w-4 h-4 text-amber-400 shrink-0" />
               {showSettingsSyncText && <span className="-ml-px">Settings</span>}
@@ -1055,7 +1062,7 @@ export default function App() {
               }}
               disabled={isLoadingStravaActivities}
               title={stravaToken ? 'Sync Strava activities (smart delta sync)' : 'Connect Strava'}
-              className={`split-pill-item-last ${buttonPaddingClass} h-full text-xs font-bold flex items-center justify-center gap-1.5 transition-all active:scale-95 cursor-pointer disabled:opacity-50 shrink-0 outline-none focus:outline-none focus:ring-0 bg-white hover:bg-slate-50 text-slate-700 hover:text-slate-900`}
+              className={`split-pill-item-last ${isUltraCompactNav ? 'px-2 py-1.5' : buttonPaddingClass} h-full text-xs font-bold flex items-center justify-center gap-1.5 transition-all active:scale-95 cursor-pointer disabled:opacity-50 shrink-0 outline-none focus:outline-none focus:ring-0 bg-white hover:bg-slate-50 text-slate-700 hover:text-slate-900`}
             >
               <RotateCw
                 className={`w-3.5 h-3.5 shrink-0 ${
@@ -1229,6 +1236,8 @@ export default function App() {
             theme={theme}
             stravaToken={stravaToken}
             isGoogleConnected={isGoogleConnected}
+            onConnectGoogle={handleConnectGoogle}
+            onActivityPublished={handleActivityPublished}
             onOpenSettings={() => {
               setProfileModalTab('goals');
               setIsAthleteProfileOpen(true);
@@ -1242,6 +1251,11 @@ export default function App() {
             athleteProfile={athleteProfile}
             goals={athleteGoals}
             theme={theme}
+            stravaToken={stravaToken}
+            isGoogleConnected={isGoogleConnected}
+            onConnectGoogle={handleConnectGoogle}
+            onActivityPublished={handleActivityPublished}
+            onDeleteActivity={handleDeleteActivity}
             onOpenSettings={(tab) => {
               setProfileModalTab(tab || 'physiology');
               setIsAthleteProfileOpen(true);

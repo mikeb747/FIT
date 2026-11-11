@@ -51,6 +51,7 @@ import {
 } from '../utils/performanceEngine';
 
 import type { ProfileTab } from './AthleteProfileModal';
+import { StravaActivityModal } from './StravaActivityModal';
 
 interface PerformanceTabProps {
   activities: StravaActivity[];
@@ -58,6 +59,11 @@ interface PerformanceTabProps {
   athleteProfile?: AthleteProfile;
   goals?: TrainingGoal[];
   theme?: 'dark' | 'light';
+  stravaToken?: string | null;
+  isGoogleConnected?: boolean;
+  onConnectGoogle?: () => void;
+  onActivityPublished?: (activityId: string) => void;
+  onDeleteActivity?: (activityId: string | number) => void;
   onSelectActivity?: (activityId: string | number) => void;
   onOpenSettings?: (tab?: ProfileTab) => void;
 }
@@ -68,6 +74,11 @@ export const PerformanceTab: React.FC<PerformanceTabProps> = ({
   athleteProfile,
   goals = [],
   theme = 'dark',
+  stravaToken = null,
+  isGoogleConnected = false,
+  onConnectGoogle = () => {},
+  onActivityPublished,
+  onDeleteActivity,
   onSelectActivity,
   onOpenSettings,
 }) => {
@@ -79,6 +90,7 @@ export const PerformanceTab: React.FC<PerformanceTabProps> = ({
   const [curveMetric, setCurveMetric] = useState<'bike' | 'run'>('bike');
   const [lookbackDays, setLookbackDays] = useState<number>(365);
   const [hoveredPeakIndex, setHoveredPeakIndex] = useState<number | null>(null);
+  const [activeModalActivity, setActiveModalActivity] = useState<StravaActivity | null>(null);
 
   // Advanced Modeling Parameters
   const [bikeElevationProfile, setBikeElevationProfile] = useState<BikeCourseElevationProfile>('rolling_800m');
@@ -131,17 +143,63 @@ export const PerformanceTab: React.FC<PerformanceTabProps> = ({
     );
   }, [selectedTriDistance, criticalParams, athleteProfile, bikeElevationProfile, runCourseProfile, riegelExponent]);
 
-  // SVG Curve Dimensions
-  const svgWidth = 720;
-  const svgHeight = 220;
-  const padLeft = 45;
-  const padRight = 20;
+  // SVG Curve Dimensions (fits mobile natively without forced horizontal scroll)
+  const svgWidth = 600;
+  const svgHeight = 235;
+  const padLeft = 46;
+  const padRight = 16;
   const padTop = 20;
-  const padBottom = 35;
+  const padBottom = 34;
   const plotWidth = svgWidth - padLeft - padRight;
   const plotHeight = svgHeight - padTop - padBottom;
 
   const activeCurvePeaks = curveMetric === 'bike' ? bikePeaks : runPeaks;
+
+  // Dynamic Y-Axis Scale for Peak Performance Curve (prevents >460W or fast paces clipping at ceiling)
+  const curveScale = useMemo(() => {
+    const vals = activeCurvePeaks.flatMap((p) =>
+      [p.actualValue, p.modeledValue].filter((v): v is number => typeof v === 'number' && Number.isFinite(v) && v > 0)
+    );
+    if (curveMetric === 'bike') {
+      const cp = criticalParams.criticalPowerWatts || 280;
+      const rawMin = vals.length > 0 ? Math.min(...vals, cp) : 200;
+      const rawMax = vals.length > 0 ? Math.max(...vals, cp + 80) : 450;
+      const minVal = Math.max(100, Math.floor((rawMin - 25) / 25) * 25);
+      const maxVal = Math.ceil((rawMax + 25) / 25) * 25;
+      return { minVal, maxVal: Math.max(minVal + 100, maxVal) };
+    } else {
+      const cs = criticalParams.criticalSpeedMps > 0 ? Math.round(1000 / criticalParams.criticalSpeedMps) : 235;
+      const rawMin = vals.length > 0 ? Math.min(...vals, cs - 20) : 180;
+      const rawMax = vals.length > 0 ? Math.max(...vals, cs + 25) : 290;
+      const minVal = Math.max(140, Math.floor((rawMin - 10) / 10) * 10);
+      const maxVal = Math.ceil((rawMax + 10) / 10) * 10;
+      return { minVal, maxVal: Math.max(minVal + 50, maxVal) };
+    }
+  }, [activeCurvePeaks, curveMetric, criticalParams]);
+
+  // Dynamic Goal Race Context Summary
+  const targetGoalsLabel = useMemo(() => {
+    const todayIso = new Date().toISOString().split('T')[0];
+    const upcoming = goals
+      .filter((g) => g.status !== 'completed' && g.eventDate >= todayIso)
+      .sort((a, b) => a.eventDate.localeCompare(b.eventDate));
+    if (upcoming.length === 0) {
+      return 'Target: Age-Group Peak Readiness';
+    }
+    const topTwo = upcoming.slice(0, 2).map((g) => {
+      const yr = g.eventDate.slice(0, 4);
+      return `${g.name} (${yr})`;
+    });
+    return `Target: ${topTwo.join(' · ')}`;
+  }, [goals]);
+
+  const handleOpenPeakActivity = (activityId: string | number) => {
+    onSelectActivity?.(activityId);
+    const found = activities.find((a) => String(a.id) === String(activityId));
+    if (found) {
+      setActiveModalActivity(found);
+    }
+  };
 
   return (
     <div className="space-y-6">
@@ -154,11 +212,11 @@ export const PerformanceTab: React.FC<PerformanceTabProps> = ({
         }`}
       >
         <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
-          <div className="flex items-center gap-3">
-            <div className="p-2.5 rounded-xl bg-cyan-500/10 border border-cyan-500/20 text-cyan-400">
+          <div className="flex items-start sm:items-center gap-3">
+            <div className="p-2.5 rounded-xl bg-cyan-500/10 border border-cyan-500/20 text-cyan-400 shrink-0">
               <TrendingUp className="w-5 h-5" />
             </div>
-            <div>
+            <div className="min-w-0">
               <div className="flex flex-wrap items-center gap-2">
                 <h1 className={`text-lg sm:text-xl font-black tracking-tight ${isLight ? 'text-slate-900' : 'text-white'}`}>
                   Performance & Race Modeling Engine
@@ -166,8 +224,8 @@ export const PerformanceTab: React.FC<PerformanceTabProps> = ({
                 <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-cyan-500/15 text-cyan-700 dark:text-cyan-400 border border-cyan-500/20">
                   {weaknessAnalysis.ageGroup} · {weaknessAnalysis.athleteWeightKg} kg
                 </span>
-                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-500/15 text-amber-700 dark:text-amber-400 border border-amber-500/20">
-                  Target: 2027 10M/HM · 2028 Ironman (800m Elev)
+                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-500/15 text-amber-800 dark:text-amber-400 border border-amber-500/20 max-w-full truncate">
+                  {targetGoalsLabel}
                 </span>
               </div>
               <p className={`text-xs mt-0.5 ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>
@@ -395,15 +453,17 @@ export const PerformanceTab: React.FC<PerformanceTabProps> = ({
             }`}
           >
             <div className="flex items-center gap-2.5">
-              <Mountain className="w-4 h-4 text-amber-400 shrink-0" />
+              <Mountain className="w-4 h-4 text-amber-500 dark:text-amber-400 shrink-0" />
               <div>
-                <span className="text-xs font-bold text-amber-300">Course Elevation Simulation:</span>
-                <p className="text-[11px] text-slate-400">
+                <span className={`text-xs font-bold ${isLight ? 'text-amber-900' : 'text-amber-300'}`}>
+                  Course Elevation Simulation:
+                </span>
+                <p className={`text-[11px] ${isLight ? 'text-slate-600' : 'text-slate-400'}`}>
                   Flatter course = higher bike speed for everyone, compressing bike time variance and shifting time-gain potential toward run durability.
                 </p>
               </div>
             </div>
-            <div className="flex items-center gap-1.5 self-start sm:self-auto shrink-0">
+            <div className="flex flex-wrap items-center gap-1.5 self-start sm:self-auto shrink-0">
               <button
                 type="button"
                 onClick={() => setBikeElevationProfile('flat')}
@@ -446,9 +506,9 @@ export const PerformanceTab: React.FC<PerformanceTabProps> = ({
               isLight ? 'bg-cyan-50 border-cyan-200' : 'bg-cyan-950/20 border-cyan-800/40'
             }`}
           >
-            <Sparkles className="w-5 h-5 text-cyan-400 shrink-0 mt-0.5" />
+            <Sparkles className="w-5 h-5 text-cyan-500 dark:text-cyan-400 shrink-0 mt-0.5" />
             <div>
-              <span className="text-xs font-black uppercase tracking-wider text-cyan-300">
+              <span className={`text-xs font-black uppercase tracking-wider ${isLight ? 'text-cyan-800' : 'text-cyan-300'}`}>
                 Primary Opportunity: {weaknessAnalysis.primaryLimiterName}
               </span>
               <p className={`text-xs mt-0.5 leading-relaxed ${isLight ? 'text-slate-700' : 'text-slate-300'}`}>
@@ -594,7 +654,7 @@ export const PerformanceTab: React.FC<PerformanceTabProps> = ({
                 </p>
               </div>
             </div>
-            <div className="flex items-center gap-1.5 self-start md:self-auto shrink-0">
+            <div className="flex flex-wrap items-center gap-1.5 self-start md:self-auto shrink-0">
               <button
                 type="button"
                 onClick={() => setRiegelExponent(1.045)}
@@ -627,16 +687,16 @@ export const PerformanceTab: React.FC<PerformanceTabProps> = ({
 
           {/* Running Predictions Table */}
           <div className="overflow-x-auto rounded-xl border border-slate-800/80">
-            <table className="w-full text-left text-xs">
+            <table className="w-full text-left text-xs tabular-nums">
               <thead className="bg-slate-950/60 text-slate-400 uppercase text-[10px] tracking-wider border-b border-slate-800">
                 <tr>
-                  <th className="py-2.5 px-3">Race Distance</th>
-                  <th className="py-2.5 px-3">% of LT Speed</th>
-                  <th className="py-2.5 px-3">Target Pace</th>
-                  <th className="py-2.5 px-3">Projected Time</th>
-                  <th className="py-2.5 px-3">Logged Peak</th>
-                  <th className="py-2.5 px-3">HR Regression Check</th>
-                  <th className="py-2.5 px-3">Model Confidence</th>
+                  <th className="py-2 px-2 sm:py-2.5 sm:px-3">Race Distance</th>
+                  <th className="py-2 px-2 sm:py-2.5 sm:px-3">% LT</th>
+                  <th className="py-2 px-2 sm:py-2.5 sm:px-3">Target Pace</th>
+                  <th className="py-2 px-2 sm:py-2.5 sm:px-3">Projected</th>
+                  <th className="py-2 px-2 sm:py-2.5 sm:px-3">Logged Peak</th>
+                  <th className="py-2 px-2 sm:py-2.5 sm:px-3">HR Check</th>
+                  <th className="py-2 px-2 sm:py-2.5 sm:px-3">Confidence</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-800/60 font-medium">
@@ -648,14 +708,20 @@ export const PerformanceTab: React.FC<PerformanceTabProps> = ({
                     <tr
                       key={r.distanceId}
                       className={`hover:bg-slate-800/30 transition-colors ${
-                        isGoalRace ? 'bg-emerald-950/15 font-semibold' : ''
+                        isGoalRace ? (isLight ? 'bg-emerald-50/60 font-semibold' : 'bg-emerald-950/15 font-semibold') : ''
                       }`}
                     >
-                      <td className="py-3 px-3">
+                      <td className="py-2.5 px-2 sm:py-3 sm:px-3 whitespace-nowrap">
                         <div className="flex items-center gap-1.5">
                           <span className={`font-bold ${isLight ? 'text-slate-900' : 'text-white'}`}>{r.name}</span>
                           {isGoalRace && (
-                            <span className="text-[9px] font-black px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                            <span
+                              className={`text-[9px] font-black px-1.5 py-0.5 rounded border ${
+                                isLight
+                                  ? 'bg-emerald-100 text-emerald-800 border-emerald-300'
+                                  : 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30'
+                              }`}
+                            >
                               2027 Goal
                             </span>
                           )}
@@ -857,8 +923,8 @@ export const PerformanceTab: React.FC<PerformanceTabProps> = ({
                     <div className="text-xl font-black font-mono text-white mb-1">
                       {r.predictedTimeFormatted}
                     </div>
-                    <div className="text-xs font-mono text-sky-400 font-bold mb-3">
-                      {r.pacePer100mFormatted} ({formatSwimPaceYards(parseFloat(r.pacePer100mFormatted))})
+                    <div className="text-xs font-mono text-sky-500 dark:text-sky-400 font-bold mb-3 tabular-nums">
+                      {r.pacePer100mFormatted} ({formatSwimPaceYards(r.predictedTimeSec / (r.distanceM / 100))})
                     </div>
 
                     <div className="text-[10px] text-slate-400 leading-tight mb-2">
@@ -909,7 +975,7 @@ export const PerformanceTab: React.FC<PerformanceTabProps> = ({
             </p>
           </div>
 
-          <div className="flex items-center gap-2 self-start sm:self-auto">
+          <div className="flex flex-wrap items-center gap-2 self-start sm:self-auto">
             {/* Metric Switcher */}
             <div className="flex items-center p-0.5 rounded-lg bg-slate-950/40 border border-slate-800 text-xs font-bold">
               <button
@@ -938,7 +1004,9 @@ export const PerformanceTab: React.FC<PerformanceTabProps> = ({
                 type="button"
                 onClick={() => setLookbackDays(90)}
                 className={`px-2 py-1 rounded-md transition-colors cursor-pointer ${
-                  lookbackDays === 90 ? 'bg-slate-700 text-white' : 'text-slate-400 hover:text-white'
+                  lookbackDays === 90
+                    ? 'bg-indigo-600 text-white shadow-xs'
+                    : 'text-slate-400 hover:text-white'
                 }`}
               >
                 90d
@@ -947,7 +1015,9 @@ export const PerformanceTab: React.FC<PerformanceTabProps> = ({
                 type="button"
                 onClick={() => setLookbackDays(365)}
                 className={`px-2 py-1 rounded-md transition-colors cursor-pointer ${
-                  lookbackDays === 365 ? 'bg-slate-700 text-white' : 'text-slate-400 hover:text-white'
+                  lookbackDays === 365
+                    ? 'bg-indigo-600 text-white shadow-xs'
+                    : 'text-slate-400 hover:text-white'
                 }`}
               >
                 365d
@@ -956,18 +1026,54 @@ export const PerformanceTab: React.FC<PerformanceTabProps> = ({
           </div>
         </div>
 
-        {/* SVG Interactive Curve */}
-        <div className="relative w-full overflow-x-auto pb-2">
+        {/* Selected / Tapped Interval Inspection Strip */}
+        {hoveredPeakIndex !== null && activeCurvePeaks[hoveredPeakIndex] && (() => {
+          const sel = activeCurvePeaks[hoveredPeakIndex];
+          return (
+            <div
+              className={`mb-3 px-3 py-2 rounded-xl border text-xs flex flex-wrap items-center justify-between gap-2 ${
+                isLight ? 'bg-slate-50 border-slate-200 text-slate-800' : 'bg-slate-950/60 border-slate-800 text-slate-200'
+              }`}
+            >
+              <div className="flex flex-wrap items-center gap-2 tabular-nums">
+                <span className="font-black">{sel.durationLabel}:</span>
+                <span className="font-mono font-black text-cyan-500 dark:text-cyan-400">{sel.formattedValue}</span>
+                {sel.secondaryFormatted && (
+                  <span className="font-mono text-slate-500">({sel.secondaryFormatted})</span>
+                )}
+                <span className="text-slate-400">·</span>
+                <span className="font-mono text-slate-500">Model {sel.modeledFormatted}</span>
+              </div>
+              {sel.activityId && (
+                <button
+                  type="button"
+                  onClick={() => handleOpenPeakActivity(sel.activityId!)}
+                  className="text-[11px] font-bold text-cyan-500 hover:underline flex items-center gap-0.5 cursor-pointer"
+                >
+                  <span className="truncate max-w-[180px]">{sel.activityName || 'Open Activity'}</span>
+                  <ArrowUpRight className="w-3 h-3 shrink-0" />
+                </button>
+              )}
+            </div>
+          );
+        })()}
+
+        {/* SVG Interactive Curve (Fits 100% of mobile width cleanly with dynamic Y scale) */}
+        <div className="relative w-full pb-1">
           <svg
             viewBox={`0 0 ${svgWidth} ${svgHeight}`}
-            className="w-full min-w-[640px] h-auto select-none overflow-visible"
+            className="w-full h-auto select-none overflow-visible"
           >
             {/* Background Grid */}
             <rect x={padLeft} y={padTop} width={plotWidth} height={plotHeight} fill="transparent" />
 
-            {/* Horizontal Grid Lines */}
+            {/* Horizontal Grid Lines & Dynamic Y-Axis Labels */}
             {[0, 0.25, 0.5, 0.75, 1].map((ratio, idx) => {
               const y = padTop + plotHeight * ratio;
+              const labelVal =
+                curveMetric === 'bike'
+                  ? `${Math.round(curveScale.maxVal - ratio * (curveScale.maxVal - curveScale.minVal))}W`
+                  : formatPaceKm(Math.round(curveScale.minVal + ratio * (curveScale.maxVal - curveScale.minVal))).replace('/km', '');
               return (
                 <g key={idx}>
                   <line
@@ -979,13 +1085,33 @@ export const PerformanceTab: React.FC<PerformanceTabProps> = ({
                     strokeDasharray="4 4"
                     strokeWidth="1"
                   />
+                  <text
+                    x={padLeft - 6}
+                    y={y + 3.5}
+                    textAnchor="end"
+                    fill={isLight ? '#64748b' : '#94a3b8'}
+                    fontSize="10"
+                    fontFamily="monospace"
+                  >
+                    {labelVal}
+                  </text>
                 </g>
               );
             })}
 
             {/* Asymptotic Threshold Guideline (CP or CS) */}
             {(() => {
-              const thresholdY = padTop + plotHeight * (curveMetric === 'bike' ? 0.72 : 0.68);
+              const cpOrCsVal =
+                curveMetric === 'bike'
+                  ? criticalParams.criticalPowerWatts
+                  : criticalParams.criticalSpeedMps > 0
+                  ? Math.round(1000 / criticalParams.criticalSpeedMps)
+                  : 235;
+              const norm =
+                curveMetric === 'bike'
+                  ? (cpOrCsVal - curveScale.minVal) / (curveScale.maxVal - curveScale.minVal)
+                  : 1 - (cpOrCsVal - curveScale.minVal) / (curveScale.maxVal - curveScale.minVal);
+              const thresholdY = padTop + (1 - Math.max(0.05, Math.min(0.95, norm))) * plotHeight;
               return (
                 <g>
                   <line
@@ -996,19 +1122,19 @@ export const PerformanceTab: React.FC<PerformanceTabProps> = ({
                     stroke={curveMetric === 'bike' ? '#f97316' : '#10b981'}
                     strokeDasharray="6 3"
                     strokeWidth="1.5"
-                    strokeOpacity="0.7"
+                    strokeOpacity="0.75"
                   />
                   <text
-                    x={padLeft + plotWidth - 5}
+                    x={padLeft + plotWidth - 4}
                     y={thresholdY - 5}
                     textAnchor="end"
-                    fill={curveMetric === 'bike' ? '#f97316' : '#10b981'}
+                    fill={curveMetric === 'bike' ? '#ea580c' : '#059669'}
                     fontSize="10"
                     fontWeight="bold"
                   >
                     {curveMetric === 'bike'
-                      ? `Critical Power (CP): ${criticalParams.criticalPowerWatts}W`
-                      : `Critical Speed (CS): ${criticalParams.criticalSpeedPaceFormatted}`}
+                      ? `CP: ${criticalParams.criticalPowerWatts}W`
+                      : `CS: ${criticalParams.criticalSpeedPaceFormatted}`}
                   </text>
                 </g>
               );
@@ -1018,16 +1144,11 @@ export const PerformanceTab: React.FC<PerformanceTabProps> = ({
             {(() => {
               const points = activeCurvePeaks.map((p, idx) => {
                 const x = padLeft + (idx / (activeCurvePeaks.length - 1)) * plotWidth;
-                let norm = 0.5;
-                if (curveMetric === 'bike') {
-                  const maxW = 460;
-                  const minW = 220;
-                  norm = (p.modeledValue! - minW) / (maxW - minW);
-                } else {
-                  const maxP = 290;
-                  const minP = 180;
-                  norm = 1 - (p.modeledValue! - minP) / (maxP - minP);
-                }
+                const val = p.modeledValue ?? p.actualValue;
+                const norm =
+                  curveMetric === 'bike'
+                    ? (val - curveScale.minVal) / (curveScale.maxVal - curveScale.minVal)
+                    : 1 - (val - curveScale.minVal) / (curveScale.maxVal - curveScale.minVal);
                 const y = padTop + (1 - Math.max(0, Math.min(1, norm))) * plotHeight;
                 return { x, y };
               });
@@ -1040,37 +1161,48 @@ export const PerformanceTab: React.FC<PerformanceTabProps> = ({
                   fill="none"
                   stroke={curveMetric === 'bike' ? '#ea580c' : '#059669'}
                   strokeWidth="2.5"
-                  strokeOpacity="0.8"
+                  strokeOpacity="0.85"
                 />
               );
             })()}
 
-            {/* Observed Data Points and Hover Triggers */}
+            {/* Observed Data Points and Touch/Hover Triggers */}
             {activeCurvePeaks.map((p, idx) => {
               const x = padLeft + (idx / (activeCurvePeaks.length - 1)) * plotWidth;
-              let norm = 0.5;
-              if (curveMetric === 'bike') {
-                const maxW = 460;
-                const minW = 220;
-                norm = (p.actualValue - minW) / (maxW - minW);
-              } else {
-                const maxP = 290;
-                const minP = 180;
-                norm = 1 - (p.actualValue - minP) / (maxP - minP);
-              }
+              const norm =
+                curveMetric === 'bike'
+                  ? (p.actualValue - curveScale.minVal) / (curveScale.maxVal - curveScale.minVal)
+                  : 1 - (p.actualValue - curveScale.minVal) / (curveScale.maxVal - curveScale.minVal);
               const y = padTop + (1 - Math.max(0, Math.min(1, norm))) * plotHeight;
               const isHovered = hoveredPeakIndex === idx;
+              const compactLabel = p.durationMin === 120 ? '2h' : `${p.durationMin}m`;
 
               return (
-                <g key={idx}>
+                <g
+                  key={idx}
+                  className="cursor-pointer"
+                  onMouseEnter={() => setHoveredPeakIndex(idx)}
+                  onMouseLeave={() => setHoveredPeakIndex(null)}
+                  onClick={() => setHoveredPeakIndex((prev) => (prev === idx ? null : idx))}
+                >
+                  {/* Wide Touch Hit Target Column */}
+                  <rect
+                    x={x - plotWidth / 20}
+                    y={padTop}
+                    width={plotWidth / 10}
+                    height={plotHeight + 24}
+                    fill="transparent"
+                  />
+
                   {/* Vertical Guide */}
                   <line
                     x1={x}
                     y1={padTop}
                     x2={x}
                     y2={padTop + plotHeight}
-                    stroke={isLight ? '#f1f5f9' : '#1e293b'}
-                    strokeWidth="1"
+                    stroke={isHovered ? (curveMetric === 'bike' ? '#f97316' : '#10b981') : isLight ? '#f1f5f9' : '#1e293b'}
+                    strokeWidth={isHovered ? '1.5' : '1'}
+                    strokeOpacity={isHovered ? '0.6' : '1'}
                   />
 
                   {/* Circle Dot */}
@@ -1081,21 +1213,20 @@ export const PerformanceTab: React.FC<PerformanceTabProps> = ({
                     fill={curveMetric === 'bike' ? '#f97316' : '#10b981'}
                     stroke={isLight ? '#ffffff' : '#0f172a'}
                     strokeWidth="2"
-                    className="cursor-pointer transition-all"
-                    onMouseEnter={() => setHoveredPeakIndex(idx)}
-                    onMouseLeave={() => setHoveredPeakIndex(null)}
+                    className="transition-all"
                   />
 
                   {/* X-Axis Duration Label */}
                   <text
                     x={x}
-                    y={padTop + plotHeight + 18}
+                    y={padTop + plotHeight + 19}
                     textAnchor="middle"
                     fill={isHovered ? (isLight ? '#0f172a' : '#ffffff') : '#64748b'}
                     fontSize="11"
+                    fontFamily="monospace"
                     fontWeight={isHovered ? 'bold' : 'normal'}
                   >
-                    {p.durationLabel}
+                    {compactLabel}
                   </text>
                 </g>
               );
@@ -1103,65 +1234,104 @@ export const PerformanceTab: React.FC<PerformanceTabProps> = ({
           </svg>
         </div>
 
-        {/* Duration Breakdown Table */}
-        <div className="overflow-x-auto rounded-xl border border-slate-800/80 mt-4">
-          <table className="w-full text-left text-xs">
-            <thead className="bg-slate-950/60 text-slate-400 uppercase text-[10px] tracking-wider border-b border-slate-800">
+        {/* Duration Breakdown Table (Compact mobile layout so all 6 columns fit cleanly) */}
+        <div className="overflow-x-auto rounded-xl border border-slate-800/80 mt-3">
+          <table className="w-full text-left text-[11px] sm:text-xs tabular-nums">
+            <thead className="bg-slate-950/60 text-slate-400 uppercase text-[9px] sm:text-[10px] tracking-wider border-b border-slate-800">
               <tr>
-                <th className="py-2.5 px-3">Interval</th>
-                <th className="py-2.5 px-3">Peak Performance</th>
-                <th className="py-2.5 px-3">{curveMetric === 'bike' ? 'Power-to-Weight' : 'Pace (Miles)'}</th>
-                <th className="py-2.5 px-3">Model Baseline</th>
-                <th className="py-2.5 px-3">Effort Classification</th>
-                <th className="py-2.5 px-3">Confidence</th>
+                <th className="py-2 px-1.5 sm:py-2.5 sm:px-3">
+                  <span className="sm:hidden">Intv</span>
+                  <span className="hidden sm:inline">Interval</span>
+                </th>
+                <th className="py-2 px-1.5 sm:py-2.5 sm:px-3">
+                  <span className="sm:hidden">Peak</span>
+                  <span className="hidden sm:inline">Peak Performance</span>
+                </th>
+                <th className="py-2 px-1.5 sm:py-2.5 sm:px-3">
+                  <span className="sm:hidden">{curveMetric === 'bike' ? 'W/kg' : '/mi'}</span>
+                  <span className="hidden sm:inline">{curveMetric === 'bike' ? 'Power-to-Weight' : 'Pace (Miles)'}</span>
+                </th>
+                <th className="py-2 px-1.5 sm:py-2.5 sm:px-3">
+                  <span className="sm:hidden">Model</span>
+                  <span className="hidden sm:inline">Model Baseline</span>
+                </th>
+                <th className="py-2 px-1.5 sm:py-2.5 sm:px-3">
+                  <span className="sm:hidden">Effort</span>
+                  <span className="hidden sm:inline">Effort Classification</span>
+                </th>
+                <th className="py-2 px-1.5 sm:py-2.5 sm:px-3 text-right sm:text-left">
+                  <span className="sm:hidden">Conf</span>
+                  <span className="hidden sm:inline">Confidence</span>
+                </th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-800/60 font-medium">
               {activeCurvePeaks.map((p, idx) => (
                 <tr
                   key={idx}
-                  onClick={() => p.activityId && onSelectActivity?.(p.activityId)}
+                  onClick={() => p.activityId && handleOpenPeakActivity(p.activityId)}
                   className={`hover:bg-slate-800/30 transition-colors ${
-                    p.activityId && onSelectActivity ? 'cursor-pointer' : ''
+                    p.activityId ? 'cursor-pointer' : ''
                   } ${hoveredPeakIndex === idx ? 'bg-cyan-500/10' : ''}`}
                   onMouseEnter={() => setHoveredPeakIndex(idx)}
                   onMouseLeave={() => setHoveredPeakIndex(null)}
                 >
-                  <td className="py-2.5 px-3 font-bold text-white">{p.durationLabel}</td>
-                  <td className="py-2.5 px-3 font-mono font-black text-cyan-400 text-sm">
+                  <td className="py-2 px-1.5 sm:py-2.5 sm:px-3 font-bold text-white whitespace-nowrap">
+                    <span className="sm:hidden">{p.durationMin === 120 ? '120m' : `${p.durationMin}m`}</span>
+                    <span className="hidden sm:inline">{p.durationLabel}</span>
+                  </td>
+                  <td className="py-2 px-1.5 sm:py-2.5 sm:px-3 font-mono font-black text-cyan-500 dark:text-cyan-400 text-xs sm:text-sm whitespace-nowrap">
                     {p.formattedValue}
                   </td>
-                  <td className="py-2.5 px-3 font-mono text-slate-300">
+                  <td className="py-2 px-1.5 sm:py-2.5 sm:px-3 font-mono text-slate-300 whitespace-nowrap">
                     {p.secondaryFormatted || '--'}
                   </td>
-                  <td className="py-2.5 px-3 font-mono text-slate-400">
+                  <td className="py-2 px-1.5 sm:py-2.5 sm:px-3 font-mono text-slate-400 whitespace-nowrap">
                     {p.modeledFormatted}
                   </td>
-                  <td className="py-2.5 px-3">
-                    <div className="flex flex-col items-start gap-1">
+                  <td className="py-2 px-1.5 sm:py-2.5 sm:px-3">
+                    <div className="flex flex-col items-start gap-0.5">
                       <span
-                        className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                        className={`text-[9px] sm:text-[10px] font-bold px-1.5 sm:px-2 py-0.5 rounded-full whitespace-nowrap ${
                           p.effortType === 'continuous_steady'
-                            ? 'bg-emerald-500/15 text-emerald-400'
+                            ? isLight
+                              ? 'bg-emerald-100 text-emerald-800'
+                              : 'bg-emerald-500/15 text-emerald-400'
                             : p.effortType === 'interval_session'
-                            ? 'bg-amber-500/15 text-amber-400'
+                            ? isLight
+                              ? 'bg-amber-100 text-amber-800'
+                              : 'bg-amber-500/15 text-amber-400'
+                            : isLight
+                            ? 'bg-indigo-100 text-indigo-800'
                             : 'bg-indigo-500/15 text-indigo-400'
                         }`}
                       >
-                        {p.effortType === 'continuous_steady'
-                          ? 'Continuous Steady'
-                          : p.effortType === 'interval_session'
-                          ? 'Interval Rep'
-                          : 'Bayesian Prior'}
+                        <span className="sm:hidden">
+                          {p.effortType === 'continuous_steady'
+                            ? 'Steady'
+                            : p.effortType === 'interval_session'
+                            ? 'Interval'
+                            : 'Prior'}
+                        </span>
+                        <span className="hidden sm:inline">
+                          {p.effortType === 'continuous_steady'
+                            ? 'Continuous Steady'
+                            : p.effortType === 'interval_session'
+                            ? 'Interval Rep'
+                            : 'Bayesian Prior'}
+                        </span>
                       </span>
                       {p.activityName && (
-                        <span className="text-[10px] text-slate-500 truncate max-w-[160px]" title={`${p.activityName}${p.activityDate ? ` (${p.activityDate})` : ''}`}>
+                        <span
+                          className="hidden sm:inline-block text-[10px] text-slate-500 truncate max-w-[160px]"
+                          title={`${p.activityName}${p.activityDate ? ` (${p.activityDate})` : ''}`}
+                        >
                           {p.activityName}{p.activityDate ? ` · ${p.activityDate}` : ''}
                         </span>
                       )}
                     </div>
                   </td>
-                  <td className="py-2.5 px-3 font-mono text-slate-400">
+                  <td className="py-2 px-1.5 sm:py-2.5 sm:px-3 font-mono text-slate-400 text-right sm:text-left whitespace-nowrap">
                     {p.confidenceScore}%
                   </td>
                 </tr>
@@ -1170,6 +1340,25 @@ export const PerformanceTab: React.FC<PerformanceTabProps> = ({
           </table>
         </div>
       </div>
+
+      {/* Detailed Modal when inspecting a Peak Performance activity */}
+      {activeModalActivity && athleteProfile && (
+        <StravaActivityModal
+          isOpen={Boolean(activeModalActivity)}
+          activity={activeModalActivity}
+          stravaToken={stravaToken}
+          athleteProfile={athleteProfile}
+          isGoogleConnected={isGoogleConnected}
+          theme={theme}
+          onConnectGoogle={onConnectGoogle}
+          onClose={() => setActiveModalActivity(null)}
+          onActivityPublished={onActivityPublished}
+          onDeleteActivity={(id) => {
+            onDeleteActivity?.(id);
+            setActiveModalActivity(null);
+          }}
+        />
+      )}
     </div>
   );
 };
