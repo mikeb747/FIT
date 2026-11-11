@@ -1120,9 +1120,10 @@ export const PerformanceTab: React.FC<PerformanceTabProps> = ({
               {activeCurvePeaks.map((p, idx) => (
                 <tr
                   key={idx}
+                  onClick={() => p.activityId && onSelectActivity?.(p.activityId)}
                   className={`hover:bg-slate-800/30 transition-colors ${
-                    hoveredPeakIndex === idx ? 'bg-cyan-500/10' : ''
-                  }`}
+                    p.activityId && onSelectActivity ? 'cursor-pointer' : ''
+                  } ${hoveredPeakIndex === idx ? 'bg-cyan-500/10' : ''}`}
                   onMouseEnter={() => setHoveredPeakIndex(idx)}
                   onMouseLeave={() => setHoveredPeakIndex(null)}
                 >
@@ -1137,21 +1138,28 @@ export const PerformanceTab: React.FC<PerformanceTabProps> = ({
                     {p.modeledFormatted}
                   </td>
                   <td className="py-2.5 px-3">
-                    <span
-                      className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
-                        p.effortType === 'continuous_steady'
-                          ? 'bg-emerald-500/15 text-emerald-400'
+                    <div className="flex flex-col items-start gap-1">
+                      <span
+                        className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                          p.effortType === 'continuous_steady'
+                            ? 'bg-emerald-500/15 text-emerald-400'
+                            : p.effortType === 'interval_session'
+                            ? 'bg-amber-500/15 text-amber-400'
+                            : 'bg-indigo-500/15 text-indigo-400'
+                        }`}
+                      >
+                        {p.effortType === 'continuous_steady'
+                          ? 'Continuous Steady'
                           : p.effortType === 'interval_session'
-                          ? 'bg-amber-500/15 text-amber-400'
-                          : 'bg-indigo-500/15 text-indigo-400'
-                      }`}
-                    >
-                      {p.effortType === 'continuous_steady'
-                        ? 'Continuous Steady'
-                        : p.effortType === 'interval_session'
-                        ? 'Interval Rep'
-                        : 'Bayesian Prior'}
-                    </span>
+                          ? 'Interval Rep'
+                          : 'Bayesian Prior'}
+                      </span>
+                      {p.activityName && (
+                        <span className="text-[10px] text-slate-500 truncate max-w-[160px]" title={`${p.activityName}${p.activityDate ? ` (${p.activityDate})` : ''}`}>
+                          {p.activityName}{p.activityDate ? ` · ${p.activityDate}` : ''}
+                        </span>
+                      )}
+                    </div>
                   </td>
                   <td className="py-2.5 px-3 font-mono text-slate-400">
                     {p.confidenceScore}%

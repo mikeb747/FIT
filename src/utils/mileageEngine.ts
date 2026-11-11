@@ -57,10 +57,49 @@ export interface MileageSummaryStats {
 }
 
 /**
+ * Formats a Date into local "YYYY-MM-DD" without UTC timezone shift.
+ */
+export function formatLocalDateKey(d: Date): string {
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+/**
+ * Parses an activity date string (preferring start_date_local without trailing Z shift)
+ * so weekday (Mon-Sun) and day-of-month calculations stay in the athlete's local time.
+ */
+export function parseActivityLocalDate(dateInput: Date | string): Date {
+  if (dateInput instanceof Date) return new Date(dateInput.getTime());
+  if (typeof dateInput === 'string') {
+    // Strip trailing Z if ISO local timestamp so JS parses in local calendar time
+    const normalized = dateInput.endsWith('Z') && dateInput.includes('T')
+      ? dateInput.slice(0, -1)
+      : dateInput;
+    const parsed = new Date(normalized);
+    if (!isNaN(parsed.getTime())) return parsed;
+  }
+  return new Date(dateInput);
+}
+
+/**
+ * Rounds a metric to 1 decimal place, or 2 decimal places when between 0 and 1
+ * so small values (such as swim miles) never round down to 0.
+ */
+function roundMetricVal(val: number): number {
+  if (val <= 0) return 0;
+  if (val < 1) {
+    return Math.round(val * 100) / 100;
+  }
+  return Math.round(val * 10) / 10;
+}
+
+/**
  * Returns the Monday Date (00:00:00 local) for a given date.
  */
 export function getMondayOfWeek(dateInput: Date | string): Date {
-  const d = new Date(dateInput);
+  const d = parseActivityLocalDate(dateInput);
   const day = d.getDay(); // 0 is Sunday, 1 is Monday ... 6 is Saturday
   // If day is 0 (Sunday), diff is -6 days; otherwise diff is 1 - day
   const diff = d.getDate() - day + (day === 0 ? -6 : 1);
@@ -156,17 +195,18 @@ export function computeWeeklyRunningMileage(
     }
   } else {
     const currentMonday = getMondayOfWeek(now);
+    const currentMondayKey = formatLocalDateKey(currentMonday);
     for (let i = numPeriods - 1; i >= 0; i--) {
       const mon = new Date(currentMonday);
       mon.setDate(currentMonday.getDate() - i * 7);
       mon.setHours(0, 0, 0, 0);
-      const key = mon.toISOString().split('T')[0];
+      const key = formatLocalDateKey(mon);
       const sunday = new Date(mon);
       sunday.setDate(mon.getDate() + 6);
       sunday.setHours(23, 59, 59, 999);
 
       const { weekLabel, shortLabel } = formatWeekRange(mon);
-      const isCurrentWeek = key === currentMonday.toISOString().split('T')[0];
+      const isCurrentWeek = key === currentMondayKey;
 
       weeksMap.set(key, {
         weekKey: key,
@@ -191,8 +231,9 @@ export function computeWeeklyRunningMileage(
 
   // 3. Bucket running activities into their period
   runningActivities.forEach((act) => {
-    if (!act.start_date) return;
-    const actDate = new Date(act.start_date);
+    const rawDateStr = act.start_date_local || act.start_date;
+    if (!rawDateStr) return;
+    const actDate = parseActivityLocalDate(rawDateStr);
     if (isNaN(actDate.getTime())) return;
 
     let key: string;
@@ -200,7 +241,7 @@ export function computeWeeklyRunningMileage(
       key = `${actDate.getFullYear()}-${String(actDate.getMonth() + 1).padStart(2, '0')}`;
     } else {
       const actMonday = getMondayOfWeek(actDate);
-      key = actMonday.toISOString().split('T')[0];
+      key = formatLocalDateKey(actMonday);
     }
 
     const bucket = weeksMap.get(key);
@@ -226,7 +267,7 @@ export function computeWeeklyRunningMileage(
     bucket.runs.push({
       id: act.id,
       name: act.name || 'Running Activity',
-      startDate: act.start_date,
+      startDate: rawDateStr,
       dayOfWeek: dayName,
       distanceMiles: Math.round(distMiles * 100) / 100,
       distanceKm: Math.round(distKm * 100) / 100,
@@ -251,23 +292,23 @@ export function computeWeeklyRunningMileage(
   for (const key of bucketKeys) {
     const b = weeksMap.get(key)!;
 
-    b.distanceMiles = Math.round(b.distanceMiles * 10) / 10;
-    b.distanceKm = Math.round(b.distanceKm * 10) / 10;
-    b.movingHours = Math.round((b.movingTimeSec / 3600) * 10) / 10;
+    b.distanceMiles = roundMetricVal(b.distanceMiles);
+    b.distanceKm = roundMetricVal(b.distanceKm);
+    b.movingHours = roundMetricVal(b.movingTimeSec / 3600);
 
     if (b.distanceKm > 0 && b.movingTimeSec > 0) {
       b.avgPaceSecPerKm = Math.round(b.movingTimeSec / b.distanceKm);
       b.avgPaceFormatted = `${formatSecondsToMinSec(b.avgPaceSecPerKm)}/km`;
     }
 
-    b.runs.sort((a, bRun) => new Date(a.startDate).getTime() - new Date(bRun.startDate).getTime());
+    b.runs.sort((a, bRun) => parseActivityLocalDate(a.startDate).getTime() - parseActivityLocalDate(bRun.startDate).getTime());
 
     totalPeriodMiles += b.distanceMiles;
     totalPeriodKm += b.distanceKm;
     totalPeriodTimeSec += b.movingTimeSec;
     totalPeriodRuns += b.runsCount;
 
-    const bHours = Math.round((b.movingTimeSec / 3600) * 10) / 10;
+    const bHours = b.movingHours;
     if (b.distanceMiles > peakWeekMiles) {
       peakWeekMiles = b.distanceMiles;
       peakWeekKm = b.distanceKm;
@@ -284,11 +325,11 @@ export function computeWeeklyRunningMileage(
 
   const currentWeekMiles = currentWeek?.distanceMiles || 0;
   const currentWeekKm = currentWeek?.distanceKm || 0;
-  const currentWeekHours = currentWeek ? Math.round((currentWeek.movingTimeSec / 3600) * 10) / 10 : 0;
+  const currentWeekHours = currentWeek?.movingHours || 0;
 
   const previousWeekMiles = prevWeek?.distanceMiles || 0;
   const previousWeekKm = prevWeek?.distanceKm || 0;
-  const previousWeekHours = prevWeek ? Math.round((prevWeek.movingTimeSec / 3600) * 10) / 10 : 0;
+  const previousWeekHours = prevWeek?.movingHours || 0;
 
   let weekOverWeekChangePct: number | null = null;
   if (previousWeekMiles > 0) {
@@ -296,16 +337,16 @@ export function computeWeeklyRunningMileage(
   }
 
   const count = resultWeeks.length || 1;
-  const averageWeeklyMiles = Math.round((totalPeriodMiles / count) * 10) / 10;
-  const averageWeeklyKm = Math.round((totalPeriodKm / count) * 10) / 10;
-  const totalHours = Math.round((totalPeriodTimeSec / 3600) * 10) / 10;
-  const averageWeeklyHours = Math.round((totalHours / count) * 10) / 10;
+  const averageWeeklyMiles = roundMetricVal(totalPeriodMiles / count);
+  const averageWeeklyKm = roundMetricVal(totalPeriodKm / count);
+  const totalHours = roundMetricVal(totalPeriodTimeSec / 3600);
+  const averageWeeklyHours = roundMetricVal(totalHours / count);
 
   return {
     weeks: resultWeeks,
     stats: {
-      totalMiles: Math.round(totalPeriodMiles * 10) / 10,
-      totalKm: Math.round(totalPeriodKm * 10) / 10,
+      totalMiles: roundMetricVal(totalPeriodMiles),
+      totalKm: roundMetricVal(totalPeriodKm),
       totalHours,
       totalRuns: totalPeriodRuns,
       averageWeeklyMiles,
@@ -346,7 +387,9 @@ export interface WeeklySwimBucket {
     dayOfWeek: string;
     distanceMeters: number;
     distanceKm: number;
+    distanceMiles: number;
     movingTimeSec: number;
+    movingHours: number;
     avgPaceFormatted: string;
   }[];
 }
@@ -421,17 +464,18 @@ export function computeWeeklySwimDistance(
     }
   } else {
     const currentMonday = getMondayOfWeek(now);
+    const currentMondayKey = formatLocalDateKey(currentMonday);
     for (let i = numPeriods - 1; i >= 0; i--) {
       const mon = new Date(currentMonday);
       mon.setDate(currentMonday.getDate() - i * 7);
       mon.setHours(0, 0, 0, 0);
-      const key = mon.toISOString().split('T')[0];
+      const key = formatLocalDateKey(mon);
       const sunday = new Date(mon);
       sunday.setDate(mon.getDate() + 6);
       sunday.setHours(23, 59, 59, 999);
 
       const { weekLabel, shortLabel } = formatWeekRange(mon);
-      const isCurrentWeek = key === currentMonday.toISOString().split('T')[0];
+      const isCurrentWeek = key === currentMondayKey;
 
       weeksMap.set(key, {
         weekKey: key,
@@ -453,8 +497,9 @@ export function computeWeeklySwimDistance(
   }
 
   swimActivities.forEach((act) => {
-    if (!act.start_date) return;
-    const actDate = new Date(act.start_date);
+    const rawDateStr = act.start_date_local || act.start_date;
+    if (!rawDateStr) return;
+    const actDate = parseActivityLocalDate(rawDateStr);
     if (isNaN(actDate.getTime())) return;
 
     let key: string;
@@ -462,7 +507,7 @@ export function computeWeeklySwimDistance(
       key = `${actDate.getFullYear()}-${String(actDate.getMonth() + 1).padStart(2, '0')}`;
     } else {
       const actMonday = getMondayOfWeek(actDate);
-      key = actMonday.toISOString().split('T')[0];
+      key = formatLocalDateKey(actMonday);
     }
 
     const bucket = weeksMap.get(key);
@@ -470,10 +515,13 @@ export function computeWeeklySwimDistance(
 
     const distMeters = act.distance || 0;
     const distKm = distMeters / 1000;
+    const distMiles = distMeters / 1609.344;
     const movingSec = act.moving_time || 0;
+    const movingHrs = movingSec / 3600;
 
     bucket.distanceMeters += distMeters;
     bucket.distanceKm += distKm;
+    bucket.distanceMiles += distMiles;
     bucket.movingTimeSec += movingSec;
     bucket.swimsCount += 1;
 
@@ -483,41 +531,47 @@ export function computeWeeklySwimDistance(
     bucket.swims.push({
       id: act.id,
       name: act.name || 'Swim Activity',
-      startDate: act.start_date,
+      startDate: rawDateStr,
       dayOfWeek: dayName,
       distanceMeters: Math.round(distMeters),
       distanceKm: Math.round(distKm * 100) / 100,
+      distanceMiles: Math.round(distMiles * 100) / 100,
       movingTimeSec: movingSec,
+      movingHours: Math.round(movingHrs * 100) / 100,
       avgPaceFormatted: pace100mSec > 0 ? `${formatSecondsToMinSec(pace100mSec)}/100m` : '--',
     });
   });
 
   const resultWeeks: WeeklySwimBucket[] = [];
   let totalPeriodKm = 0;
+  let totalPeriodMiles = 0;
   let totalPeriodMeters = 0;
   let totalPeriodTimeSec = 0;
   let totalPeriodSwims = 0;
   let peakWeekKm = 0;
+  let peakWeekMiles = 0;
   let peakWeekHours = 0;
   let peakWeekLabel = '';
 
   for (const key of bucketKeys) {
     const b = weeksMap.get(key)!;
 
-    b.distanceKm = Math.round(b.distanceKm * 10) / 10;
-    b.distanceMiles = Math.round((b.distanceKm * 0.621371) * 10) / 10;
-    b.movingHours = Math.round((b.movingTimeSec / 3600) * 10) / 10;
+    b.distanceKm = roundMetricVal(b.distanceKm);
+    b.distanceMiles = roundMetricVal(b.distanceMiles);
+    b.movingHours = roundMetricVal(b.movingTimeSec / 3600);
     b.distanceMeters = Math.round(b.distanceMeters);
-    b.swims.sort((a, bSwim) => new Date(a.startDate).getTime() - new Date(bSwim.startDate).getTime());
+    b.swims.sort((a, bSwim) => parseActivityLocalDate(a.startDate).getTime() - parseActivityLocalDate(bSwim.startDate).getTime());
 
     totalPeriodKm += b.distanceKm;
+    totalPeriodMiles += b.distanceMiles;
     totalPeriodMeters += b.distanceMeters;
     totalPeriodTimeSec += b.movingTimeSec;
     totalPeriodSwims += b.swimsCount;
 
-    const bHours = Math.round((b.movingTimeSec / 3600) * 10) / 10;
+    const bHours = b.movingHours;
     if (b.distanceKm > peakWeekKm) {
       peakWeekKm = b.distanceKm;
+      peakWeekMiles = b.distanceMiles;
       peakWeekHours = bHours;
       peakWeekLabel = b.shortLabel;
     }
@@ -529,12 +583,12 @@ export function computeWeeklySwimDistance(
   const prevWeek = resultWeeks.length >= 2 ? resultWeeks[resultWeeks.length - 2] : null;
 
   const currentWeekKm = currentWeek?.distanceKm || 0;
-  const currentWeekMiles = Math.round(currentWeekKm * 0.621371 * 10) / 10;
-  const currentWeekHours = currentWeek ? Math.round((currentWeek.movingTimeSec / 3600) * 10) / 10 : 0;
+  const currentWeekMiles = currentWeek?.distanceMiles || 0;
+  const currentWeekHours = currentWeek?.movingHours || 0;
 
   const previousWeekKm = prevWeek?.distanceKm || 0;
-  const previousWeekMiles = Math.round(previousWeekKm * 0.621371 * 10) / 10;
-  const previousWeekHours = prevWeek ? Math.round((prevWeek.movingTimeSec / 3600) * 10) / 10 : 0;
+  const previousWeekMiles = prevWeek?.distanceMiles || 0;
+  const previousWeekHours = prevWeek?.movingHours || 0;
 
   let weekOverWeekChangePct: number | null = null;
   if (previousWeekKm > 0) {
@@ -542,17 +596,16 @@ export function computeWeeklySwimDistance(
   }
 
   const count = resultWeeks.length || 1;
-  const averageWeeklyKm = Math.round((totalPeriodKm / count) * 10) / 10;
-  const totalMiles = Math.round((totalPeriodKm * 0.621371) * 10) / 10;
-  const averageWeeklyMiles = Math.round((totalMiles / count) * 10) / 10;
-  const peakWeekMiles = Math.round((peakWeekKm * 0.621371) * 10) / 10;
-  const totalHours = Math.round((totalPeriodTimeSec / 3600) * 10) / 10;
-  const averageWeeklyHours = Math.round((totalHours / count) * 10) / 10;
+  const averageWeeklyKm = roundMetricVal(totalPeriodKm / count);
+  const totalMiles = roundMetricVal(totalPeriodMiles);
+  const averageWeeklyMiles = roundMetricVal(totalPeriodMiles / count);
+  const totalHours = roundMetricVal(totalPeriodTimeSec / 3600);
+  const averageWeeklyHours = roundMetricVal(totalHours / count);
 
   return {
     weeks: resultWeeks,
     stats: {
-      totalKm: Math.round(totalPeriodKm * 10) / 10,
+      totalKm: roundMetricVal(totalPeriodKm),
       totalMiles,
       totalHours,
       totalMeters: Math.round(totalPeriodMeters),
@@ -594,7 +647,9 @@ export interface WeeklyBikeBucket {
     startDate: string;
     dayOfWeek: string;
     movingHours: number;
+    movingTimeSec: number;
     distanceKm: number;
+    distanceMiles: number;
     elevationGainMeters: number;
     averageWatts?: number;
   }[];
@@ -669,17 +724,18 @@ export function computeWeeklyBikeHours(
     }
   } else {
     const currentMonday = getMondayOfWeek(now);
+    const currentMondayKey = formatLocalDateKey(currentMonday);
     for (let i = numPeriods - 1; i >= 0; i--) {
       const mon = new Date(currentMonday);
       mon.setDate(currentMonday.getDate() - i * 7);
       mon.setHours(0, 0, 0, 0);
-      const key = mon.toISOString().split('T')[0];
+      const key = formatLocalDateKey(mon);
       const sunday = new Date(mon);
       sunday.setDate(mon.getDate() + 6);
       sunday.setHours(23, 59, 59, 999);
 
       const { weekLabel, shortLabel } = formatWeekRange(mon);
-      const isCurrentWeek = key === currentMonday.toISOString().split('T')[0];
+      const isCurrentWeek = key === currentMondayKey;
 
       weeksMap.set(key, {
         weekKey: key,
@@ -701,8 +757,9 @@ export function computeWeeklyBikeHours(
   }
 
   bikeActivities.forEach((act) => {
-    if (!act.start_date) return;
-    const actDate = new Date(act.start_date);
+    const rawDateStr = act.start_date_local || act.start_date;
+    if (!rawDateStr) return;
+    const actDate = parseActivityLocalDate(rawDateStr);
     if (isNaN(actDate.getTime())) return;
 
     let key: string;
@@ -710,7 +767,7 @@ export function computeWeeklyBikeHours(
       key = `${actDate.getFullYear()}-${String(actDate.getMonth() + 1).padStart(2, '0')}`;
     } else {
       const actMonday = getMondayOfWeek(actDate);
-      key = actMonday.toISOString().split('T')[0];
+      key = formatLocalDateKey(actMonday);
     }
 
     const bucket = weeksMap.get(key);
@@ -718,12 +775,15 @@ export function computeWeeklyBikeHours(
 
     const movingSec = act.moving_time || 0;
     const movingHrs = movingSec / 3600;
-    const distKm = (act.distance || 0) / 1000;
+    const distMeters = act.distance || 0;
+    const distKm = distMeters / 1000;
+    const distMiles = distMeters / 1609.344;
     const elevM = act.total_elevation_gain || 0;
 
     bucket.movingTimeSec += movingSec;
     bucket.movingHours += movingHrs;
     bucket.distanceKm += distKm;
+    bucket.distanceMiles += distMiles;
     bucket.elevationGainMeters += elevM;
     bucket.ridesCount += 1;
 
@@ -732,10 +792,12 @@ export function computeWeeklyBikeHours(
     bucket.rides.push({
       id: act.id,
       name: act.name || 'Cycling Activity',
-      startDate: act.start_date,
+      startDate: rawDateStr,
       dayOfWeek: dayName,
       movingHours: Math.round(movingHrs * 100) / 100,
-      distanceKm: Math.round(distKm * 10) / 10,
+      movingTimeSec: movingSec,
+      distanceKm: Math.round(distKm * 100) / 100,
+      distanceMiles: Math.round(distMiles * 100) / 100,
       elevationGainMeters: Math.round(elevM),
       averageWatts: act.average_watts,
     });
@@ -744,26 +806,30 @@ export function computeWeeklyBikeHours(
   const resultWeeks: WeeklyBikeBucket[] = [];
   let totalPeriodSec = 0;
   let totalPeriodKm = 0;
+  let totalPeriodMiles = 0;
   let totalPeriodRides = 0;
   let peakWeekSec = 0;
   let peakWeekKm = 0;
+  let peakWeekMiles = 0;
   let peakWeekLabel = '';
 
   for (const key of bucketKeys) {
     const b = weeksMap.get(key)!;
 
-    b.movingHours = Math.round((b.movingTimeSec / 3600) * 10) / 10;
-    b.distanceKm = Math.round(b.distanceKm * 10) / 10;
-    b.distanceMiles = Math.round((b.distanceKm * 0.621371) * 10) / 10;
-    b.rides.sort((a, bRide) => new Date(a.startDate).getTime() - new Date(bRide.startDate).getTime());
+    b.movingHours = roundMetricVal(b.movingTimeSec / 3600);
+    b.distanceKm = roundMetricVal(b.distanceKm);
+    b.distanceMiles = roundMetricVal(b.distanceMiles);
+    b.rides.sort((a, bRide) => parseActivityLocalDate(a.startDate).getTime() - parseActivityLocalDate(bRide.startDate).getTime());
 
     totalPeriodSec += b.movingTimeSec;
     totalPeriodKm += b.distanceKm;
+    totalPeriodMiles += b.distanceMiles;
     totalPeriodRides += b.ridesCount;
 
     if (b.movingTimeSec > peakWeekSec) {
       peakWeekSec = b.movingTimeSec;
       peakWeekKm = b.distanceKm;
+      peakWeekMiles = b.distanceMiles;
       peakWeekLabel = b.shortLabel;
     }
 
@@ -775,11 +841,11 @@ export function computeWeeklyBikeHours(
 
   const currentWeekHours = currentWeek?.movingHours || 0;
   const currentWeekKm = currentWeek?.distanceKm || 0;
-  const currentWeekMiles = Math.round(currentWeekKm * 0.621371 * 10) / 10;
+  const currentWeekMiles = currentWeek?.distanceMiles || 0;
 
   const previousWeekHours = prevWeek?.movingHours || 0;
   const previousWeekKm = prevWeek?.distanceKm || 0;
-  const previousWeekMiles = Math.round(previousWeekKm * 0.621371 * 10) / 10;
+  const previousWeekMiles = prevWeek?.distanceMiles || 0;
 
   let weekOverWeekChangePct: number | null = null;
   if (previousWeekHours > 0) {
@@ -787,15 +853,14 @@ export function computeWeeklyBikeHours(
   }
 
   const count = resultWeeks.length || 1;
-  const totalHours = Math.round((totalPeriodSec / 3600) * 10) / 10;
-  const averageWeeklyHours = Math.round((totalHours / count) * 10) / 10;
-  const peakWeekHours = Math.round((peakWeekSec / 3600) * 10) / 10;
+  const totalHours = roundMetricVal(totalPeriodSec / 3600);
+  const averageWeeklyHours = roundMetricVal(totalHours / count);
+  const peakWeekHours = roundMetricVal(peakWeekSec / 3600);
 
-  const roundedTotalKm = Math.round(totalPeriodKm * 10) / 10;
-  const totalMiles = Math.round((totalPeriodKm * 0.621371) * 10) / 10;
-  const averageWeeklyKm = Math.round((totalPeriodKm / count) * 10) / 10;
-  const averageWeeklyMiles = Math.round((totalMiles / count) * 10) / 10;
-  const peakWeekMiles = Math.round((peakWeekKm * 0.621371) * 10) / 10;
+  const roundedTotalKm = roundMetricVal(totalPeriodKm);
+  const totalMiles = roundMetricVal(totalPeriodMiles);
+  const averageWeeklyKm = roundMetricVal(totalPeriodKm / count);
+  const averageWeeklyMiles = roundMetricVal(totalPeriodMiles / count);
 
   return {
     weeks: resultWeeks,
@@ -843,12 +908,15 @@ export function getSameDayAccumulatedInPeriod(
     const curDayOfMonth = referenceDate.getDate(); // 1..31
     for (const item of items) {
       if (!item.startDate) continue;
-      const d = new Date(item.startDate);
+      const d = parseActivityLocalDate(item.startDate);
       if (isNaN(d.getTime())) continue;
       if (d.getDate() <= curDayOfMonth) {
-        miles += item.distanceMiles || 0;
-        km += item.distanceKm || 0;
-        sec += item.movingTimeSec || ((item.movingHours || 0) * 3600);
+        const itemKm = item.distanceKm !== undefined ? item.distanceKm : (item.distanceMiles || 0) / 0.621371;
+        const itemMiles = item.distanceMiles !== undefined ? item.distanceMiles : itemKm * 0.621371;
+        const itemSec = item.movingTimeSec !== undefined ? item.movingTimeSec : (item.movingHours || 0) * 3600;
+        miles += itemMiles;
+        km += itemKm;
+        sec += itemSec;
       }
     }
   } else {
@@ -857,21 +925,25 @@ export function getSameDayAccumulatedInPeriod(
     const curDayOfWeek = curDay === 0 ? 7 : curDay;
     for (const item of items) {
       if (!item.startDate) continue;
-      const d = new Date(item.startDate);
+      const d = parseActivityLocalDate(item.startDate);
       if (isNaN(d.getTime())) continue;
       const itemDay = d.getDay() === 0 ? 7 : d.getDay();
       if (itemDay <= curDayOfWeek) {
-        miles += item.distanceMiles || 0;
-        km += item.distanceKm || 0;
-        sec += item.movingTimeSec || ((item.movingHours || 0) * 3600);
+        const itemKm = item.distanceKm !== undefined ? item.distanceKm : (item.distanceMiles || 0) / 0.621371;
+        const itemMiles = item.distanceMiles !== undefined ? item.distanceMiles : itemKm * 0.621371;
+        const itemSec = item.movingTimeSec !== undefined ? item.movingTimeSec : (item.movingHours || 0) * 3600;
+        miles += itemMiles;
+        km += itemKm;
+        sec += itemSec;
       }
     }
   }
 
   return {
-    distanceMiles: Math.round(miles * 10) / 10,
-    distanceKm: Math.round(km * 10) / 10,
-    movingHours: Math.round((sec / 3600) * 10) / 10,
+    distanceMiles: roundMetricVal(miles),
+    distanceKm: roundMetricVal(km),
+    movingHours: roundMetricVal(sec / 3600),
   };
 }
+
 

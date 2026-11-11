@@ -428,10 +428,56 @@ export const ATHLETE_BENCHMARK_SESSIONS: BenchmarkSession[] = [
 ];
 
 /**
+ * Helper: Computes the maximum rolling average (Mean Maximal Power / Speed)
+ * for a target window `windowSec` from Strava `time` and `data` streams.
+ */
+function computeStreamRollingBest(
+  timeStream: number[] | undefined,
+  valueStream: number[] | undefined,
+  windowSec: number
+): number | null {
+  if (!timeStream || !valueStream || timeStream.length < 10 || timeStream.length !== valueStream.length) {
+    return null;
+  }
+  const totalStreamDuration = timeStream[timeStream.length - 1] - timeStream[0];
+  if (totalStreamDuration < windowSec) {
+    return null;
+  }
+
+  let bestAvg = 0;
+  let left = 0;
+  let weightedSum = 0;
+
+  for (let right = 1; right < timeStream.length; right++) {
+    const dt = Math.max(0, timeStream[right] - timeStream[right - 1]);
+    // Cap gaps (e.g. paused timer > 15s) to 1s so pauses don't credit high watts over rest time
+    const effectiveDt = dt > 15 ? 1 : dt;
+    weightedSum += valueStream[right] * effectiveDt;
+
+    while (left < right && timeStream[right] - timeStream[left] >= windowSec) {
+      const span = timeStream[right] - timeStream[left];
+      if (span >= windowSec && span <= windowSec * 1.25) {
+        const avg = weightedSum / span;
+        if (avg > bestAvg) {
+          bestAvg = avg;
+        }
+      }
+      const leftDt = Math.max(0, timeStream[left + 1] - timeStream[left]);
+      const effectiveLeftDt = leftDt > 15 ? 1 : leftDt;
+      weightedSum -= valueStream[left + 1] * effectiveLeftDt;
+      left++;
+    }
+  }
+
+  return bestAvg > 0 ? bestAvg : null;
+}
+
+/**
  * Extracts and models Peak Performance across 10 distinct durations:
  * 3, 5, 8, 12, 20, 30, 45, 60, 90, 120 minutes.
- * Incorporates continuous steady-state vs interval session filtering
- * and Bayesian population priors for sparse data points.
+ * Incorporates second-by-second stream MMP when available, summary power/pace with
+ * continuous steady-state vs interval session filtering, and Bayesian population priors
+ * for sparse data points.
  */
 export function computePeakPerformanceCurve(
   activities: StravaActivity[],
@@ -464,7 +510,7 @@ export function computePeakPerformanceCurve(
   });
 
   // 1. BIKE PEAK POWER (CP + W'/t hyperbolic model + empirical peaks with interval filtering)
-  const bikePeaks: PeakPerformanceMetric[] = PEAK_DURATIONS.map((dur) => {
+  const rawBikePeaks: PeakPerformanceMetric[] = PEAK_DURATIONS.map((dur) => {
     const sec = dur.seconds;
     // Theoretical model: P = CP + W'/t
     const modeledWatts = Math.round(params.criticalPowerWatts + params.wPrimeJoules / sec);
@@ -475,13 +521,17 @@ export function computePeakPerformanceCurve(
     let isInterval = false;
 
     for (const act of bikeActivities) {
-      const actTime = act.moving_time || 0;
-      if (actTime < sec * 0.75) continue;
-
       const actDet = activityDetails[String(act.id)];
+      if (actDet?.calibration?.isIgnoredFromTrainingStatus) continue;
+
+      const actTime = actDet?.calibration?.calibratedMovingTimeSec || act.moving_time || 0;
+      // An activity must be at least 90% of the target duration to estimate that duration's power
+      if (actTime < sec * 0.9) continue;
+
       const avgW = actDet?.calibration?.calibratedAvgWatts || act.average_watts || 0;
       const npW = actDet?.calibration?.calibratedNormalizedPower || act.weighted_average_watts || avgW;
-      const maxW = act.max_watts || avgW * 1.5;
+      if (avgW <= 0 && npW <= 0) continue;
+
       const vi = avgW > 0 ? Number((npW / avgW).toFixed(2)) : 1.0;
 
       // Point 7: If a 20min block came from 30s/30s at 115% of FTP, VI is high (>1.06)
@@ -491,14 +541,34 @@ export function computePeakPerformanceCurve(
         continue;
       }
 
+      // A. First check if high-resolution second-by-second power streams are cached
+      const streamsObj = actDet?.streams as
+        | { time?: { data?: number[] }; watts?: { data?: number[] } }
+        | undefined;
+      const streamBestWatts = computeStreamRollingBest(
+        streamsObj?.time?.data,
+        streamsObj?.watts?.data,
+        sec
+      );
+
       let estDurationWatts = 0;
-      if (actTime >= sec) {
-        const ratio = Math.pow(sec / actTime, 0.075);
-        // If interval session, discount raw average power for steady curve comparison
-        const powerBasis = actIsInterval ? avgW * 1.02 : Math.max(avgW, npW * 0.97);
-        estDurationWatts = Math.round(powerBasis * (1 / ratio));
+      if (streamBestWatts !== null && streamBestWatts > 0) {
+        estDurationWatts = Math.round(
+          actIsInterval && dur.minutes >= 20 ? streamBestWatts * 0.95 : streamBestWatts
+        );
+      } else if (actTime >= sec) {
+        // Estimate best sub-segment of length `sec` from whole-ride average/NP using Riegel/power decay (~0.05)
+        // Cap the sub-segment multiplier so a long easy ride never inflates unreasonably
+        const durationRatio = Math.min(3.5, actTime / sec);
+        const subSegmentBoost = Math.pow(durationRatio, 0.055);
+        const powerBasis = actIsInterval
+          ? avgW
+          : avgW * 0.7 + Math.min(npW, avgW * 1.06) * 0.3;
+        estDurationWatts = Math.round(powerBasis * subSegmentBoost);
       } else {
-        estDurationWatts = Math.round(maxW * 0.76);
+        // Ride is between 90% and 100% of `sec`: prorate average power across full `sec` window
+        // (never use 1-second sprint max_watts!)
+        estDurationWatts = Math.round(avgW * (actTime / sec));
       }
 
       if (estDurationWatts > bestWatts) {
@@ -509,26 +579,23 @@ export function computePeakPerformanceCurve(
       }
     }
 
-    // Bayesian population prior weighting:
-    // If we have no direct activity close to duration, blend with theoretical model
     const empiricalAvailable = bestWatts > 0;
     let finalWatts = modeledWatts;
     let priorWeight = 0;
     let confidenceScore = 95;
 
     if (empiricalAvailable) {
-      // If continuous effort is available
       if (isInterval && dur.minutes >= 20) {
-        confidenceScore = 72; // Lower confidence in steady threshold if derived from interval session
-        finalWatts = Math.round(bestWatts * 0.95 + modeledWatts * 0.05);
+        confidenceScore = 76;
+        finalWatts = bestWatts;
         priorWeight = 0.05;
       } else {
         confidenceScore = 94;
-        finalWatts = Math.max(bestWatts, Math.round(modeledWatts * 0.96));
+        finalWatts = bestWatts;
         priorWeight = 0.0;
       }
     } else {
-      // Bayesian prior fills the sparse gap
+      // Bayesian prior fills the sparse gap when no ride of this duration exists
       priorWeight = 1.0;
       confidenceScore = 65;
       finalWatts = modeledWatts;
@@ -555,8 +622,26 @@ export function computePeakPerformanceCurve(
     };
   });
 
+  // Enforce physiological monotonicity on Bike Peak Power:
+  // Peak power for a shorter duration t1 must be >= peak power for any longer duration t2 (t1 < t2),
+  // and a longer duration cannot exceed a shorter empirical duration.
+  const bikePeaks: PeakPerformanceMetric[] = [...rawBikePeaks];
+  for (let i = 1; i < bikePeaks.length; i++) {
+    if (bikePeaks[i].actualValue > bikePeaks[i - 1].actualValue) {
+      // Cap longer duration to not exceed the preceding shorter duration
+      const cappedWatts = bikePeaks[i - 1].actualValue;
+      const wPerKg = Number((cappedWatts / weightKg).toFixed(2));
+      bikePeaks[i] = {
+        ...bikePeaks[i],
+        actualValue: cappedWatts,
+        formattedValue: `${cappedWatts} W`,
+        secondaryFormatted: `${wPerKg} W/kg`,
+      };
+    }
+  }
+
   // 2. RUN PEAK PACE (incorporates user benchmark sessions: 3m, 4m, 9m, 30m continuous)
-  const runPeaks: PeakPerformanceMetric[] = PEAK_DURATIONS.map((dur) => {
+  const rawRunPeaks: PeakPerformanceMetric[] = PEAK_DURATIONS.map((dur) => {
     const sec = dur.seconds;
     // Theoretical model: Speed = CS + D'/t
     const modeledSpeedMps = params.criticalSpeedMps + params.dPrimeMeters / sec;
@@ -566,36 +651,56 @@ export function computePeakPerformanceCurve(
     const matchingBenchmark = ATHLETE_BENCHMARK_SESSIONS.find((b) => b.durationMin === dur.minutes);
 
     let fastestPaceSec = matchingBenchmark ? matchingBenchmark.repPaceSec : 9999;
+    let bestActId: string | number | undefined = undefined;
     let bestActName = matchingBenchmark ? matchingBenchmark.sessionDescription : undefined;
+    let bestActDate: string | undefined = undefined;
     let bestEffortType: 'continuous_steady' | 'interval_session' | 'bayesian_prior' = matchingBenchmark
       ? (matchingBenchmark.sessionType === 'interval_reps' ? 'interval_session' : 'continuous_steady')
       : 'continuous_steady';
 
     for (const act of runActivities) {
-      const actTime = act.moving_time || 0;
-      const actDist = act.distance || 0;
-      if (actTime < sec * 0.75 || actDist <= 0) continue;
+      const actDet = activityDetails[String(act.id)];
+      if (actDet?.calibration?.isIgnoredFromTrainingStatus) continue;
 
-      const actAvgSpeed = act.average_speed || actDist / actTime;
-      const actPace = 1000 / actAvgSpeed;
+      const actTime = actDet?.calibration?.calibratedMovingTimeSec || act.moving_time || 0;
+      const actDist = actDet?.calibration?.calibratedDistanceM || act.distance || 0;
+      if (actTime < sec * 0.9 || actDist <= 0) continue;
 
-      let estPaceSec = actPace;
-      if (actTime > sec) {
-        const fatigueFactor = Math.pow(sec / actTime, 0.058);
-        estPaceSec = actPace * fatigueFactor;
+      const streamsObj = actDet?.streams as
+        | { time?: { data?: number[] }; velocity_smooth?: { data?: number[] } }
+        | undefined;
+      const streamBestSpeed = computeStreamRollingBest(
+        streamsObj?.time?.data,
+        streamsObj?.velocity_smooth?.data,
+        sec
+      );
+
+      let estPaceSec = 9999;
+      if (streamBestSpeed !== null && streamBestSpeed > 1.5) {
+        estPaceSec = 1000 / streamBestSpeed;
+      } else {
+        const actAvgSpeed = actDist / actTime;
+        const actPace = 1000 / actAvgSpeed;
+        if (actTime >= sec) {
+          const durationRatio = Math.min(3.0, actTime / sec);
+          const fatigueFactor = Math.pow(1 / durationRatio, 0.045);
+          estPaceSec = actPace * fatigueFactor;
+        } else {
+          estPaceSec = actPace * (sec / actTime);
+        }
       }
 
       if (estPaceSec < fastestPaceSec && estPaceSec > 130) {
         fastestPaceSec = Math.round(estPaceSec);
+        bestActId = act.id;
         bestActName = act.name;
+        bestActDate = act.start_date ? new Date(act.start_date).toLocaleDateString() : undefined;
         bestEffortType = 'continuous_steady';
       }
     }
 
     const empiricalAvailable = fastestPaceSec < 9000;
-    const finalPaceSec = empiricalAvailable
-      ? Math.min(fastestPaceSec, modeledPaceSec + 4)
-      : modeledPaceSec;
+    const finalPaceSec = empiricalAvailable ? fastestPaceSec : modeledPaceSec;
 
     const priorWeight = empiricalAvailable ? 0.0 : 0.85;
     const confidenceScore = matchingBenchmark
@@ -612,13 +717,29 @@ export function computePeakPerformanceCurve(
       secondaryFormatted: formatPaceMiles(finalPaceSec),
       modeledValue: modeledPaceSec,
       modeledFormatted: formatPaceKm(modeledPaceSec),
-      effortType: bestEffortType,
+      effortType: empiricalAvailable ? bestEffortType : 'bayesian_prior',
+      activityId: bestActId,
       activityName: bestActName,
+      activityDate: bestActDate,
       isContinuousReliable: true,
       confidenceScore,
       priorWeight,
     };
   });
+
+  // Enforce physiological monotonicity on Run Peak Pace (pace in sec/km must be non-decreasing with duration)
+  const runPeaks: PeakPerformanceMetric[] = [...rawRunPeaks];
+  for (let i = 1; i < runPeaks.length; i++) {
+    if (runPeaks[i].actualValue < runPeaks[i - 1].actualValue) {
+      const cappedPaceSec = runPeaks[i - 1].actualValue;
+      runPeaks[i] = {
+        ...runPeaks[i],
+        actualValue: cappedPaceSec,
+        formattedValue: formatPaceKm(cappedPaceSec),
+        secondaryFormatted: formatPaceMiles(cappedPaceSec),
+      };
+    }
+  }
 
   return { bikePeaks, runPeaks };
 }
