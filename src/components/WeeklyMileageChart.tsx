@@ -381,30 +381,32 @@ export const WeeklyMileageChart: React.FC<WeeklyMileageChartProps> = ({
         </div>
 
         {/* Dataset Switch Tabs */}
-        <div className="flex items-center gap-1.5 overflow-x-auto scrollbar-none pt-1">
-          {[
-            { id: 'mileage', label: 'Run' },
-            { id: 'swim_distance', label: 'Swim' },
-            { id: 'bike_hours', label: 'Bike' },
-            { id: 'cycling_power', label: 'Cycling Power Zones' },
-            { id: 'running_pace', label: 'Running Pace Zones' },
-            { id: 'running_hr', label: 'Running Heart Rate Zones' },
-          ].map((tab) => (
-            <button
-              key={tab.id}
-              type="button"
-              onClick={() => setActiveTab(tab.id as ChartDatasetTab)}
-              className={`px-3 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap transition-all cursor-pointer ${
-                activeTab === tab.id
-                  ? 'bg-amber-500 text-slate-950 shadow-sm shadow-amber-500/20'
-                  : isLight
-                  ? 'bg-slate-100 hover:bg-slate-200 text-slate-700'
-                  : 'bg-slate-800/80 hover:bg-slate-700 text-slate-300'
-              }`}
-            >
-              {tab.label}
-            </button>
-          ))}
+        <div className="overflow-x-auto scrollbar-none pt-1">
+          <div className="inline-flex items-center p-0.5 rounded-lg bg-slate-950/40 border border-slate-800 text-[11px] font-bold">
+            {[
+              { id: 'mileage', label: 'Run' },
+              { id: 'swim_distance', label: 'Swim' },
+              { id: 'bike_hours', label: 'Bike' },
+              { id: 'cycling_power', label: 'Cycling Power Zones' },
+              { id: 'running_pace', label: 'Running Pace Zones' },
+              { id: 'running_hr', label: 'Running Heart Rate Zones' },
+            ].map((tab) => (
+              <button
+                key={tab.id}
+                type="button"
+                onClick={() => setActiveTab(tab.id as ChartDatasetTab)}
+                className={`px-2 py-1 rounded-md whitespace-nowrap transition-colors cursor-pointer ${
+                  activeTab === tab.id
+                    ? 'bg-amber-500 text-slate-950 shadow-xs'
+                    : isLight
+                    ? 'text-slate-600 hover:text-slate-900'
+                    : 'text-slate-400 hover:text-white'
+                }`}
+              >
+                {tab.label}
+              </button>
+            ))}
+          </div>
         </div>
       </div>
 

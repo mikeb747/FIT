@@ -307,14 +307,37 @@ export function generateDemoActivities(): StravaActivity[] {
   ];
 }
 
+const SANDBOX_READINESS_CLEARED_KEY = 'fit_track_sandbox_readiness_cleared';
+
+export function isSandboxReadinessCleared(): boolean {
+  if (typeof window === 'undefined') return false;
+  try {
+    return localStorage.getItem(SANDBOX_READINESS_CLEARED_KEY) === 'true';
+  } catch {
+    return false;
+  }
+}
+
+export function setSandboxReadinessCleared(cleared: boolean): void {
+  if (typeof window === 'undefined') return;
+  try {
+    if (cleared) {
+      localStorage.setItem(SANDBOX_READINESS_CLEARED_KEY, 'true');
+    } else {
+      localStorage.removeItem(SANDBOX_READINESS_CLEARED_KEY);
+    }
+  } catch {}
+}
+
 /**
- * Generates realistic Garmin physiological recovery logs for the past 28 days.
+ * Generates 20 days of realistic Garmin Connect physiological readiness & recovery logs
+ * for the Readiness tab when using the AI Studio Sandbox.
  */
-export function generateDemoRecoveryLogs(): DailyRecoveryLog[] {
+export function generateDemoRecoveryLogs(daysCount = 20): DailyRecoveryLog[] {
   const now = new Date();
   const logs: DailyRecoveryLog[] = [];
 
-  for (let i = 27; i >= 0; i--) {
+  for (let i = daysCount - 1; i >= 0; i--) {
     const dt = new Date(now);
     dt.setDate(dt.getDate() - i);
     const yStr = dt.getFullYear();
@@ -322,24 +345,73 @@ export function generateDemoRecoveryLogs(): DailyRecoveryLog[] {
     const dStr = String(dt.getDate()).padStart(2, '0');
     const dateStr = `${yStr}-${mStr}-${dStr}`;
 
-    // Realistic variation based on periodic training load
-    const isHardDay = i % 4 === 1;
+    // Realistic training microcycle pattern (hard interval days, endurance days, recovery days)
+    const isHardDay = i % 5 === 1 || i % 7 === 3;
     const isRestDay = i % 6 === 0;
 
-    let sleepHours = 7.4 + Math.sin(i * 0.8) * 0.7;
-    if (isHardDay) sleepHours += 0.4;
-    if (isRestDay) sleepHours += 0.8;
-    const sleepDurationMinutes = Math.round(sleepHours * 60);
+    // Sleep duration between ~7.1h and ~8.4h (deterministic wave so charts are smooth & reproducible)
+    let sleepHours = 7.55 + Math.sin(i * 0.85) * 0.45 + Math.cos(i * 0.4) * 0.2;
+    if (isHardDay) sleepHours -= 0.25;
+    if (isRestDay) sleepHours += 0.45;
+    const sleepDurationMinutes = Math.round(Math.max(415, Math.min(520, sleepHours * 60)));
 
-    const deepSleepMinutes = Math.round(sleepDurationMinutes * (0.2 + Math.cos(i) * 0.04));
-    const remSleepMinutes = Math.round(sleepDurationMinutes * (0.24 + Math.sin(i) * 0.03));
-    const awakeMinutes = Math.round(20 + Math.random() * 15);
-    const lightSleepMinutes = Math.max(0, sleepDurationMinutes - deepSleepMinutes - remSleepMinutes - awakeMinutes);
+    // Sleep architecture stages (Deep, REM, Light, Awake)
+    const deepRatio = 0.195 + Math.cos(i * 0.75) * 0.025 + (isRestDay ? 0.015 : isHardDay ? -0.015 : 0);
+    const remRatio = 0.23 + Math.sin(i * 0.65) * 0.025;
+    const deepSleepMinutes = Math.round(sleepDurationMinutes * deepRatio);
+    const remSleepMinutes = Math.round(sleepDurationMinutes * remRatio);
+    const awakeMinutes = Math.round(16 + ((i * 7) % 14) + (isHardDay ? 5 : 0));
+    const lightSleepMinutes = Math.max(
+      120,
+      sleepDurationMinutes - deepSleepMinutes - remSleepMinutes - awakeMinutes
+    );
 
-    const restingHr = Math.round(41 + (isHardDay ? 4 : 0) + Math.sin(i * 0.5) * 2);
-    const hrvRmssd = Math.round(74 - (isHardDay ? 12 : 0) + (isRestDay ? 8 : 0) + Math.cos(i * 0.7) * 5);
+    // Morning RHR (baseline ~41 bpm; lower after high deep sleep / rest days, slightly elevated after hard load)
+    const restingHr = Math.round(
+      41 +
+        (isHardDay ? 3 : 0) -
+        (isRestDay ? 1 : 0) -
+        (deepSleepMinutes > 92 ? 1 : 0) +
+        Math.sin(i * 0.55) * 1.5
+    );
 
-    const sleepScore = Math.min(98, Math.max(65, Math.round(75 + (sleepHours - 7) * 8 + (hrvRmssd > 70 ? 5 : -5))));
+    // Overnight HRV rMSSD (baseline ~74 ms; higher with longer restorative sleep, dips after hard sessions)
+    const hrvRmssd = Math.round(
+      74 -
+        (isHardDay ? 9 : 0) +
+        (isRestDay ? 7 : 0) +
+        (sleepDurationMinutes - 450) * 0.08 +
+        Math.cos(i * 0.7) * 4
+    );
+
+    const sleepScore = Math.min(
+      97,
+      Math.max(
+        68,
+        Math.round(78 + (sleepHours - 7.5) * 9 + (hrvRmssd >= 74 ? 4 : -3) - (awakeMinutes > 26 ? 3 : 0))
+      )
+    );
+
+    const bodyBattery = Math.min(
+      99,
+      Math.max(58, Math.round(sleepScore * 0.96 + (isRestDay ? 5 : isHardDay ? -6 : 0)))
+    );
+    const stress = Math.min(
+      48,
+      Math.max(16, Math.round(24 + (isHardDay ? 9 : isRestDay ? -5 : 0) + Math.sin(i * 0.9) * 4))
+    );
+    const respiration = Number(
+      (14.1 + (isHardDay ? 0.6 : isRestDay ? -0.3 : 0) + Math.sin(i * 0.5) * 0.3).toFixed(1)
+    );
+    const pulseOx = Math.min(99, Math.max(95, Math.round(96.6 + Math.cos(i * 0.8) * 1.1)));
+    const vo2MaxRun = i < 8 ? 59 : 58;
+    const vo2MaxBike = i < 10 ? 62 : 61;
+    const steps = Math.round(
+      (isRestDay ? 7800 : isHardDay ? 13800 : 10600) + Math.sin(i * 1.1) * 1450
+    );
+    const calories = Math.round(
+      (isRestDay ? 2360 : isHardDay ? 3340 : 2820) + Math.cos(i * 0.9) * 210
+    );
 
     logs.push({
       id: `demo-rec-${dateStr}`,
@@ -352,14 +424,56 @@ export function generateDemoRecoveryLogs(): DailyRecoveryLog[] {
       awakeMinutes,
       restingHr,
       hrvRmssd,
+      subjectiveFeel: isRestDay ? 5 : isHardDay ? 3 : 4,
       source: 'garmin',
-      bodyBattery: Math.min(100, Math.max(50, Math.round(sleepScore * 0.95))),
-      stress: Math.round(25 + Math.random() * 15),
-      notes: isHardDay ? 'Tough interval day recovery' : isRestDay ? 'Full rest day' : 'Consistent aerobic block',
+      bodyBattery,
+      stress,
+      respiration,
+      pulseOx,
+      vo2MaxRun,
+      vo2MaxBike,
+      steps,
+      calories,
+      tags: isHardDay
+        ? ['Garmin Connect', 'High Load Recovery']
+        : isRestDay
+        ? ['Garmin Connect', 'Prime Readiness']
+        : ['Garmin Connect', 'HRV Balanced'],
+      notes: isHardDay
+        ? 'Garmin Connect: Post-interval load — slightly elevated morning RHR'
+        : isRestDay
+        ? 'Garmin Connect: Full recovery day & peak Body Battery charge'
+        : 'Garmin Connect: Steady aerobic block & balanced overnight HRV',
     });
   }
 
   return logs;
+}
+
+/**
+ * Ensures 20 days of Garmin Connect Readiness data are present when running in the AI Studio Sandbox.
+ * Preserves any genuine user-logged or synced entries while backfilling the 20-day window.
+ */
+export function ensureSandboxGarminReadinessLogs(
+  existingLogs: DailyRecoveryLog[],
+  forceSeed = false
+): DailyRecoveryLog[] {
+  if (!isAIStudioEnvironment()) return existingLogs;
+  if (!forceSeed && isSandboxReadinessCleared()) return existingLogs;
+
+  const sandbox20 = generateDemoRecoveryLogs(20);
+  // Keep only non-demo user logs and overlay them on top of the 20-day sandbox baseline
+  const genuineLogs = (existingLogs || []).filter((l) => l && !String(l.id).startsWith('demo-rec-'));
+
+  const byDate = new Map<string, DailyRecoveryLog>();
+  for (const demoLog of sandbox20) {
+    byDate.set(demoLog.date, demoLog);
+  }
+  for (const realLog of genuineLogs) {
+    byDate.set(realLog.date, realLog);
+  }
+
+  return Array.from(byDate.values()).sort((a, b) => a.date.localeCompare(b.date));
 }
 
 /**

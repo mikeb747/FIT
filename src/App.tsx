@@ -80,6 +80,8 @@ import {
   setDemoModeActive,
   generateDemoActivities,
   generateDemoRecoveryLogs,
+  ensureSandboxGarminReadinessLogs,
+  setSandboxReadinessCleared,
   seedDemoActivityDetails,
   isDemoActivityId,
 } from './utils/demoData';
@@ -215,7 +217,15 @@ export default function App() {
     try {
       const explicitDisconnect = localStorage.getItem('fit_track_garmin_disconnected') === 'true';
       if (explicitDisconnect) return [];
-      return loadRecoveryLogs();
+      const loaded = loadRecoveryLogs();
+      if (isAIStudioEnvironment()) {
+        const seeded = ensureSandboxGarminReadinessLogs(loaded);
+        if (seeded.length !== loaded.length || loaded.some((l) => String(l.id).startsWith('demo-rec-'))) {
+          saveRecoveryLogs(seeded);
+        }
+        return seeded;
+      }
+      return loaded;
     } catch {
       return [];
     }
@@ -299,6 +309,7 @@ export default function App() {
   };
 
   const handleResetRecoveryDefaults = () => {
+    setSandboxReadinessCleared(true);
     const cleared = resetRecoveryLogsToDefaults();
     setRecoveryLogs(cleared);
   };
@@ -367,10 +378,23 @@ export default function App() {
   const isAIStudioEnv = useMemo(() => isAIStudioEnvironment(), []);
   const [isDemoActive, setIsDemoActive] = useState<boolean>(() => isDemoModeActive());
 
+  const handleLoadSandboxGarminReadiness = useCallback(() => {
+    if (!isAIStudioEnvironment()) return;
+    setSandboxReadinessCleared(false);
+    localStorage.removeItem('fit_track_garmin_disconnected');
+    const current = loadRecoveryLogs();
+    const seeded = ensureSandboxGarminReadinessLogs(current, true);
+    saveRecoveryLogs(seeded);
+    setRecoveryLogs(seeded);
+    setGarminConnected(true);
+  }, []);
+
   const handleLoadDemoData = useCallback(() => {
     if (!isAIStudioEnvironment()) return;
+    setSandboxReadinessCleared(false);
+    localStorage.removeItem('fit_track_garmin_disconnected');
     const demoActs = generateDemoActivities();
-    const demoLogs = generateDemoRecoveryLogs();
+    const demoLogs = generateDemoRecoveryLogs(20);
     saveCachedStravaActivities(demoActs);
     setStravaActivities(demoActs);
     saveRecoveryLogs(demoLogs);
@@ -387,6 +411,7 @@ export default function App() {
   }, []);
 
   const handleClearDemoData = useCallback(() => {
+    setSandboxReadinessCleared(true);
     setDemoModeActive(false);
     setIsDemoActive(false);
     saveCachedStravaActivities([]);
@@ -904,7 +929,18 @@ export default function App() {
               (Demo data is strictly isolated to Google AI Studio and never appears in your published app)
             </span>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap justify-end">
+            <button
+              type="button"
+              onClick={() => {
+                handleLoadSandboxGarminReadiness();
+                setActiveMainTab('recovery');
+              }}
+              className="px-2.5 py-0.5 rounded-md bg-sky-500/15 hover:bg-sky-500/25 text-sky-600 dark:text-sky-400 font-bold border border-sky-500/30 cursor-pointer transition-colors"
+              title="Populate 20 days of Garmin Connect Readiness telemetry on the Readiness tab"
+            >
+              20d Garmin Readiness
+            </button>
             {isDemoActive ? (
               <button
                 type="button"

@@ -1172,18 +1172,16 @@ export const RecoveryView: React.FC<RecoveryViewProps> = ({
             </p>
           </div>
 
-          <div className="flex items-center gap-1.5 p-0.5 self-start sm:self-auto flex-wrap">
+          <div className="flex items-center p-0.5 rounded-lg bg-slate-950/40 border border-slate-800 text-[11px] font-bold self-start sm:self-auto">
             <button
               type="button"
               onClick={() => setSelectedChartMode('sleep_rhr')}
-              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+              className={`px-2 py-1 rounded-md whitespace-nowrap transition-colors cursor-pointer ${
                 selectedChartMode === 'sleep_rhr'
-                  ? isLight
-                    ? 'bg-white text-sky-600 shadow-xs border-2 border-slate-400'
-                    : 'bg-slate-800 text-sky-400 shadow-sm border-2 border-slate-500'
+                  ? 'bg-amber-500 text-slate-950 shadow-xs'
                   : isLight
-                  ? 'text-slate-600 hover:text-slate-900 hover:bg-slate-100/70 border border-transparent'
-                  : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/50 border border-transparent'
+                  ? 'text-slate-600 hover:text-slate-900'
+                  : 'text-slate-400 hover:text-white'
               }`}
             >
               Sleep &amp; Morning RHR
@@ -1191,32 +1189,15 @@ export const RecoveryView: React.FC<RecoveryViewProps> = ({
             <button
               type="button"
               onClick={() => setSelectedChartMode('readiness_hrv')}
-              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+              className={`px-2 py-1 rounded-md whitespace-nowrap transition-colors cursor-pointer ${
                 selectedChartMode === 'readiness_hrv'
-                  ? isLight
-                    ? 'bg-white text-purple-600 shadow-xs border-2 border-slate-400'
-                    : 'bg-slate-800 text-purple-400 shadow-sm border-2 border-slate-500'
+                  ? 'bg-amber-500 text-slate-950 shadow-xs'
                   : isLight
-                  ? 'text-slate-600 hover:text-slate-900 hover:bg-slate-100/70 border border-transparent'
-                  : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/50 border border-transparent'
+                  ? 'text-slate-600 hover:text-slate-900'
+                  : 'text-slate-400 hover:text-white'
               }`}
             >
               Readiness &amp; HRV
-            </button>
-            <button
-              type="button"
-              onClick={() => setSelectedChartMode('training_stress')}
-              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-                selectedChartMode === 'training_stress'
-                  ? isLight
-                    ? 'bg-white text-orange-600 shadow-xs border-2 border-slate-400'
-                    : 'bg-slate-800 text-orange-400 shadow-sm border-2 border-slate-500'
-                  : isLight
-                  ? 'text-slate-600 hover:text-slate-900 hover:bg-slate-100/70 border border-transparent'
-                  : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/50 border border-transparent'
-              }`}
-            >
-              Training Load vs Recovery
             </button>
           </div>
         </div>
@@ -2473,8 +2454,14 @@ export const RecoveryView: React.FC<RecoveryViewProps> = ({
                       {/* Body Battery */}
                       <td className="py-2 px-2 sm:py-2.5 sm:px-3 whitespace-nowrap">
                         {log.bodyBattery !== undefined && log.bodyBattery > 0 ? (
-                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-bold bg-sky-500/15 text-sky-400 border border-sky-500/30">
-                            <Zap className="w-3 h-3 text-sky-400" />
+                          <span
+                            className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-bold border ${
+                              isLight
+                                ? 'bg-sky-50 text-sky-700 border-sky-200'
+                                : 'bg-sky-500/15 text-sky-400 border-sky-500/30'
+                            }`}
+                          >
+                            <Zap className={`w-3 h-3 ${isLight ? 'text-sky-600' : 'text-sky-400'}`} />
                             <span>{log.bodyBattery}</span>
                           </span>
                         ) : (
@@ -2488,11 +2475,19 @@ export const RecoveryView: React.FC<RecoveryViewProps> = ({
                           <span
                             className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-bold border ${
                               log.stress <= 25
-                                ? 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30'
+                                ? isLight
+                                  ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                                  : 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30'
                                 : log.stress <= 50
-                                ? 'bg-sky-500/15 text-sky-400 border-sky-500/30'
+                                ? isLight
+                                  ? 'bg-sky-50 text-sky-700 border-sky-200'
+                                  : 'bg-sky-500/15 text-sky-400 border-sky-500/30'
                                 : log.stress <= 75
-                                ? 'bg-amber-500/15 text-amber-400 border-amber-500/30'
+                                ? isLight
+                                  ? 'bg-amber-50 text-amber-700 border-amber-200'
+                                  : 'bg-amber-500/15 text-amber-400 border-amber-500/30'
+                                : isLight
+                                ? 'bg-rose-50 text-rose-700 border-rose-200'
                                 : 'bg-rose-500/15 text-rose-400 border-rose-500/30'
                             }`}
                           >
@@ -2507,8 +2502,12 @@ export const RecoveryView: React.FC<RecoveryViewProps> = ({
                       {/* Respiration */}
                       <td className="py-2 px-2 sm:py-2.5 sm:px-3 whitespace-nowrap">
                         {log.respiration !== undefined && log.respiration > 0 ? (
-                          <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-teal-400">
-                            <Wind className="w-3 h-3 text-teal-400" />
+                          <span
+                            className={`inline-flex items-center gap-1 text-[11px] font-semibold ${
+                              isLight ? 'text-teal-700' : 'text-teal-400'
+                            }`}
+                          >
+                            <Wind className={`w-3 h-3 ${isLight ? 'text-teal-600' : 'text-teal-400'}`} />
                             <span>{log.respiration} brpm</span>
                           </span>
                         ) : (
@@ -2519,7 +2518,11 @@ export const RecoveryView: React.FC<RecoveryViewProps> = ({
                       {/* Pulse Ox */}
                       <td className="py-2 px-2 sm:py-2.5 sm:px-3 whitespace-nowrap">
                         {log.pulseOx !== undefined && log.pulseOx > 0 ? (
-                          <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-cyan-400">
+                          <span
+                            className={`inline-flex items-center gap-1 text-[11px] font-semibold ${
+                              isLight ? 'text-cyan-700' : 'text-cyan-400'
+                            }`}
+                          >
                             <span>{log.pulseOx}%</span>
                           </span>
                         ) : (
@@ -2531,12 +2534,20 @@ export const RecoveryView: React.FC<RecoveryViewProps> = ({
                       <td className="py-2 px-2 sm:py-2.5 sm:px-3 whitespace-nowrap">
                         <div className="flex flex-col text-[10px] leading-tight">
                           {log.steps !== undefined && log.steps > 0 && (
-                            <span className="font-mono text-slate-300 font-medium">
+                            <span
+                              className={`font-mono font-medium ${
+                                isLight ? 'text-slate-700' : 'text-slate-300'
+                              }`}
+                            >
                               {log.steps.toLocaleString()} steps
                             </span>
                           )}
                           {log.calories !== undefined && log.calories > 0 && (
-                            <span className="font-mono text-amber-400/90">
+                            <span
+                              className={`font-mono font-semibold ${
+                                isLight ? 'text-amber-600' : 'text-amber-400/90'
+                              }`}
+                            >
                               {Math.round(log.calories)} kcal
                             </span>
                           )}

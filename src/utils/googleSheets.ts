@@ -26,6 +26,54 @@ export const GOOGLE_SHEETS_CONFIG = {
 };
 
 /**
+ * Formats an ISO timestamp, Date, or epoch ms as "YYYY-MM-DD HH:MM:SS" (no "T", fractional ms, or "Z")
+ * so Google Sheets USER_ENTERED parses it natively as a sortable Date-Time value.
+ */
+export function formatSheetDateTime(value?: string | Date | number | null): string {
+  if (value === null || value === undefined || value === '') return '';
+
+  if (value instanceof Date) {
+    if (isNaN(value.getTime())) return '';
+    return value.toISOString().slice(0, 19).replace('T', ' ');
+  }
+
+  if (typeof value === 'number') {
+    const d = new Date(value);
+    if (isNaN(d.getTime())) return '';
+    return d.toISOString().slice(0, 19).replace('T', ' ');
+  }
+
+  const trimmed = String(value).trim();
+  if (!trimmed) return '';
+
+  // Preserve wall-clock date & time from ISO strings (e.g. Strava start_date_local "2026-11-10T19:38:28Z")
+  const isoMatch = trimmed.match(
+    /^(\d{4}-\d{2}-\d{2})[T ](\d{2}:\d{2}:\d{2})(?:\.\d+)?(?:Z|[+-]\d{2}:?\d{2})?$/i
+  );
+  if (isoMatch) {
+    return `${isoMatch[1]} ${isoMatch[2]}`;
+  }
+
+  const isoShortMatch = trimmed.match(
+    /^(\d{4}-\d{2}-\d{2})[T ](\d{2}:\d{2})(?:Z|[+-]\d{2}:?\d{2})?$/i
+  );
+  if (isoShortMatch) {
+    return `${isoShortMatch[1]} ${isoShortMatch[2]}:00`;
+  }
+
+  if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) {
+    return trimmed;
+  }
+
+  const parsed = new Date(trimmed);
+  if (!isNaN(parsed.getTime())) {
+    return parsed.toISOString().slice(0, 19).replace('T', ' ');
+  }
+
+  return trimmed;
+}
+
+/**
  * Extracts a Google Spreadsheet ID from either a raw ID or a full Google Sheets URL
  */
 export function parseSpreadsheetId(input: string): string | null {
@@ -399,7 +447,7 @@ export function buildActivitySheetRow(
   const rawDescription = (details?.activity?.description as string) || '';
   const calories = (details?.activity?.calories as number) || (activity as any).calories || '';
   const stravaUrl = `https://www.strava.com/activities/${activity.id}`;
-  const nowIso = new Date().toISOString();
+  const syncedAtFormatted = formatSheetDateTime(new Date());
 
   // Combine power notes if present
   let breakdownNotes = rawDescription;
@@ -428,7 +476,7 @@ export function buildActivitySheetRow(
   }
 
   return [
-    activity.start_date_local || activity.start_date,
+    formatSheetDateTime(activity.start_date_local || activity.start_date),
     actIdStr,
     activity.name,
     classification.category,
@@ -449,7 +497,7 @@ export function buildActivitySheetRow(
     calories ? Math.round(Number(calories)).toString() : '',
     breakdownNotes.slice(0, 500),
     stravaUrl,
-    nowIso,
+    syncedAtFormatted,
   ];
 }
 
@@ -700,13 +748,13 @@ export async function batchBackupActivitiesToGoogleSheet(
       const { category } = classifyActivity(act);
       streamRowsToAppend.push([
         actIdStr,
-        act.start_date || '',
+        formatSheetDateTime(act.start_date_local || act.start_date),
         act.name || '',
         category || act.type || '',
         keys.join(', '),
         pointsCount,
         compactJson,
-        new Date().toISOString(),
+        formatSheetDateTime(new Date()),
       ]);
     }
 
@@ -1112,13 +1160,13 @@ export async function backupActivityStreamsToGoogleSheet(
     const { category } = classifyActivity(activity);
     const rowValues = [
       actIdStr,
-      activity.start_date || '',
+      formatSheetDateTime(activity.start_date_local || activity.start_date),
       activity.name || '',
       category || activity.type || '',
       keys.join(', '),
       pointsCount,
       compactJson,
-      new Date().toISOString(),
+      formatSheetDateTime(new Date()),
     ];
 
     if (existingRowIndex > 0) {
@@ -1247,7 +1295,7 @@ export function formatHealthLogRow(
 ): (string | number)[] {
   const sleepHours = log.sleepDurationMinutes ? (log.sleepDurationMinutes / 60).toFixed(1) : '';
   const notesStr = [log.notes, ...(log.tags || [])].filter(Boolean).join(' · ');
-  const nowIso = new Date().toISOString();
+  const syncedAtFormatted = formatSheetDateTime(new Date());
 
   // Compute Readiness Score (0-100%) dynamically if not stored statically
   let readinessScore: number | string = '';
@@ -1263,7 +1311,7 @@ export function formatHealthLogRow(
   }
 
   return [
-    log.date,
+    normalizeDateToYyyyMmDd(log.date) || log.date,
     readinessScore,
     log.sleepScore ?? '',
     sleepHours,
@@ -1283,7 +1331,7 @@ export function formatHealthLogRow(
     log.awakeMinutes ?? '',
     log.source ?? 'garmin',
     notesStr,
-    nowIso,
+    syncedAtFormatted,
   ];
 }
 
@@ -1403,8 +1451,8 @@ export function normalizeDateToYyyyMmDd(val: any): string {
   // 1. Direct YYYY-MM-DD
   if (/^\d{4}-\d{2}-\d{2}$/.test(str)) return str;
 
-  // 2. ISO timestamp: 2026-10-31T...
-  if (/^\d{4}-\d{2}-\d{2}T/.test(str)) return str.slice(0, 10);
+  // 2. ISO or space-separated timestamp: 2026-10-31T... or 2026-10-31 19:38:28
+  if (/^\d{4}-\d{2}-\d{2}[T ]/.test(str)) return str.slice(0, 10);
 
   // 3. YYYY/MM/DD
   const ymdMatch = str.match(/^(\d{4})[\/\.](\d{1,2})[\/\.](\d{1,2})$/);
