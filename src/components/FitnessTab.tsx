@@ -95,14 +95,21 @@ export const FitnessTab: React.FC<FitnessTabProps> = ({
   // Modal inspection state
   const [activeModalActivity, setActiveModalActivity] = useState<StravaActivity | null>(null);
 
-  // Compute daily fitness timeline across all historical activities
+  // Compute full daily fitness timeline across ALL historical activities we have data for
+  const fullFitnessTimeline = useMemo(() => {
+    return computeFitnessTimeline(activities, activityDetails, athleteProfile, Infinity);
+  }, [activities, activityDetails, athleteProfile]);
+
+  // Slice to selected lookback window (30d / 60d / 90d) strictly for the Timeline Chart
   const fitnessTimeline = useMemo(() => {
-    return computeFitnessTimeline(activities, activityDetails, athleteProfile, timelineLookback);
-  }, [activities, activityDetails, athleteProfile, timelineLookback]);
+    if (fullFitnessTimeline.length === 0) return [];
+    const count = Math.max(1, timelineLookback + 1);
+    return fullFitnessTimeline.slice(-count);
+  }, [fullFitnessTimeline, timelineLookback]);
 
   // Today / latest record
   const latestRecord = useMemo(() => {
-    if (fitnessTimeline.length === 0) {
+    if (fullFitnessTimeline.length === 0) {
       return {
         date: new Date().toISOString().split('T')[0],
         swimTss: 0,
@@ -125,13 +132,59 @@ export const FitnessTab: React.FC<FitnessTabProps> = ({
         triTsb: 0,
       } as DailyFitnessRecord;
     }
-    return fitnessTimeline[fitnessTimeline.length - 1];
-  }, [fitnessTimeline]);
+    return fullFitnessTimeline[fullFitnessTimeline.length - 1];
+  }, [fullFitnessTimeline]);
 
   // Interactive overrides for CTL Target & Feasibility Model
   const [showCtlDerivationPanel, setShowCtlDerivationPanel] = useState<boolean>(true);
   const [customWeeksToRace, setCustomWeeksToRace] = useState<number | undefined>(undefined);
   const [customAvailableHours, setCustomAvailableHours] = useState<number | undefined>(undefined);
+
+  // Next 1–3 upcoming goal races with weeks remaining for Back-Scheduling & Periodization
+  const upcomingGoalRaces = useMemo(() => {
+    if (!goals || goals.length === 0) return [];
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const todayMs = today.getTime();
+
+    return goals
+      .filter((g) => {
+        if (!g.eventDate || g.status === 'abandoned' || g.status === 'completed' || g.status === 'missed') {
+          return false;
+        }
+        const [y, m, d] = g.eventDate.split('-').map(Number);
+        if (!y || !m || !d) return false;
+        const evDate = new Date(y, m - 1, d);
+        evDate.setHours(0, 0, 0, 0);
+        return evDate.getTime() >= todayMs;
+      })
+      .map((g) => {
+        const [y, m, d] = g.eventDate.split('-').map(Number);
+        const evDate = new Date(y, m - 1, d);
+        evDate.setHours(0, 0, 0, 0);
+        const diffDays = Math.max(0, Math.round((evDate.getTime() - todayMs) / 86400000));
+        const weeksExact = Math.round((diffDays / 7) * 10) / 10;
+        const weeksRounded = Math.max(1, Math.round(diffDays / 7));
+        const shortDate = evDate.toLocaleDateString('en-GB', {
+          day: 'numeric',
+          month: 'short',
+          ...(y !== today.getFullYear() ? { year: '2-digit' } : {}),
+        });
+        return {
+          id: g.id,
+          name: g.name,
+          priority: g.priority,
+          eventType: g.eventType,
+          eventDate: g.eventDate,
+          shortDate,
+          diffDays,
+          weeksExact,
+          weeksRounded,
+        };
+      })
+      .sort((a, b) => a.diffDays - b.diffDays)
+      .slice(0, 3);
+  }, [goals]);
 
   // First-principles CTL Target, Empirical IF, Ramp Rate & Periodization Derivation
   const ctlDerivation = useMemo(() => {
@@ -145,7 +198,7 @@ export const FitnessTab: React.FC<FitnessTabProps> = ({
       activityDetails,
       athleteProfile,
       goals,
-      fitnessTimeline,
+      fitnessTimeline: fullFitnessTimeline,
       customAvailableWeeklyHours: customAvailableHours,
       customWeeksToRace,
     });
@@ -159,7 +212,7 @@ export const FitnessTab: React.FC<FitnessTabProps> = ({
     activityDetails,
     athleteProfile,
     goals,
-    fitnessTimeline,
+    fullFitnessTimeline,
     customAvailableHours,
     customWeeksToRace,
   ]);
@@ -267,8 +320,24 @@ export const FitnessTab: React.FC<FitnessTabProps> = ({
     else setSelectedChartDiscipline('combined');
   }, [selectedSport]);
 
-  // Interactive timeline hover state
+  // Interactive timeline hover / touch selection state
   const [hoveredTimelineIdx, setHoveredTimelineIdx] = useState<number | null>(null);
+  const [pinnedTimelineIdx, setPinnedTimelineIdx] = useState<number | null>(null);
+  const timelinePlotRef = React.useRef<HTMLDivElement>(null);
+
+  React.useEffect(() => {
+    setHoveredTimelineIdx(null);
+    setPinnedTimelineIdx(null);
+  }, [timelineLookback, selectedChartDiscipline]);
+
+  const resolveTimelineIdxFromClientX = (clientX: number): number | null => {
+    const el = timelinePlotRef.current;
+    if (!el || fitnessTimeline.length === 0) return null;
+    const rect = el.getBoundingClientRect();
+    if (rect.width <= 0) return null;
+    const ratio = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
+    return Math.round(ratio * (fitnessTimeline.length - 1));
+  };
 
   // Dynamic Y-axis scaling for Fitness, Fatigue & Form Timeline
   // Adjusts dynamically to whatever data is actually displayed (CTL, ATL, TSB)
@@ -397,7 +466,7 @@ export const FitnessTab: React.FC<FitnessTabProps> = ({
   }
 
   const trainingLogPages = useMemo<TrainingLogPage[]>(() => {
-    if (!fitnessTimeline || fitnessTimeline.length === 0) {
+    if (!fullFitnessTimeline || fullFitnessTimeline.length === 0) {
       return [
         {
           id: 'page_empty',
@@ -412,14 +481,14 @@ export const FitnessTab: React.FC<FitnessTabProps> = ({
       ];
     }
 
-    const latest = fitnessTimeline[fitnessTimeline.length - 1];
+    const latest = fullFitnessTimeline[fullFitnessTimeline.length - 1];
     const refDateStr = latest.date;
     const refYear = parseInt(refDateStr.slice(0, 4), 10);
     const refMonth = parseInt(refDateStr.slice(5, 7), 10) - 1;
     const refDay = parseInt(refDateStr.slice(8, 10), 10);
 
     const startOfMonthStr = `${refDateStr.slice(0, 7)}-01`;
-    const refDateObj = new Date(refYear, refMonth, refDay);
+    const refDateObj = new Date(Date.UTC(refYear, refMonth, refDay, 12, 0, 0));
     const twentyDaysAgoObj = new Date(refDateObj.getTime() - 19 * 24 * 60 * 60 * 1000);
     const twentyDaysAgoStr = twentyDaysAgoObj.toISOString().slice(0, 10);
 
@@ -427,11 +496,15 @@ export const FitnessTab: React.FC<FitnessTabProps> = ({
       'January', 'February', 'March', 'April', 'May', 'June',
       'July', 'August', 'September', 'October', 'November', 'December',
     ];
+    const shortMonthNames = [
+      'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+      'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+    ];
 
     let page1Cutoff: string;
     let page1Label: string;
 
-    // Rule: days in month so far (refDay) vs 20 days, whichever is greater
+    // First tab rule: show either current month-to-date (if >= 20th) or last 20 days
     if (refDay >= 20) {
       page1Cutoff = startOfMonthStr;
       page1Label = `${monthNames[refMonth]} ${refYear} (1st–${refDay}${getOrdinal(refDay)})`;
@@ -440,7 +513,7 @@ export const FitnessTab: React.FC<FitnessTabProps> = ({
       page1Label = `Last 20 Days (${formatShortDate(twentyDaysAgoStr)} – ${formatShortDate(refDateStr)})`;
     }
 
-    const page1Records = fitnessTimeline
+    const page1Records = fullFitnessTimeline
       .filter((r) => r.date >= page1Cutoff && r.date <= refDateStr)
       .slice()
       .reverse();
@@ -450,7 +523,7 @@ export const FitnessTab: React.FC<FitnessTabProps> = ({
         id: 'page_1_recent',
         pageNumber: 1,
         label: page1Label,
-        monthTitle: `${monthNames[refMonth]} ${refYear}`,
+        monthTitle: `${shortMonthNames[refMonth]} ${refYear}`,
         isRecentWindow: true,
         startDate: page1Cutoff,
         endDate: refDateStr,
@@ -458,11 +531,13 @@ export const FitnessTab: React.FC<FitnessTabProps> = ({
       },
     ];
 
-    // Older records before page1Cutoff grouped by calendar month
-    const olderRecords = fitnessTimeline.filter((r) => r.date < page1Cutoff);
-    if (olderRecords.length > 0) {
+    // Subsequent tabs: group ALL dates prior to the current calendar month (r.date < startOfMonthStr)
+    // so selecting the next month tab always displays every single day belonging to that month,
+    // extending all the way back to the earliest historical date we have data for.
+    const previousMonthsRecords = fullFitnessTimeline.filter((r) => r.date < startOfMonthStr);
+    if (previousMonthsRecords.length > 0) {
       const monthMap = new Map<string, DailyFitnessRecord[]>();
-      for (const rec of olderRecords) {
+      for (const rec of previousMonthsRecords) {
         const ym = rec.date.slice(0, 7);
         if (!monthMap.has(ym)) {
           monthMap.set(ym, []);
@@ -475,12 +550,13 @@ export const FitnessTab: React.FC<FitnessTabProps> = ({
         const y = parseInt(ym.slice(0, 4), 10);
         const m = parseInt(ym.slice(5, 7), 10) - 1;
         const mRecords = monthMap.get(ym)!.sort((a, b) => a.date.localeCompare(b.date)).reverse();
-        const mTitle = `${monthNames[m]} ${y}`;
+        const fullTitle = `${monthNames[m]} ${y}`;
+        const tabTitle = `${shortMonthNames[m]} ${y}`;
         pages.push({
           id: `page_month_${ym}`,
           pageNumber: idx + 2,
-          label: `${mTitle} (${mRecords.length} days)`,
-          monthTitle: mTitle,
+          label: `${fullTitle} (${mRecords.length} days)`,
+          monthTitle: tabTitle,
           isRecentWindow: false,
           startDate: mRecords[mRecords.length - 1].date,
           endDate: mRecords[0].date,
@@ -490,7 +566,7 @@ export const FitnessTab: React.FC<FitnessTabProps> = ({
     }
 
     return pages;
-  }, [fitnessTimeline]);
+  }, [fullFitnessTimeline]);
 
   const [currentTrainingPageIndex, setCurrentTrainingPageIndex] = useState<number>(0);
   const safeTrainingPageIndex = Math.min(
@@ -1123,6 +1199,46 @@ export const FitnessTab: React.FC<FitnessTabProps> = ({
                     </span>
                   </div>
                 </div>
+
+                {/* Next 1–3 Goal Races Countdown Lines */}
+                <div className="pt-2 border-t border-slate-200 dark:border-slate-800 text-[11px] space-y-1">
+                  <div className="text-[10px] uppercase tracking-wider font-bold text-slate-400">
+                    Next Goal Races
+                  </div>
+                  {upcomingGoalRaces.length > 0 ? (
+                    upcomingGoalRaces.map((g) => {
+                      const isActiveHorizon = ctlDerivation.weeksToRace === g.weeksRounded;
+                      return (
+                        <button
+                          key={g.id}
+                          type="button"
+                          onClick={() => setCustomWeeksToRace(Math.min(52, Math.max(4, g.weeksRounded)))}
+                          className={`w-full flex items-center justify-between gap-2 text-left py-0.5 rounded transition-colors cursor-pointer ${
+                            isActiveHorizon
+                              ? 'text-amber-400 font-bold'
+                              : isLight
+                              ? 'text-slate-700 hover:text-slate-950'
+                              : 'text-slate-300 hover:text-white'
+                          }`}
+                          title={`Click to set target horizon to ${g.weeksRounded} weeks (${g.name})`}
+                        >
+                          <span className="truncate">
+                            <span className="font-mono font-bold text-amber-400 mr-1">[{g.priority}]</span>
+                            {g.name}{' '}
+                            <span className="text-[10px] text-slate-500">({g.shortDate})</span>
+                          </span>
+                          <span className="font-mono shrink-0 text-sky-400 font-bold">
+                            {g.weeksExact} wks
+                          </span>
+                        </button>
+                      );
+                    })
+                  ) : (
+                    <div className="text-slate-500 text-[11px]">
+                      No upcoming goal races set in Goals tab.
+                    </div>
+                  )}
+                </div>
               </div>
 
               {/* Column 2: Ramp Rate Rules & Running vs Triathlon Tissue Limits */}
@@ -1245,13 +1361,13 @@ export const FitnessTab: React.FC<FitnessTabProps> = ({
       {/* 6. TIMELINE CHART: FITNESS, FATIGUE & FORM               */}
       {/* ========================================================= */}
       <div
-        className={`rounded-2xl border p-4 sm:p-5 transition-colors ${
+        className={`rounded-2xl border px-3 py-4 sm:p-5 transition-colors ${
           isLight
             ? 'bg-white border-slate-200 shadow-sm'
             : 'bg-slate-900/60 border-slate-800'
         }`}
       >
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-4 border-b border-slate-800/80">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3.5 border-b border-slate-200/80 dark:border-slate-800/80">
           <div>
             <h3 className={`text-sm font-bold uppercase tracking-wider ${isLight ? 'text-slate-800' : 'text-slate-200'}`}>
               Fitness, Fatigue &amp; Form Timeline
@@ -1294,7 +1410,7 @@ export const FitnessTab: React.FC<FitnessTabProps> = ({
                   key={days}
                   type="button"
                   onClick={() => setTimelineLookback(days)}
-                  className={`px-2 py-1 rounded-md transition-colors cursor-pointer ${
+                  className={`px-2.5 py-1 rounded-md transition-colors cursor-pointer ${
                     timelineLookback === days
                       ? 'bg-amber-500 text-slate-950'
                       : 'text-slate-400 hover:text-white'
@@ -1307,175 +1423,287 @@ export const FitnessTab: React.FC<FitnessTabProps> = ({
           </div>
         </div>
 
-        {/* Chart Key / Legend at TOP */}
-        <div className="pt-3 pb-1 flex flex-wrap items-center justify-between gap-3 text-xs">
-          <div className="flex items-center gap-4">
-            <span className="flex items-center gap-1.5 font-bold text-sky-400">
-              <span className="w-3 h-0.5 bg-sky-400 rounded-full" />
-              <span>CTL (Fitness 42d)</span>
-            </span>
-            <span className="flex items-center gap-1.5 font-bold text-purple-400">
-              <span className="w-3 h-0.5 bg-purple-400 rounded-full" />
-              <span>ATL (Fatigue 7d)</span>
-            </span>
-            <span className="flex items-center gap-1.5 font-bold text-emerald-400">
-              <span className="w-2.5 h-2.5 rounded-sm bg-emerald-500/20 border border-emerald-500/40" />
-              <span>Form (TSB)</span>
-            </span>
+        {/* Chart Key / Legend + Non-Overlapping Selected Point Readout */}
+        <div className="pt-3 pb-2 flex flex-col gap-2">
+          <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
+            <div className="flex flex-wrap items-center gap-3 sm:gap-4">
+              <span className="flex items-center gap-1.5 font-bold text-sky-400">
+                <span className="w-3 h-0.5 bg-sky-400 rounded-full" />
+                <span>CTL (Fitness 42d)</span>
+              </span>
+              <span className="flex items-center gap-1.5 font-bold text-purple-400">
+                <span className="w-3 h-[1.5px] bg-purple-400 rounded-full" />
+                <span>ATL (Fatigue 7d)</span>
+              </span>
+              <span className="flex items-center gap-1.5 font-bold text-emerald-400">
+                <span className="w-2.5 h-2.5 rounded-sm bg-emerald-500/20 border border-emerald-500/40" />
+                <span>Form (TSB)</span>
+              </span>
+            </div>
+
+            <div className="text-[11px] font-mono text-slate-500">
+              Scale: {chartScaling.yMin} – {chartScaling.yMax} TSS/day
+            </div>
           </div>
 
-          <div className="text-[11px] font-mono text-slate-500">
-            Scale: {chartScaling.yMin} – {chartScaling.yMax} TSS/day
-          </div>
+          {/* Dedicated Inspected Day Strip (never covers chart lines, works with tap & drag) */}
+          {fitnessTimeline.length > 0 && (() => {
+            const activeIdx =
+              hoveredTimelineIdx ??
+              pinnedTimelineIdx ??
+              fitnessTimeline.length - 1;
+            const r = fitnessTimeline[activeIdx] || fitnessTimeline[fitnessTimeline.length - 1];
+            const isInspecting = hoveredTimelineIdx !== null || pinnedTimelineIdx !== null;
+            const ctl =
+              selectedChartDiscipline === 'swim'
+                ? r.swimCtl
+                : selectedChartDiscipline === 'bike'
+                ? r.bikeCtl
+                : selectedChartDiscipline === 'run'
+                ? r.runCtl
+                : r.triCtl;
+            const atl =
+              selectedChartDiscipline === 'swim'
+                ? r.swimAtl
+                : selectedChartDiscipline === 'bike'
+                ? r.bikeAtl
+                : selectedChartDiscipline === 'run'
+                ? r.runAtl
+                : r.triAtl;
+            const tsb =
+              selectedChartDiscipline === 'swim'
+                ? r.swimTsb
+                : selectedChartDiscipline === 'bike'
+                ? r.bikeTsb
+                : selectedChartDiscipline === 'run'
+                ? r.runTsb
+                : r.triTsb;
+            const status = getFormLabel(tsb);
+
+            return (
+              <div
+                className={`px-2.5 py-1.5 rounded-lg border text-[11px] sm:text-xs font-mono tabular-nums flex flex-wrap items-center justify-between gap-x-3 gap-y-1 ${
+                  isLight
+                    ? 'bg-slate-50 border-slate-200 text-slate-800'
+                    : 'bg-slate-950/60 border-slate-800/80 text-slate-200'
+                }`}
+              >
+                <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5">
+                  <span className="font-bold text-amber-400">
+                    {r.date}
+                    {!isInspecting && <span className="text-[10px] font-sans font-normal text-slate-500 ml-1">(Latest · tap/drag chart)</span>}
+                  </span>
+                  <span className="text-sky-400 font-bold">CTL {ctl.toFixed(1)}</span>
+                  <span className="text-purple-400 font-bold">ATL {atl.toFixed(1)}</span>
+                  <span className={`font-bold ${tsb >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                    TSB {tsb > 0 ? `+${tsb.toFixed(1)}` : tsb.toFixed(1)}
+                  </span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className={`font-sans text-[10px] font-semibold ${status.color}`}>
+                    {status.label}
+                  </span>
+                  {pinnedTimelineIdx !== null && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setPinnedTimelineIdx(null);
+                        setHoveredTimelineIdx(null);
+                      }}
+                      className="text-[10px] font-sans text-slate-400 hover:text-white underline cursor-pointer"
+                    >
+                      Reset
+                    </button>
+                  )}
+                </div>
+              </div>
+            );
+          })()}
         </div>
 
-        {/* SVG Timeline Chart with Adaptive Y-Axis & X-Axis Date Markers */}
-        <div className="relative pt-4 pb-1">
-          <div className="h-44 sm:h-56 w-full relative">
+        {/* Taller Distortion-Free Timeline Chart with Smooth Touch/Pointer Scrubbing */}
+        <div className="relative pt-2 pb-1">
+          <div
+            ref={timelinePlotRef}
+            onPointerDown={(e) => {
+              const idx = resolveTimelineIdxFromClientX(e.clientX);
+              if (idx !== null) {
+                setPinnedTimelineIdx(idx);
+                setHoveredTimelineIdx(idx);
+              }
+            }}
+            onPointerMove={(e) => {
+              const idx = resolveTimelineIdxFromClientX(e.clientX);
+              if (idx !== null) {
+                setHoveredTimelineIdx(idx);
+                if (e.buttons > 0) setPinnedTimelineIdx(idx);
+              }
+            }}
+            onPointerLeave={() => {
+              setHoveredTimelineIdx(null);
+            }}
+            onTouchStart={(e) => {
+              if (e.touches[0]) {
+                const idx = resolveTimelineIdxFromClientX(e.touches[0].clientX);
+                if (idx !== null) {
+                  setPinnedTimelineIdx(idx);
+                  setHoveredTimelineIdx(idx);
+                }
+              }
+            }}
+            onTouchMove={(e) => {
+              if (e.touches[0]) {
+                const idx = resolveTimelineIdxFromClientX(e.touches[0].clientX);
+                if (idx !== null) {
+                  setPinnedTimelineIdx(idx);
+                  setHoveredTimelineIdx(idx);
+                }
+              }
+            }}
+            className="h-64 sm:h-80 w-full relative select-none touch-pan-y cursor-crosshair"
+          >
             {fitnessTimeline.length === 0 ? (
               <div className="h-full flex items-center justify-center text-xs text-slate-500">
                 No historical training activities recorded.
               </div>
             ) : (
-              <svg
-                className="w-full h-full overflow-visible"
-                viewBox="0 0 100 100"
-                preserveAspectRatio="none"
-              >
-                {/* Horizontal reference grid lines with numerical labels */}
-                {chartScaling.ticks.map((tickVal) => {
-                  const y = ((chartScaling.yMax - tickVal) / chartScaling.range) * 90 + 5;
-                  const isZero = tickVal === 0;
-                  return (
-                    <g key={tickVal}>
+              <>
+                <svg
+                  className="w-full h-full overflow-visible block"
+                  viewBox="0 0 100 100"
+                  preserveAspectRatio="none"
+                >
+                  {/* Horizontal reference grid lines (non-scaling stroke) */}
+                  {chartScaling.ticks.map((tickVal) => {
+                    const y = ((chartScaling.yMax - tickVal) / chartScaling.range) * 90 + 5;
+                    const isZero = tickVal === 0;
+                    return (
                       <line
+                        key={tickVal}
                         x1="0"
                         y1={y}
                         x2="100"
                         y2={y}
+                        vectorEffect="non-scaling-stroke"
                         stroke="currentColor"
-                        strokeDasharray={isZero ? 'none' : '2,2'}
-                        className={isZero ? 'text-slate-500' : isLight ? 'text-slate-200' : 'text-slate-800/80'}
-                        strokeWidth={isZero ? '0.75' : '0.4'}
+                        strokeDasharray={isZero ? 'none' : '3,3'}
+                        className={isZero ? 'text-slate-500/80' : isLight ? 'text-slate-200' : 'text-slate-800'}
+                        strokeWidth={isZero ? '1.25' : '1'}
                       />
-                      <text
-                        x="1"
-                        y={Math.max(3.5, y - 1)}
-                        fill={isZero ? '#38bdf8' : isLight ? '#94a3b8' : '#64748b'}
-                        fontSize="2.6"
-                        fontFamily="monospace"
-                        fontWeight={isZero ? 'bold' : 'normal'}
+                    );
+                  })}
+
+                  {/* Form (TSB) Visual Pillars */}
+                  {fitnessTimeline.map((r, i) => {
+                    const tsb =
+                      selectedChartDiscipline === 'swim'
+                        ? r.swimTsb
+                        : selectedChartDiscipline === 'bike'
+                        ? r.bikeTsb
+                        : selectedChartDiscipline === 'run'
+                        ? r.runTsb
+                        : r.triTsb;
+                    const x = (i / (fitnessTimeline.length - 1 || 1)) * 100;
+                    const barW = Math.max(0.55, 76 / fitnessTimeline.length);
+                    const yTsb = ((chartScaling.yMax - tsb) / chartScaling.range) * 90 + 5;
+                    const yZero = ((chartScaling.yMax - 0) / chartScaling.range) * 90 + 5;
+                    const top = Math.min(yTsb, yZero);
+                    const height = Math.abs(yTsb - yZero);
+                    const isPositive = tsb >= 0;
+
+                    return (
+                      <rect
+                        key={`tsb-bar-${i}`}
+                        x={x - barW / 2}
+                        y={top}
+                        width={barW}
+                        height={Math.max(0.25, height)}
+                        fill={isPositive ? '#10b981' : '#f43f5e'}
+                        opacity={0.32}
+                      />
+                    );
+                  })}
+
+                  {/* CTL Path (Fitness - Sky Blue Line, uniform pixel width) */}
+                  <polyline
+                    fill="none"
+                    stroke="#38bdf8"
+                    strokeWidth="2.2"
+                    vectorEffect="non-scaling-stroke"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    points={fitnessTimeline
+                      .map((r, i) => {
+                        const x = (i / (fitnessTimeline.length - 1 || 1)) * 100;
+                        const ctl =
+                          selectedChartDiscipline === 'swim'
+                            ? r.swimCtl
+                            : selectedChartDiscipline === 'bike'
+                            ? r.bikeCtl
+                            : selectedChartDiscipline === 'run'
+                            ? r.runCtl
+                            : r.triCtl;
+                        const y = ((chartScaling.yMax - ctl) / chartScaling.range) * 90 + 5;
+                        return `${x},${y}`;
+                      })
+                      .join(' ')}
+                  />
+
+                  {/* ATL Path (Fatigue - Narrower, consistent Purple Line via non-scaling-stroke) */}
+                  <polyline
+                    fill="none"
+                    stroke="#c084fc"
+                    strokeWidth="1.35"
+                    vectorEffect="non-scaling-stroke"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    points={fitnessTimeline
+                      .map((r, i) => {
+                        const x = (i / (fitnessTimeline.length - 1 || 1)) * 100;
+                        const atl =
+                          selectedChartDiscipline === 'swim'
+                            ? r.swimAtl
+                            : selectedChartDiscipline === 'bike'
+                            ? r.bikeAtl
+                            : selectedChartDiscipline === 'run'
+                            ? r.runAtl
+                            : r.triAtl;
+                        const y = ((chartScaling.yMax - atl) / chartScaling.range) * 90 + 5;
+                        return `${x},${y}`;
+                      })
+                      .join(' ')}
+                  />
+                </svg>
+
+                {/* Unstretched Y-Axis Tick Labels Overlay */}
+                <div className="pointer-events-none absolute inset-0">
+                  {chartScaling.ticks.map((tickVal) => {
+                    const yPct = ((chartScaling.yMax - tickVal) / chartScaling.range) * 90 + 5;
+                    const isZero = tickVal === 0;
+                    return (
+                      <span
+                        key={`ylabel-${tickVal}`}
+                        style={{ top: `${yPct}%` }}
+                        className={`absolute left-1 -translate-y-full pb-0.5 text-[10px] font-mono tabular-nums leading-none px-1 rounded ${
+                          isZero
+                            ? 'text-sky-400 font-bold'
+                            : isLight
+                            ? 'text-slate-500 bg-white/70'
+                            : 'text-slate-400 bg-slate-900/60'
+                        }`}
                       >
                         {tickVal}
-                      </text>
-                    </g>
-                  );
-                })}
+                      </span>
+                    );
+                  })}
+                </div>
 
-                {/* Form (TSB) Visual Pillars / Area */}
-                {fitnessTimeline.map((r, i) => {
-                  const tsb =
-                    selectedChartDiscipline === 'swim'
-                      ? r.swimTsb
-                      : selectedChartDiscipline === 'bike'
-                      ? r.bikeTsb
-                      : selectedChartDiscipline === 'run'
-                      ? r.runTsb
-                      : r.triTsb;
-                  const x = (i / (fitnessTimeline.length - 1 || 1)) * 100;
-                  const barW = Math.max(0.6, 85 / fitnessTimeline.length);
-                  const yTsb = ((chartScaling.yMax - tsb) / chartScaling.range) * 90 + 5;
-                  const yZero = ((chartScaling.yMax - 0) / chartScaling.range) * 90 + 5;
-                  const top = Math.min(yTsb, yZero);
-                  const height = Math.abs(yTsb - yZero);
-                  const isPositive = tsb >= 0;
-
-                  return (
-                    <rect
-                      key={`tsb-bar-${i}`}
-                      x={x - barW / 2}
-                      y={top}
-                      width={barW}
-                      height={Math.max(0.3, height)}
-                      fill={isPositive ? '#10b981' : '#f43f5e'}
-                      opacity={0.35}
-                      rx="0.2"
-                    />
-                  );
-                })}
-
-                {/* CTL Path (Fitness - Sky Blue Line) */}
-                <polyline
-                  fill="none"
-                  stroke="#38bdf8"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  points={fitnessTimeline
-                    .map((r, i) => {
-                      const x = (i / (fitnessTimeline.length - 1 || 1)) * 100;
-                      const ctl =
-                        selectedChartDiscipline === 'swim'
-                          ? r.swimCtl
-                          : selectedChartDiscipline === 'bike'
-                          ? r.bikeCtl
-                          : selectedChartDiscipline === 'run'
-                          ? r.runCtl
-                          : r.triCtl;
-                      const y = ((chartScaling.yMax - ctl) / chartScaling.range) * 90 + 5;
-                      return `${x},${y}`;
-                    })
-                    .join(' ')}
-                />
-
-                {/* ATL Path (Fatigue - Purple Line) */}
-                <polyline
-                  fill="none"
-                  stroke="#c084fc"
-                  strokeWidth="1.8"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  points={fitnessTimeline
-                    .map((r, i) => {
-                      const x = (i / (fitnessTimeline.length - 1 || 1)) * 100;
-                      const atl =
-                        selectedChartDiscipline === 'swim'
-                          ? r.swimAtl
-                          : selectedChartDiscipline === 'bike'
-                          ? r.bikeAtl
-                          : selectedChartDiscipline === 'run'
-                          ? r.runAtl
-                          : r.triAtl;
-                      const y = ((chartScaling.yMax - atl) / chartScaling.range) * 90 + 5;
-                      return `${x},${y}`;
-                    })
-                    .join(' ')}
-                />
-
-                {/* Transparent Interactive Hover Column Targets */}
-                {fitnessTimeline.map((_, i) => {
-                  const x = (i / (fitnessTimeline.length - 1 || 1)) * 100;
-                  const colW = 100 / Math.max(1, fitnessTimeline.length);
-                  return (
-                    <rect
-                      key={`hover-col-${i}`}
-                      x={x - colW / 2}
-                      y="0"
-                      width={colW}
-                      height="100"
-                      fill="transparent"
-                      className="cursor-pointer"
-                      onMouseEnter={() => setHoveredTimelineIdx(i)}
-                      onMouseLeave={() => setHoveredTimelineIdx(null)}
-                    />
-                  );
-                })}
-
-                {/* Hover indicator line & dot */}
-                {hoveredTimelineIdx !== null && fitnessTimeline[hoveredTimelineIdx] && (() => {
-                  const i = hoveredTimelineIdx;
-                  const r = fitnessTimeline[i];
-                  const x = (i / (fitnessTimeline.length - 1 || 1)) * 100;
+                {/* Unstretched Active Crosshair & Circular Dots Overlay */}
+                {(() => {
+                  const activeIdx = hoveredTimelineIdx ?? pinnedTimelineIdx;
+                  if (activeIdx === null || !fitnessTimeline[activeIdx]) return null;
+                  const r = fitnessTimeline[activeIdx];
+                  const xPct = (activeIdx / (fitnessTimeline.length - 1 || 1)) * 100;
                   const ctl =
                     selectedChartDiscipline === 'swim'
                       ? r.swimCtl
@@ -1492,81 +1720,33 @@ export const FitnessTab: React.FC<FitnessTabProps> = ({
                       : selectedChartDiscipline === 'run'
                       ? r.runAtl
                       : r.triAtl;
-                  const yCtl = ((chartScaling.yMax - ctl) / chartScaling.range) * 90 + 5;
-                  const yAtl = ((chartScaling.yMax - atl) / chartScaling.range) * 90 + 5;
+                  const yCtlPct = ((chartScaling.yMax - ctl) / chartScaling.range) * 90 + 5;
+                  const yAtlPct = ((chartScaling.yMax - atl) / chartScaling.range) * 90 + 5;
 
                   return (
-                    <g>
-                      <line
-                        x1={x}
-                        y1="0"
-                        x2={x}
-                        y2="100"
-                        stroke="#38bdf8"
-                        strokeDasharray="1,1"
-                        strokeWidth="0.6"
-                        opacity="0.8"
+                    <div className="pointer-events-none absolute inset-0">
+                      <div
+                        style={{ left: `${xPct}%` }}
+                        className="absolute top-0 bottom-0 w-px border-l border-dashed border-sky-400/80 -translate-x-1/2"
                       />
-                      <circle cx={x} cy={yCtl} r="1.5" fill="#38bdf8" stroke="#ffffff" strokeWidth="0.4" />
-                      <circle cx={x} cy={yAtl} r="1.5" fill="#c084fc" stroke="#ffffff" strokeWidth="0.4" />
-                    </g>
+                      <div
+                        style={{ left: `${xPct}%`, top: `${yCtlPct}%` }}
+                        className="absolute w-3 h-3 rounded-full bg-sky-400 border-2 border-white dark:border-slate-950 -translate-x-1/2 -translate-y-1/2 shadow-sm"
+                      />
+                      <div
+                        style={{ left: `${xPct}%`, top: `${yAtlPct}%` }}
+                        className="absolute w-2.5 h-2.5 rounded-full bg-purple-400 border-2 border-white dark:border-slate-950 -translate-x-1/2 -translate-y-1/2 shadow-sm"
+                      />
+                    </div>
                   );
                 })()}
-              </svg>
+              </>
             )}
-
-            {/* Hover details badge inside chart */}
-            {hoveredTimelineIdx !== null && fitnessTimeline[hoveredTimelineIdx] && (() => {
-              const r = fitnessTimeline[hoveredTimelineIdx];
-              const ctl =
-                selectedChartDiscipline === 'swim'
-                  ? r.swimCtl
-                  : selectedChartDiscipline === 'bike'
-                  ? r.bikeCtl
-                  : selectedChartDiscipline === 'run'
-                  ? r.runCtl
-                  : r.triCtl;
-              const atl =
-                selectedChartDiscipline === 'swim'
-                  ? r.swimAtl
-                  : selectedChartDiscipline === 'bike'
-                  ? r.bikeAtl
-                  : selectedChartDiscipline === 'run'
-                  ? r.runAtl
-                  : r.triAtl;
-              const tsb =
-                selectedChartDiscipline === 'swim'
-                  ? r.swimTsb
-                  : selectedChartDiscipline === 'bike'
-                  ? r.bikeTsb
-                  : selectedChartDiscipline === 'run'
-                  ? r.runTsb
-                  : r.triTsb;
-              const status = getFormLabel(tsb);
-
-              return (
-                <div
-                  className={`absolute top-2 right-2 px-3 py-1.5 rounded-xl border text-xs shadow-lg backdrop-blur-md z-10 flex items-center gap-3 ${
-                    isLight ? 'bg-white/95 border-slate-200 text-slate-800' : 'bg-slate-950/95 border-slate-700 text-white'
-                  }`}
-                >
-                  <span className="font-mono font-bold text-slate-400">{r.date}</span>
-                  <span className="text-sky-400 font-bold">CTL: {ctl.toFixed(1)}</span>
-                  <span className="text-purple-400 font-bold">ATL: {atl.toFixed(1)}</span>
-                  <span className={`font-bold ${tsb >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
-                    Form: {tsb > 0 ? `+${tsb.toFixed(1)}` : tsb.toFixed(1)}
-                  </span>
-                  <span className={`text-[10px] px-1.5 py-0.5 rounded border font-semibold ${status.color} ${status.bg}`}>
-                    {status.label}
-                  </span>
-                </div>
-              );
-            })()}
           </div>
 
           {/* Multiple Date Markers along X-Axis */}
           {fitnessTimeline.length > 0 && (
-            <div className="flex justify-between pt-2 border-t border-slate-800 text-[10px] font-mono text-slate-500">
+            <div className="flex justify-between pt-2 border-t border-slate-200 dark:border-slate-800 text-[10px] font-mono text-slate-500">
               {(() => {
                 const stepCount = Math.min(6, fitnessTimeline.length);
                 const markers: Array<{ key: string; label: string }> = [];
@@ -1605,14 +1785,14 @@ export const FitnessTab: React.FC<FitnessTabProps> = ({
       </div>
 
       {/* ========================================================= */}
-      {/* 7. DAILY TRAINING LOG TABLE (PAGINATED)                   */}
+      {/* 7. DAILY TRAINING LOG TABLE (PAGINATED ALL-TIME HISTORY)  */}
       {/* ========================================================= */}
       <div
         className={`rounded-2xl border overflow-hidden ${
           isLight ? 'bg-white border-slate-200 shadow-sm' : 'bg-slate-900/60 border-slate-800'
         }`}
       >
-        <div className="p-4 border-b border-slate-800/80 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+        <div className="px-2.5 py-2.5 sm:px-4 sm:py-3.5 border-b border-slate-200 dark:border-slate-800/80 flex flex-col sm:flex-row sm:items-center justify-between gap-1.5 sm:gap-2">
           <div>
             <h3 className={`text-xs font-bold uppercase tracking-wider ${isLight ? 'text-slate-800' : 'text-slate-200'}`}>
               Daily Training Log
@@ -1621,21 +1801,21 @@ export const FitnessTab: React.FC<FitnessTabProps> = ({
               {activeTrainingPage.label} • Showing {activeTrainingPage.records.length} days
             </p>
           </div>
-          <span className="text-[11px] text-slate-500 font-mono">
-            {fitnessTimeline.length} total days analyzed
+          <span className="text-[11px] text-slate-500 font-mono tabular-nums">
+            {fullFitnessTimeline.length} total days logged
           </span>
         </div>
 
         {/* Pagination Toolbar */}
         <div
-          className={`px-4 py-2 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 border-b ${
+          className={`px-2.5 py-2 sm:px-4 flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b ${
             isLight ? 'bg-slate-50/60 border-slate-200' : 'bg-slate-950/40 border-slate-800'
           }`}
         >
-          {/* Quick Month Selectors */}
-          <div className="flex items-center gap-1.5 overflow-x-auto scrollbar-none py-0.5">
+          {/* Quick Month Selectors (scrollable across all historical months) */}
+          <div className="flex items-center gap-1 sm:gap-1.5 overflow-x-auto scrollbar-thin py-0.5">
             <span
-              className={`text-[11px] font-bold uppercase tracking-wider shrink-0 mr-1 ${
+              className={`text-[10px] sm:text-[11px] font-bold uppercase tracking-wider shrink-0 mr-0.5 ${
                 isLight ? 'text-slate-500' : 'text-slate-400'
               }`}
             >
@@ -1648,7 +1828,7 @@ export const FitnessTab: React.FC<FitnessTabProps> = ({
                   key={pg.id}
                   type="button"
                   onClick={() => setCurrentTrainingPageIndex(idx)}
-                  className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer whitespace-nowrap shrink-0 border ${
+                  className={`px-2 py-1 rounded-lg text-[11px] sm:text-xs font-bold transition-all cursor-pointer whitespace-nowrap shrink-0 border ${
                     isSelected
                       ? 'bg-amber-500 text-slate-950 border-amber-400 font-black shadow-xs'
                       : isLight
@@ -1670,12 +1850,12 @@ export const FitnessTab: React.FC<FitnessTabProps> = ({
           </div>
 
           {/* Prev / Next controls */}
-          <div className="flex items-center gap-2 shrink-0 self-end sm:self-auto">
+          <div className="flex items-center gap-1.5 sm:gap-2 shrink-0 self-end sm:self-auto">
             <button
               type="button"
               disabled={safeTrainingPageIndex === 0}
               onClick={() => setCurrentTrainingPageIndex((prev) => Math.max(0, prev - 1))}
-              className={`px-2.5 py-1 rounded-lg text-xs font-bold flex items-center gap-1 border transition-all cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed ${
+              className={`px-2 sm:px-2.5 py-1 rounded-lg text-[11px] sm:text-xs font-bold flex items-center gap-1 border transition-all cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed ${
                 isLight
                   ? 'bg-white hover:bg-slate-100 text-slate-700 border-slate-200 shadow-xs'
                   : 'bg-slate-900 hover:bg-slate-800 text-slate-200 border-slate-700'
@@ -1687,13 +1867,13 @@ export const FitnessTab: React.FC<FitnessTabProps> = ({
             </button>
 
             <span
-              className={`text-xs font-mono font-bold px-2 py-1 rounded-md border ${
+              className={`text-[11px] sm:text-xs font-mono tabular-nums font-bold px-2 py-1 rounded-md border ${
                 isLight
                   ? 'bg-slate-100 text-slate-700 border-slate-200'
                   : 'bg-slate-950 text-slate-300 border-slate-800'
               }`}
             >
-              Page {safeTrainingPageIndex + 1} of {trainingLogPages.length}
+              {safeTrainingPageIndex + 1} / {trainingLogPages.length}
             </span>
 
             <button
@@ -1702,7 +1882,7 @@ export const FitnessTab: React.FC<FitnessTabProps> = ({
               onClick={() =>
                 setCurrentTrainingPageIndex((prev) => Math.min(trainingLogPages.length - 1, prev + 1))
               }
-              className={`px-2.5 py-1 rounded-lg text-xs font-bold flex items-center gap-1 border transition-all cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed ${
+              className={`px-2 sm:px-2.5 py-1 rounded-lg text-[11px] sm:text-xs font-bold flex items-center gap-1 border transition-all cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed ${
                 isLight
                   ? 'bg-white hover:bg-slate-100 text-slate-700 border-slate-200 shadow-xs'
                   : 'bg-slate-900 hover:bg-slate-800 text-slate-200 border-slate-700'
@@ -1716,45 +1896,66 @@ export const FitnessTab: React.FC<FitnessTabProps> = ({
         </div>
 
         <div className="overflow-x-auto">
-          <table className="w-full text-left text-xs font-mono">
+          <table className="w-full text-left text-[11px] sm:text-xs font-mono tabular-nums">
             <thead
-              className={`border-b text-[10px] uppercase font-bold tracking-wider ${
+              className={`border-b text-[9px] sm:text-[10px] uppercase font-bold tracking-tight sm:tracking-wider ${
                 isLight
                   ? 'bg-slate-50 border-slate-200 text-slate-600'
                   : 'bg-slate-950/80 border-slate-800 text-slate-400'
               }`}
             >
               <tr>
-                <th className="py-2.5 px-4 font-sans">Date</th>
-                <th className="py-2.5 px-3 text-sky-400">Swim TSS</th>
-                <th className="py-2.5 px-3 text-orange-400">Bike TSS</th>
-                <th className="py-2.5 px-3 text-amber-400">Run TSS</th>
-                <th className="py-2.5 px-3 text-white">Daily Tri TSS</th>
-                <th className="py-2.5 px-3 text-sky-400">
-                  {selectedChartDiscipline === 'swim'
-                    ? 'Swim CTL'
-                    : selectedChartDiscipline === 'bike'
-                    ? 'Bike CTL'
-                    : selectedChartDiscipline === 'run'
-                    ? 'Run CTL'
-                    : 'Tri CTL'}
+                <th className="py-2 pl-2.5 pr-1 sm:py-2.5 sm:px-4 font-sans">Date</th>
+                <th className="py-2 px-1 sm:py-2.5 sm:px-3 text-right sm:text-left text-sky-400">
+                  <span className="sm:hidden">Swm</span>
+                  <span className="hidden sm:inline">Swim TSS</span>
                 </th>
-                <th className="py-2.5 px-3 text-purple-400">
-                  {selectedChartDiscipline === 'swim'
-                    ? 'Swim ATL'
-                    : selectedChartDiscipline === 'bike'
-                    ? 'Bike ATL'
-                    : selectedChartDiscipline === 'run'
-                    ? 'Run ATL'
-                    : 'Tri ATL'}
+                <th className="py-2 px-1 sm:py-2.5 sm:px-3 text-right sm:text-left text-orange-400">
+                  <span className="sm:hidden">Bik</span>
+                  <span className="hidden sm:inline">Bike TSS</span>
                 </th>
-                <th className="py-2.5 px-4 text-emerald-400">Form (TSB)</th>
+                <th className="py-2 px-1 sm:py-2.5 sm:px-3 text-right sm:text-left text-amber-400">
+                  <span className="sm:hidden">Run</span>
+                  <span className="hidden sm:inline">Run TSS</span>
+                </th>
+                <th className={`py-2 px-1 sm:py-2.5 sm:px-3 text-right sm:text-left ${isLight ? 'text-slate-900' : 'text-white'}`}>
+                  <span className="sm:hidden">TSS</span>
+                  <span className="hidden sm:inline">Daily Tri TSS</span>
+                </th>
+                <th className="py-2 px-1 sm:py-2.5 sm:px-3 text-right sm:text-left text-sky-400">
+                  <span className="sm:hidden">CTL</span>
+                  <span className="hidden sm:inline">
+                    {selectedChartDiscipline === 'swim'
+                      ? 'Swim CTL'
+                      : selectedChartDiscipline === 'bike'
+                      ? 'Bike CTL'
+                      : selectedChartDiscipline === 'run'
+                      ? 'Run CTL'
+                      : 'Tri CTL'}
+                  </span>
+                </th>
+                <th className="py-2 px-1 sm:py-2.5 sm:px-3 text-right sm:text-left text-purple-400">
+                  <span className="sm:hidden">ATL</span>
+                  <span className="hidden sm:inline">
+                    {selectedChartDiscipline === 'swim'
+                      ? 'Swim ATL'
+                      : selectedChartDiscipline === 'bike'
+                      ? 'Bike ATL'
+                      : selectedChartDiscipline === 'run'
+                      ? 'Run ATL'
+                      : 'Tri ATL'}
+                  </span>
+                </th>
+                <th className="py-2 pl-1 pr-2.5 sm:py-2.5 sm:px-4 text-right sm:text-left text-emerald-400">
+                  <span className="sm:hidden">TSB</span>
+                  <span className="hidden sm:inline">Form (TSB)</span>
+                </th>
               </tr>
             </thead>
             <tbody className={isLight ? 'divide-y divide-slate-100' : 'divide-y divide-slate-800/40'}>
               {activeTrainingPage.records.length === 0 ? (
                 <tr>
-                  <td colSpan={8} className="py-12 text-center text-slate-400">
+                  <td colSpan={8} className="py-10 text-center text-slate-400 font-sans">
                     <p className={`text-sm font-semibold ${isLight ? 'text-slate-700' : 'text-slate-300'}`}>
                       No training logs on this page
                     </p>
@@ -1765,16 +1966,23 @@ export const FitnessTab: React.FC<FitnessTabProps> = ({
                 </tr>
               ) : (
                 activeTrainingPage.records.map((r) => {
-                  let formattedDateWithWeekday = r.date;
+                  let fullDateLabel = r.date;
+                  let compactDateLabel = r.date;
+                  const currentYear = new Date().getFullYear();
                   try {
                     const [y, m, d] = r.date.split('-').map(Number);
                     const dt = new Date(Date.UTC(y, m - 1, d, 12, 0, 0));
                     const weekday = dt.toLocaleDateString('en-GB', { weekday: 'short', timeZone: 'UTC' });
                     const dayNum = String(d).padStart(2, '0');
                     const monName = dt.toLocaleDateString('en-GB', { month: 'short', timeZone: 'UTC' });
-                    formattedDateWithWeekday = `${weekday}, ${dayNum} ${monName} ${y}`;
+                    fullDateLabel = `${weekday}, ${dayNum} ${monName} ${y}`;
+                    compactDateLabel =
+                      y === currentYear
+                        ? `${weekday} ${dayNum} ${monName}`
+                        : `${dayNum} ${monName} '${String(y).slice(-2)}`;
                   } catch {
-                    formattedDateWithWeekday = r.date;
+                    fullDateLabel = r.date;
+                    compactDateLabel = r.date;
                   }
 
                   const curCtl =
@@ -1810,28 +2018,29 @@ export const FitnessTab: React.FC<FitnessTabProps> = ({
                       }`}
                     >
                       <td
-                        className={`py-2.5 px-4 font-sans font-medium whitespace-nowrap ${
+                        className={`py-1.5 pl-2.5 pr-1 sm:py-2.5 sm:px-4 font-sans font-medium whitespace-nowrap ${
                           isLight ? 'text-slate-800' : 'text-slate-300'
                         }`}
                       >
-                        {formattedDateWithWeekday}
+                        <span className="sm:hidden text-[11px]">{compactDateLabel}</span>
+                        <span className="hidden sm:inline">{fullDateLabel}</span>
                       </td>
-                      <td className={`py-2.5 px-3 ${isLight ? 'text-slate-700' : 'text-slate-300'}`}>
-                        {r.swimTss > 0 ? r.swimTss : '—'}
+                      <td className={`py-1.5 px-1 sm:py-2.5 sm:px-3 text-right sm:text-left ${isLight ? 'text-slate-700' : 'text-slate-300'}`}>
+                        {r.swimTss > 0 ? Math.round(r.swimTss) : '—'}
                       </td>
-                      <td className={`py-2.5 px-3 ${isLight ? 'text-slate-700' : 'text-slate-300'}`}>
-                        {r.bikeTss > 0 ? r.bikeTss : '—'}
+                      <td className={`py-1.5 px-1 sm:py-2.5 sm:px-3 text-right sm:text-left ${isLight ? 'text-slate-700' : 'text-slate-300'}`}>
+                        {r.bikeTss > 0 ? Math.round(r.bikeTss) : '—'}
                       </td>
-                      <td className={`py-2.5 px-3 ${isLight ? 'text-slate-700' : 'text-slate-300'}`}>
-                        {r.runTss > 0 ? r.runTss : '—'}
+                      <td className={`py-1.5 px-1 sm:py-2.5 sm:px-3 text-right sm:text-left ${isLight ? 'text-slate-700' : 'text-slate-300'}`}>
+                        {r.runTss > 0 ? Math.round(r.runTss) : '—'}
                       </td>
-                      <td className={`py-2.5 px-3 font-bold ${isLight ? 'text-slate-900' : 'text-white'}`}>
-                        {r.totalTriTss > 0 ? r.totalTriTss : '0'}
+                      <td className={`py-1.5 px-1 sm:py-2.5 sm:px-3 text-right sm:text-left font-bold ${isLight ? 'text-slate-900' : 'text-white'}`}>
+                        {r.totalTriTss > 0 ? Math.round(r.totalTriTss) : '0'}
                       </td>
-                      <td className="py-2.5 px-3 font-bold text-sky-400">{curCtl}</td>
-                      <td className="py-2.5 px-3 font-bold text-purple-400">{curAtl}</td>
+                      <td className="py-1.5 px-1 sm:py-2.5 sm:px-3 text-right sm:text-left font-bold text-sky-400">{curCtl}</td>
+                      <td className="py-1.5 px-1 sm:py-2.5 sm:px-3 text-right sm:text-left font-bold text-purple-400">{curAtl}</td>
                       <td
-                        className={`py-2.5 px-4 font-bold ${
+                        className={`py-1.5 pl-1 pr-2.5 sm:py-2.5 sm:px-4 text-right sm:text-left font-bold ${
                           curTsb >= 0 ? 'text-emerald-400' : 'text-amber-400'
                         }`}
                       >
@@ -1848,7 +2057,7 @@ export const FitnessTab: React.FC<FitnessTabProps> = ({
         {/* Bottom Pagination Info Bar */}
         {trainingLogPages.length > 1 && (
           <div
-            className={`p-3 border-t flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs ${
+            className={`px-2.5 py-2.5 sm:p-3 border-t flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-[11px] sm:text-xs ${
               isLight
                 ? 'border-slate-200 text-slate-600 bg-slate-50/50'
                 : 'border-slate-800 text-slate-400 bg-slate-950/40'

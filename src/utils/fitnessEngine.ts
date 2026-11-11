@@ -418,25 +418,22 @@ export function computeFitnessTimeline(
     dailyTssMap.set(dateStr, current);
   });
 
-  // Determine timeline start date (at least daysLookback days ago)
-  const startDate = new Date(now);
-  startDate.setDate(startDate.getDate() - daysLookback);
+  // Determine timeline start date (at least daysLookback days ago when finite)
+  const finiteLookback = Number.isFinite(daysLookback) && daysLookback > 0 ? daysLookback : 90;
+  const startDate = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 12, 0, 0));
+  startDate.setUTCDate(startDate.getUTCDate() - finiteLookback);
 
-  // If we have earlier activities, allow extending back to build authentic CTL warmup
+  // Extend back to the earliest recorded activity date so CTL warmup and historical logs cover all data
   let earliestDate = startDate;
   dailyTssMap.forEach((_, dateKey) => {
-    const d = new Date(dateKey);
-    if (!isNaN(d.getTime()) && d < earliestDate) {
-      earliestDate = d;
+    const parts = dateKey.split('-').map(Number);
+    if (parts.length === 3 && parts[0] >= 2000) {
+      const d = new Date(Date.UTC(parts[0], parts[1] - 1, parts[2], 12, 0, 0));
+      if (!isNaN(d.getTime()) && d < earliestDate) {
+        earliestDate = d;
+      }
     }
   });
-
-  // Cap max warmup to 180 days for performance
-  const maxWarmup = new Date(now);
-  maxWarmup.setDate(maxWarmup.getDate() - 180);
-  if (earliestDate < maxWarmup) {
-    earliestDate = maxWarmup;
-  }
 
   // Iterate chronologically through each calendar day
   const records: DailyFitnessRecord[] = [];
@@ -449,7 +446,7 @@ export function computeFitnessTimeline(
   let runAtl = 0;
 
   const cur = new Date(earliestDate);
-  const end = new Date(now);
+  const end = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 12, 0, 0));
 
   while (cur <= end) {
     const dateStr = cur.toISOString().split('T')[0];
@@ -495,12 +492,17 @@ export function computeFitnessTimeline(
       triTsb: Math.round(triTsb * 10) / 10,
     });
 
-    cur.setDate(cur.getDate() + 1);
+    cur.setUTCDate(cur.getUTCDate() + 1);
   }
 
-  // Filter to the requested lookback window for display
-  const cutoff = new Date(now);
-  cutoff.setDate(cutoff.getDate() - daysLookback);
+  // If caller requests full history (Infinity or <= 0), return all dates we have data for
+  if (!Number.isFinite(daysLookback) || daysLookback <= 0) {
+    return records;
+  }
+
+  // Filter to the requested lookback window for chart display
+  const cutoff = new Date(end);
+  cutoff.setUTCDate(cutoff.getUTCDate() - daysLookback);
   const cutoffStr = cutoff.toISOString().split('T')[0];
 
   return records.filter((r) => r.date >= cutoffStr);

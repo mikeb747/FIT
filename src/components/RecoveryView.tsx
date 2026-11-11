@@ -1237,8 +1237,8 @@ export const RecoveryView: React.FC<RecoveryViewProps> = ({
                 <span className="w-3 h-0.5 bg-rose-500 inline-block" />
                 <span>Morning RHR (bpm)</span>
               </div>
-              <div className="flex items-center gap-1.5 text-slate-400 text-[11px]">
-                <span className="w-3 h-0.5 border-t border-dashed border-slate-400 inline-block" />
+              <div className="flex items-center gap-1.5 text-rose-400 font-medium text-[11px]">
+                <span className="w-3.5 h-0.5 border-t-2 border-dashed border-rose-500 inline-block" />
                 <span>{baselineRhr} bpm Baseline</span>
               </div>
             </>
@@ -1462,34 +1462,7 @@ export const RecoveryView: React.FC<RecoveryViewProps> = ({
                     strokeWidth="1.5"
                   />
 
-                  {/* Baseline Reference Line (when mode is sleep_rhr) */}
-                  {selectedChartMode === 'sleep_rhr' && (() => {
-                    const bY = Math.max(chartTopY + 20, Math.min(chartBaseY - 20, chartBaseY - ((baselineRhr - 35) / 35) * (availablePlotHeight - 50)));
-                    return (
-                      <>
-                        <line
-                          x1="0"
-                          y1={bY}
-                          x2={totalChartWidth}
-                          y2={bY}
-                          stroke="#f43f5e"
-                          strokeWidth="1.5"
-                          strokeDasharray="5 5"
-                          opacity="0.8"
-                        />
-                        <text
-                          x={totalChartWidth - 12}
-                          y={bY - 6}
-                          textAnchor="end"
-                          fill="#f43f5e"
-                          fontSize="12"
-                          fontWeight="bold"
-                        >
-                          {baselineRhr} bpm Baseline
-                        </text>
-                      </>
-                    );
-                  })()}
+                  {/* Baseline Reference Line is rendered on top of sleep bars below for clean legibility */}
 
                   {/* Render Chart Mode 1: Sleep Stages Stacked Bars + Morning RHR Line */}
                   {selectedChartMode === 'sleep_rhr' && (
@@ -1644,8 +1617,15 @@ export const RecoveryView: React.FC<RecoveryViewProps> = ({
                         );
                       })}
 
-                      {/* Resting HR Polyline across timeline */}
+                      {/* Baseline Reference Line + Resting HR Polyline across timeline */}
                       {(() => {
+                        const bY = Math.max(
+                          chartTopY + 20,
+                          Math.min(
+                            chartBaseY - 20,
+                            chartBaseY - ((baselineRhr - 35) / 35) * (availablePlotHeight - 50)
+                          )
+                        );
                         const validPoints = timelineDays
                           .map((item, idx) => {
                             const x = idx * DAY_COL_WIDTH + DAY_COL_WIDTH / 2;
@@ -1661,11 +1641,21 @@ export const RecoveryView: React.FC<RecoveryViewProps> = ({
 
                         return (
                           <g>
+                            <line
+                              x1="0"
+                              y1={bY}
+                              x2={totalChartWidth}
+                              y2={bY}
+                              stroke="#f43f5e"
+                              strokeWidth="1.5"
+                              strokeDasharray="5 5"
+                              opacity="0.7"
+                            />
                             {polylineStr && (
                               <polyline
                                 fill="none"
                                 stroke="#f43f5e"
-                                strokeWidth="3"
+                                strokeWidth="2.5"
                                 strokeLinecap="round"
                                 strokeLinejoin="round"
                                 points={polylineStr}
@@ -1689,7 +1679,11 @@ export const RecoveryView: React.FC<RecoveryViewProps> = ({
                                 <text
                                   x={pt.x}
                                   y={pt.y - 8}
-                                  fill="#f43f5e"
+                                  fill={isLight ? '#e11d48' : '#fb7185'}
+                                  stroke={isLight ? '#ffffff' : '#090a0f'}
+                                  strokeWidth="3.5"
+                                  strokeLinejoin="round"
+                                  style={{ paintOrder: 'stroke' }}
                                   fontSize="11"
                                   fontWeight="800"
                                   fontFamily="monospace"

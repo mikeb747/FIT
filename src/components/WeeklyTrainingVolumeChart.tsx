@@ -8,9 +8,7 @@ import {
   XAxis,
   YAxis,
   Tooltip,
-  Legend,
   CartesianGrid,
-  Cell,
 } from 'recharts';
 import {
   Clock,
@@ -351,12 +349,12 @@ export const WeeklyTrainingVolumeChart: React.FC<WeeklyTrainingVolumeChartProps>
 
   return (
     <div
-      className={`rounded-2xl border p-4 sm:p-5 transition-colors ${
+      className={`rounded-2xl border px-2.5 py-3.5 sm:p-5 transition-colors ${
         isLight ? 'bg-white border-slate-200 shadow-sm' : 'bg-slate-900/60 border-slate-800'
       }`}
     >
       {/* Header and Controls */}
-      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 pb-4 border-b border-slate-800/80">
+      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 pb-4 px-1 sm:px-0 border-b border-slate-800/80">
         <div>
           <div className="flex items-center gap-2">
             <div className="p-1.5 rounded-lg bg-emerald-500/10 text-emerald-400">
@@ -460,7 +458,7 @@ export const WeeklyTrainingVolumeChart: React.FC<WeeklyTrainingVolumeChartProps>
       </div>
 
       {/* Summary KPI Cards */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 my-4">
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 sm:gap-3 my-4 px-0.5 sm:px-0">
         <div
           className={`p-3 rounded-xl border ${
             isLight ? 'bg-slate-50 border-slate-200' : 'bg-slate-950/40 border-slate-800/80'
@@ -544,25 +542,26 @@ export const WeeklyTrainingVolumeChart: React.FC<WeeklyTrainingVolumeChartProps>
       </div>
 
       {/* Recharts Volume Chart */}
-      <div className="w-full h-80 mt-2">
+      <div className="w-full h-72 sm:h-80 mt-2">
         <ResponsiveContainer width="100%" height="100%">
           {metricMode === 'dual' ? (
             <ComposedChart
               data={weeklyData}
-              margin={{ top: 10, right: 20, left: 0, bottom: 5 }}
+              margin={{ top: 8, right: 0, left: -4, bottom: 4 }}
             >
               <CartesianGrid strokeDasharray="3 3" stroke={colors.grid} vertical={false} />
               <XAxis
                 dataKey="shortLabel"
                 stroke={colors.text}
-                fontSize={11}
+                fontSize={10}
                 tickLine={false}
                 axisLine={{ stroke: colors.grid }}
               />
               <YAxis
                 yAxisId="left"
+                width={30}
                 stroke={colors.text}
-                fontSize={11}
+                fontSize={10}
                 tickLine={false}
                 axisLine={{ stroke: colors.grid }}
                 tickFormatter={(v) => `${v}h`}
@@ -570,18 +569,14 @@ export const WeeklyTrainingVolumeChart: React.FC<WeeklyTrainingVolumeChartProps>
               <YAxis
                 yAxisId="right"
                 orientation="right"
+                width={34}
                 stroke={colors.text}
-                fontSize={11}
+                fontSize={10}
                 tickLine={false}
                 axisLine={{ stroke: colors.grid }}
                 tickFormatter={(v) => `${v}k`}
               />
               <Tooltip content={renderCustomTooltip} />
-              <Legend
-                verticalAlign="top"
-                align="right"
-                wrapperStyle={{ paddingBottom: '10px', fontSize: '11px' }}
-              />
 
               {/* Stacked Discipline Bars for Hours */}
               {(selectedSportFilter === 'all' || selectedSportFilter === 'swim') && (
@@ -652,29 +647,25 @@ export const WeeklyTrainingVolumeChart: React.FC<WeeklyTrainingVolumeChartProps>
           ) : metricMode === 'hours' ? (
             <BarChart
               data={weeklyData}
-              margin={{ top: 10, right: 10, left: 0, bottom: 5 }}
+              margin={{ top: 8, right: 4, left: -4, bottom: 4 }}
             >
               <CartesianGrid strokeDasharray="3 3" stroke={colors.grid} vertical={false} />
               <XAxis
                 dataKey="shortLabel"
                 stroke={colors.text}
-                fontSize={11}
+                fontSize={10}
                 tickLine={false}
                 axisLine={{ stroke: colors.grid }}
               />
               <YAxis
+                width={30}
                 stroke={colors.text}
-                fontSize={11}
+                fontSize={10}
                 tickLine={false}
                 axisLine={{ stroke: colors.grid }}
                 tickFormatter={(v) => `${v}h`}
               />
               <Tooltip content={renderCustomTooltip} />
-              <Legend
-                verticalAlign="top"
-                align="right"
-                wrapperStyle={{ paddingBottom: '10px', fontSize: '11px' }}
-              />
 
               {(selectedSportFilter === 'all' || selectedSportFilter === 'swim') && (
                 <Bar
@@ -713,29 +704,25 @@ export const WeeklyTrainingVolumeChart: React.FC<WeeklyTrainingVolumeChartProps>
           ) : (
             <BarChart
               data={weeklyData}
-              margin={{ top: 10, right: 10, left: 0, bottom: 5 }}
+              margin={{ top: 8, right: 4, left: -4, bottom: 4 }}
             >
               <CartesianGrid strokeDasharray="3 3" stroke={colors.grid} vertical={false} />
               <XAxis
                 dataKey="shortLabel"
                 stroke={colors.text}
-                fontSize={11}
+                fontSize={10}
                 tickLine={false}
                 axisLine={{ stroke: colors.grid }}
               />
               <YAxis
+                width={34}
                 stroke={colors.text}
-                fontSize={11}
+                fontSize={10}
                 tickLine={false}
                 axisLine={{ stroke: colors.grid }}
                 tickFormatter={(v) => `${v}k`}
               />
               <Tooltip content={renderCustomTooltip} />
-              <Legend
-                verticalAlign="top"
-                align="right"
-                wrapperStyle={{ paddingBottom: '10px', fontSize: '11px' }}
-              />
 
               {(selectedSportFilter === 'all' || selectedSportFilter === 'swim') && (
                 <Bar
