@@ -8,7 +8,7 @@ import {
   handleGeneratePlan,
   handleCoachChat,
   handleReviewWorkouts,
-} from './serverCoach';
+} from './serverCoach.ts';
 
 
 dotenv.config();
@@ -27,8 +27,12 @@ process.on('unhandledRejection', (reason, promise) => {
 const app = express();
 
 // Parse port & host from process.env or CLI flags (e.g. tsx server.ts --port 3000 --host 0.0.0.0)
-let parsedPort = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
-let parsedHost = '0.0.0.0';
+// Note: In AI Studio container, NGINX_PORT=8080 and PORT=8080 are used by Nginx while DEFAULT_APP_PORT=3000 is the applet port.
+const envPort = process.env.DEFAULT_APP_PORT
+  || process.env.npm_config_port
+  || (process.env.PORT && process.env.PORT !== process.env.NGINX_PORT && process.env.PORT !== '8080' ? process.env.PORT : '3000');
+let parsedPort = parseInt(envPort, 10) || 3000;
+let parsedHost = process.env.npm_config_host || '0.0.0.0';
 
 for (let i = 2; i < process.argv.length; i++) {
   if (process.argv[i] === '--port' && process.argv[i + 1]) {
@@ -1147,12 +1151,27 @@ app.post('/api/coach/review-workouts', handleReviewWorkouts);
 // Setup Vite middleware in dev or static files in production
 async function startServer() {
   if (!isProduction) {
-    const { createServer: createViteServer } = await import('vite');
-    const vite = await createViteServer({
-      server: { middlewareMode: true },
-      appType: 'spa',
+    let viteMiddleware: any = null;
+    const viteReadyPromise = (async () => {
+      const { createServer: createViteServer } = await import('vite');
+      const vite = await createViteServer({
+        server: { middlewareMode: true },
+        appType: 'spa',
+      });
+      viteMiddleware = vite.middlewares;
+      return vite;
+    })();
+
+    app.use(async (req, res, next) => {
+      try {
+        if (!viteMiddleware) {
+          await viteReadyPromise;
+        }
+        return viteMiddleware(req, res, next);
+      } catch (err) {
+        return next(err);
+      }
     });
-    app.use(vite.middlewares);
   } else {
     const distPath = path.resolve(__dirname, 'dist');
     app.use(express.static(distPath));

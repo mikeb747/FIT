@@ -43,6 +43,7 @@ import {
   CYCLING_MODEL_PROFILES,
   SwimmingDistanceModel,
   SWIMMING_MODEL_PROFILES,
+  deriveEventCtlTargetAndFeasibility,
 } from '../utils/fitnessEngine';
 import { WeeklyMileageChart } from './WeeklyMileageChart';
 import { WeeklyTrainingVolumeChart } from './WeeklyTrainingVolumeChart';
@@ -127,80 +128,131 @@ export const FitnessTab: React.FC<FitnessTabProps> = ({
     return fitnessTimeline[fitnessTimeline.length - 1];
   }, [fitnessTimeline]);
 
-  // Dynamic Discipline-specific metrics
+  // Interactive overrides for CTL Target & Feasibility Model
+  const [showCtlDerivationPanel, setShowCtlDerivationPanel] = useState<boolean>(true);
+  const [customWeeksToRace, setCustomWeeksToRace] = useState<number | undefined>(undefined);
+  const [customAvailableHours, setCustomAvailableHours] = useState<number | undefined>(undefined);
+
+  // First-principles CTL Target, Empirical IF, Ramp Rate & Periodization Derivation
+  const ctlDerivation = useMemo(() => {
+    return deriveEventCtlTargetAndFeasibility({
+      sport: selectedSport,
+      triModel: selectedModel,
+      runModel: selectedRunningModel,
+      bikeModel: selectedCyclingModel,
+      swimModel: selectedSwimmingModel,
+      activities,
+      activityDetails,
+      athleteProfile,
+      goals,
+      fitnessTimeline,
+      customAvailableWeeklyHours: customAvailableHours,
+      customWeeksToRace,
+    });
+  }, [
+    selectedSport,
+    selectedModel,
+    selectedRunningModel,
+    selectedCyclingModel,
+    selectedSwimmingModel,
+    activities,
+    activityDetails,
+    athleteProfile,
+    goals,
+    fitnessTimeline,
+    customAvailableHours,
+    customWeeksToRace,
+  ]);
+
+  // Dynamic Discipline-specific metrics anchored to Age-Group First-Principles Derivation
   const disciplineFitness = useMemo(() => {
+    const targetPeak = ctlDerivation.targetPeakCtl;
+    const [ctlLow, ctlHigh] = ctlDerivation.targetCtlRange;
+    const [raceLow, raceHigh] = ctlDerivation.targetRaceDayCtlRange;
+    const hrs = ctlDerivation.totalWeeklyHours;
+
     if (selectedSport === 'run') {
       const runProfile = RUNNING_MODEL_PROFILES[selectedRunningModel];
-      const targetRun = runProfile.targetRunCtl;
-      const score = Math.min(100, Math.round((latestRecord.runCtl / targetRun) * 100));
+      const score = Math.min(100, Math.round((latestRecord.runCtl / Math.max(1, targetPeak)) * 100));
       return {
         title: 'Running Performance Readiness',
         headerTitle: 'Running Readiness & Training Load',
-        subtitle: `${runProfile.description}. Running 42d rCTL, 7d rATL, Form (rTSB), and weekly Monday–Sunday mileage.`,
+        subtitle: `${runProfile.description}. Derived from event long-run demand & your 12-week median IF.`,
         score,
-        target: targetRun,
+        target: targetPeak,
+        targetRange: [ctlLow, ctlHigh] as [number, number],
+        raceDayRange: [raceLow, raceHigh] as [number, number],
+        weeklyHours: hrs,
         ctl: latestRecord.runCtl,
         atl: latestRecord.runAtl,
         tsb: latestRecord.runTsb,
-        label: `${latestRecord.runCtl} / ${targetRun} rCTL Target`,
-        formula: `rCTL (42d) / Target (${targetRun} rCTL)`,
+        label: `${latestRecord.runCtl} / ${targetPeak} Peak rCTL (${ctlLow}–${ctlHigh})`,
+        formula: `rCTL = (1/7) × H_run × IF_run² × 100`,
         badge: runProfile.label,
       };
     }
 
     if (selectedSport === 'bike') {
       const bikeProfile = CYCLING_MODEL_PROFILES[selectedCyclingModel];
-      const targetBike = bikeProfile.targetBikeCtl;
-      const score = Math.min(100, Math.round((latestRecord.bikeCtl / targetBike) * 100));
+      const score = Math.min(100, Math.round((latestRecord.bikeCtl / Math.max(1, targetPeak)) * 100));
       return {
         title: 'Cycling Performance Readiness',
         headerTitle: 'Cycling Readiness & Training Load',
-        subtitle: `${bikeProfile.description}. Cycling 42d bCTL, 7d bATL, Form (bTSB), and Coggan power zones.`,
+        subtitle: `${bikeProfile.description}. Derived from long-ride demand & your 12-week median IF.`,
         score,
-        target: targetBike,
+        target: targetPeak,
+        targetRange: [ctlLow, ctlHigh] as [number, number],
+        raceDayRange: [raceLow, raceHigh] as [number, number],
+        weeklyHours: hrs,
         ctl: latestRecord.bikeCtl,
         atl: latestRecord.bikeAtl,
         tsb: latestRecord.bikeTsb,
-        label: `${latestRecord.bikeCtl} / ${targetBike} bCTL Target`,
-        formula: `bCTL (42d) / Target (${targetBike} bCTL)`,
+        label: `${latestRecord.bikeCtl} / ${targetPeak} Peak bCTL (${ctlLow}–${ctlHigh})`,
+        formula: `bCTL = (1/7) × H_bike × IF_bike² × 100`,
         badge: bikeProfile.label,
       };
     }
 
     if (selectedSport === 'swim') {
       const swimProfile = SWIMMING_MODEL_PROFILES[selectedSwimmingModel];
-      const targetSwim = swimProfile.targetSwimCtl;
-      const score = Math.min(100, Math.round((latestRecord.swimCtl / targetSwim) * 100));
+      const score = Math.min(100, Math.round((latestRecord.swimCtl / Math.max(1, targetPeak)) * 100));
       return {
         title: 'Swimming Performance Readiness',
         headerTitle: 'Swimming Readiness & Training Load',
-        subtitle: `${swimProfile.description}. Swimming 42d sCTL, 7d sATL, Form (sTSB), CSS pace, and consistency.`,
+        subtitle: `${swimProfile.description}. Derived from long-swim demand & cubic sTSS (IF³).`,
         score,
-        target: targetSwim,
+        target: targetPeak,
+        targetRange: [ctlLow, ctlHigh] as [number, number],
+        raceDayRange: [raceLow, raceHigh] as [number, number],
+        weeklyHours: hrs,
         ctl: latestRecord.swimCtl,
         atl: latestRecord.swimAtl,
         tsb: latestRecord.swimTsb,
-        label: `${latestRecord.swimCtl} / ${targetSwim} sCTL Target`,
-        formula: `sCTL (42d) / Target (${targetSwim} sCTL)`,
+        label: `${latestRecord.swimCtl} / ${targetPeak} Peak sCTL (${ctlLow}–${ctlHigh})`,
+        formula: `sCTL = (1/7) × H_swim × IF_swim³ × 100`,
         badge: swimProfile.label,
       };
     }
 
     // Default: Triathlon
+    const triProfile = DISTANCE_MODEL_PROFILES[selectedModel === 'custom_goal' ? 'middle_70_3' : selectedModel];
     return {
       title: 'Triathlon Training Load',
-      headerTitle: 'Triathlon Readiness & Training Load',
-      subtitle: 'Combined 42d CTL, 7d ATL, and Form (TSB) across Swim, Bike, and Run.',
+      headerTitle: `Triathlon Readiness & Load (${triProfile.label})`,
+      subtitle: `Age-group calibrated Peak CTL (${ctlLow}–${ctlHigh} CTL @ ~${hrs}h/wk) across Swim (sTSS), Bike, and Run.`,
       score: Math.round(latestRecord.triCtl),
-      target: 160,
+      target: targetPeak,
+      targetRange: [ctlLow, ctlHigh] as [number, number],
+      raceDayRange: [raceLow, raceHigh] as [number, number],
+      weeklyHours: hrs,
       ctl: latestRecord.triCtl,
       atl: latestRecord.triAtl,
       tsb: latestRecord.triTsb,
       label: `${latestRecord.triCtl} Total CTL`,
-      formula: `Swim + Bike + Run Rolling Training Load`,
-      badge: 'Triathlon',
+      formula: `CTL = (1/7) × Σ [H_d × IF_d^p_d × 100]`,
+      badge: triProfile.label,
     };
-  }, [selectedSport, selectedRunningModel, selectedCyclingModel, selectedSwimmingModel, latestRecord]);
+  }, [selectedSport, selectedModel, selectedRunningModel, selectedCyclingModel, selectedSwimmingModel, latestRecord, ctlDerivation]);
 
   // Active A-Goal Triathlon for custom display
   const activeTriGoal = useMemo(() => {
@@ -705,11 +757,27 @@ export const FitnessTab: React.FC<FitnessTabProps> = ({
             </div>
           </div>
 
-          <div className="pt-2 border-t border-slate-200 dark:border-slate-800 text-xs flex items-center justify-between text-slate-500">
-            <span>Target: {disciplineFitness.target} CTL</span>
-            <span className="font-mono font-bold text-sky-400">
-              {Math.round((disciplineFitness.ctl / disciplineFitness.target) * 100)}% achieved
-            </span>
+          <div className="pt-2 border-t border-slate-200 dark:border-slate-800 text-xs space-y-1 text-slate-500">
+            <div className="flex items-center justify-between">
+              <span>
+                Peak Target: <strong className={isLight ? 'text-slate-800' : 'text-slate-200'}>{disciplineFitness.target} CTL</strong>{' '}
+                <span className="font-mono text-[11px]">
+                  (Range {disciplineFitness.targetRange[0]}–{disciplineFitness.targetRange[1]} • ~{disciplineFitness.weeklyHours}h/wk)
+                </span>
+              </span>
+              <span className="font-mono font-bold text-sky-400">
+                {Math.round((disciplineFitness.ctl / Math.max(1, disciplineFitness.target)) * 100)}% of peak
+              </span>
+            </div>
+            <div className="flex items-center justify-between text-[11px]">
+              <span>
+                Race-Day Tapered Target ({ctlDerivation.taperWeeks}w taper):{' '}
+                <strong className="text-emerald-400 font-mono">
+                  {disciplineFitness.raceDayRange[0]}–{disciplineFitness.raceDayRange[1]} CTL
+                </strong>
+              </span>
+              <span className="font-mono text-slate-400">TSB +10 to +25</span>
+            </div>
           </div>
         </div>
 
@@ -724,37 +792,427 @@ export const FitnessTab: React.FC<FitnessTabProps> = ({
           <div className="flex items-center justify-between">
             <span className="text-xs font-black uppercase tracking-wider text-emerald-400 flex items-center gap-1.5">
               <Activity className="w-4 h-4 text-emerald-400" />
-              Form (TSB)
+              Form (TSB) &amp; Ramp Guardrail
             </span>
             <span className="text-[10px] font-mono text-slate-400">CTL – ATL</span>
           </div>
 
-          <div className="my-3">
-            <div className="flex items-baseline gap-2">
+          <div className="my-3 flex items-baseline justify-between gap-2">
+            <div>
+              <div className="flex items-baseline gap-2">
+                <span
+                  className={`text-4xl sm:text-5xl font-black font-mono ${
+                    disciplineFitness.tsb >= 0 ? 'text-emerald-400' : 'text-amber-400'
+                  }`}
+                >
+                  {disciplineFitness.tsb > 0 ? `+${disciplineFitness.tsb}` : disciplineFitness.tsb}
+                </span>
+                <span className="text-xs text-slate-500 font-bold">TSB</span>
+              </div>
               <span
-                className={`text-4xl sm:text-5xl font-black font-mono ${
-                  disciplineFitness.tsb >= 0 ? 'text-emerald-400' : 'text-amber-400'
-                }`}
+                className={`inline-block mt-1 text-[11px] font-bold px-2 py-0.5 rounded-md border ${formStatus.bg} ${formStatus.color}`}
               >
-                {disciplineFitness.tsb > 0 ? `+${disciplineFitness.tsb}` : disciplineFitness.tsb}
+                {formStatus.label}
               </span>
-              <span className="text-xs text-slate-500 font-bold">TSB</span>
             </div>
-            <span
-              className={`inline-block mt-1 text-[11px] font-bold px-2 py-0.5 rounded-md border ${formStatus.bg} ${formStatus.color}`}
-            >
-              {formStatus.label}
-            </span>
+
+            <div className="text-right">
+              <div className="text-[10px] uppercase tracking-wider text-slate-400 font-bold">Max Build Ramp</div>
+              <div className="text-lg sm:text-xl font-black font-mono text-amber-400">
+                +{ctlDerivation.headlineMaxBuildRamp} <span className="text-[11px] font-normal text-slate-400">CTL/wk</span>
+              </div>
+              <div className="text-[10px] font-mono text-slate-400">
+                Net +{ctlDerivation.effectiveMaxNetRamp}/wk ({athleteProfile.periodization === '3weeks' ? '2:1' : athleteProfile.periodization === '0' ? 'Linear' : '3:1'})
+              </div>
+            </div>
           </div>
 
-          <div className="pt-2 border-t border-slate-200 dark:border-slate-800 text-[11px] text-slate-500">
-            {disciplineFitness.tsb > 5
-              ? 'High freshness for race execution.'
-              : disciplineFitness.tsb >= -20
-              ? 'Balanced productive training window.'
-              : 'High fatigue accumulation; recovery advised.'}
+          <div className="pt-2 border-t border-slate-200 dark:border-slate-800 text-[11px] flex items-center justify-between text-slate-500">
+            <span>
+              Next Build Wk Target: <strong className="font-mono text-amber-400">{ctlDerivation.nextBuildWeekTssTarget} TSS</strong>
+            </span>
+            <span className={ctlDerivation.tsbWarning ? 'text-rose-400 font-bold' : 'text-emerald-400 font-mono'}>
+              Proj. TSB: {ctlDerivation.projectedBuildTsb > 0 ? `+${ctlDerivation.projectedBuildTsb}` : ctlDerivation.projectedBuildTsb}
+            </span>
           </div>
         </div>
+      </div>
+
+      {/* ========================================================= */}
+      {/* 2B. AGE-GROUP CTL TARGET, RAMP RATE & PERIODIZATION MODEL */}
+      {/* ========================================================= */}
+      <div
+        className={`rounded-2xl border transition-colors ${
+          isLight
+            ? 'bg-white border-slate-200 shadow-sm text-slate-900'
+            : 'bg-slate-900/60 border-slate-800 text-white'
+        }`}
+      >
+        <div
+          onClick={() => setShowCtlDerivationPanel((prev) => !prev)}
+          className="p-4 sm:p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-3 cursor-pointer select-none"
+        >
+          <div className="flex items-start sm:items-center gap-3">
+            <div className="p-2 rounded-xl bg-amber-500/15 border border-amber-500/30 text-amber-400 shrink-0">
+              <Sliders className="w-4 h-4" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2 flex-wrap">
+                <h3 className="text-sm font-extrabold tracking-tight">
+                  Age-Group CTL Target, Empirical IF &amp; Periodized Ramp Model
+                </h3>
+                <span className="px-2 py-0.5 rounded-md text-[10px] font-mono font-bold bg-sky-500/15 text-sky-400 border border-sky-500/30">
+                  {ctlDerivation.eventLabel}
+                </span>
+                <span
+                  className={`px-2 py-0.5 rounded-md text-[10px] font-bold border ${
+                    ctlDerivation.isOverallFeasible
+                      ? 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30'
+                      : 'bg-amber-500/15 text-amber-400 border-amber-500/30'
+                  }`}
+                >
+                  {ctlDerivation.isOverallFeasible ? 'Plan Feasible' : 'Ramp / Hours Adjustment Advised'}
+                </span>
+              </div>
+              <p className="text-xs text-slate-400 mt-0.5">
+                First-principles derivation: <code className="font-mono text-[11px] text-amber-400">CTL = (1/7) × Σ [H_d × IF_d^p_d × 100]</code> anchored on long-session event demands &amp; your 8–12w median IF.
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-3 self-end sm:self-auto">
+            <div className="text-right hidden sm:block">
+              <div className="text-[10px] uppercase tracking-wider text-slate-400 font-bold">Peak CTL Range</div>
+              <div className="text-sm font-mono font-black text-sky-400">
+                {ctlDerivation.targetCtlRange[0]}–{ctlDerivation.targetCtlRange[1]} CTL{' '}
+                <span className="text-xs font-normal text-slate-400">({ctlDerivation.totalWeeklyHours}h/wk)</span>
+              </div>
+            </div>
+            {showCtlDerivationPanel ? (
+              <ChevronUp className="w-4 h-4 text-slate-400" />
+            ) : (
+              <ChevronDown className="w-4 h-4 text-slate-400" />
+            )}
+          </div>
+        </div>
+
+        {showCtlDerivationPanel && (
+          <div className="px-4 pb-5 sm:px-5 space-y-5 border-t border-slate-200 dark:border-slate-800/80 pt-4">
+            {/* Row 1: Summary KPI Strip */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+              <div
+                className={`p-3 rounded-xl border ${
+                  isLight ? 'bg-slate-50 border-slate-200' : 'bg-slate-950/60 border-slate-800'
+                }`}
+              >
+                <div className="text-[10px] uppercase font-bold tracking-wider text-slate-400">
+                  1. Peak Target Range (2–3w out)
+                </div>
+                <div className="text-lg sm:text-xl font-black font-mono text-sky-400 mt-1">
+                  {ctlDerivation.targetPeakCtl} CTL{' '}
+                  <span className="text-xs font-normal text-slate-400">
+                    [{ctlDerivation.targetCtlRange[0]}–{ctlDerivation.targetCtlRange[1]}]
+                  </span>
+                </div>
+                <div className="text-[11px] text-slate-400 mt-0.5">
+                  Steady-state at {ctlDerivation.totalWeeklyTssAtPeak} TSS/wk
+                </div>
+              </div>
+
+              <div
+                className={`p-3 rounded-xl border ${
+                  isLight ? 'bg-slate-50 border-slate-200' : 'bg-slate-950/60 border-slate-800'
+                }`}
+              >
+                <div className="text-[10px] uppercase font-bold tracking-wider text-slate-400">
+                  2. Race-Day CTL (Post-Taper)
+                </div>
+                <div className="text-lg sm:text-xl font-black font-mono text-emerald-400 mt-1">
+                  {ctlDerivation.targetRaceDayCtlRange[0]}–{ctlDerivation.targetRaceDayCtlRange[1]} CTL
+                </div>
+                <div className="text-[11px] text-slate-400 mt-0.5">
+                  {ctlDerivation.taperWeeks}w taper (0.85–0.90 × Peak, TSB +15)
+                </div>
+              </div>
+
+              <div
+                className={`p-3 rounded-xl border ${
+                  isLight ? 'bg-slate-50 border-slate-200' : 'bg-slate-950/60 border-slate-800'
+                }`}
+              >
+                <div className="text-[10px] uppercase font-bold tracking-wider text-slate-400">
+                  3. Peak Weekly Hours (H_total)
+                </div>
+                <div className="text-lg sm:text-xl font-black font-mono text-amber-400 mt-1">
+                  {ctlDerivation.totalWeeklyHours} h/wk{' '}
+                  <span className="text-xs font-normal text-slate-400">
+                    [{ctlDerivation.totalWeeklyHoursRange[0]}–{ctlDerivation.totalWeeklyHoursRange[1]}h]
+                  </span>
+                </div>
+                <div className="text-[11px] text-slate-400 mt-0.5">
+                  Available: {ctlDerivation.availableWeeklyHours}h/wk{' '}
+                  <span className={ctlDerivation.isHoursFeasible ? 'text-emerald-400 font-bold' : 'text-rose-400 font-bold'}>
+                    ({ctlDerivation.isHoursFeasible ? 'Fits schedule' : 'Exceeds hours'})
+                  </span>
+                </div>
+              </div>
+
+              <div
+                className={`p-3 rounded-xl border ${
+                  isLight ? 'bg-slate-50 border-slate-200' : 'bg-slate-950/60 border-slate-800'
+                }`}
+              >
+                <div className="text-[10px] uppercase font-bold tracking-wider text-slate-400">
+                  4. Required Build Ramp
+                </div>
+                <div
+                  className={`text-lg sm:text-xl font-black font-mono mt-1 ${
+                    ctlDerivation.isRampFeasible ? 'text-purple-400' : 'text-rose-400'
+                  }`}
+                >
+                  +{ctlDerivation.requiredBuildRampPerWeek} CTL/wk
+                </div>
+                <div className="text-[11px] text-slate-400 mt-0.5">
+                  Net +{ctlDerivation.requiredNetRampPerWeek}/wk vs Max +{ctlDerivation.headlineMaxBuildRamp}/wk
+                </div>
+              </div>
+            </div>
+
+            {/* Row 2: Per-Discipline Hours, Empirical IF & CTL Derivation Table */}
+            <div className="overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-800">
+              <table className="w-full text-left text-xs font-mono">
+                <thead
+                  className={`border-b text-[10px] uppercase font-bold tracking-wider ${
+                    isLight
+                      ? 'bg-slate-50 border-slate-200 text-slate-600'
+                      : 'bg-slate-950/80 border-slate-800 text-slate-400'
+                  }`}
+                >
+                  <tr>
+                    <th className="py-2.5 px-3 font-sans">Discipline</th>
+                    <th className="py-2.5 px-3">Race Leg (T_d)</th>
+                    <th className="py-2.5 px-3">Long Session (L_d)</th>
+                    <th className="py-2.5 px-3">Share (s_d)</th>
+                    <th className="py-2.5 px-3 text-amber-400">Peak Hours (H_d)</th>
+                    <th className="py-2.5 px-3 text-purple-400">Athlete IF_d (p_d)</th>
+                    <th className="py-2.5 px-3">Weekly TSS</th>
+                    <th className="py-2.5 px-3 text-sky-400">Peak CTL [Range]</th>
+                    <th className="py-2.5 px-3">Current CTL</th>
+                    <th className="py-2.5 px-3 text-emerald-400">Max Ramp Cap</th>
+                  </tr>
+                </thead>
+                <tbody className={isLight ? 'divide-y divide-slate-100' : 'divide-y divide-slate-800/50'}>
+                  {ctlDerivation.disciplines.map((d) => {
+                    const colorClass =
+                      d.discipline === 'swim'
+                        ? 'text-sky-400'
+                        : d.discipline === 'bike'
+                        ? 'text-orange-400'
+                        : 'text-amber-400';
+                    return (
+                      <tr key={d.discipline} className={isLight ? 'hover:bg-slate-50' : 'hover:bg-slate-800/30'}>
+                        <td className={`py-2.5 px-3 font-sans font-bold ${colorClass}`}>{d.label}</td>
+                        <td className="py-2.5 px-3">{d.expectedRaceHours.toFixed(2)}h</td>
+                        <td className="py-2.5 px-3">
+                          {d.longSessionHours.toFixed(2)}h{' '}
+                          <span className="text-[10px] text-slate-500">
+                            ({d.longSessionMultiplier}×, cap {d.longSessionCapHours}h)
+                          </span>
+                        </td>
+                        <td className="py-2.5 px-3">{Math.round(d.weeklyShare * 100)}%</td>
+                        <td className="py-2.5 px-3 font-bold text-amber-400">
+                          {d.weeklyHours} h/wk{' '}
+                          <span className="text-[10px] font-normal text-slate-500">
+                            [{d.weeklyHoursRange[0]}–{d.weeklyHoursRange[1]}]
+                          </span>
+                        </td>
+                        <td className="py-2.5 px-3">
+                          <span className="font-bold text-purple-400">{d.ifStats.medianIf.toFixed(2)}</span>
+                          <span className="text-[10px] text-slate-400 ml-1">
+                            (p={d.ifStats.exponent} → {d.ifStats.tssPerHour} TSS/h)
+                          </span>
+                          <span
+                            className={`ml-1.5 px-1.5 py-0.5 rounded text-[9px] font-sans font-bold ${
+                              d.ifStats.source === 'empirical'
+                                ? 'bg-emerald-500/15 text-emerald-400'
+                                : 'bg-slate-500/15 text-slate-400'
+                            }`}
+                          >
+                            {d.ifStats.source === 'empirical' ? `12w Med (${d.ifStats.sessionCount})` : 'Prior'}
+                          </span>
+                        </td>
+                        <td className="py-2.5 px-3 font-bold">{d.weeklyTss} TSS</td>
+                        <td className="py-2.5 px-3 font-bold text-sky-400">
+                          {d.targetPeakCtl} CTL{' '}
+                          <span className="text-[10px] font-normal text-slate-400">
+                            [{d.targetCtlRange[0]}–{d.targetCtlRange[1]}]
+                          </span>
+                        </td>
+                        <td className="py-2.5 px-3">{d.currentCtl} CTL</td>
+                        <td className="py-2.5 px-3 text-emerald-400">≤ +{d.maxSafeRampPerWeek} pts/wk</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Row 3: Interactive Back-Scheduling Sliders + Ramp Rate / Periodization / Running vs Triathlon Guidance */}
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+              {/* Column 1: Interactive Back-Scheduling & Periodization Controls */}
+              <div
+                className={`p-4 rounded-xl border space-y-3 ${
+                  isLight ? 'bg-slate-50 border-slate-200' : 'bg-slate-950/50 border-slate-800'
+                }`}
+              >
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-extrabold uppercase tracking-wider text-amber-400">
+                    Back-Scheduling &amp; Periodization
+                  </span>
+                  <span className="text-[10px] font-mono text-slate-400">{ctlDerivation.periodizationLabel}</span>
+                </div>
+
+                <div className="space-y-2 text-xs">
+                  <div>
+                    <div className="flex justify-between mb-1">
+                      <span className="text-slate-400">Weeks to Target Event:</span>
+                      <span className="font-mono font-bold text-sky-400">
+                        {ctlDerivation.weeksToRace} wks ({ctlDerivation.weeksToPeak}w to peak + {ctlDerivation.taperWeeks}w taper)
+                      </span>
+                    </div>
+                    <input
+                      type="range"
+                      min={4}
+                      max={40}
+                      value={ctlDerivation.weeksToRace}
+                      onChange={(e) => setCustomWeeksToRace(Number(e.target.value))}
+                      className="w-full accent-amber-500 cursor-pointer"
+                    />
+                  </div>
+
+                  <div>
+                    <div className="flex justify-between mb-1">
+                      <span className="text-slate-400">Available Weekly Hours (H_avail):</span>
+                      <span className="font-mono font-bold text-amber-400">{ctlDerivation.availableWeeklyHours} h/wk</span>
+                    </div>
+                    <input
+                      type="range"
+                      min={4}
+                      max={26}
+                      step={0.5}
+                      value={ctlDerivation.availableWeeklyHours}
+                      onChange={(e) => setCustomAvailableHours(Number(e.target.value))}
+                      className="w-full accent-amber-500 cursor-pointer"
+                    />
+                  </div>
+                </div>
+
+                <div className="pt-2 border-t border-slate-200 dark:border-slate-800 text-[11px] space-y-1 text-slate-400">
+                  <div className="flex justify-between">
+                    <span>Build vs Recovery Weeks:</span>
+                    <span className="font-mono text-slate-200">
+                      {ctlDerivation.buildWeeksAvailable} build + {ctlDerivation.recoveryWeeksCount} recovery (65% load)
+                    </span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span>Steady-State Time to Target:</span>
+                    <span className="font-mono text-sky-400">
+                      {ctlDerivation.steadyStateWeeksToTarget !== null
+                        ? `${ctlDerivation.steadyStateWeeksToTarget} wks (6 × ln ratio)`
+                        : 'Target reached'}
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Column 2: Ramp Rate Rules & Running vs Triathlon Tissue Limits */}
+              <div
+                className={`p-4 rounded-xl border space-y-2.5 ${
+                  isLight ? 'bg-slate-50 border-slate-200' : 'bg-slate-950/50 border-slate-800'
+                }`}
+              >
+                <div className="text-xs font-extrabold uppercase tracking-wider text-purple-400">
+                  Ramp Rate &amp; Running vs. Triathlon Limits
+                </div>
+                <p className="text-[11px] text-slate-400 leading-relaxed">
+                  Weekly TSS for ramp <code className="font-mono text-purple-300">r</code>:{' '}
+                  <code className="font-mono text-amber-400">7 × (CTL_now + 6 × r)</code>. Ramp tolerance scales down as CTL rises (CTL &lt;50: 4–6/wk; 50–100: 4–7/wk; &gt;100: 3–5/wk).
+                </p>
+                <ul className="text-[11px] space-y-1 text-slate-300">
+                  <li className="flex items-center justify-between">
+                    <span className="text-slate-400">• Running Bone/Tendon Cap:</span>
+                    <span className="font-mono font-bold text-amber-400">≤ +3.5 pts/wk (+10–15m long run)</span>
+                  </li>
+                  <li className="flex items-center justify-between">
+                    <span className="text-slate-400">• Cycling Aerobic Cap:</span>
+                    <span className="font-mono font-bold text-orange-400">≤ +6.0 pts/wk (5–7 pts/wk)</span>
+                  </li>
+                  <li className="flex items-center justify-between">
+                    <span className="text-slate-400">• Triathlon Multi-Tissue Cap:</span>
+                    <span className="font-mono font-bold text-sky-400">≤ +6.0 pts/wk combined</span>
+                  </li>
+                  <li className="flex items-center justify-between">
+                    <span className="text-slate-400">• Your Max 4-Wk Historical Ramp:</span>
+                    <span className="font-mono font-bold text-emerald-400">
+                      {ctlDerivation.historicalMax4WkRamp > 0 ? `+${ctlDerivation.historicalMax4WkRamp} pts/wk` : 'Calibrating'}
+                    </span>
+                  </li>
+                </ul>
+              </div>
+
+              {/* Column 3: Feasibility Verdict & Nearest Feasible Alternatives */}
+              <div
+                className={`p-4 rounded-xl border space-y-2.5 ${
+                  ctlDerivation.isOverallFeasible
+                    ? isLight
+                      ? 'bg-emerald-50/60 border-emerald-200'
+                      : 'bg-emerald-950/20 border-emerald-500/30'
+                    : isLight
+                    ? 'bg-amber-50/60 border-amber-200'
+                    : 'bg-amber-950/20 border-amber-500/30'
+                }`}
+              >
+                <div className="flex items-center justify-between">
+                  <span
+                    className={`text-xs font-extrabold uppercase tracking-wider ${
+                      ctlDerivation.isOverallFeasible ? 'text-emerald-400' : 'text-amber-400'
+                    }`}
+                  >
+                    Feasibility &amp; Nearest Alternatives
+                  </span>
+                  <span className="text-[10px] font-mono text-slate-400">TSB Guardrail ≥ -30</span>
+                </div>
+
+                <p className="text-[11px] text-slate-400 leading-relaxed">
+                  {ctlDerivation.isOverallFeasible
+                    ? `Your required build ramp (+${ctlDerivation.requiredBuildRampPerWeek} CTL/wk) and peak volume (${ctlDerivation.totalWeeklyHours}h/wk) fit safely within your ${ctlDerivation.periodizationLabel.split(' ')[0]} periodization block.`
+                    : `Reaching ${ctlDerivation.targetPeakCtl} Peak CTL in ${ctlDerivation.weeksToPeak} build weeks requires +${ctlDerivation.requiredBuildRampPerWeek} CTL/wk (safe ceiling +${ctlDerivation.headlineMaxBuildRamp}/wk) or ${ctlDerivation.totalWeeklyHours}h/wk.`}
+                </p>
+
+                <div className="pt-1 space-y-1.5 text-[11px]">
+                  <div className="flex items-center justify-between">
+                    <span className="text-slate-400">1. Reachable Peak by Race Window:</span>
+                    <span className="font-mono font-bold text-sky-400">
+                      {ctlDerivation.alternatives.reachablePeakCtlByRace} Peak CTL ({ctlDerivation.alternatives.reachableRaceDayCtl} Race Day)
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-slate-400">2. Earliest Safe Date for {ctlDerivation.targetPeakCtl} CTL:</span>
+                    <span className="font-mono font-bold text-emerald-400">
+                      {ctlDerivation.alternatives.earliestFeasibleWeeksToRace} wks ({ctlDerivation.alternatives.earliestFeasibleDateStr})
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-slate-400">3. Highest-Leverage Extra Hour:</span>
+                    <span className="font-mono font-bold text-amber-400">
+                      +1h {ctlDerivation.alternatives.highestLeverageDiscipline.label} → +{ctlDerivation.alternatives.highestLeverageDiscipline.ctlPerExtraHour} CTL
+                    </span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* ========================================================= */}

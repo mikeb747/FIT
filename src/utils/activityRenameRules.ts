@@ -1,5 +1,5 @@
-import type { StravaActivity } from './stravaActivities';
-import { updateStravaActivityRecord, saveCachedStravaActivities } from './stravaActivities';
+import type { StravaActivity } from './stravaActivities.ts';
+import { updateStravaActivityRecord, saveCachedStravaActivities } from './stravaActivities.ts';
 
 export interface ActivityRenameRule {
   id: string;

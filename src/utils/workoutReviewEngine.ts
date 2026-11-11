@@ -1,16 +1,16 @@
-import type { AthleteProfile } from '../types/athlete';
-import type { TrainingGoal } from '../types/goals';
+import type { AthleteProfile } from '../types/athlete.ts';
+import type { TrainingGoal } from '../types/goals.ts';
 import type {
   WorkoutReviewItem,
   WorkoutAssessmentType,
   BenchmarkMilestone,
-} from '../types/coach';
+} from '../types/coach.ts';
 import {
-  StravaActivity,
-  StravaActivityDetailsRecord,
+  type StravaActivity,
+  type StravaActivityDetailsRecord,
   classifyActivity,
   calculateActivityTSS,
-} from './stravaActivities';
+} from './stravaActivities.ts';
 
 function formatPaceSec(seconds?: number): string {
   if (!seconds || seconds <= 0 || !isFinite(seconds)) return 'N/A';

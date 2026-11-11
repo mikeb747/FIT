@@ -1,4 +1,4 @@
-import { processActivitiesWithRenameRules, applyRenameRulesToActivities } from './activityRenameRules';
+import { processActivitiesWithRenameRules, applyRenameRulesToActivities } from './activityRenameRules.ts';
 
 export interface StravaActivity {
   id: number | string;
@@ -121,13 +121,13 @@ export interface StravaActivityDetailsRecord {
   googleDrivePublishedAt?: string;
 }
 
-import type { AthleteProfile } from '../types/athlete';
+import type { AthleteProfile } from '../types/athlete.ts';
 import {
   formatSecondsToMinSec,
   getAthletePowerZones,
   getAthleteHeartRateZones,
   DEFAULT_ATHLETE_PROFILE,
-} from '../types/athlete';
+} from '../types/athlete.ts';
 
 export interface StravaActivityDetailsResponse {
   activity: Record<string, unknown>;

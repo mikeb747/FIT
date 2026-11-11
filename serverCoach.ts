@@ -1,10 +1,10 @@
 import type { Request, Response } from 'express';
 import { GoogleGenAI } from '@google/genai';
-import { generateWorkoutReviews } from './src/utils/workoutReviewEngine';
+import { generateWorkoutReviews } from './src/utils/workoutReviewEngine.ts';
 import {
   findBestMatchingActivity,
   reconstructWorkoutFromQuery,
-} from './src/utils/coachWorkoutMatcher';
+} from './src/utils/coachWorkoutMatcher.ts';
 
 // Initialize Gemini Client safely on the server
 const geminiApiKey = process.env.GEMINI_API_KEY || process.env.API_KEY || '';
