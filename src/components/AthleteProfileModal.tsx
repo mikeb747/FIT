@@ -38,9 +38,27 @@ import {
   RefreshCw,
   Gauge,
   BookOpen,
+  Copy,
 } from 'lucide-react';
-import { batchBackupActivitiesToGoogleSheet, getCachedSpreadsheetId } from '../utils/googleSheets';
-import { getGoogleAccessToken, signInWithGoogle, initGoogleAuth } from '../utils/googleAuth';
+import {
+  batchBackupActivitiesToGoogleSheet,
+  getCachedSpreadsheetId,
+  setCustomSpreadsheetId,
+} from '../utils/googleSheets';
+import {
+  getGoogleAccessToken,
+  ensureGoogleAccessToken,
+  initGoogleAuth,
+  getGoogleSheetsBridgeUrl,
+  saveGoogleSheetsBridgeUrl,
+  getGoogleOAuthCredentials,
+  saveGoogleOAuthCredentials,
+  getGoogleConnectionMode,
+  getSavedGoogleUserEmail,
+  refreshGoogleTokenSilently,
+  getGoogleAppsScriptBridgeTemplate,
+  signOutGoogle,
+} from '../utils/googleAuth';
 import type {
   AthleteProfile,
   AthleteInjury,
@@ -257,24 +275,81 @@ export const AthleteProfileModal: React.FC<AthleteProfileModalProps> = ({
   const [isEditingBrand, setIsEditingBrand] = useState(false);
   const [brandSavedFeedback, setBrandSavedFeedback] = useState(false);
 
-  // Google Sheets Backup state inside Settings
+  // Google Sheets Backup & Permanent Auth state inside Settings
   const [isBackingUpSheets, setIsBackingUpSheets] = useState(false);
   const [backupFeedback, setBackupFeedback] = useState<string | null>(null);
   const [backupProgressMsg, setBackupProgressMsg] = useState<string | null>(null);
+  const [showSheetsAuthSetup, setShowSheetsAuthSetup] = useState(false);
+  const [sheetsSetupTab, setSheetsSetupTab] = useState<'bridge' | 'oauth' | 'branding'>('bridge');
+  const [sheetsBridgeUrl, setSheetsBridgeUrl] = useState(() => getGoogleSheetsBridgeUrl());
+  const [customSheetIdInput, setCustomSheetIdInput] = useState(() => getCachedSpreadsheetId() || '');
+  const [googleOAuthClientId, setGoogleOAuthClientId] = useState(() => getGoogleOAuthCredentials().clientId);
+  const [googleOAuthClientSecret, setGoogleOAuthClientSecret] = useState(() => getGoogleOAuthCredentials().clientSecret);
+  const [googleOAuthRefreshToken, setGoogleOAuthRefreshToken] = useState(() => getGoogleOAuthCredentials().refreshToken);
+  const [copiedBridgeScript, setCopiedBridgeScript] = useState(false);
+  const [isTestingSheetsAuth, setIsTestingSheetsAuth] = useState(false);
+  const [sheetsAuthStatusMsg, setSheetsAuthStatusMsg] = useState<string | null>(null);
+  const [sheetsConnectionMode, setSheetsConnectionMode] = useState(() => getGoogleConnectionMode());
+  const [sheetsUserEmail, setSheetsUserEmail] = useState(() => getSavedGoogleUserEmail());
+
+  const handleCopyBridgeScript = () => {
+    try {
+      navigator.clipboard.writeText(getGoogleAppsScriptBridgeTemplate());
+      setCopiedBridgeScript(true);
+      setTimeout(() => setCopiedBridgeScript(false), 3000);
+    } catch {}
+  };
+
+  const handleSaveAndTestPermanentSheetsAuth = async () => {
+    setIsTestingSheetsAuth(true);
+    setSheetsAuthStatusMsg(null);
+    try {
+      saveGoogleSheetsBridgeUrl(sheetsBridgeUrl);
+      saveGoogleOAuthCredentials({
+        clientId: googleOAuthClientId,
+        clientSecret: googleOAuthClientSecret,
+        refreshToken: googleOAuthRefreshToken,
+      });
+      if (customSheetIdInput.trim()) {
+        setCustomSpreadsheetId(customSheetIdInput.trim());
+      }
+      const token = await refreshGoogleTokenSilently();
+      setSheetsConnectionMode(getGoogleConnectionMode());
+      setSheetsUserEmail(getSavedGoogleUserEmail());
+      const latestSheetId = getCachedSpreadsheetId();
+      if (latestSheetId) {
+        setCustomSheetIdInput(latestSheetId);
+      }
+      if (token) {
+        setSheetsAuthStatusMsg('Connected! Permanent background token active (0 popups).');
+      } else if (!sheetsBridgeUrl.trim() && !googleOAuthRefreshToken.trim()) {
+        setSheetsAuthStatusMsg('Cleared persistent credentials.');
+      } else {
+        setSheetsAuthStatusMsg('Saved settings, but could not verify token yet. Check URL or credentials.');
+      }
+    } catch (err: any) {
+      setSheetsAuthStatusMsg(err.message || 'Verification failed');
+    } finally {
+      setIsTestingSheetsAuth(false);
+      setTimeout(() => setSheetsAuthStatusMsg(null), 5000);
+    }
+  };
 
   const handleBackupToSheetsFromSettings = async () => {
     let token = getGoogleAccessToken();
     if (!token) {
       try {
         await initGoogleAuth();
-        const authRes = await signInWithGoogle();
-        token = authRes.accessToken;
+        token = await ensureGoogleAccessToken({ allowPopup: true });
+        setSheetsConnectionMode(getGoogleConnectionMode());
+        setSheetsUserEmail(getSavedGoogleUserEmail());
       } catch (err: any) {
         setBackupFeedback(err.message || 'Could not connect Google account');
         setTimeout(() => setBackupFeedback(null), 4000);
         return;
       }
     }
+    if (!token) return;
     setIsBackingUpSheets(true);
     setBackupFeedback(null);
     setBackupProgressMsg('Checking Google Sheets...');
@@ -1971,14 +2046,14 @@ export const AthleteProfileModal: React.FC<AthleteProfileModalProps> = ({
                 />
 
                 {/* Section C: Google Sheets Training Log & Streams Backup */}
-                <div className="space-y-2">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2.5">
+                <div className="space-y-2.5">
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-2.5 min-w-0">
                       <div className="w-6 h-6 rounded-full bg-emerald-500/15 border border-emerald-500/30 flex items-center justify-center shrink-0">
                         <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-400" />
                       </div>
-                      <div>
-                        <div className="flex items-center gap-1.5">
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-1.5 flex-wrap">
                           <span
                             className={`text-xs font-bold ${
                               theme === 'light' ? 'text-slate-800' : 'text-slate-200'
@@ -1986,26 +2061,46 @@ export const AthleteProfileModal: React.FC<AthleteProfileModalProps> = ({
                           >
                             Google Sheets Cloud Backup
                           </span>
-                          <span className="text-[10px] text-emerald-500 font-medium">Workouts &amp; Streams</span>
+                          <span className="text-[10px] text-emerald-500 font-medium">Workouts, Health &amp; Streams</span>
                         </div>
-                        <p className="text-[11px] text-slate-400 mt-0.5">
-                          Back up workouts, biometric recovery, and telemetry streams to your Google Sheet
+                        <p className="text-[11px] text-slate-400 mt-0.5 truncate">
+                          {sheetsConnectionMode === 'bridge'
+                            ? `Permanent Apps Script Bridge${sheetsUserEmail ? ` (${sheetsUserEmail})` : ' • No Popups'}`
+                            : sheetsConnectionMode === 'refresh_token'
+                            ? `Permanent OAuth Auto-Refresh${sheetsUserEmail ? ` (${sheetsUserEmail})` : ''}`
+                            : getGoogleAccessToken()
+                            ? `Connected${sheetsUserEmail ? ` as ${sheetsUserEmail}` : ' (1h browser session)'}`
+                            : 'Back up workouts, recovery & streams to your Google Sheet'}
                         </p>
                       </div>
                     </div>
-                    {getGoogleAccessToken() && (
-                      <span className="text-[10px] font-bold text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-2 py-0.5 rounded-md flex items-center gap-1 font-mono">
-                        <Check className="w-3 h-3 stroke-[3]" /> Connected
+                    {sheetsConnectionMode === 'bridge' || sheetsConnectionMode === 'refresh_token' ? (
+                      <span className="text-[10px] font-bold text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-2 py-0.5 rounded-md flex items-center gap-1 font-mono shrink-0">
+                        <Check className="w-3 h-3 stroke-[3]" /> Auto-Sync
+                      </span>
+                    ) : getGoogleAccessToken() ? (
+                      <span className="text-[10px] font-bold text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-2 py-0.5 rounded-md flex items-center gap-1 font-mono shrink-0">
+                        <Check className="w-3 h-3 stroke-[3]" /> Active
+                      </span>
+                    ) : (
+                      <span
+                        className={`text-[10px] font-bold px-2 py-0.5 rounded-md font-mono shrink-0 ${
+                          theme === 'light'
+                            ? 'text-slate-500 bg-slate-200/60 border border-slate-300'
+                            : 'text-slate-400 bg-slate-900 border border-slate-800'
+                        }`}
+                      >
+                        Offline
                       </span>
                     )}
                   </div>
 
-                  <div className="pt-0.5 flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+                  <div className="pt-0.5 flex flex-wrap items-center gap-2">
                     <button
                       type="button"
                       onClick={handleBackupToSheetsFromSettings}
                       disabled={isBackingUpSheets || (!stravaActivities || stravaActivities.length === 0)}
-                      className={`flex-1 py-2 px-3 rounded-xl border text-xs font-bold flex items-center justify-center gap-2 transition-all shadow-xs cursor-pointer ${
+                      className={`flex-1 min-w-[140px] py-2 px-3 rounded-xl border text-xs font-bold flex items-center justify-center gap-2 transition-all shadow-xs cursor-pointer ${
                         backupFeedback
                           ? 'bg-emerald-500/20 border-emerald-500/40 text-emerald-300'
                           : theme === 'light'
@@ -2031,6 +2126,22 @@ export const AthleteProfileModal: React.FC<AthleteProfileModalProps> = ({
                       )}
                     </button>
 
+                    <button
+                      type="button"
+                      onClick={() => setShowSheetsAuthSetup((prev) => !prev)}
+                      className={`py-2 px-3 rounded-xl border text-xs font-bold flex items-center justify-center gap-1.5 transition-colors cursor-pointer ${
+                        showSheetsAuthSetup
+                          ? 'bg-amber-500 text-slate-950 border-amber-400 font-black'
+                          : theme === 'light'
+                          ? 'bg-white hover:bg-slate-100 text-slate-700 border-slate-200 shadow-xs'
+                          : 'bg-slate-900 hover:bg-slate-800 text-slate-200 border-slate-800'
+                      }`}
+                      title="Configure permanent no-popup Google Sheets sync"
+                    >
+                      <Key className="w-3.5 h-3.5 text-amber-400" />
+                      <span>{showSheetsAuthSetup ? 'Hide Setup' : 'Keep Signed In'}</span>
+                    </button>
+
                     {getCachedSpreadsheetId() && (
                       <a
                         href={`https://docs.google.com/spreadsheets/d/${getCachedSpreadsheetId()}`}
@@ -2048,6 +2159,289 @@ export const AthleteProfileModal: React.FC<AthleteProfileModalProps> = ({
                       </a>
                     )}
                   </div>
+
+                  {/* Integrated In-App Permanent Sync & Official Branding Setup Drawer */}
+                  {showSheetsAuthSetup && (
+                    <div
+                      className={`mt-2 p-3 rounded-xl border space-y-3 text-xs ${
+                        theme === 'light'
+                          ? 'bg-white border-slate-200 text-slate-700'
+                          : 'bg-slate-900/90 border-slate-800 text-slate-300'
+                      }`}
+                    >
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                        <div>
+                          <div className="font-bold text-emerald-400 flex items-center gap-1.5">
+                            <ShieldCheck className="w-4 h-4 shrink-0" />
+                            <span>Permanent, Popup-Free Google Sheets Sync ($0)</span>
+                          </div>
+                          <p className="text-[11px] text-slate-400 mt-0.5">
+                            Eliminate the 1-hour token expiry, browser login popups, and unverified-app warnings.
+                          </p>
+                        </div>
+                      </div>
+
+                      {/* Segmented Mode Selector matching 8W/12W/24W/52W button style */}
+                      <div
+                        className={`inline-flex flex-wrap items-center gap-1 rounded-xl p-1 border ${
+                          theme === 'light'
+                            ? 'bg-slate-100 border-slate-200'
+                            : 'bg-slate-950/90 border-slate-800'
+                        }`}
+                      >
+                        {(
+                          [
+                            { id: 'bridge', label: '1. Apps Script Bridge (Best • No Popups)' },
+                            { id: 'oauth', label: '2. OAuth Refresh Token' },
+                            { id: 'branding', label: '3. Fix Popup Name & Warning' },
+                          ] as const
+                        ).map((tab) => {
+                          const active = sheetsSetupTab === tab.id;
+                          return (
+                            <button
+                              key={tab.id}
+                              type="button"
+                              onClick={() => setSheetsSetupTab(tab.id)}
+                              className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition-all cursor-pointer ${
+                                active
+                                  ? 'bg-amber-500 text-slate-950 font-black shadow-xs'
+                                  : theme === 'light'
+                                  ? 'text-slate-600 hover:text-slate-900'
+                                  : 'text-slate-400 hover:text-slate-200'
+                              }`}
+                            >
+                              {tab.label}
+                            </button>
+                          );
+                        })}
+                      </div>
+
+                      {sheetsSetupTab === 'bridge' && (
+                        <div className="space-y-2.5">
+                          <div
+                            className={`p-2.5 rounded-lg border text-[11px] space-y-1.5 ${
+                              theme === 'light'
+                                ? 'bg-slate-50 border-slate-200 text-slate-600'
+                                : 'bg-slate-950/70 border-slate-800/80 text-slate-300'
+                            }`}
+                          >
+                            <p className="font-semibold text-emerald-400">
+                              How it works (Takes 60 seconds • Works forever like Garmin &amp; Strava):
+                            </p>
+                            <ol className="list-decimal list-inside space-y-1 text-[11px] text-slate-400">
+                              <li>
+                                Open your <strong className="text-slate-200">GymFIT Training Log</strong> Google Sheet and click{' '}
+                                <strong className="text-slate-200">Extensions &rarr; Apps Script</strong>.
+                              </li>
+                              <li>
+                                Click <strong className="text-amber-400">Copy Bridge Script</strong> below, paste it into{' '}
+                                <code className="text-emerald-400">Code.gs</code>, and save.
+                              </li>
+                              <li>
+                                Click <strong className="text-slate-200">Deploy &rarr; New deployment &rarr; Web app</strong>{' '}
+                                (Execute as: <strong className="text-slate-200">Me</strong>, Who has access:{' '}
+                                <strong className="text-slate-200">Anyone</strong>) and paste the Web App URL below.
+                              </li>
+                            </ol>
+                            <div className="pt-1">
+                              <button
+                                type="button"
+                                onClick={handleCopyBridgeScript}
+                                className={`py-1.5 px-2.5 rounded-lg border text-[11px] font-bold inline-flex items-center gap-1.5 cursor-pointer transition-colors ${
+                                  copiedBridgeScript
+                                    ? 'bg-emerald-500/20 border-emerald-500/40 text-emerald-300'
+                                    : theme === 'light'
+                                    ? 'bg-white hover:bg-slate-100 border-slate-300 text-slate-800'
+                                    : 'bg-slate-900 hover:bg-slate-800 border-slate-700 text-amber-400'
+                                }`}
+                              >
+                                {copiedBridgeScript ? (
+                                  <>
+                                    <Check className="w-3.5 h-3.5 text-emerald-400" />
+                                    <span>Copied Apps Script to Clipboard!</span>
+                                  </>
+                                ) : (
+                                  <>
+                                    <Copy className="w-3.5 h-3.5" />
+                                    <span>Copy Bridge Script (Code.gs)</span>
+                                  </>
+                                )}
+                              </button>
+                            </div>
+                          </div>
+
+                          <div className="space-y-1">
+                            <label className="block text-[11px] font-bold text-slate-400">
+                              Apps Script Web App URL
+                            </label>
+                            <input
+                              type="url"
+                              value={sheetsBridgeUrl}
+                              onChange={(e) => setSheetsBridgeUrl(e.target.value)}
+                              placeholder="https://script.google.com/macros/s/.../exec"
+                              className={`w-full px-2.5 py-1.5 rounded-lg border text-xs font-mono ${
+                                theme === 'light'
+                                  ? 'bg-slate-50 border-slate-300 text-slate-900'
+                                  : 'bg-slate-950 border-slate-800 text-slate-100'
+                              }`}
+                            />
+                          </div>
+
+                          <div className="space-y-1">
+                            <label className="block text-[11px] font-bold text-slate-400">
+                              Google Sheet URL or Spreadsheet ID (Optional — auto-detected by Bridge)
+                            </label>
+                            <input
+                              type="text"
+                              value={customSheetIdInput}
+                              onChange={(e) => setCustomSheetIdInput(e.target.value)}
+                              placeholder="https://docs.google.com/spreadsheets/d/..."
+                              className={`w-full px-2.5 py-1.5 rounded-lg border text-xs font-mono ${
+                                theme === 'light'
+                                  ? 'bg-slate-50 border-slate-300 text-slate-900'
+                                  : 'bg-slate-950 border-slate-800 text-slate-100'
+                              }`}
+                            />
+                          </div>
+                        </div>
+                      )}
+
+                      {sheetsSetupTab === 'oauth' && (
+                        <div className="space-y-2">
+                          <p className="text-[11px] text-slate-400">
+                            Just like Strava Sync, you can provide your own Google OAuth Client ID, Client Secret, and Refresh Token so Fit Track silently refreshes tokens in the background without popups.
+                          </p>
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                            <div>
+                              <label className="block text-[10px] font-bold text-slate-400 mb-0.5">
+                                Google OAuth Client ID
+                              </label>
+                              <input
+                                type="text"
+                                value={googleOAuthClientId}
+                                onChange={(e) => setGoogleOAuthClientId(e.target.value)}
+                                placeholder="...apps.googleusercontent.com"
+                                className={`w-full px-2.5 py-1.5 rounded-lg border text-xs font-mono ${
+                                  theme === 'light'
+                                    ? 'bg-slate-50 border-slate-300 text-slate-900'
+                                    : 'bg-slate-950 border-slate-800 text-slate-100'
+                                }`}
+                              />
+                            </div>
+                            <div>
+                              <label className="block text-[10px] font-bold text-slate-400 mb-0.5">
+                                Google OAuth Client Secret
+                              </label>
+                              <input
+                                type="password"
+                                value={googleOAuthClientSecret}
+                                onChange={(e) => setGoogleOAuthClientSecret(e.target.value)}
+                                placeholder="GOCSPX-..."
+                                className={`w-full px-2.5 py-1.5 rounded-lg border text-xs font-mono ${
+                                  theme === 'light'
+                                    ? 'bg-slate-50 border-slate-300 text-slate-900'
+                                    : 'bg-slate-950 border-slate-800 text-slate-100'
+                                }`}
+                              />
+                            </div>
+                          </div>
+                          <div>
+                            <label className="block text-[10px] font-bold text-slate-400 mb-0.5">
+                              Persistent Google Refresh Token
+                            </label>
+                            <input
+                              type="password"
+                              value={googleOAuthRefreshToken}
+                              onChange={(e) => setGoogleOAuthRefreshToken(e.target.value)}
+                              placeholder="1//0..."
+                              className={`w-full px-2.5 py-1.5 rounded-lg border text-xs font-mono ${
+                                theme === 'light'
+                                  ? 'bg-slate-50 border-slate-300 text-slate-900'
+                                  : 'bg-slate-950 border-slate-800 text-slate-100'
+                              }`}
+                            />
+                          </div>
+                        </div>
+                      )}
+
+                      {sheetsSetupTab === 'branding' && (
+                        <div
+                          className={`p-2.5 rounded-lg border text-[11px] space-y-2 ${
+                            theme === 'light'
+                              ? 'bg-slate-50 border-slate-200 text-slate-600'
+                              : 'bg-slate-950/70 border-slate-800/80 text-slate-300'
+                          }`}
+                        >
+                          <div>
+                            <span className="font-bold text-amber-400">
+                              1. Replace &ldquo;gen-lang-client-0787159188.firebaseapp.com&rdquo; with &ldquo;Fit Track&rdquo; ($0):
+                            </span>
+                            <p className="text-slate-400 mt-0.5">
+                              Open <strong className="text-slate-200">Google Cloud Console &rarr; APIs &amp; Services &rarr; OAuth consent screen</strong> for project{' '}
+                              <code className="text-emerald-400">gen-lang-client-0787159188</code>, click <strong className="text-slate-200">Edit App</strong>, and set{' '}
+                              <strong className="text-slate-200">App name</strong> to <strong className="text-emerald-400">Fit Track</strong> (and upload your app logo). The Google login prompt will then officially display{' '}
+                              <em>&ldquo;Choose an account to continue to Fit Track&rdquo;</em>.
+                            </p>
+                          </div>
+                          <div>
+                            <span className="font-bold text-amber-400">
+                              2. Remove the &ldquo;Google hasn&rsquo;t verified this app&rdquo; Warning Screen ($0):
+                            </span>
+                            <p className="text-slate-400 mt-0.5">
+                              Use <strong className="text-emerald-400">Tab 1 (Apps Script Bridge)</strong> above to bypass browser OAuth popups completely, or add your Google email under{' '}
+                              <strong className="text-slate-200">OAuth consent screen &rarr; Test users</strong> so Google recognizes your account as an authorized developer/tester.
+                            </p>
+                          </div>
+                        </div>
+                      )}
+
+                      {sheetsSetupTab !== 'branding' && (
+                        <div className="flex items-center justify-between gap-2 pt-1">
+                          <button
+                            type="button"
+                            onClick={handleSaveAndTestPermanentSheetsAuth}
+                            disabled={isTestingSheetsAuth}
+                            className="py-1.5 px-3 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs flex items-center gap-1.5 cursor-pointer transition-all"
+                          >
+                            {isTestingSheetsAuth ? (
+                              <>
+                                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                <span>Verifying...</span>
+                              </>
+                            ) : (
+                              <>
+                                <Check className="w-3.5 h-3.5 stroke-[3]" />
+                                <span>Save &amp; Activate Permanent Sync</span>
+                              </>
+                            )}
+                          </button>
+
+                          {(sheetsConnectionMode !== 'disconnected' || getGoogleAccessToken()) && (
+                            <button
+                              type="button"
+                              onClick={async () => {
+                                await signOutGoogle(true);
+                                setSheetsBridgeUrl('');
+                                setGoogleOAuthRefreshToken('');
+                                setSheetsConnectionMode('disconnected');
+                                setSheetsAuthStatusMsg('Disconnected Google Sheets credentials.');
+                              }}
+                              className="py-1.5 px-2.5 rounded-lg bg-rose-950/40 hover:bg-rose-900/50 text-rose-300 border border-rose-800/60 text-[11px] font-bold cursor-pointer"
+                            >
+                              Disconnect
+                            </button>
+                          )}
+                        </div>
+                      )}
+
+                      {sheetsAuthStatusMsg && (
+                        <div className="text-[11px] font-semibold text-emerald-400 flex items-center gap-1.5 pt-0.5">
+                          <Check className="w-3.5 h-3.5 shrink-0" />
+                          <span>{sheetsAuthStatusMsg}</span>
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
               </div>
 

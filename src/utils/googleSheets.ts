@@ -1,4 +1,4 @@
-import { getGoogleAccessToken } from './googleAuth';
+import { getGoogleAccessToken, ensureGoogleAccessToken } from './googleAuth';
 import type { StravaActivity, StravaActivityDetailsRecord } from './stravaActivities';
 import {
   classifyActivity,
@@ -119,7 +119,7 @@ export function saveCachedSpreadsheetId(id: string, name?: string): void {
  * Check if the Google Sheet is reachable and accessible
  */
 export async function checkGoogleSheetsReachability(): Promise<{ reachable: boolean; spreadsheetId?: string; error?: string }> {
-  const token = getGoogleAccessToken();
+  const token = (await ensureGoogleAccessToken({ allowPopup: false })) || getGoogleAccessToken();
   if (!token) {
     return { reachable: false, error: 'Not authenticated with Google' };
   }
@@ -159,7 +159,7 @@ export const STREAMS_SHEET_HEADERS = [
  * Find or create the dedicated "GymFIT Training Log" spreadsheet in the user's Google Drive
  */
 export async function getOrCreateTrainingLogSheet(): Promise<string> {
-  const token = getGoogleAccessToken();
+  const token = (await ensureGoogleAccessToken({ allowPopup: false })) || getGoogleAccessToken();
   if (!token) {
     throw new Error('Google authorization token is required. Please connect your Google account.');
   }
@@ -509,7 +509,7 @@ export async function appendActivityToTrainingLog(
   details?: StravaActivityDetailsRecord,
   athleteProfile?: AthleteProfile
 ): Promise<SheetExportResult> {
-  const token = getGoogleAccessToken();
+  const token = (await ensureGoogleAccessToken({ allowPopup: false })) || getGoogleAccessToken();
   if (!token) {
     throw new Error('Google authorization token is required. Please connect your Google account.');
   }
@@ -619,7 +619,7 @@ export async function batchBackupActivitiesToGoogleSheet(
   spreadsheetIdParam?: string,
   onProgress?: (progress: BatchBackupProgress) => void
 ): Promise<BatchBackupResult> {
-  const token = getGoogleAccessToken();
+  const token = (await ensureGoogleAccessToken({ allowPopup: false })) || getGoogleAccessToken();
   if (!token) {
     return {
       success: false,
@@ -1521,7 +1521,7 @@ export async function getHealthSheetId(spreadsheetId: string, token: string): Pr
  * Fetch health & recovery logs from the "Health" tab in Google Sheets
  */
 export async function fetchHealthDataFromGoogleSheet(spreadsheetId?: string): Promise<DailyRecoveryLog[]> {
-  const token = getGoogleAccessToken();
+  const token = (await ensureGoogleAccessToken({ allowPopup: false })) || getGoogleAccessToken();
   if (!token) return [];
 
   const targetId = spreadsheetId || getCachedSpreadsheetId();
@@ -1639,7 +1639,7 @@ export async function batchUploadHealthDataToGoogleSheet(
   spreadsheetId?: string,
   profile?: AthleteProfile
 ): Promise<BatchHealthUploadResult> {
-  const token = getGoogleAccessToken();
+  const token = (await ensureGoogleAccessToken({ allowPopup: false })) || getGoogleAccessToken();
   if (!token) {
     return {
       success: false,

@@ -217,6 +217,33 @@ const handleOAuthCallback = async (req: express.Request, res: express.Response) 
 app.get('/auth/callback', handleOAuthCallback);
 app.get('/auth/callback/', handleOAuthCallback);
 
+// Google Apps Script Token Bridge fallback proxy (avoids any browser redirect CORS issues)
+app.post('/api/google/bridge-token', async (req, res) => {
+  try {
+    const { bridgeUrl } = req.body || {};
+    if (!bridgeUrl || typeof bridgeUrl !== 'string' || !bridgeUrl.startsWith('https://script.google.com/')) {
+      return res.status(400).json({ error: 'Valid Google Apps Script Web App URL is required' });
+    }
+    const response = await fetch(bridgeUrl.trim(), {
+      method: 'GET',
+      redirect: 'follow',
+      headers: { Accept: 'application/json' },
+    });
+    const text = await response.text();
+    let json: any = null;
+    try {
+      json = JSON.parse(text);
+    } catch {
+      return res.status(502).json({
+        error: 'Apps Script Web App did not return valid JSON. Ensure Who has access is set to "Anyone".',
+      });
+    }
+    return res.status(response.ok ? 200 : response.status).json(json);
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message || 'Failed to reach Google Apps Script bridge' });
+  }
+});
+
 // Forward Strava's rate limit headers to client
 function forwardStravaRateLimitHeaders(stravaHeaders: Headers, response: express.Response) {
   const headersToForward = [

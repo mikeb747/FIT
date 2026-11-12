@@ -1164,7 +1164,7 @@ export const RecoveryView: React.FC<RecoveryViewProps> = ({
               }`}
             >
               <TrendingUp className="w-4 h-4 text-sky-500" />
-              Cross-Correlation &amp; Physiological Trends
+              Trends
             </h2>
             <p className={`text-xs ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>
               Correlating sleep stages and volume with morning resting HR (baseline {baselineRhr} bpm)

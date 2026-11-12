@@ -34,7 +34,7 @@ import {
   getStoredGarminProxyUrl,
 } from '../utils/garminConfig';
 import { batchUploadHealthDataToGoogleSheet } from '../utils/googleSheets';
-import { getGoogleAccessToken, signInWithGoogle } from '../utils/googleAuth';
+import { ensureGoogleAccessToken } from '../utils/googleAuth';
 
 interface GarminSyncModalProps {
   isOpen: boolean;
@@ -102,37 +102,53 @@ export const GarminSyncModal: React.FC<GarminSyncModalProps> = ({
     }
   }, [isOpen]);
 
-  const handleBackupToSheet = async (logsToBackup?: DailyRecoveryLog[]) => {
+  const handleBackupToSheet = async (
+    logsToBackup?: DailyRecoveryLog[],
+    options?: { silentOnly?: boolean }
+  ) => {
     const logs = logsToBackup && logsToBackup.length > 0 ? logsToBackup : existingLogs;
     if (!logs || logs.length === 0) {
-      setError('No recovery records available to backup.');
+      if (!options?.silentOnly) {
+        setError('No recovery records available to backup.');
+      }
       return;
     }
-    setError(null);
-    let token = getGoogleAccessToken();
-    if (!token) {
-      try {
-        setIsBackingUpSheet(true);
-        const { accessToken } = await signInWithGoogle();
-        token = accessToken;
-      } catch (err: any) {
-        setError(err.message || 'Could not connect to Google Sheets');
-        setIsBackingUpSheet(false);
-        return;
-      }
+    if (!options?.silentOnly) {
+      setError(null);
     }
-    setIsBackingUpSheet(true);
+
+    let token: string | null = null;
+    try {
+      setIsBackingUpSheet(true);
+      token = await ensureGoogleAccessToken({ allowPopup: !options?.silentOnly });
+    } catch (err: any) {
+      if (!options?.silentOnly) {
+        setError(err.message || 'Could not connect to Google Sheets');
+      }
+      setIsBackingUpSheet(false);
+      return;
+    }
+
+    if (!token) {
+      setIsBackingUpSheet(false);
+      return;
+    }
+
     try {
       const res = await batchUploadHealthDataToGoogleSheet(logs);
       if (res.success) {
         setSheetBackupFeedback(`Backed up ${res.appendedCount + res.updatedCount} days!`);
-        setSuccess(`Successfully backed up ${res.appendedCount + res.updatedCount} days to GymFIT Training Log on Google Sheets!`);
+        setSuccess(
+          `Successfully synced Garmin recovery & backed up ${res.appendedCount + res.updatedCount} days to GymFIT Training Log on Google Sheets!`
+        );
         setTimeout(() => setSheetBackupFeedback(null), 3500);
-      } else {
+      } else if (!options?.silentOnly) {
         setError(res.error || 'Failed to backup to Google Sheets');
       }
     } catch (err: any) {
-      setError(err.message || 'Error uploading to Google Sheets');
+      if (!options?.silentOnly) {
+        setError(err.message || 'Error uploading to Google Sheets');
+      }
     } finally {
       setIsBackingUpSheet(false);
     }
@@ -314,8 +330,8 @@ export const GarminSyncModal: React.FC<GarminSyncModalProps> = ({
         `Successfully imported ${result.syncedDays} day(s) of Garmin recovery data for ${rangeLabel}${skipNote}`
       );
 
-      // Requirement: After getting data from Garmin Health API, automatically select/trigger "Backup to Sheet"
-      await handleBackupToSheet(merged);
+      // Requirement: After getting data from Garmin Health API, automatically trigger silent "Backup to Sheet"
+      await handleBackupToSheet(merged, { silentOnly: true });
     } catch (err: any) {
       setError(err.message || 'An unexpected error occurred during Garmin synchronization.');
       const errTrace: GarminApiDebugTrace = {
