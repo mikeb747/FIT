@@ -76,9 +76,9 @@ export const WeeklyTrainingVolumeChart: React.FC<WeeklyTrainingVolumeChartProps>
 
   // Colors matching the app design system
   const colors = {
-    swim: '#38bdf8', // sky-400
-    bike: '#fb923c', // orange-400
-    run: '#f59e0b', // amber-500
+    swim: '#38bdf8', // sky-400 (Blue)
+    bike: '#fb923c', // orange-400 (Orange)
+    run: '#f43f5e', // rose-500 (Red)
     other: '#a78bfa', // purple-400
     totalHours: '#34d399', // emerald-400
     totalDistance: '#10b981', // emerald-500
@@ -320,7 +320,7 @@ export const WeeklyTrainingVolumeChart: React.FC<WeeklyTrainingVolumeChartProps>
               {data.bikeHours}h · {data.bikeKm}km
             </span>
           </div>
-          <div className="flex items-center justify-between text-amber-400">
+          <div className="flex items-center justify-between text-rose-400">
             <span className="flex items-center gap-1.5">
               <Footprints className="w-3 h-3" /> Run ({data.runCount})
             </span>
@@ -439,20 +439,37 @@ export const WeeklyTrainingVolumeChart: React.FC<WeeklyTrainingVolumeChartProps>
               { id: 'swim' as const, label: 'Swim' },
               { id: 'bike' as const, label: 'Bike' },
               { id: 'run' as const, label: 'Run' },
-            ].map((s) => (
-              <button
-                key={s.id}
-                type="button"
-                onClick={() => setSelectedSportFilter(s.id)}
-                className={`px-2 py-1 rounded-md transition-colors cursor-pointer ${
-                  selectedSportFilter === s.id
-                    ? 'bg-sky-500 text-slate-950'
-                    : 'text-slate-400 hover:text-white'
-                }`}
-              >
-                {s.label}
-              </button>
-            ))}
+            ].map((s) => {
+              const isActive = selectedSportFilter === s.id;
+              const activeCls =
+                s.id === 'swim'
+                  ? 'bg-sky-500 text-slate-950'
+                  : s.id === 'bike'
+                  ? 'bg-orange-500 text-slate-950'
+                  : s.id === 'run'
+                  ? 'bg-rose-500 text-white'
+                  : 'bg-amber-500 text-slate-950';
+              const inactiveCls =
+                s.id === 'swim'
+                  ? 'text-sky-400 hover:text-sky-300'
+                  : s.id === 'bike'
+                  ? 'text-orange-400 hover:text-orange-300'
+                  : s.id === 'run'
+                  ? 'text-rose-400 hover:text-rose-300'
+                  : 'text-slate-400 hover:text-white';
+              return (
+                <button
+                  key={s.id}
+                  type="button"
+                  onClick={() => setSelectedSportFilter(s.id)}
+                  className={`px-2 py-1 rounded-md transition-colors cursor-pointer ${
+                    isActive ? activeCls : inactiveCls
+                  }`}
+                >
+                  {s.label}
+                </button>
+              );
+            })}
           </div>
         </div>
       </div>
@@ -531,12 +548,12 @@ export const WeeklyTrainingVolumeChart: React.FC<WeeklyTrainingVolumeChartProps>
           <div className="mt-1 flex items-center gap-2 font-mono text-xs font-bold">
             <span className="text-sky-400">S {stats.swimPct}%</span>
             <span className="text-orange-400">B {stats.bikePct}%</span>
-            <span className="text-amber-400">R {stats.runPct}%</span>
+            <span className="text-rose-400">R {stats.runPct}%</span>
           </div>
           <div className="mt-1.5 h-1.5 w-full rounded-full bg-slate-800 flex overflow-hidden">
             <div style={{ width: `${stats.swimPct}%` }} className="bg-sky-400 h-full" />
             <div style={{ width: `${stats.bikePct}%` }} className="bg-orange-400 h-full" />
-            <div style={{ width: `${stats.runPct}%` }} className="bg-amber-400 h-full" />
+            <div style={{ width: `${stats.runPct}%` }} className="bg-rose-500 h-full" />
           </div>
         </div>
       </div>
@@ -766,7 +783,7 @@ export const WeeklyTrainingVolumeChart: React.FC<WeeklyTrainingVolumeChartProps>
             <span>Bike</span>
           </span>
           <span className="flex items-center gap-1.5">
-            <span className="w-2.5 h-2.5 rounded-sm bg-amber-500" />
+            <span className="w-2.5 h-2.5 rounded-sm bg-rose-500" />
             <span>Run</span>
           </span>
           <span className="flex items-center gap-1.5">

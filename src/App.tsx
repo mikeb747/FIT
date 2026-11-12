@@ -468,11 +468,17 @@ export default function App() {
     }
   }, [displayDensity]);
 
-  // Synchronize activities whenever rename rules or batch processing updates local activities
+  // Synchronize activities and migrated details whenever rename rules, calibration republishing, or batch processing updates local activities
   useEffect(() => {
     const handleUpdate = (e: any) => {
       if (e.detail?.activities && Array.isArray(e.detail.activities)) {
         setStravaActivities([...e.detail.activities]);
+      }
+      if (e.detail?.newDetailsRecord && e.detail?.newActivityId) {
+        setStravaActivityDetails((prev) => ({
+          ...prev,
+          [String(e.detail.newActivityId)]: e.detail.newDetailsRecord,
+        }));
       }
     };
     window.addEventListener('fit_track_activities_updated', handleUpdate);

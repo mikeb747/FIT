@@ -354,9 +354,9 @@ export const FitnessZoneCharts: React.FC<FitnessZoneChartsProps> = ({
           </span>
           <span
             className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${
-              isLight
-                ? 'bg-slate-100 text-slate-700 border-slate-300'
-                : 'bg-slate-800/80 text-cyan-400 border-cyan-500/20'
+              mode === 'cycling_power'
+                ? 'bg-orange-500/15 text-orange-700 dark:text-orange-400 border-orange-500/25'
+                : 'bg-rose-500/15 text-rose-700 dark:text-rose-400 border-rose-500/25'
             }`}
           >
             {modeLabel} (Per Day)

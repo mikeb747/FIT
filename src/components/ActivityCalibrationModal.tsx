@@ -35,6 +35,7 @@ import {
   saveActivityCalibration,
   clearActivityCalibration,
   updateStravaActivityRecord,
+  replaceRepublishedStravaActivity,
 } from '../utils/stravaActivities';
 import {
   formatSecondsToMinSec,
@@ -617,6 +618,39 @@ export const ActivityCalibrationModal: React.FC<ActivityCalibrationModalProps> =
       );
 
       if (res.success) {
+        if (res.activityId && String(res.activityId) !== String(activity.id)) {
+          const calibrationPayload: ActivityCalibration = {
+            isIgnoredFromTrainingStatus: false,
+            calibratedDistanceM: Math.round(sim.totalDistanceM),
+            calibratedMovingTimeSec: Math.round(totalSimulatedDurationSec),
+            calibratedMaxHeartRate: maxHrInput ? parseInt(maxHrInput, 10) : undefined,
+            calibratedAvgHeartRate: avgHrInput ? parseInt(avgHrInput, 10) : undefined,
+            calibratedRunSections: computedRunSections,
+            calibrationNotes:
+              notes.trim() ||
+              `Republished calibrated workout to Strava (#${res.activityId}); superseded original activity #${activity.id}.`,
+          };
+
+          const replaced = await replaceRepublishedStravaActivity({
+            oldActivity: activity,
+            newActivityId: res.activityId,
+            calibratedName: `${activity.name} (Calibrated Treadmill)`,
+            calibratedDistanceM: Math.round(sim.totalDistanceM),
+            calibratedMovingTimeSec: Math.round(totalSimulatedDurationSec),
+            maxSpeedMps: maxSimulatedSpeedKph / 3.6,
+            calibration: calibrationPayload,
+            newLaps: sim.newLaps,
+            simulatedStreams: {
+              timeStream: sim.timeStream,
+              speedStream: sim.speedStream,
+              distanceStream: sim.distanceStream,
+            },
+            existingDetails: detailsRecord,
+          });
+
+          onCalibrationSaved(replaced.newDetailsRecord);
+        }
+
         setStravaUploadSuccess({
           uploadId: res.uploadId ?? 'uploaded',
           activityId: res.activityId,
@@ -628,6 +662,7 @@ export const ActivityCalibrationModal: React.FC<ActivityCalibrationModalProps> =
       setStravaUploadError(err.message || 'An error occurred while uploading to Strava');
     } finally {
       setIsUploadingToStrava(false);
+      setUploadStatusMsg('');
     }
   };
 
@@ -635,6 +670,7 @@ export const ActivityCalibrationModal: React.FC<ActivityCalibrationModalProps> =
   const handleSave = async () => {
     setIsSaving(true);
     try {
+      const targetActivityId = stravaUploadSuccess?.activityId || activity.id;
       let finalDistM = parsedDistM;
       let finalMovingSec = parsedMovingSec;
 
@@ -655,15 +691,19 @@ export const ActivityCalibrationModal: React.FC<ActivityCalibrationModalProps> =
         calibratedLaps: classification.category === 'Swim' && swimLaps.length > 0 ? swimLaps : undefined,
         calibratedRunSections: isRun && runSections.length > 0 ? runSections : undefined,
         calibrationNotes: notes.trim() || undefined,
+        replacesActivityId:
+          stravaUploadSuccess?.activityId && String(stravaUploadSuccess.activityId) !== String(activity.id)
+            ? String(activity.id)
+            : detailsRecord?.calibration?.replacesActivityId,
       };
 
       // 1. Save calibration metadata
-      let updatedRecord = await saveActivityCalibration(activity.id, calibrationPayload);
+      let updatedRecord = await saveActivityCalibration(targetActivityId, calibrationPayload);
 
       // 2. If run sections are defined, rebuild the local streams & overwrite laps so the UI & charts update instantly
       if (isRun && runSections.length > 0) {
         const sim = buildSimulatedStreamsAndLaps();
-        updatedRecord = await updateStravaActivityRecord(activity.id, (record) => {
+        updatedRecord = await updateStravaActivityRecord(targetActivityId, (record) => {
           const currentStreams = (record.streams || {}) as Record<string, any>;
           const currentActivity = (record.activity || {}) as Record<string, any>;
 
@@ -1315,19 +1355,26 @@ export const ActivityCalibrationModal: React.FC<ActivityCalibrationModalProps> =
 
                   {stravaUploadSuccess && (
                     <div className="p-2.5 rounded-xl bg-emerald-500/15 border border-emerald-500/30 text-xs text-emerald-200 flex items-center justify-between gap-2">
-                      <div className="flex items-center gap-2">
-                        <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
-                        <span>
-                          Successfully uploaded to Strava!
-                          {stravaUploadSuccess.activityId ? ` (Activity #${stravaUploadSuccess.activityId})` : ''}
-                        </span>
+                      <div className="flex items-start gap-2">
+                        <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
+                        <div className="space-y-0.5">
+                          <div className="font-bold text-emerald-300">
+                            Successfully republished to Strava!
+                            {stravaUploadSuccess.activityId ? ` (New ID #${stravaUploadSuccess.activityId})` : ''}
+                          </div>
+                          {stravaUploadSuccess.activityId && String(stravaUploadSuccess.activityId) !== String(activity.id) && (
+                            <div className="text-[11px] text-emerald-200/80">
+                              Updated app activity to new Strava ID #{stravaUploadSuccess.activityId} and flagged original activity #{activity.id} as deleted/hidden.
+                            </div>
+                          )}
+                        </div>
                       </div>
                       {stravaUploadSuccess.activityId && (
                         <a
                           href={`https://www.strava.com/activities/${stravaUploadSuccess.activityId}`}
                           target="_blank"
                           rel="noopener noreferrer"
-                          className="px-2 py-1 rounded-lg bg-emerald-500 text-slate-950 font-black text-[10px] flex items-center gap-1 hover:bg-emerald-400 transition-colors"
+                          className="px-2 py-1 rounded-lg bg-emerald-500 text-slate-950 font-black text-[10px] flex items-center gap-1 hover:bg-emerald-400 transition-colors shrink-0"
                         >
                           <span>Open on Strava</span>
                           <ExternalLink className="w-3 h-3" />

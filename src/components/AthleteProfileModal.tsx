@@ -1751,13 +1751,13 @@ export const AthleteProfileModal: React.FC<AthleteProfileModalProps> = ({
               onClick={() => handleSelectTab('swimming')}
               className={`px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer whitespace-nowrap shrink-0 ${
                 activeTab === 'swimming'
-                  ? 'bg-amber-500 text-slate-950 font-black shadow-sm border-2 border-slate-400 dark:border-slate-500'
+                  ? 'bg-sky-500 text-slate-950 font-black shadow-sm border-2 border-sky-300 dark:border-sky-400'
                   : theme === 'light'
-                  ? 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
-                  : 'text-slate-400 hover:text-white hover:bg-slate-800'
+                  ? 'text-sky-700 hover:text-sky-900 hover:bg-sky-50'
+                  : 'text-sky-400 hover:text-sky-300 hover:bg-slate-800'
               }`}
             >
-              <Waves className="w-3.5 h-3.5 text-sky-400" />
+              <Waves className={`w-3.5 h-3.5 ${activeTab === 'swimming' ? 'text-slate-950' : 'text-sky-400'}`} />
               <span>Swim</span>
             </button>
 
@@ -1770,13 +1770,13 @@ export const AthleteProfileModal: React.FC<AthleteProfileModalProps> = ({
               onClick={() => handleSelectTab('cycling')}
               className={`px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer whitespace-nowrap shrink-0 ${
                 activeTab === 'cycling'
-                  ? 'bg-amber-500 text-slate-950 font-black shadow-sm border-2 border-slate-400 dark:border-slate-500'
+                  ? 'bg-orange-500 text-slate-950 font-black shadow-sm border-2 border-orange-300 dark:border-orange-400'
                   : theme === 'light'
-                  ? 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
-                  : 'text-slate-400 hover:text-white hover:bg-slate-800'
+                  ? 'text-orange-700 hover:text-orange-900 hover:bg-orange-50'
+                  : 'text-orange-400 hover:text-orange-300 hover:bg-slate-800'
               }`}
             >
-              <Bike className="w-3.5 h-3.5 text-orange-400" />
+              <Bike className={`w-3.5 h-3.5 ${activeTab === 'cycling' ? 'text-slate-950' : 'text-orange-400'}`} />
               <span>Bike</span>
             </button>
 
@@ -1789,13 +1789,13 @@ export const AthleteProfileModal: React.FC<AthleteProfileModalProps> = ({
               onClick={() => handleSelectTab('running')}
               className={`px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer whitespace-nowrap shrink-0 ${
                 activeTab === 'running'
-                  ? 'bg-amber-500 text-slate-950 font-black shadow-sm border-2 border-slate-400 dark:border-slate-500'
+                  ? 'bg-rose-500 text-white font-black shadow-sm border-2 border-rose-300 dark:border-rose-400'
                   : theme === 'light'
-                  ? 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
-                  : 'text-slate-400 hover:text-white hover:bg-slate-800'
+                  ? 'text-rose-700 hover:text-rose-900 hover:bg-rose-50'
+                  : 'text-rose-400 hover:text-rose-300 hover:bg-slate-800'
               }`}
             >
-              <Footprints className="w-3.5 h-3.5 text-amber-400" />
+              <Footprints className={`w-3.5 h-3.5 ${activeTab === 'running' ? 'text-white' : 'text-rose-400'}`} />
               <span>Run</span>
             </button>
 
@@ -4040,7 +4040,7 @@ export const AthleteProfileModal: React.FC<AthleteProfileModalProps> = ({
               <div className="grid grid-cols-2 gap-2 sm:gap-3">
                 <div className="p-2.5 sm:p-3.5 rounded-2xl bg-slate-950 border border-slate-800 flex flex-col gap-1.5">
                   <div className="flex items-center justify-between">
-                    <label className="text-xs font-semibold text-amber-300">Bike FTP</label>
+                    <label className="text-xs font-semibold text-orange-300">Bike FTP</label>
                     <span className="text-[10px] text-slate-500">1h power</span>
                   </div>
                   <div className="flex items-center gap-1.5">
@@ -4050,7 +4050,7 @@ export const AthleteProfileModal: React.FC<AthleteProfileModalProps> = ({
                       max="600"
                       value={bikeFtp}
                       onChange={(e) => setBikeFtp(Number(e.target.value))}
-                      className="w-full bg-slate-900 border border-slate-700 rounded-xl px-2.5 py-1.5 sm:px-3 sm:py-2 text-sm font-bold font-mono text-white focus:outline-none focus:border-amber-400"
+                      className="w-full bg-slate-900 border border-slate-700 rounded-xl px-2.5 py-1.5 sm:px-3 sm:py-2 text-sm font-bold font-mono text-white focus:outline-none focus:border-orange-400"
                     />
                     <span className="text-xs text-slate-500 font-mono">W</span>
                   </div>
@@ -4538,7 +4538,7 @@ export const AthleteProfileModal: React.FC<AthleteProfileModalProps> = ({
           {activeTab === 'running' && (
             <div className="space-y-4">
               <div className="p-3 rounded-2xl bg-slate-950/80 border border-slate-800 text-xs text-slate-300 flex items-start gap-2.5">
-                <Footprints className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
+                <Footprints className="w-4 h-4 text-rose-400 shrink-0 mt-0.5" />
                 <p>
                   Set distinct threshold paces (Functional Threshold Pace) for <strong>outdoor running</strong> and <strong>treadmill running</strong>.
                   Treadmill runs with trainer mode use your treadmill pace for accurate Running TSS (rTSS).
@@ -4548,7 +4548,7 @@ export const AthleteProfileModal: React.FC<AthleteProfileModalProps> = ({
               <div className="grid grid-cols-2 gap-2 sm:gap-3">
                 <div className="p-2.5 sm:p-3.5 rounded-2xl bg-slate-950 border border-slate-800 flex flex-col gap-1.5">
                   <div className="flex items-center justify-between">
-                    <label className="text-xs font-semibold text-amber-300">Outdoor Pace</label>
+                    <label className="text-xs font-semibold text-rose-300">Outdoor Pace</label>
                     <span className="text-[10px] text-slate-500">10k / 1h</span>
                   </div>
                   <div className="flex items-center gap-1.5">
@@ -4557,7 +4557,7 @@ export const AthleteProfileModal: React.FC<AthleteProfileModalProps> = ({
                       placeholder="3:52"
                       value={paceOutdoorStr}
                       onChange={(e) => setPaceOutdoorStr(e.target.value)}
-                      className="w-full bg-slate-900 border border-slate-700 rounded-xl px-2.5 py-1.5 sm:px-3 sm:py-2 text-sm font-bold font-mono text-white focus:outline-none focus:border-amber-400"
+                      className="w-full bg-slate-900 border border-slate-700 rounded-xl px-2.5 py-1.5 sm:px-3 sm:py-2 text-sm font-bold font-mono text-white focus:outline-none focus:border-rose-400"
                     />
                     <span className="text-xs text-slate-400 font-mono whitespace-nowrap">/km</span>
                   </div>
@@ -4568,7 +4568,7 @@ export const AthleteProfileModal: React.FC<AthleteProfileModalProps> = ({
 
                 <div className="p-2.5 sm:p-3.5 rounded-2xl bg-slate-950 border border-slate-800 flex flex-col gap-1.5">
                   <div className="flex items-center justify-between">
-                    <label className="text-xs font-semibold text-amber-300">Treadmill Pace</label>
+                    <label className="text-xs font-semibold text-rose-300">Treadmill Pace</label>
                     <span className="text-[10px] text-slate-500">Indoor</span>
                   </div>
                   <div className="flex items-center gap-1.5">
@@ -4577,7 +4577,7 @@ export const AthleteProfileModal: React.FC<AthleteProfileModalProps> = ({
                       placeholder="4:45"
                       value={paceTreadmillStr}
                       onChange={(e) => setPaceTreadmillStr(e.target.value)}
-                      className="w-full bg-slate-900 border border-slate-700 rounded-xl px-2.5 py-1.5 sm:px-3 sm:py-2 text-sm font-bold font-mono text-white focus:outline-none focus:border-amber-400"
+                      className="w-full bg-slate-900 border border-slate-700 rounded-xl px-2.5 py-1.5 sm:px-3 sm:py-2 text-sm font-bold font-mono text-white focus:outline-none focus:border-rose-400"
                     />
                     <span className="text-xs text-slate-400 font-mono whitespace-nowrap">/km</span>
                   </div>
@@ -4599,7 +4599,7 @@ export const AthleteProfileModal: React.FC<AthleteProfileModalProps> = ({
                     max="220"
                     value={thresholdHeartRateRun}
                     onChange={(e) => setThresholdHeartRateRun(Number(e.target.value))}
-                    className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-sm font-bold font-mono text-white focus:outline-none focus:border-amber-400"
+                    className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-sm font-bold font-mono text-white focus:outline-none focus:border-rose-400"
                   />
                   <span className="text-xs text-slate-500 font-mono">bpm</span>
                 </div>
@@ -4612,7 +4612,7 @@ export const AthleteProfileModal: React.FC<AthleteProfileModalProps> = ({
               <div className="p-3.5 rounded-2xl bg-slate-950 border border-slate-800 space-y-2.5">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
-                    <Footprints className="w-4 h-4 text-amber-400" />
+                    <Footprints className="w-4 h-4 text-rose-400" />
                     <div>
                       <span className="text-xs font-bold text-white uppercase tracking-wider block">
                         Running HR Zones ({isRunHrCustom ? 'Custom Model' : 'Joe Friel Model'})
@@ -4628,7 +4628,7 @@ export const AthleteProfileModal: React.FC<AthleteProfileModalProps> = ({
                     className="px-2.5 py-1 rounded-xl text-[11px] font-bold bg-slate-800 hover:bg-slate-700 active:scale-95 text-slate-300 hover:text-white border border-slate-700 transition-all flex items-center gap-1.5 cursor-pointer shadow-xs"
                     title="Reset Running HR Zones to default Joe Friel model"
                   >
-                    <RotateCcw className="w-3 h-3 text-amber-400" />
+                    <RotateCcw className="w-3 h-3 text-rose-400" />
                     <span>Reset Model</span>
                   </button>
                 </div>
@@ -4660,7 +4660,7 @@ export const AthleteProfileModal: React.FC<AthleteProfileModalProps> = ({
                           type="number"
                           value={z.minHrStr}
                           onChange={(e) => handleUpdateHrZoneRun(z.zone, 'minHrStr', e.target.value)}
-                          className="w-16 bg-slate-950 border border-slate-700 rounded-lg px-1.5 py-1 text-xs font-bold text-white text-center focus:outline-none focus:border-amber-400"
+                          className="w-16 bg-slate-950 border border-slate-700 rounded-lg px-1.5 py-1 text-xs font-bold text-white text-center focus:outline-none focus:border-rose-400"
                         />
                         <span className="text-slate-500 text-xs">to</span>
                         <span className="text-[10px] text-slate-500 uppercase">Max:</span>
@@ -4668,7 +4668,7 @@ export const AthleteProfileModal: React.FC<AthleteProfileModalProps> = ({
                           type="number"
                           value={z.maxHrStr}
                           onChange={(e) => handleUpdateHrZoneRun(z.zone, 'maxHrStr', e.target.value)}
-                          className="w-16 bg-slate-950 border border-slate-700 rounded-lg px-1.5 py-1 text-xs font-bold text-white text-center focus:outline-none focus:border-amber-400"
+                          className="w-16 bg-slate-950 border border-slate-700 rounded-lg px-1.5 py-1 text-xs font-bold text-white text-center focus:outline-none focus:border-rose-400"
                         />
                         <span className="text-slate-400 text-xs font-mono ml-0.5">bpm</span>
                       </div>
@@ -4681,7 +4681,7 @@ export const AthleteProfileModal: React.FC<AthleteProfileModalProps> = ({
               <div className="p-3.5 rounded-2xl bg-slate-950 border border-slate-800 space-y-2.5">
                 <div className="flex items-center justify-between flex-wrap gap-2">
                   <div className="flex items-center gap-2">
-                    <Footprints className="w-4 h-4 text-emerald-400" />
+                    <Footprints className="w-4 h-4 text-rose-400" />
                     <div>
                       <span className="text-xs font-bold text-white uppercase tracking-wider block">
                         Running Pace Zones ({runPaceZoneTab === 'outside' ? 'Outside' : 'Treadmill'})
@@ -4700,7 +4700,7 @@ export const AthleteProfileModal: React.FC<AthleteProfileModalProps> = ({
                         onClick={() => setRunPaceZoneTab('outside')}
                         className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition-all cursor-pointer ${
                           runPaceZoneTab === 'outside'
-                            ? 'bg-amber-500 text-slate-950 shadow-xs'
+                            ? 'bg-rose-500 text-white shadow-xs'
                             : 'text-slate-400 hover:text-white'
                         }`}
                       >
@@ -4711,7 +4711,7 @@ export const AthleteProfileModal: React.FC<AthleteProfileModalProps> = ({
                         onClick={() => setRunPaceZoneTab('treadmill')}
                         className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition-all cursor-pointer ${
                           runPaceZoneTab === 'treadmill'
-                            ? 'bg-amber-500 text-slate-950 shadow-xs'
+                            ? 'bg-rose-500 text-white shadow-xs'
                             : 'text-slate-400 hover:text-white'
                         }`}
                       >
@@ -4725,7 +4725,7 @@ export const AthleteProfileModal: React.FC<AthleteProfileModalProps> = ({
                       className="px-2.5 py-1 rounded-xl text-[11px] font-bold bg-slate-800 hover:bg-slate-700 active:scale-95 text-slate-300 hover:text-white border border-slate-700 transition-all flex items-center gap-1.5 cursor-pointer shadow-xs"
                       title="Reset Running Pace Zones to default model"
                     >
-                      <RotateCcw className="w-3 h-3 text-amber-400" />
+                      <RotateCcw className="w-3 h-3 text-rose-400" />
                       <span>Reset Model</span>
                     </button>
                   </div>

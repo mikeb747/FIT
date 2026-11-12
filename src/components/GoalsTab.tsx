@@ -661,7 +661,7 @@ export const GoalsTab: React.FC<GoalsTabProps> = ({ goals, onChangeGoals, profil
                               ? 'bg-slate-50 border-slate-200'
                               : 'bg-slate-950/60 border-slate-800'
                           }`}>
-                            <div className="flex items-center justify-center gap-1 text-[11px] font-bold text-emerald-600 dark:text-emerald-400">
+                            <div className="flex items-center justify-center gap-1 text-[11px] font-bold text-rose-600 dark:text-rose-400">
                               <Footprints className="w-3 h-3" />
                               <span>Run</span>
                             </div>
@@ -671,7 +671,7 @@ export const GoalsTab: React.FC<GoalsTabProps> = ({ goals, onChangeGoals, profil
                             <div className={`text-[10px] mt-0.5 ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>
                               {goal.triathlonSplits.runDistanceKm}km
                             </div>
-                            <div className="text-[10px] text-emerald-600 dark:text-emerald-300 font-mono mt-0.5">
+                            <div className="text-[10px] text-rose-600 dark:text-rose-300 font-mono mt-0.5">
                               {goal.triathlonSplits.runDistanceKm > 0
                                 ? `${formatPaceMinSec(
                                     goal.triathlonSplits.runTargetTimeSec /
@@ -1533,8 +1533,8 @@ const GoalEditorModal: React.FC<GoalEditorModalProps> = ({ goal, onClose, onSave
                 isLight ? 'bg-white border-slate-200' : 'bg-slate-900/60 border-slate-800/80'
               }`}>
                 <div className="flex items-center gap-2">
-                  <Footprints className="w-4 h-4 text-emerald-500" />
-                  <span className="font-bold text-emerald-700 dark:text-emerald-300">Run Discipline</span>
+                  <Footprints className="w-4 h-4 text-rose-500" />
+                  <span className="font-bold text-rose-700 dark:text-rose-300">Run Discipline</span>
                 </div>
                 <div>
                   <label className={`text-[10px] block ${isLight ? 'text-slate-600 font-semibold' : 'text-slate-400'}`}>Distance (km)</label>
@@ -1615,7 +1615,7 @@ const GoalEditorModal: React.FC<GoalEditorModalProps> = ({ goal, onClose, onSave
               <span className={`font-bold flex items-center gap-1.5 border-b pb-2 ${
                 isLight ? 'border-slate-200 text-slate-900' : 'border-slate-800 text-white'
               }`}>
-                <Footprints className="w-4 h-4 text-amber-500" />
+                <Footprints className="w-4 h-4 text-rose-500" />
                 Running Specific Targets
               </span>
 

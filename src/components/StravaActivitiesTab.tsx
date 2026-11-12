@@ -258,9 +258,9 @@ function getCategoryIcon(category: ActivityCategory, className = 'w-5 h-5', isLi
     case 'Swim':
       return <Waves className={`${className} ${isLight ? 'text-sky-600' : 'text-sky-400'}`} />;
     case 'Bike':
-      return <Bike className={`${className} ${isLight ? 'text-amber-600' : 'text-orange-400'}`} />;
+      return <Bike className={`${className} ${isLight ? 'text-orange-500' : 'text-orange-400'}`} />;
     case 'Run':
-      return <Footprints className={`${className} ${isLight ? 'text-amber-700' : 'text-amber-400'}`} />;
+      return <Footprints className={`${className} ${isLight ? 'text-rose-600' : 'text-rose-400'}`} />;
     case 'Gym':
       return <Dumbbell className={`${className} ${isLight ? 'text-emerald-600' : 'text-emerald-400'}`} />;
     default:
@@ -586,6 +586,14 @@ export const StravaActivitiesTab: React.FC<StravaActivitiesTabProps> = ({
           {(['All', 'Swim', 'Bike', 'Run', 'Gym'] as const).map((cat, idx) => {
             const count = categoryCounts[cat] || 0;
             const isActive = selectedCategory === cat;
+            const activeTabStyle =
+              cat === 'Swim'
+                ? 'bg-sky-500 text-slate-950 font-extrabold shadow-[inset_0_2px_4px_rgba(0,0,0,0.18)]'
+                : cat === 'Bike'
+                ? 'bg-orange-500 text-slate-950 font-extrabold shadow-[inset_0_2px_4px_rgba(0,0,0,0.18)]'
+                : cat === 'Run'
+                ? 'bg-rose-500 text-white font-extrabold shadow-[inset_0_2px_4px_rgba(0,0,0,0.18)]'
+                : 'bg-[#eeeeee] text-slate-900 font-extrabold shadow-[inset_0_2px_4px_rgba(0,0,0,0.18)]';
             return (
               <button
                 key={cat}
@@ -595,7 +603,7 @@ export const StravaActivitiesTab: React.FC<StravaActivitiesTabProps> = ({
                   idx > 0 ? 'border-l-[0.8px] border-l-[#0f172b]' : ''
                 } ${
                   isActive
-                    ? 'bg-[#eeeeee] text-slate-900 font-extrabold shadow-[inset_0_2px_4px_rgba(0,0,0,0.18)]'
+                    ? activeTabStyle
                     : 'bg-white hover:bg-slate-50 text-slate-700 hover:text-slate-900'
                 }`}
               >
@@ -603,13 +611,13 @@ export const StravaActivitiesTab: React.FC<StravaActivitiesTabProps> = ({
                   <InfinityIcon className="hidden min-[420px]:block w-3.5 h-3.5 shrink-0 text-amber-500" strokeWidth={2.5} />
                 )}
                 {cat === 'Swim' && (
-                  <Waves className="hidden min-[420px]:block w-3.5 h-3.5 shrink-0 text-sky-400" />
+                  <Waves className={`hidden min-[420px]:block w-3.5 h-3.5 shrink-0 ${isActive ? 'text-slate-950' : 'text-sky-500'}`} />
                 )}
                 {cat === 'Bike' && (
-                  <Bike className="hidden min-[420px]:block w-3.5 h-3.5 shrink-0 text-amber-500" />
+                  <Bike className={`hidden min-[420px]:block w-3.5 h-3.5 shrink-0 ${isActive ? 'text-slate-950' : 'text-orange-500'}`} />
                 )}
                 {cat === 'Run' && (
-                  <Footprints className="hidden min-[420px]:block w-3.5 h-3.5 shrink-0 text-emerald-500" />
+                  <Footprints className={`hidden min-[420px]:block w-3.5 h-3.5 shrink-0 ${isActive ? 'text-white' : 'text-rose-500'}`} />
                 )}
                 {cat === 'Gym' && (
                   <Dumbbell className="hidden min-[420px]:block w-3.5 h-3.5 shrink-0 text-indigo-400" />
@@ -1424,6 +1432,14 @@ export const StravaActivitiesTab: React.FC<StravaActivitiesTabProps> = ({
                     <div className="grid grid-cols-5 gap-1">
                       {(['All', 'Swim', 'Bike', 'Run', 'Gym'] as const).map((cat) => {
                         const isActive = selectedCategory === cat;
+                        const activeBtnClass =
+                          cat === 'Swim'
+                            ? 'bg-sky-500 text-slate-950 border-sky-400 font-black shadow-xs'
+                            : cat === 'Bike'
+                            ? 'bg-orange-500 text-slate-950 border-orange-400 font-black shadow-xs'
+                            : cat === 'Run'
+                            ? 'bg-rose-500 text-white border-rose-400 font-black shadow-xs'
+                            : 'bg-amber-500 text-slate-950 border-amber-400 font-black shadow-xs';
                         return (
                           <button
                             key={cat}
@@ -1431,17 +1447,17 @@ export const StravaActivitiesTab: React.FC<StravaActivitiesTabProps> = ({
                             onClick={() => setSelectedCategory(cat)}
                             className={`py-1.5 px-1 rounded-xl text-xs font-bold flex flex-col items-center justify-center gap-1 transition-all cursor-pointer border ${
                               isActive
-                                ? 'bg-amber-500 text-slate-950 border-amber-400 font-black shadow-xs'
+                                ? activeBtnClass
                                 : isLight
                                 ? 'bg-slate-50 hover:bg-slate-100 text-slate-700 border-slate-200'
                                 : 'bg-slate-800/70 hover:bg-slate-800 text-slate-300 border-slate-700/60'
                             }`}
                           >
-                            {cat === 'All' && <InfinityIcon className="w-3.5 h-3.5" />}
-                            {cat === 'Swim' && <Waves className="w-3.5 h-3.5" />}
-                            {cat === 'Bike' && <Bike className="w-3.5 h-3.5" />}
-                            {cat === 'Run' && <Footprints className="w-3.5 h-3.5" />}
-                            {cat === 'Gym' && <Dumbbell className="w-3.5 h-3.5" />}
+                            {cat === 'All' && <InfinityIcon className={`w-3.5 h-3.5 ${isActive ? 'text-slate-950' : 'text-amber-500'}`} />}
+                            {cat === 'Swim' && <Waves className={`w-3.5 h-3.5 ${isActive ? 'text-slate-950' : 'text-sky-400'}`} />}
+                            {cat === 'Bike' && <Bike className={`w-3.5 h-3.5 ${isActive ? 'text-slate-950' : 'text-orange-400'}`} />}
+                            {cat === 'Run' && <Footprints className={`w-3.5 h-3.5 ${isActive ? 'text-white' : 'text-rose-400'}`} />}
+                            {cat === 'Gym' && <Dumbbell className={`w-3.5 h-3.5 ${isActive ? 'text-slate-950' : 'text-indigo-400'}`} />}
                             <span className="text-[11px] leading-tight">{cat}</span>
                           </button>
                         );

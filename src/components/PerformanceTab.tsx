@@ -281,10 +281,10 @@ export const PerformanceTab: React.FC<PerformanceTabProps> = ({
               }}
               className={`px-3 py-1.5 rounded-lg transition-colors cursor-pointer shrink-0 ${
                 selectedSport === 'run'
-                  ? 'bg-emerald-500 text-slate-950 shadow-xs'
+                  ? 'bg-rose-500 text-white shadow-xs'
                   : isLight
-                  ? 'text-slate-600 hover:text-slate-900'
-                  : 'text-slate-400 hover:text-white'
+                  ? 'text-rose-700 hover:text-rose-900'
+                  : 'text-rose-400 hover:text-rose-300'
               }`}
             >
               Running (2027 Focus)
@@ -299,8 +299,8 @@ export const PerformanceTab: React.FC<PerformanceTabProps> = ({
                 selectedSport === 'bike'
                   ? 'bg-orange-500 text-slate-950 shadow-xs'
                   : isLight
-                  ? 'text-slate-600 hover:text-slate-900'
-                  : 'text-slate-400 hover:text-white'
+                  ? 'text-orange-700 hover:text-orange-900'
+                  : 'text-orange-400 hover:text-orange-300'
               }`}
             >
               Cycling
@@ -312,8 +312,8 @@ export const PerformanceTab: React.FC<PerformanceTabProps> = ({
                 selectedSport === 'swim'
                   ? 'bg-sky-500 text-slate-950 shadow-xs'
                   : isLight
-                  ? 'text-slate-600 hover:text-slate-900'
-                  : 'text-slate-400 hover:text-white'
+                  ? 'text-sky-700 hover:text-sky-900'
+                  : 'text-sky-400 hover:text-sky-300'
               }`}
             >
               Swimming
@@ -486,7 +486,7 @@ export const PerformanceTab: React.FC<PerformanceTabProps> = ({
                     <div className="flex items-center justify-between mb-2">
                       <div className="flex items-center gap-1.5">
                         {d.discipline === 'bike' && <Zap className="w-4 h-4 text-orange-400" />}
-                        {d.discipline === 'run' && <Footprints className="w-4 h-4 text-emerald-400" />}
+                        {d.discipline === 'run' && <Footprints className="w-4 h-4 text-rose-400" />}
                         {d.discipline === 'swim' && <Waves className="w-4 h-4 text-sky-400" />}
                         <span className={`text-sm font-black ${isLight ? 'text-slate-900' : 'text-white'}`}>
                           {d.name}
@@ -590,7 +590,7 @@ export const PerformanceTab: React.FC<PerformanceTabProps> = ({
                         p.discipline === 'bike'
                           ? 'bg-gradient-to-r from-orange-500 to-amber-400'
                           : p.discipline === 'run'
-                          ? 'bg-gradient-to-r from-emerald-500 to-teal-400'
+                          ? 'bg-gradient-to-r from-rose-500 to-red-400'
                           : 'bg-gradient-to-r from-sky-500 to-cyan-400'
                       }`}
                       style={{ width: `${p.percentile}%` }}
@@ -623,7 +623,7 @@ export const PerformanceTab: React.FC<PerformanceTabProps> = ({
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
             <div>
               <div className="flex items-center gap-2">
-                <Footprints className="w-4 h-4 text-emerald-400" />
+                <Footprints className="w-4 h-4 text-rose-400" />
                 <h2 className={`text-sm font-extrabold tracking-tight ${isLight ? 'text-slate-900' : 'text-white'}`}>
                   Running Race Pace Engine &amp; Confidence Tiers (2027 Targets)
                 </h2>
@@ -1013,7 +1013,7 @@ export const PerformanceTab: React.FC<PerformanceTabProps> = ({
                 type="button"
                 onClick={() => setCurveMetric('bike')}
                 className={`px-2.5 py-1 rounded-md transition-colors cursor-pointer ${
-                  curveMetric === 'bike' ? 'bg-orange-500 text-slate-950' : 'text-slate-400 hover:text-white'
+                  curveMetric === 'bike' ? 'bg-orange-500 text-slate-950' : 'text-orange-400 hover:text-orange-300'
                 }`}
               >
                 Bike (Watts)
@@ -1022,7 +1022,7 @@ export const PerformanceTab: React.FC<PerformanceTabProps> = ({
                 type="button"
                 onClick={() => setCurveMetric('run')}
                 className={`px-2.5 py-1 rounded-md transition-colors cursor-pointer ${
-                  curveMetric === 'run' ? 'bg-emerald-500 text-slate-950' : 'text-slate-400 hover:text-white'
+                  curveMetric === 'run' ? 'bg-rose-500 text-white' : 'text-rose-400 hover:text-rose-300'
                 }`}
               >
                 Run (Pace /km)

@@ -645,13 +645,13 @@ export const FitnessTab: React.FC<FitnessTabProps> = ({
               onClick={() => setSelectedSport('run')}
               className={`flex items-center gap-1 sm:gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-xl transition-all cursor-pointer whitespace-nowrap shrink-0 ${
                 selectedSport === 'run'
-                  ? 'bg-amber-500 text-slate-950 shadow-sm border-2 border-slate-400'
+                  ? 'bg-rose-500 text-white shadow-sm border-2 border-rose-300'
                   : isLight
-                  ? 'text-slate-600 hover:text-slate-900 hover:bg-slate-100/70 border border-transparent'
-                  : 'text-slate-400 hover:text-white hover:bg-slate-800/50 border border-transparent'
+                  ? 'text-rose-700 hover:text-rose-900 hover:bg-rose-50 border border-transparent'
+                  : 'text-rose-400 hover:text-rose-300 hover:bg-slate-800/50 border border-transparent'
               }`}
             >
-              <Footprints className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+              <Footprints className={`w-3.5 h-3.5 shrink-0 ${selectedSport === 'run' ? 'text-white' : 'text-rose-400'}`} />
               <span>Running</span>
             </button>
 
@@ -660,13 +660,13 @@ export const FitnessTab: React.FC<FitnessTabProps> = ({
               onClick={() => setSelectedSport('bike')}
               className={`flex items-center gap-1 sm:gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-xl transition-all cursor-pointer whitespace-nowrap shrink-0 ${
                 selectedSport === 'bike'
-                  ? 'bg-amber-500 text-slate-950 shadow-sm border-2 border-slate-400'
+                  ? 'bg-orange-500 text-slate-950 shadow-sm border-2 border-orange-300'
                   : isLight
-                  ? 'text-slate-600 hover:text-slate-900 hover:bg-slate-100/70 border border-transparent'
-                  : 'text-slate-400 hover:text-white hover:bg-slate-800/50 border border-transparent'
+                  ? 'text-orange-700 hover:text-orange-900 hover:bg-orange-50 border border-transparent'
+                  : 'text-orange-400 hover:text-orange-300 hover:bg-slate-800/50 border border-transparent'
               }`}
             >
-              <Bike className="w-3.5 h-3.5 text-orange-400 shrink-0" />
+              <Bike className={`w-3.5 h-3.5 shrink-0 ${selectedSport === 'bike' ? 'text-slate-950' : 'text-orange-400'}`} />
               <span>Cycling</span>
             </button>
 
@@ -675,13 +675,13 @@ export const FitnessTab: React.FC<FitnessTabProps> = ({
               onClick={() => setSelectedSport('swim')}
               className={`flex items-center gap-1 sm:gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-xl transition-all cursor-pointer whitespace-nowrap shrink-0 ${
                 selectedSport === 'swim'
-                  ? 'bg-amber-500 text-slate-950 shadow-sm border-2 border-slate-400'
+                  ? 'bg-sky-500 text-slate-950 shadow-sm border-2 border-sky-300'
                   : isLight
-                  ? 'text-slate-600 hover:text-slate-900 hover:bg-slate-100/70 border border-transparent'
-                  : 'text-slate-400 hover:text-white hover:bg-slate-800/50 border border-transparent'
+                  ? 'text-sky-700 hover:text-sky-900 hover:bg-sky-50 border border-transparent'
+                  : 'text-sky-400 hover:text-sky-300 hover:bg-slate-800/50 border border-transparent'
               }`}
             >
-              <Waves className="w-3.5 h-3.5 text-sky-400 shrink-0" />
+              <Waves className={`w-3.5 h-3.5 shrink-0 ${selectedSport === 'swim' ? 'text-slate-950' : 'text-sky-400'}`} />
               <span>Swim</span>
             </button>
           </div>
@@ -732,8 +732,8 @@ export const FitnessTab: React.FC<FitnessTabProps> = ({
                   className={`px-2.5 py-1.5 rounded-lg font-bold transition-all cursor-pointer text-[11px] sm:text-xs whitespace-nowrap shrink-0 ${
                     selectedRunningModel === m.id
                       ? isLight
-                        ? 'bg-white text-amber-700 border-2 border-slate-400 shadow-xs'
-                        : 'bg-slate-800 text-amber-400 border-2 border-slate-500 shadow-xs'
+                        ? 'bg-white text-rose-600 border-2 border-rose-400 shadow-xs'
+                        : 'bg-slate-800 text-rose-400 border-2 border-rose-500/70 shadow-xs'
                       : isLight
                       ? 'text-slate-600 hover:text-slate-900 border border-transparent'
                       : 'text-slate-400 hover:text-white border border-transparent'
@@ -762,8 +762,8 @@ export const FitnessTab: React.FC<FitnessTabProps> = ({
                   className={`px-2.5 py-1.5 rounded-lg font-bold transition-all cursor-pointer text-[11px] sm:text-xs whitespace-nowrap shrink-0 ${
                     selectedCyclingModel === m.id
                       ? isLight
-                        ? 'bg-white text-amber-700 border-2 border-slate-400 shadow-xs'
-                        : 'bg-slate-800 text-amber-400 border-2 border-slate-500 shadow-xs'
+                        ? 'bg-white text-orange-600 border-2 border-orange-400 shadow-xs'
+                        : 'bg-slate-800 text-orange-400 border-2 border-orange-500/70 shadow-xs'
                       : isLight
                       ? 'text-slate-600 hover:text-slate-900 border border-transparent'
                       : 'text-slate-400 hover:text-white border border-transparent'
@@ -795,8 +795,8 @@ export const FitnessTab: React.FC<FitnessTabProps> = ({
                   className={`px-2 py-1.5 rounded-lg font-bold transition-all cursor-pointer text-[11px] sm:text-xs whitespace-nowrap shrink-0 ${
                     selectedSwimmingModel === m.id
                       ? isLight
-                        ? 'bg-white text-amber-700 border-2 border-slate-400 shadow-xs'
-                        : 'bg-slate-800 text-amber-400 border-2 border-slate-500 shadow-xs'
+                        ? 'bg-white text-sky-600 border-2 border-sky-400 shadow-xs'
+                        : 'bg-slate-800 text-sky-400 border-2 border-sky-500/70 shadow-xs'
                       : isLight
                       ? 'text-slate-600 hover:text-slate-900 border border-transparent'
                       : 'text-slate-400 hover:text-white border border-transparent'
@@ -1094,7 +1094,7 @@ export const FitnessTab: React.FC<FitnessTabProps> = ({
                         ? 'text-sky-400'
                         : d.discipline === 'bike'
                         ? 'text-orange-400'
-                        : 'text-amber-400';
+                        : 'text-rose-400';
                     return (
                       <tr key={d.discipline} className={isLight ? 'hover:bg-slate-50' : 'hover:bg-slate-800/30'}>
                         <td className={`py-2.5 px-3 font-sans font-bold ${colorClass}`}>{d.label}</td>
@@ -1261,7 +1261,7 @@ export const FitnessTab: React.FC<FitnessTabProps> = ({
                 <ul className="text-[11px] space-y-1 text-slate-300">
                   <li className="flex items-center justify-between">
                     <span className="text-slate-400">• Running Bone/Tendon Cap:</span>
-                    <span className="font-mono font-bold text-amber-400">≤ +3.5 pts/wk (+10–15m long run)</span>
+                    <span className="font-mono font-bold text-rose-400">≤ +3.5 pts/wk (+10–15m long run)</span>
                   </li>
                   <li className="flex items-center justify-between">
                     <span className="text-slate-400">• Cycling Aerobic Cap:</span>
@@ -1399,20 +1399,37 @@ export const FitnessTab: React.FC<FitnessTabProps> = ({
                   { id: 'swim' as const, label: 'Swim' },
                   { id: 'bike' as const, label: 'Bike' },
                   { id: 'run' as const, label: 'Run' },
-                ].map((d) => (
-                  <button
-                    key={d.id}
-                    type="button"
-                    onClick={() => setSelectedChartDiscipline(d.id)}
-                    className={`px-2 py-1 rounded-md transition-colors cursor-pointer ${
-                      selectedChartDiscipline === d.id
-                        ? 'bg-sky-500 text-slate-950'
-                        : 'text-slate-400 hover:text-white'
-                    }`}
-                  >
-                    {d.label}
-                  </button>
-                ))}
+                ].map((d) => {
+                  const isActive = selectedChartDiscipline === d.id;
+                  const activeCls =
+                    d.id === 'swim'
+                      ? 'bg-sky-500 text-slate-950'
+                      : d.id === 'bike'
+                      ? 'bg-orange-500 text-slate-950'
+                      : d.id === 'run'
+                      ? 'bg-rose-500 text-white'
+                      : 'bg-amber-500 text-slate-950';
+                  const inactiveCls =
+                    d.id === 'swim'
+                      ? 'text-sky-400 hover:text-sky-300'
+                      : d.id === 'bike'
+                      ? 'text-orange-400 hover:text-orange-300'
+                      : d.id === 'run'
+                      ? 'text-rose-400 hover:text-rose-300'
+                      : 'text-slate-400 hover:text-white';
+                  return (
+                    <button
+                      key={d.id}
+                      type="button"
+                      onClick={() => setSelectedChartDiscipline(d.id)}
+                      className={`px-2 py-1 rounded-md transition-colors cursor-pointer ${
+                        isActive ? activeCls : inactiveCls
+                      }`}
+                    >
+                      {d.label}
+                    </button>
+                  );
+                })}
               </div>
             )}
 
@@ -1927,7 +1944,7 @@ export const FitnessTab: React.FC<FitnessTabProps> = ({
                   <span className="sm:hidden">Bik</span>
                   <span className="hidden sm:inline">Bike TSS</span>
                 </th>
-                <th className="py-2 px-1 sm:py-2.5 sm:px-3 text-right sm:text-left text-amber-400">
+                <th className="py-2 px-1 sm:py-2.5 sm:px-3 text-right sm:text-left text-rose-400">
                   <span className="sm:hidden">Run</span>
                   <span className="hidden sm:inline">Run TSS</span>
                 </th>

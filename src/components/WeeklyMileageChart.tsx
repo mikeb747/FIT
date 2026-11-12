@@ -438,22 +438,49 @@ export const WeeklyMileageChart: React.FC<WeeklyMileageChartProps> = ({
               { id: 'cycling_power', label: 'Cycling Power Zones' },
               { id: 'running_pace', label: 'Running Pace Zones' },
               { id: 'running_hr', label: 'Running Heart Rate Zones' },
-            ].map((tab) => (
-              <button
-                key={tab.id}
-                type="button"
-                onClick={() => setActiveTab(tab.id as ChartDatasetTab)}
-                className={`px-2 py-1 rounded-md whitespace-nowrap transition-colors cursor-pointer ${
-                  activeTab === tab.id
-                    ? 'bg-amber-500 text-slate-950 shadow-xs'
-                    : isLight
-                    ? 'text-slate-600 hover:text-slate-900'
-                    : 'text-slate-400 hover:text-white'
-                }`}
-              >
-                {tab.label}
-              </button>
-            ))}
+            ].map((tab) => {
+              const isActive = activeTab === tab.id;
+              const isSwimTab = tab.id === 'swim_distance';
+              const isBikeTab = tab.id === 'bike_hours' || tab.id === 'cycling_power';
+              const isRunTab = tab.id === 'mileage' || tab.id === 'running_pace' || tab.id === 'running_hr';
+
+              const activeClass = isSwimTab
+                ? 'bg-sky-500 text-slate-950 shadow-xs'
+                : isBikeTab
+                ? 'bg-orange-500 text-slate-950 shadow-xs'
+                : isRunTab
+                ? 'bg-rose-500 text-white shadow-xs'
+                : 'bg-amber-500 text-slate-950 shadow-xs';
+
+              const inactiveClass = isSwimTab
+                ? isLight
+                  ? 'text-sky-700 hover:text-sky-900'
+                  : 'text-sky-400 hover:text-sky-300'
+                : isBikeTab
+                ? isLight
+                  ? 'text-orange-700 hover:text-orange-900'
+                  : 'text-orange-400 hover:text-orange-300'
+                : isRunTab
+                ? isLight
+                  ? 'text-rose-700 hover:text-rose-900'
+                  : 'text-rose-400 hover:text-rose-300'
+                : isLight
+                ? 'text-slate-600 hover:text-slate-900'
+                : 'text-slate-400 hover:text-white';
+
+              return (
+                <button
+                  key={tab.id}
+                  type="button"
+                  onClick={() => setActiveTab(tab.id as ChartDatasetTab)}
+                  className={`px-2 py-1 rounded-md whitespace-nowrap transition-colors cursor-pointer ${
+                    isActive ? activeClass : inactiveClass
+                  }`}
+                >
+                  {tab.label}
+                </button>
+              );
+            })}
           </div>
         </div>
       </div>
@@ -507,22 +534,45 @@ export const WeeklyMileageChart: React.FC<WeeklyMileageChartProps> = ({
                     { id: 'run' as const, label: 'Run' },
                     { id: 'bike' as const, label: 'Bike' },
                     { id: 'swim' as const, label: 'Swim' },
-                  ].map((opt) => (
-                    <button
-                      key={opt.id}
-                      type="button"
-                      onClick={() => setTssDisciplineFilter(opt.id)}
-                      className={`px-2 py-0.5 sm:py-1 rounded-md transition-colors cursor-pointer ${
-                        tssDisciplineFilter === opt.id
-                          ? 'bg-amber-500 text-slate-950 shadow-xs'
-                          : isLight
-                          ? 'text-slate-600 hover:text-slate-900'
-                          : 'text-slate-400 hover:text-white'
-                      }`}
-                    >
-                      {opt.label}
-                    </button>
-                  ))}
+                  ].map((opt) => {
+                    const isActive = tssDisciplineFilter === opt.id;
+                    const activeCls =
+                      opt.id === 'swim'
+                        ? 'bg-sky-500 text-slate-950 shadow-xs'
+                        : opt.id === 'bike'
+                        ? 'bg-orange-500 text-slate-950 shadow-xs'
+                        : opt.id === 'run'
+                        ? 'bg-rose-500 text-white shadow-xs'
+                        : 'bg-amber-500 text-slate-950 shadow-xs';
+                    const inactiveCls =
+                      opt.id === 'swim'
+                        ? isLight
+                          ? 'text-sky-700 hover:text-sky-900'
+                          : 'text-sky-400 hover:text-sky-300'
+                        : opt.id === 'bike'
+                        ? isLight
+                          ? 'text-orange-700 hover:text-orange-900'
+                          : 'text-orange-400 hover:text-orange-300'
+                        : opt.id === 'run'
+                        ? isLight
+                          ? 'text-rose-700 hover:text-rose-900'
+                          : 'text-rose-400 hover:text-rose-300'
+                        : isLight
+                        ? 'text-slate-600 hover:text-slate-900'
+                        : 'text-slate-400 hover:text-white';
+                    return (
+                      <button
+                        key={opt.id}
+                        type="button"
+                        onClick={() => setTssDisciplineFilter(opt.id)}
+                        className={`px-2 py-0.5 sm:py-1 rounded-md transition-colors cursor-pointer ${
+                          isActive ? activeCls : inactiveCls
+                        }`}
+                      >
+                        {opt.label}
+                      </button>
+                    );
+                  })}
                 </div>
               </div>
             </div>
@@ -785,7 +835,7 @@ export const WeeklyMileageChart: React.FC<WeeklyMileageChartProps> = ({
                     {activeTssWeek.items.map((item) => {
                       const catColor =
                         item.category === 'Run'
-                          ? 'text-amber-500'
+                          ? 'text-rose-500'
                           : item.category === 'Bike'
                           ? 'text-orange-500'
                           : item.category === 'Swim'
@@ -1468,14 +1518,14 @@ export const WeeklyMileageChart: React.FC<WeeklyMileageChartProps> = ({
                                       ? '#e2e8f0'
                                       : '#1e293b'
                                     : isSelected
-                                    ? '#f59e0b'
+                                    ? '#ea580c'
                                     : w.isCurrentWeek
-                                    ? '#fbbf24'
+                                    ? '#fb923c'
                                     : isLight
-                                    ? '#38bdf8'
-                                    : '#0284c7',
-                                opacity: val === 0 ? 0.35 : isSelected ? 1 : 0.85,
-                                boxShadow: isSelected ? '0 0 12px rgba(245, 158, 11, 0.45)' : undefined,
+                                    ? '#fb923c'
+                                    : '#f97316',
+                                opacity: val === 0 ? 0.35 : isSelected ? 1 : 0.88,
+                                boxShadow: isSelected ? '0 0 12px rgba(249, 115, 22, 0.45)' : undefined,
                               }}
                             />
                           </div>
@@ -1696,7 +1746,7 @@ export const WeeklyMileageChart: React.FC<WeeklyMileageChartProps> = ({
                 >
                   Run
                 </h3>
-                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-500/15 text-amber-700 dark:text-amber-400 border border-amber-500/20">
+                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-rose-500/15 text-rose-700 dark:text-rose-400 border border-rose-500/20">
                   {granularity === 'month' ? 'Monthly' : 'Mon – Sun'}
                 </span>
                 {renderActivityControls()}
@@ -1828,7 +1878,7 @@ export const WeeklyMileageChart: React.FC<WeeklyMileageChartProps> = ({
             <div className="space-y-2 mt-4">
               <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-slate-500 px-1">
                 <span className="flex items-center gap-1.5 font-medium">
-                  <BarChart2 className="w-3.5 h-3.5 text-amber-500" />
+                  <BarChart2 className="w-3.5 h-3.5 text-rose-500" />
                   Run {metricType === 'distance' ? `distance (${unit})` : 'moving time (hours)'} per {granularity}
                 </span>
                 <div className="flex items-center gap-3 flex-wrap text-[11px] font-mono">
@@ -2034,7 +2084,7 @@ export const WeeklyMileageChart: React.FC<WeeklyMileageChartProps> = ({
                             {/* Bar */}
                             <div
                               className={`w-full relative rounded-t-sm transition-all duration-300 box-border ${
-                                isRampBreach ? 'border-2 border-rose-500' : 'border border-black'
+                                isRampBreach ? 'border-2 border-amber-400' : 'border border-black'
                               }`}
                               style={{
                                 height: `${heightPct}%`,
@@ -2044,17 +2094,17 @@ export const WeeklyMileageChart: React.FC<WeeklyMileageChartProps> = ({
                                       ? '#e2e8f0'
                                       : '#1e293b'
                                     : isRampBreach
-                                    ? '#f43f5e'
+                                    ? '#be123c'
                                     : isSelected
-                                    ? '#f59e0b'
+                                    ? '#e11d48'
                                     : w.isCurrentWeek
-                                    ? '#fbbf24'
+                                    ? '#fb7185'
                                     : isLight
-                                    ? '#38bdf8'
-                                    : '#0284c7',
-                                opacity: val === 0 ? 0.35 : isSelected || isRampBreach ? 0.95 : 0.85,
+                                    ? '#f43f5e'
+                                    : '#e11d48',
+                                opacity: val === 0 ? 0.35 : isSelected || isRampBreach ? 0.98 : 0.85,
                                 boxShadow: isSelected
-                                  ? '0 0 12px rgba(245, 158, 11, 0.45)'
+                                  ? '0 0 12px rgba(244, 63, 94, 0.45)'
                                   : isRampBreach
                                   ? '0 0 10px rgba(244, 63, 94, 0.4)'
                                   : undefined,
@@ -2079,9 +2129,9 @@ export const WeeklyMileageChart: React.FC<WeeklyMileageChartProps> = ({
                           <span
                             className={`text-[9px] ${currentPeriodCount >= 24 ? 'text-[8px] sm:text-[9px]' : ''} font-mono block truncate ${
                               isSelected
-                                ? 'text-amber-500 font-bold'
+                                ? 'text-rose-500 font-bold'
                                 : w.isCurrentWeek
-                                ? 'text-amber-400 font-semibold'
+                                ? 'text-rose-400 font-semibold'
                                 : isLight
                                 ? 'text-slate-500'
                                 : 'text-slate-400'
@@ -2109,19 +2159,19 @@ export const WeeklyMileageChart: React.FC<WeeklyMileageChartProps> = ({
               <div
                 className={`mt-4 p-3.5 rounded-xl border transition-colors ${
                   isLight
-                    ? 'bg-amber-50/50 border-amber-200 text-slate-900'
+                    ? 'bg-rose-50/50 border-rose-200 text-slate-900'
                     : 'bg-slate-950/70 border-slate-800 text-slate-200'
                 }`}
               >
                 <div className="flex items-center justify-between pb-2 border-b border-slate-200 dark:border-slate-800">
                   <div className="flex items-center gap-2">
-                    <Calendar className="w-4 h-4 text-amber-500" />
+                    <Calendar className="w-4 h-4 text-rose-500" />
                     <span className="text-xs font-bold">
                       {activeWeek.weekLabel} {activeWeek.isCurrentWeek ? '(Current)' : ''}
                     </span>
                   </div>
                   <div className="flex items-center gap-3 text-xs font-mono">
-                    <span className="font-bold text-amber-500">
+                    <span className="font-bold text-rose-500">
                       {unit === 'miles' ? `${activeWeek.distanceMiles} mi` : `${activeWeek.distanceKm} km`} ({activeWeek.movingHours} hrs)
                     </span>
                     <span className="text-slate-400">
@@ -2146,11 +2196,11 @@ export const WeeklyMileageChart: React.FC<WeeklyMileageChartProps> = ({
                         key={run.id}
                         onClick={() => onSelectActivity && onSelectActivity(run.id)}
                         className={`py-2 flex items-center justify-between text-xs transition-colors rounded-lg px-2 -mx-2 ${
-                          onSelectActivity ? 'hover:bg-amber-500/10 cursor-pointer' : ''
+                          onSelectActivity ? 'hover:bg-rose-500/10 cursor-pointer' : ''
                         }`}
                       >
                         <div className="flex items-center gap-2.5 min-w-0">
-                          <span className="text-[11px] font-mono font-bold text-amber-500 shrink-0 w-8">
+                          <span className="text-[11px] font-mono font-bold text-rose-500 shrink-0 w-8">
                             {run.dayOfWeek}
                           </span>
                           <span className="font-medium truncate text-slate-800 dark:text-slate-200">

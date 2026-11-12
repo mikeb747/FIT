@@ -105,9 +105,9 @@ function getCategoryIcon(category: string, className = 'w-5 h-5', isLight = fals
     case 'Swim':
       return <Waves className={`${className} ${isLight ? 'text-sky-600' : 'text-sky-400'}`} />;
     case 'Bike':
-      return <Bike className={`${className} ${isLight ? 'text-amber-600' : 'text-orange-400'}`} />;
+      return <Bike className={`${className} ${isLight ? 'text-orange-500' : 'text-orange-400'}`} />;
     case 'Run':
-      return <Footprints className={`${className} ${isLight ? 'text-amber-700' : 'text-amber-400'}`} />;
+      return <Footprints className={`${className} ${isLight ? 'text-rose-600' : 'text-rose-400'}`} />;
     case 'Gym':
     case 'Strength':
       return <Dumbbell className={`${className} ${isLight ? 'text-emerald-600' : 'text-emerald-400'}`} />;
@@ -118,7 +118,7 @@ function getCategoryIcon(category: string, className = 'w-5 h-5', isLight = fals
 
 export const StravaActivityModal: React.FC<StravaActivityModalProps> = ({
   isOpen,
-  activity,
+  activity: propActivity,
   stravaToken,
   athleteProfile,
   isGoogleConnected,
@@ -131,6 +131,31 @@ export const StravaActivityModal: React.FC<StravaActivityModalProps> = ({
   onRenameActivity,
 }) => {
   const isLight = theme === 'light';
+  const [replacedActivity, setReplacedActivity] = useState<StravaActivity | null>(null);
+  const activity = replacedActivity || propActivity;
+
+  useEffect(() => {
+    setReplacedActivity(null);
+  }, [propActivity?.id]);
+
+  useEffect(() => {
+    const handleRepublishUpdate = (e: any) => {
+      const detail = e.detail;
+      if (
+        detail?.oldActivityId &&
+        detail?.newActivity &&
+        String(detail.oldActivityId) === String(propActivity?.id)
+      ) {
+        setReplacedActivity(detail.newActivity);
+        if (detail.newDetailsRecord) {
+          setDetailsRecord(detail.newDetailsRecord);
+        }
+      }
+    };
+    window.addEventListener('fit_track_activities_updated', handleRepublishUpdate);
+    return () => window.removeEventListener('fit_track_activities_updated', handleRepublishUpdate);
+  }, [propActivity?.id]);
+
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [isDeletedLocally, setIsDeletedLocally] = useState(false);
   const [detailsRecord, setDetailsRecord] = useState<StravaActivityDetailsRecord | null>(null);
@@ -1395,11 +1420,11 @@ export const StravaActivityModal: React.FC<StravaActivityModalProps> = ({
                 <div className="flex items-center justify-start flex-wrap gap-2.5">
                   {/* Title */}
                   <div className="flex items-center gap-2 mr-0.5">
-                    <div className="w-7 h-7 rounded-lg bg-amber-500/15 border border-amber-500/30 flex items-center justify-center text-amber-400 shrink-0">
+                    <div className="w-7 h-7 rounded-lg bg-rose-500/15 border border-rose-500/30 flex items-center justify-center text-rose-400 shrink-0">
                       <Footprints className="w-4 h-4" />
                     </div>
                     <div>
-                      <h4 className="text-xs font-bold text-amber-300 uppercase tracking-wider">
+                      <h4 className="text-xs font-bold text-rose-300 uppercase tracking-wider">
                         Splits ({runDetails.splits.length} Splits)
                       </h4>
                       <span className="text-[10px] text-slate-400">
@@ -1410,8 +1435,8 @@ export const StravaActivityModal: React.FC<StravaActivityModalProps> = ({
 
                   {/* Left-Aligned Summary Metric Badges (Avg Pace, Cadence, GAP) */}
                   <div className="flex items-center gap-1.5 flex-wrap">
-                    <div className="px-2 py-0.5 rounded-md bg-slate-900 border border-slate-800 text-[11px] font-mono font-bold text-amber-400 flex items-center gap-1">
-                      <Gauge className="w-3 h-3 text-amber-400/80 inline" />
+                    <div className="px-2 py-0.5 rounded-md bg-slate-900 border border-slate-800 text-[11px] font-mono font-bold text-rose-400 flex items-center gap-1">
+                      <Gauge className="w-3 h-3 text-rose-400/80 inline" />
                       <span>Avg {runDetails.avgPaceFormatted}</span>
                     </div>
                     {runDetails.avgCadence && (

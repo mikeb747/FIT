@@ -95,6 +95,8 @@ export interface ActivityCalibration {
   calibrationNotes?: string;
   manualTss?: number;
   preferredTssModel?: 'auto' | 'hrTSS' | 'rTSS' | 'sTSS' | 'powerTSS';
+  replacesActivityId?: string; // Original Strava activity ID replaced when republished
+  replacedByActivityId?: string; // New Strava activity ID that superseded this activity
 }
 
 export interface ActivityEffortFeedback {
@@ -1591,6 +1593,170 @@ export function clearActivityCalibration(
   });
 }
 
+export interface ReplaceRepublishedActivityParams {
+  oldActivity: StravaActivity;
+  newActivityId: number | string;
+  calibratedName?: string;
+  calibratedDistanceM: number;
+  calibratedMovingTimeSec: number;
+  maxSpeedMps?: number;
+  calibration: ActivityCalibration;
+  newLaps?: any[];
+  simulatedStreams?: {
+    timeStream: number[];
+    speedStream: number[];
+    distanceStream: number[];
+  };
+  existingDetails?: StravaActivityDetailsRecord | null;
+}
+
+/**
+ * When a user fixes/calibrates an activity and uploads the corrected .FIT file to Strava:
+ * 1. Flags the old Strava activity ID as deleted (`markActivityAsDeleted`) so it is immediately hidden from all views & charts.
+ * 2. Inserts/updates the activity under the new Strava ID (`newActivityId`) in the local activities cache.
+ * 3. Migrates the calibrated streams, laps, and calibration metadata to the new Strava ID in IndexedDB.
+ * 4. Broadcasts `fit_track_activities_updated` so React state updates immediately across the app.
+ */
+export async function replaceRepublishedStravaActivity(
+  params: ReplaceRepublishedActivityParams
+): Promise<{
+  newActivity: StravaActivity;
+  newDetailsRecord: StravaActivityDetailsRecord;
+  updatedActivities: StravaActivity[];
+}> {
+  const {
+    oldActivity,
+    newActivityId,
+    calibratedName,
+    calibratedDistanceM,
+    calibratedMovingTimeSec,
+    maxSpeedMps,
+    calibration,
+    newLaps,
+    simulatedStreams,
+    existingDetails,
+  } = params;
+
+  const oldIdStr = String(oldActivity.id);
+  const newIdStr = String(newActivityId);
+  const numericNewId = !isNaN(Number(newActivityId)) ? Number(newActivityId) : newActivityId;
+
+  // 1. Flag the old Strava ID as deleted & ignored so it never double-counts or shows in the UI
+  markActivityAsDeleted(oldIdStr);
+  await updateStravaActivityRecord(oldIdStr, (oldRec) => ({
+    ...oldRec,
+    calibration: {
+      ...(oldRec.calibration || {}),
+      ...calibration,
+      isIgnoredFromTrainingStatus: true,
+      replacedByActivityId: newIdStr,
+      calibratedAt: new Date().toISOString(),
+    },
+  }));
+
+  // 2. Construct the new StravaActivity summary with the new Strava ID
+  const finalDistM = calibratedDistanceM > 0 ? calibratedDistanceM : oldActivity.distance;
+  const finalMovingSec = calibratedMovingTimeSec > 0 ? calibratedMovingTimeSec : oldActivity.moving_time;
+  const avgSpeedMps = finalMovingSec > 0 ? Number((finalDistM / finalMovingSec).toFixed(3)) : oldActivity.average_speed;
+
+  const newActivity: StravaActivity = {
+    ...oldActivity,
+    id: numericNewId as number,
+    name: calibratedName?.trim() || oldActivity.name,
+    distance: finalDistM,
+    moving_time: finalMovingSec,
+    elapsed_time: Math.max(oldActivity.elapsed_time || 0, finalMovingSec),
+    average_speed: avgSpeedMps,
+    max_speed: maxSpeedMps && maxSpeedMps > 0 ? Number(maxSpeedMps.toFixed(3)) : oldActivity.max_speed,
+    average_heartrate: calibration.calibratedAvgHeartRate ?? oldActivity.average_heartrate,
+    max_heartrate: calibration.calibratedMaxHeartRate ?? oldActivity.max_heartrate,
+    average_watts: calibration.calibratedAvgWatts ?? oldActivity.average_watts,
+    isDeleted: false,
+  };
+
+  // 3. Migrate and save the full details + streams record under the new Strava ID in IndexedDB
+  const baseDetails = existingDetails || (await getCachedStravaActivityRecord(oldIdStr)) || { id: oldIdStr };
+  const currentStreams = (baseDetails.streams || {}) as Record<string, any>;
+  const currentActivityObj = (baseDetails.activity || {}) as Record<string, any>;
+
+  const migratedCalibration: ActivityCalibration = {
+    ...calibration,
+    isIgnoredFromTrainingStatus: false,
+    replacesActivityId: oldIdStr,
+    calibratedAt: new Date().toISOString(),
+  };
+
+  const newDetailsRecord = await updateStravaActivityRecord(newIdStr, () => ({
+    ...baseDetails,
+    id: newIdStr,
+    calibration: migratedCalibration,
+    activity: {
+      ...currentActivityObj,
+      ...newActivity,
+      id: numericNewId,
+      distance: finalDistM,
+      moving_time: finalMovingSec,
+      laps: newLaps || currentActivityObj.laps,
+    },
+    streams: simulatedStreams
+      ? {
+          ...currentStreams,
+          time: currentStreams.time || {
+            data: simulatedStreams.timeStream,
+            series_type: 'time',
+            original_size: simulatedStreams.timeStream.length,
+            resolution: 'high',
+          },
+          velocity_smooth: {
+            data: simulatedStreams.speedStream,
+            series_type: 'distance',
+            original_size: simulatedStreams.speedStream.length,
+            resolution: 'high',
+          },
+          distance: {
+            data: simulatedStreams.distanceStream,
+            series_type: 'distance',
+            original_size: simulatedStreams.distanceStream.length,
+            resolution: 'high',
+          },
+        }
+      : currentStreams,
+  }));
+
+  // 4. Update cached Strava activities list (old ID flagged isDeleted: true, new ID inserted)
+  const currentList = getCachedStravaActivities();
+  const withoutDuplicateNew = currentList.filter((a) => String(a.id) !== newIdStr);
+  const withOldDeleted = withoutDuplicateNew.map((a) =>
+    String(a.id) === oldIdStr ? { ...a, isDeleted: true } : a
+  );
+  const mergedList = [newActivity, ...withOldDeleted].sort((a, b) => {
+    const tA = new Date(a.start_date).getTime();
+    const tB = new Date(b.start_date).getTime();
+    return tB - tA;
+  });
+  saveCachedStravaActivities(mergedList);
+
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(
+      new CustomEvent('fit_track_activities_updated', {
+        detail: {
+          activities: mergedList,
+          newActivity,
+          newDetailsRecord,
+          oldActivityId: oldIdStr,
+          newActivityId: newIdStr,
+        },
+      })
+    );
+  }
+
+  return {
+    newActivity,
+    newDetailsRecord,
+    updatedActivities: mergedList,
+  };
+}
+
 /**
  * Recreates a run workout using calibrated run sections (Fix Data > +Add Lap).
  * Generates synthetic velocity_smooth and distance streams and calibrated laps
@@ -2145,8 +2311,10 @@ export async function syncStravaActivitiesDelta(accessToken: string, customPerPa
     }
   }
 
-  // Check if recent activities (within the fetched time window and last 2 weeks) still exist on Strava.
-  // If a previously cached activity from this timeframe is missing from the incoming batch, mark as isDeleted = true.
+  // Check if activities within the fetched Strava batch timeframe still exist on Strava.
+  // Since `incoming` is a contiguous reverse-chronological page from Strava down to `oldestIncomingMs`,
+  // any previously cached Strava activity with `start_date >= oldestIncomingMs` that is missing from `incoming`
+  // was deleted on Strava and is automatically flagged as `isDeleted = true`.
   if (incoming.length > 0) {
     const incomingIdSet = new Set(incoming.map((a) => String(a.id)));
     const twoWeeksAgoMs = Date.now() - 14 * 24 * 60 * 60 * 1000;
@@ -2154,18 +2322,19 @@ export async function syncStravaActivitiesDelta(accessToken: string, customPerPa
       .map((a) => (a.start_date ? new Date(a.start_date).getTime() : NaN))
       .filter((t) => !isNaN(t));
     const oldestIncomingMs = incomingTimestamps.length > 0 ? Math.min(...incomingTimestamps) : twoWeeksAgoMs;
-    const checkThresholdMs = Math.max(twoWeeksAgoMs, oldestIncomingMs);
 
     const deletedIds = getDeletedActivityIds();
     let foundMissing = false;
 
     for (const prevAct of existingActivities) {
       if (!prevAct.start_date) continue;
+      const prevIdStr = String(prevAct.id);
+      if (prevIdStr.startsWith('demo-') || prevIdStr.startsWith('local-')) continue;
       const t = new Date(prevAct.start_date).getTime();
-      if (!isNaN(t) && t >= checkThresholdMs) {
-        if (!incomingIdSet.has(String(prevAct.id))) {
+      if (!isNaN(t) && t >= oldestIncomingMs) {
+        if (!incomingIdSet.has(prevIdStr)) {
           prevAct.isDeleted = true;
-          deletedIds.add(String(prevAct.id));
+          deletedIds.add(prevIdStr);
           foundMissing = true;
         }
       }
