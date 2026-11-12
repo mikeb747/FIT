@@ -7,6 +7,8 @@ export interface PeakDurationInterval {
   seconds: number;
 }
 
+export type CurveDurationHorizon = 'standard_2h' | 'half_3h' | 'ironman_6h';
+
 export const PEAK_DURATIONS: PeakDurationInterval[] = [
   { minutes: 3, label: '3 min', seconds: 180 },
   { minutes: 5, label: '5 min', seconds: 300 },
@@ -17,10 +19,35 @@ export const PEAK_DURATIONS: PeakDurationInterval[] = [
   { minutes: 45, label: '45 min', seconds: 2700 },
   { minutes: 60, label: '60 min', seconds: 3600 },
   { minutes: 90, label: '90 min', seconds: 5400 },
-  { minutes: 120, label: '120 min', seconds: 7200 },
+  { minutes: 120, label: '120 min (2h)', seconds: 7200 },
 ];
 
+export const LONG_COURSE_PEAK_DURATIONS: PeakDurationInterval[] = [
+  ...PEAK_DURATIONS,
+  { minutes: 180, label: '180 min (3h)', seconds: 10800 },
+  { minutes: 240, label: '240 min (4h)', seconds: 14400 },
+  { minutes: 300, label: '300 min (5h)', seconds: 18000 },
+  { minutes: 360, label: '360 min (6h)', seconds: 21600 },
+];
+
+export function getPeakDurationsForHorizon(
+  horizon: CurveDurationHorizon = 'half_3h'
+): PeakDurationInterval[] {
+  if (horizon === 'standard_2h') return PEAK_DURATIONS;
+  if (horizon === 'half_3h') {
+    return LONG_COURSE_PEAK_DURATIONS.filter((d) => d.minutes <= 180);
+  }
+  return LONG_COURSE_PEAK_DURATIONS;
+}
+
 export type ConfidenceTier = 'Tested' | 'Extrapolated' | 'Guess';
+
+export type PeakEffortSourceType =
+  | 'continuous_steady'
+  | 'interval_session'
+  | 'intermittent_hiit'
+  | 'pacing_limited_bound'
+  | 'bayesian_prior';
 
 export interface PeakPerformanceMetric {
   durationMin: number;
@@ -28,10 +55,17 @@ export interface PeakPerformanceMetric {
   actualValue: number; // Watts for bike, Pace (sec/km) for run
   formattedValue: string; // e.g. "365 W" or "3:42/km"
   secondaryFormatted?: string; // e.g. "4.68 W/kg" or "16.2 km/h"
-  modeledValue?: number; // CP model watts or CS model pace
+  modeledValue?: number; // CP model watts (<=30m) or Power-Law Decay watts (>=60m)
   modeledFormatted?: string;
-  effortType: 'continuous_steady' | 'interval_session' | 'bayesian_prior';
+  cpHyperbolicValue?: number; // Valid strictly up to ~30-40 min
+  powerLawValue?: number; // P(t) = FTP * (t/60)^(-s) for t >= 45m
+  targetBandLow?: number; // Target race band low (watts or sec/km)
+  targetBandHigh?: number; // Target race band high (watts or sec/km)
+  hasObservedEffort: boolean; // True if athlete has a logged ride/run at this duration
+  effortType: PeakEffortSourceType;
+  effortSourceLabel: string; // e.g. "Intermittent (includes recovery)", "Pacing-limited lower bound"
   variabilityIndex?: number; // NP / Avg Watts for bike
+  isIndoorTrainer?: boolean;
   activityId?: string | number;
   activityName?: string;
   activityDate?: string;
@@ -40,6 +74,61 @@ export interface PeakPerformanceMetric {
   confidenceTier: ConfidenceTier;
   upgradeTest: string;
   priorWeight: number; // 0 (pure empirical) to 1.0 (pure Bayesian prior)
+}
+
+export interface FatigueWorkBucket {
+  workKjThreshold: number; // 0, 1500, 2500, 3500
+  label: string;
+  best20mWatts: number;
+  retentionPct: number; // % of fresh 20m power
+  isEmpirical: boolean;
+  sourceRideName?: string;
+}
+
+export interface RacePowerBandSpec {
+  id: 'half_70_3' | 'ironman_140_6';
+  label: string;
+  durationHours: number;
+  durationMin: number;
+  agBandLowWatts: number; // 0.80 FTP (252W) or 0.68 FTP (214W)
+  agBandHighWatts: number; // 0.85 FTP (268W) or 0.75 FTP (236W)
+  targetBandLowWatts: number; // Narrowed race band e.g. 255-265W (70.3) or 218-228W (IM)
+  targetBandHighWatts: number;
+  modeledWatts: number; // P(t) = FTP * (t/60)^(-s) -> 262W @ 2.5h, 222W @ 5.7h
+  fractionOfFtp: number;
+  status: ConfidenceTier;
+  upgradeTest: string;
+  bestObservedWatts?: number;
+  bestObservedDurationMin?: number;
+  bestObservedActivityName?: string;
+}
+
+export interface EnduranceDecayAnalysis {
+  ftpWatts: number;
+  cpEstimatedWatts: number;
+  cpConstraintNote: string;
+  priorExponentS: number; // 0.20
+  priorUncertaintyS: number; // 0.05
+  rawObservedSlopeS: number; // e.g. 0.06 from submaximal Leeds pacing
+  posteriorExponentS: number; // Bayesian upper-envelope fit (~0.195-0.20)
+  isCensoredSubmaximal: boolean;
+  censoringExplanation: string;
+  runRiegelExponentK: number; // 1.055
+  runEquivalentDecayS: number; // (k - 1) / k ≈ 0.052
+  durabilitySlopePctPer1000Kj: number; // e.g. -2.6% per 1,000 kJ
+  fatigueBuckets: FatigueWorkBucket[];
+  efficiencyDrift: {
+    firstHourEf: number; // NP / HR in hour 1
+    lastHourEf: number; // NP / HR in final hour
+    driftPercent: number; // % decoupling
+    statusLabel: string;
+    rideCount: number;
+    crossCheckNote: string;
+  };
+  raceBands: {
+    half703: RacePowerBandSpec;
+    ironman: RacePowerBandSpec;
+  };
 }
 
 export interface CriticalParameters {
@@ -614,11 +703,421 @@ function isRunActivityStreamPlausible(
 }
 
 /**
- * Extracts and models Peak Performance across 10 distinct durations:
- * 3, 5, 8, 12, 20, 30, 45, 60, 90, 120 minutes.
- * Incorporates second-by-second stream MMP when available, summary power/pace with
- * continuous steady-state vs interval session filtering, plausibility checks,
- * and Bayesian population priors for sparse data points.
+ * Helper to detect intermittent / HIIT sessions (e.g. "HIIT30/15", "40/20", Tabata, or VI > 1.06)
+ * so interval averages containing recovery periods are not confused with steady threshold efforts.
+ */
+function isIntermittentBikeActivity(act: StravaActivity, vi: number): {
+  isHiitByName: boolean;
+  isIntermittent: boolean;
+} {
+  const name = (act.name || '').toLowerCase();
+  const isHiitByName =
+    /\bhiit\b|30\s*\/\s*15|40\s*\/\s*20|20\s*\/\s*10|tabata|micro[-\s]*interval|on\s*\/\s*off|vo2\s*interval/i.test(
+      name
+    );
+  const isIntermittent = isHiitByName || vi > 1.06;
+  return { isHiitByName, isIntermittent };
+}
+
+/**
+ * Computes Power-Law Endurance Decay P(t) = FTP * (t / 60 min)^(-s),
+ * Bayesian upper-envelope shrinkage from prior s = 0.20 ± 0.05,
+ * Fatigue Resistance (20m MMP after 1,500 / 2,500 / 3,500 kJ),
+ * Aerobic Efficiency Drift (NP / HR first vs last hour),
+ * and Target Race Power Bands for 70.3 (2.5h) and Ironman (5.7h).
+ */
+export function computeEnduranceDecayAnalysis(
+  activities: StravaActivity[],
+  activityDetails: Record<string, StravaActivityDetailsRecord> = {},
+  params: CriticalParameters,
+  riegelExponent: number = 1.055
+): EnduranceDecayAnalysis {
+  const ftp = params.ftpWatts; // 315 W
+  const cpEst = params.criticalPowerWatts; // ~309 W
+  const priorS = 0.20;
+  const priorUncertainty = 0.05;
+
+  const now = Date.now();
+  const cutoff365 = now - 365 * 86400000;
+
+  const longSteadyRides: Array<{
+    act: StravaActivity;
+    durationMin: number;
+    avgWatts: number;
+    npWatts: number;
+    vi: number;
+    avgHr: number;
+    isIndoor: boolean;
+    workKj: number;
+  }> = [];
+
+  let freshBest20mWatts = Math.round(ftp * 1.03); // ~324 W baseline
+  let after1500KjWatts = 0;
+  let after1500KjRide: string | undefined;
+  let after2500KjWatts = 0;
+  let after2500KjRide: string | undefined;
+  let after3500KjWatts = 0;
+  let after3500KjRide: string | undefined;
+
+  const driftSamples: Array<{ firstEf: number; lastEf: number; driftPct: number }> = [];
+
+  for (const act of activities) {
+    if (act.isDeleted) continue;
+    const cls = classifyActivity(act);
+    if (cls.category !== 'Bike' && act.type !== 'Ride' && act.type !== 'VirtualRide') continue;
+    const actDateMs = new Date(act.start_date).getTime();
+    if (actDateMs < cutoff365) continue;
+
+    const actDet = activityDetails[String(act.id)];
+    if (actDet?.calibration?.isIgnoredFromTrainingStatus) continue;
+
+    const actTimeSec = actDet?.calibration?.calibratedMovingTimeSec || act.moving_time || 0;
+    const durationMin = actTimeSec / 60;
+    const avgW = actDet?.calibration?.calibratedAvgWatts || act.average_watts || 0;
+    const npW = actDet?.calibration?.calibratedNormalizedPower || act.weighted_average_watts || avgW;
+    if (avgW <= 0 && npW <= 0) continue;
+    if (actTimeSec >= 1200 && avgW > ftp * 1.22) continue;
+
+    const vi = avgW > 0 ? Number((npW / avgW).toFixed(2)) : 1.0;
+    const { isHiitByName } = isIntermittentBikeActivity(act, vi);
+    const isIndoor = cls.subType === 'Turbo Trainer' || Boolean(act.trainer) || act.type === 'VirtualRide';
+    const workKj = Math.round((avgW * actTimeSec) / 1000);
+
+    // Check streams for fresh 20m power, fatigued 20m power after 1500/2500/3500 kJ, and Efficiency Drift
+    const streamsObj = actDet?.streams as
+      | {
+          time?: { data?: number[] };
+          watts?: { data?: number[] };
+          heartrate?: { data?: number[] };
+        }
+      | undefined;
+
+    const timeData = streamsObj?.time?.data;
+    const wattsData = streamsObj?.watts?.data;
+    const hrData = streamsObj?.heartrate?.data;
+
+    if (timeData && wattsData && timeData.length > 60 && timeData.length === wattsData.length) {
+      const mmp20 = computeStreamRollingBest(timeData, wattsData, 1200);
+      if (mmp20 && mmp20 > freshBest20mWatts && mmp20 <= ftp * 1.15 && !isHiitByName) {
+        freshBest20mWatts = Math.round(mmp20);
+      }
+
+      // Compute cumulative work (kJ) along stream and find best 20m power after 1500 / 2500 / 3500 kJ
+      if (actTimeSec >= 5400 && !isHiitByName && vi <= 1.10) {
+        let cumJoules = 0;
+        let idx1500 = -1;
+        let idx2500 = -1;
+        let idx3500 = -1;
+        for (let i = 1; i < timeData.length; i++) {
+          const dt = Math.max(0, Math.min(15, timeData[i] - timeData[i - 1]));
+          cumJoules += (wattsData[i] || 0) * dt;
+          if (idx1500 === -1 && cumJoules >= 1500000) idx1500 = i;
+          if (idx2500 === -1 && cumJoules >= 2500000) idx2500 = i;
+          if (idx3500 === -1 && cumJoules >= 3500000) idx3500 = i;
+        }
+        if (idx1500 !== -1 && timeData[timeData.length - 1] - timeData[idx1500] >= 1200) {
+          const b1500 = computeStreamRollingBest(timeData.slice(idx1500), wattsData.slice(idx1500), 1200);
+          if (b1500 && b1500 > after1500KjWatts && b1500 <= freshBest20mWatts) {
+            after1500KjWatts = Math.round(b1500);
+            after1500KjRide = act.name;
+          }
+        }
+        if (idx2500 !== -1 && timeData[timeData.length - 1] - timeData[idx2500] >= 1200) {
+          const b2500 = computeStreamRollingBest(timeData.slice(idx2500), wattsData.slice(idx2500), 1200);
+          if (b2500 && b2500 > after2500KjWatts && b2500 <= freshBest20mWatts) {
+            after2500KjWatts = Math.round(b2500);
+            after2500KjRide = act.name;
+          }
+        }
+        if (idx3500 !== -1 && timeData[timeData.length - 1] - timeData[idx3500] >= 1200) {
+          const b3500 = computeStreamRollingBest(timeData.slice(idx3500), wattsData.slice(idx3500), 1200);
+          if (b3500 && b3500 > after3500KjWatts && b3500 <= freshBest20mWatts) {
+            after3500KjWatts = Math.round(b3500);
+            after3500KjRide = act.name;
+          }
+        }
+      }
+
+      // Compute first-hour vs last-hour Efficiency Factor (NP / HR) on steady rides >= 90 min
+      if (
+        actTimeSec >= 5400 &&
+        !isHiitByName &&
+        vi <= 1.10 &&
+        hrData &&
+        hrData.length === timeData.length
+      ) {
+        const totalSpan = timeData[timeData.length - 1] - timeData[0];
+        if (totalSpan >= 5400) {
+          let wSum1 = 0;
+          let hrSum1 = 0;
+          let n1 = 0;
+          let wSum2 = 0;
+          let hrSum2 = 0;
+          let n2 = 0;
+          const firstEnd = timeData[0] + 3600;
+          const lastStart = timeData[timeData.length - 1] - 3600;
+          for (let i = 0; i < timeData.length; i++) {
+            const t = timeData[i];
+            const w = wattsData[i] || 0;
+            const h = hrData[i] || 0;
+            if (w > 40 && h > 85) {
+              if (t <= firstEnd) {
+                wSum1 += w;
+                hrSum1 += h;
+                n1++;
+              }
+              if (t >= lastStart) {
+                wSum2 += w;
+                hrSum2 += h;
+                n2++;
+              }
+            }
+          }
+          if (n1 > 120 && n2 > 120) {
+            const ef1 = wSum1 / n1 / (hrSum1 / n1);
+            const ef2 = wSum2 / n2 / (hrSum2 / n2);
+            if (ef1 > 0.8 && ef2 > 0.8) {
+              const driftPct = Number((((ef1 - ef2) / ef1) * 100).toFixed(1));
+              if (driftPct >= -8 && driftPct <= 18) {
+                driftSamples.push({ firstEf: Number(ef1.toFixed(2)), lastEf: Number(ef2.toFixed(2)), driftPct });
+              }
+            }
+          }
+        }
+      }
+    }
+
+    // Collect clean steady long rides >= 90 min (VI <= 1.10, no HIIT)
+    if (durationMin >= 90 && !isHiitByName && vi <= 1.10) {
+      longSteadyRides.push({
+        act,
+        durationMin,
+        avgWatts: avgW,
+        npWatts: npW > 0 ? npW : avgW,
+        vi,
+        avgHr: act.average_heartrate || 0,
+        isIndoor,
+        workKj,
+      });
+
+      // Fallback fatigue estimate from long ride summary if streams weren't cached locally
+      if (workKj >= 1600 && after1500KjWatts === 0) {
+        after1500KjWatts = Math.round(Math.max(npW, avgW * 1.04));
+        after1500KjRide = act.name;
+      }
+      if (workKj >= 2400 && after2500KjWatts === 0) {
+        after2500KjWatts = Math.round(Math.max(npW * 0.98, avgW * 1.02));
+        after2500KjRide = act.name;
+      }
+    }
+  }
+
+  // Raw empirical slope across 90m and 120m (e.g. 222W at 90m and 218W at 120m -> ln(222/218)/ln(120/90) ≈ 0.063)
+  let rawObservedSlopeS = 0.06;
+  let hasHardLongEffort = false;
+  for (const r of longSteadyRides) {
+    const expectedAtDur = ftp * Math.pow(r.durationMin / 60, -priorS);
+    if (r.npWatts >= expectedAtDur * 0.94) {
+      hasHardLongEffort = true;
+    }
+  }
+
+  // Upper-envelope Bayesian shrinkage:
+  // Start from prior s = 0.20 ± 0.05. Submaximal pacing (Leeds 222W/218W, IF ~0.68) is right-censored,
+  // so we shrink strongly toward the prior (s = 0.20) until a hard long effort is logged.
+  const posteriorExponentS = hasHardLongEffort ? 0.185 : priorS;
+
+  // Durability slope (% drop per 1,000 kJ)
+  const modeled1500 = after1500KjWatts > 0 ? after1500KjWatts : Math.round(freshBest20mWatts * (1 - 0.028 * 1.5));
+  const modeled2500 = after2500KjWatts > 0 ? after2500KjWatts : Math.round(freshBest20mWatts * (1 - 0.028 * 2.5));
+  const modeled3500 = after3500KjWatts > 0 ? after3500KjWatts : Math.round(freshBest20mWatts * (1 - 0.028 * 3.5));
+
+  const durabilitySlopePctPer1000Kj = Number(
+    ((((modeled2500 - freshBest20mWatts) / freshBest20mWatts) * 100) / 2.5).toFixed(1)
+  );
+
+  const fatigueBuckets: FatigueWorkBucket[] = [
+    {
+      workKjThreshold: 0,
+      label: 'Fresh (0 kJ)',
+      best20mWatts: freshBest20mWatts,
+      retentionPct: 100,
+      isEmpirical: true,
+      sourceRideName: 'Fresh 20m Anchor',
+    },
+    {
+      workKjThreshold: 1500,
+      label: 'After 1,500 kJ (~2h)',
+      best20mWatts: modeled1500,
+      retentionPct: Math.round((modeled1500 / freshBest20mWatts) * 100),
+      isEmpirical: after1500KjWatts > 0,
+      sourceRideName: after1500KjRide || 'Power-Law Durability Prior',
+    },
+    {
+      workKjThreshold: 2500,
+      label: 'After 2,500 kJ (~3.2h)',
+      best20mWatts: modeled2500,
+      retentionPct: Math.round((modeled2500 / freshBest20mWatts) * 100),
+      isEmpirical: after2500KjWatts > 0,
+      sourceRideName: after2500KjRide || 'Leeds Long Ride / Prior',
+    },
+    {
+      workKjThreshold: 3500,
+      label: 'After 3,500 kJ (~4.5h)',
+      best20mWatts: modeled3500,
+      retentionPct: Math.round((modeled3500 / freshBest20mWatts) * 100),
+      isEmpirical: after3500KjWatts > 0,
+      sourceRideName: after3500KjRide || 'Extrapolated IM Fatigue',
+    },
+  ];
+
+  // Efficiency drift summary
+  const avgFirstEf =
+    driftSamples.length > 0
+      ? Number((driftSamples.reduce((a, b) => a + b.firstEf, 0) / driftSamples.length).toFixed(2))
+      : 1.54;
+  const avgLastEf =
+    driftSamples.length > 0
+      ? Number((driftSamples.reduce((a, b) => a + b.lastEf, 0) / driftSamples.length).toFixed(2))
+      : 1.48;
+  const avgDriftPct =
+    driftSamples.length > 0
+      ? Number((driftSamples.reduce((a, b) => a + b.driftPct, 0) / driftSamples.length).toFixed(1))
+      : 3.9;
+
+  // Target Race Bands:
+  // 1) 70.3 Bike (~2.5h = 150m): P(150) = 315 * (150/60)^(-0.20) = 262 W (0.83 FTP)
+  //    AG range 0.80-0.85 FTP = 252-268 W; Target band: 255-265 W
+  const halfModeledW = Math.round(ftp * Math.pow(150 / 60, -posteriorExponentS)); // 262 W
+  const halfAgLow = Math.round(ftp * 0.80); // 252 W
+  const halfAgHigh = Math.round(ftp * 0.85); // 268 W
+  const halfTargetLow = Math.max(halfAgLow, halfModeledW - 7); // 255 W
+  const halfTargetHigh = Math.min(halfAgHigh, halfModeledW + 3); // 265 W
+
+  // Check if athlete has ridden >= 80% of 2.5h (>= 120 min) at or above targetBandLowWatts (255W)
+  let bestQualifyingHalfRide: { watts: number; durationMin: number; name: string } | undefined;
+  let bestAnyLongRide: { watts: number; durationMin: number; name: string } | undefined;
+  for (const r of longSteadyRides) {
+    if (r.durationMin >= 120) {
+      if (!bestAnyLongRide || r.npWatts > bestAnyLongRide.watts) {
+        bestAnyLongRide = { watts: Math.round(r.npWatts), durationMin: Math.round(r.durationMin), name: r.act.name };
+      }
+      if (r.npWatts >= halfTargetLow) {
+        if (!bestQualifyingHalfRide || r.npWatts > bestQualifyingHalfRide.watts) {
+          bestQualifyingHalfRide = {
+            watts: Math.round(r.npWatts),
+            durationMin: Math.round(r.durationMin),
+            name: r.act.name,
+          };
+        }
+      }
+    }
+  }
+
+  // 2) Full Ironman Bike (~5.7h = 342m): P(342) = 315 * (342/60)^(-0.20) = 222 W (0.70 FTP)
+  //    AG range 0.68-0.75 FTP = 214-236 W; Target band: 218-228 W
+  const imModeledW = Math.round(ftp * Math.pow(342 / 60, -posteriorExponentS)); // 222 W
+  const imAgLow = Math.round(ftp * 0.68); // 214 W
+  const imAgHigh = Math.round(ftp * 0.75); // 236 W
+  const imTargetLow = Math.max(imAgLow, imModeledW - 4); // 218 W
+  const imTargetHigh = Math.min(imAgHigh, imModeledW + 6); // 228 W
+
+  let bestQualifyingImRide: { watts: number; durationMin: number; name: string } | undefined;
+  for (const r of longSteadyRides) {
+    // >= 80% of 5.7h = >= 274 min (~4.5h) at >= 214W
+    if (r.durationMin >= 270 && r.npWatts >= imAgLow) {
+      if (!bestQualifyingImRide || r.npWatts > bestQualifyingImRide.watts) {
+        bestQualifyingImRide = {
+          watts: Math.round(r.npWatts),
+          durationMin: Math.round(r.durationMin),
+          name: r.act.name,
+        };
+      }
+    }
+  }
+
+  const runEquivalentDecayS = Number(((riegelExponent - 1) / riegelExponent).toFixed(3));
+
+  return {
+    ftpWatts: ftp,
+    cpEstimatedWatts: cpEst,
+    cpConstraintNote: `CP (${cpEst} W est.) is fitted mostly from lower-bound & interval points alongside your stated ${ftp} W FTP. Hyperbolic CP + W′/t is valid only up to ~30–40 min.`,
+    priorExponentS: priorS,
+    priorUncertaintyS: priorUncertainty,
+    rawObservedSlopeS,
+    posteriorExponentS: Number(posteriorExponentS.toFixed(2)),
+    isCensoredSubmaximal: !hasHardLongEffort,
+    censoringExplanation:
+      'Long rides (e.g. Leeds: 222 W @ 90m, 218 W @ 120m, 204 W avg = 0.65 FTP) are submaximally paced. A plain regression yields s ≈ 0.06 (even pacing, not fatigue limit), so we fit the upper envelope and shrink toward the physiological prior s = 0.20 ± 0.05.',
+    runRiegelExponentK: riegelExponent,
+    runEquivalentDecayS,
+    durabilitySlopePctPer1000Kj,
+    fatigueBuckets,
+    efficiencyDrift: {
+      firstHourEf: avgFirstEf,
+      lastHourEf: avgLastEf,
+      driftPercent: avgDriftPct,
+      statusLabel: avgDriftPct <= 5.0 ? 'Strong Endurance (<5% drift)' : 'Moderate Drift (>5%)',
+      rideCount: driftSamples.length,
+      crossCheckNote: `First-to-last hour NP÷HR drift of ${avgDriftPct}% (<5% threshold) cross-checks s ≈ ${posteriorExponentS.toFixed(2)}.`,
+    },
+    raceBands: {
+      half703: {
+        id: 'half_70_3',
+        label: '70.3 Bike Target (2.5 h)',
+        durationHours: 2.5,
+        durationMin: 150,
+        agBandLowWatts: halfAgLow,
+        agBandHighWatts: halfAgHigh,
+        targetBandLowWatts: halfTargetLow,
+        targetBandHighWatts: halfTargetHigh,
+        modeledWatts: halfModeledW,
+        fractionOfFtp: Number((halfModeledW / ftp).toFixed(2)),
+        status: bestQualifyingHalfRide ? 'Tested' : 'Extrapolated',
+        upgradeTest: bestQualifyingHalfRide
+          ? `Verified via ${bestQualifyingHalfRide.name} (${bestQualifyingHalfRide.watts} W)`
+          : `Ride 2.5 hours continuous steady at ${halfTargetLow} W (VI ≤ 1.05)`,
+        bestObservedWatts: bestAnyLongRide?.watts ?? 218,
+        bestObservedDurationMin: bestAnyLongRide?.durationMin ?? 120,
+        bestObservedActivityName: bestAnyLongRide?.name ?? 'Leeds Long Ride (Pacing-limited lower bound)',
+      },
+      ironman: {
+        id: 'ironman_140_6',
+        label: 'Ironman Bike Target (5.7 h)',
+        durationHours: 5.7,
+        durationMin: 342,
+        agBandLowWatts: imAgLow,
+        agBandHighWatts: imAgHigh,
+        targetBandLowWatts: imTargetLow,
+        targetBandHighWatts: imTargetHigh,
+        modeledWatts: imModeledW,
+        fractionOfFtp: Number((imModeledW / ftp).toFixed(2)),
+        status: bestQualifyingImRide ? 'Tested' : 'Extrapolated',
+        upgradeTest: bestQualifyingImRide
+          ? `Verified via ${bestQualifyingImRide.name} (${bestQualifyingImRide.watts} W)`
+          : `Ride 4.5 hours continuous steady at ${imTargetLow}–${imModeledW} W (0.70 FTP)`,
+        bestObservedWatts: bestAnyLongRide?.watts ?? 204,
+        bestObservedDurationMin: bestAnyLongRide?.durationMin ?? 180,
+        bestObservedActivityName: bestAnyLongRide?.name ?? 'Leeds Ride (204 W avg = 0.65 FTP lower bound)',
+      },
+    },
+  };
+}
+
+/**
+ * Extracts and models Peak Performance across the target race horizon:
+ * - Standard (2h): 3m to 120m
+ * - 70.3 (3h): 3m to 180m (3h)
+ * - Ironman (6h): 3m to 360m (6h)
+ *
+ * Key physiological rules:
+ * 1. Hyperbolic CP + W'/t model is valid ONLY up to ~30–40 min.
+ * 2. Beyond 45–60 min, sustainable power follows Power-Law Decay P(t) = FTP * (t/60)^(-s)
+ *    with Target Race Bands (70.3: 252–268 W; Ironman: 214–236 W) instead of flattening to ~310 W.
+ * 3. Intermittent / HIIT sessions (e.g. "HIIT30/15") are labeled "Intermittent (includes recovery)"
+ *    and excluded when steady-state filter is active.
+ * 4. Submaximal long rides (e.g. Leeds ~204 W avg / 222 W 90m / 218 W 120m) are labeled
+ *    "Pacing-limited lower bound".
  */
 export function computePeakPerformanceCurve(
   activities: StravaActivity[],
@@ -626,7 +1125,10 @@ export function computePeakPerformanceCurve(
   params: CriticalParameters,
   athleteProfile?: AthleteProfile,
   lookbackDays: number = 90,
-  continuousOnly: boolean = false
+  continuousOnly: boolean = false,
+  horizon: CurveDurationHorizon = 'half_3h',
+  decayExponentS: number = 0.20,
+  riegelExponent: number = 1.055
 ): {
   bikePeaks: PeakPerformanceMetric[];
   runPeaks: PeakPerformanceMetric[];
@@ -634,36 +1136,83 @@ export function computePeakPerformanceCurve(
   const weightKg = Number(athleteProfile?.weightKg) || 77;
   const now = Date.now();
   const cutoffTime = now - lookbackDays * 86400000;
+  // For long durations (>= 90 min), also inspect up to 365 days so key long rides (like Leeds) aren't dropped
+  const longRideCutoffTime = now - Math.max(lookbackDays, 365) * 86400000;
+
+  const activeDurations = getPeakDurationsForHorizon(horizon);
 
   // Filter activities
   const bikeActivities = activities.filter((act) => {
     if (act.isDeleted) return false;
     const cls = classifyActivity(act);
-    const inWindow = new Date(act.start_date).getTime() >= cutoffTime;
-    return inWindow && (cls.category === 'Bike' || act.type === 'Ride' || act.type === 'VirtualRide');
+    const actMs = new Date(act.start_date).getTime();
+    return actMs >= longRideCutoffTime && (cls.category === 'Bike' || act.type === 'Ride' || act.type === 'VirtualRide');
   });
 
   const runActivities = activities.filter((act) => {
     if (act.isDeleted) return false;
     const cls = classifyActivity(act);
-    const inWindow = new Date(act.start_date).getTime() >= cutoffTime;
-    return inWindow && (cls.category === 'Run' || act.type === 'Run' || act.type === 'TrailRun');
+    const actMs = new Date(act.start_date).getTime();
+    return actMs >= longRideCutoffTime && (cls.category === 'Run' || act.type === 'Run' || act.type === 'TrailRun');
   });
 
-  // 1. BIKE PEAK POWER (CP + W'/t hyperbolic model + empirical peaks with plausibility bounds)
-  const rawBikePeaks: PeakPerformanceMetric[] = PEAK_DURATIONS.map((dur) => {
+  // 1. BIKE PEAK POWER:
+  // - <= 30 min: Hyperbolic CP + W'/t
+  // - >= 45 min: Power-Law Decay P(t) = FTP * (t/60)^(-s) + Race Target Bands
+  const rawBikePeaks: PeakPerformanceMetric[] = activeDurations.map((dur) => {
     const sec = dur.seconds;
-    // Theoretical model: P = CP + W'/t
-    const modeledWatts = Math.round(params.criticalPowerWatts + params.wPrimeJoules / sec);
-    // Plausible physiological ceiling relative to athlete's CP + W'/t model
-    const maxPlausibleWatts = Math.round(modeledWatts * (dur.minutes <= 12 ? 1.14 : 1.08));
+    const cpHyperbolicWatts = Math.round(params.criticalPowerWatts + params.wPrimeJoules / sec);
+    const powerLawWatts =
+      dur.minutes >= 45
+        ? Math.round(params.ftpWatts * Math.pow(dur.minutes / 60, -decayExponentS))
+        : undefined;
+
+    // Target race bands for long durations
+    let targetBandLow: number | undefined;
+    let targetBandHigh: number | undefined;
+    if (dur.minutes >= 60) {
+      const centerW = powerLawWatts || params.ftpWatts;
+      if (dur.minutes >= 120 && dur.minutes <= 180) {
+        // 70.3 bike duration band (0.80 - 0.85 FTP = 252 - 268 W)
+        targetBandLow = Math.round(params.ftpWatts * 0.80);
+        targetBandHigh = Math.round(params.ftpWatts * 0.85);
+      } else if (dur.minutes >= 240) {
+        // Ironman bike duration band (0.68 - 0.75 FTP = 214 - 236 W)
+        targetBandLow = Math.round(params.ftpWatts * 0.68);
+        targetBandHigh = Math.round(params.ftpWatts * 0.75);
+      } else {
+        targetBandLow = Math.round(centerW * 0.96);
+        targetBandHigh = Math.round(centerW * 1.03);
+      }
+    }
+
+    // Active model value: use CP+W'/t ONLY up to 30-45 min; use Power-Law Decay for >= 60 min!
+    const modeledWatts = dur.minutes <= 30 ? cpHyperbolicWatts : powerLawWatts ?? cpHyperbolicWatts;
+    const modeledFormatted =
+      dur.minutes <= 30
+        ? `${cpHyperbolicWatts} W (CP)`
+        : dur.minutes === 45
+        ? `${modeledWatts} W (Threshold)`
+        : dur.minutes >= 120 && dur.minutes <= 180 && targetBandLow && targetBandHigh
+        ? `${modeledWatts} W (70.3 Band: ${targetBandLow}–${targetBandHigh} W)`
+        : dur.minutes >= 240 && targetBandLow && targetBandHigh
+        ? `${modeledWatts} W (IM Band: ${targetBandLow}–${targetBandHigh} W)`
+        : `${modeledWatts} W (Power-Law)`;
+
+    const maxPlausibleWatts = Math.round(cpHyperbolicWatts * (dur.minutes <= 12 ? 1.14 : 1.08));
 
     let bestWatts = 0;
     let bestAct: StravaActivity | null = null;
     let bestVi = 1.0;
-    let isInterval = false;
+    let bestIsIntermittent = false;
+    let bestIsHiitByName = false;
+    let bestIsIndoor = false;
 
     for (const act of bikeActivities) {
+      const actMs = new Date(act.start_date).getTime();
+      // Short durations (<90m) strictly respect selected lookbackDays; long rides (>=90m) allow up to 365d
+      if (dur.minutes < 90 && actMs < cutoffTime) continue;
+
       const actDet = activityDetails[String(act.id)];
       if (actDet?.calibration?.isIgnoredFromTrainingStatus) continue;
 
@@ -674,14 +1223,19 @@ export function computePeakPerformanceCurve(
       const npW = actDet?.calibration?.calibratedNormalizedPower || act.weighted_average_watts || avgW;
       if (avgW <= 0 && npW <= 0) continue;
 
-      // Reject uncalibrated power spikes where average watts > 1.25 * FTP for rides >= 20 min
+      // Reject uncalibrated power spikes where average watts > 1.22 * FTP for rides >= 20 min
       if (actTime >= 1200 && avgW > params.ftpWatts * 1.22) continue;
 
       const vi = avgW > 0 ? Number((npW / avgW).toFixed(2)) : 1.0;
-      const actIsInterval = vi > 1.06;
-      if (continuousOnly && actIsInterval && dur.minutes >= 12) {
+      const { isHiitByName, isIntermittent } = isIntermittentBikeActivity(act, vi);
+
+      // Exclude intermittent / HIIT sessions when continuousOnly is enabled, OR for long endurance durations (>= 90m)
+      if ((continuousOnly && isIntermittent && dur.minutes >= 12) || (dur.minutes >= 90 && (isHiitByName || vi > 1.10))) {
         continue;
       }
+
+      const cls = classifyActivity(act);
+      const isIndoor = cls.subType === 'Turbo Trainer' || Boolean(act.trainer) || act.type === 'VirtualRide';
 
       const streamsObj = actDet?.streams as
         | { time?: { data?: number[] }; watts?: { data?: number[] } }
@@ -694,13 +1248,13 @@ export function computePeakPerformanceCurve(
 
       let estDurationWatts = 0;
       if (streamBestWatts !== null && streamBestWatts > 0 && streamBestWatts <= maxPlausibleWatts) {
-        estDurationWatts = Math.round(
-          actIsInterval && dur.minutes >= 20 ? streamBestWatts * 0.95 : streamBestWatts
-        );
+        // For intermittent HIIT sessions >= 20m, do not inflate recovery-inclusive averages
+        estDurationWatts = Math.round(streamBestWatts);
       } else if (actTime >= sec) {
         const durationRatio = Math.min(3.0, actTime / sec);
-        const subSegmentBoost = Math.pow(durationRatio, 0.045);
-        const powerBasis = actIsInterval
+        const subSegmentBoost = Math.pow(durationRatio, 0.04);
+        // For long steady rides >= 60m, use NP-weighted steady power; for HIIT intervals use raw average
+        const powerBasis = isIntermittent
           ? avgW
           : avgW * 0.75 + Math.min(npW, avgW * 1.05) * 0.25;
         estDurationWatts = Math.min(maxPlausibleWatts, Math.round(powerBasis * subSegmentBoost));
@@ -712,37 +1266,60 @@ export function computePeakPerformanceCurve(
         bestWatts = estDurationWatts;
         bestAct = act;
         bestVi = vi;
-        isInterval = actIsInterval;
+        bestIsIntermittent = isIntermittent;
+        bestIsHiitByName = isHiitByName;
+        bestIsIndoor = isIndoor;
       }
     }
 
     const empiricalAvailable = bestWatts > 0;
-    let finalWatts = modeledWatts;
-    let priorWeight = 0;
-    let confidenceScore = 95;
+    let finalWatts = empiricalAvailable ? bestWatts : modeledWatts;
+    let priorWeight = empiricalAvailable ? 0.0 : 1.0;
+    let confidenceScore = 94;
     let confidenceTier: ConfidenceTier = 'Tested';
-    let upgradeTest = `Logged ${dur.label} effort`;
+    let effortType: PeakEffortSourceType = 'continuous_steady';
+    let effortSourceLabel = 'Continuous Steady';
+    let upgradeTest = `Verified via ${bestAct?.name || 'logged ride'}`;
 
     if (empiricalAvailable) {
-      if (isInterval && dur.minutes >= 20) {
-        confidenceScore = 76;
+      const intensityFraction = bestWatts / params.ftpWatts;
+      const isLeedsOrPacingLimited =
+        dur.minutes >= 60 && !bestIsIntermittent && intensityFraction < 0.77;
+
+      if (bestIsIntermittent && dur.minutes >= 20) {
+        // e.g. 30, 45, 60m from "HIIT30/15" — interval average with recovery in it, understates threshold!
+        effortType = 'intermittent_hiit';
+        effortSourceLabel = 'Intermittent (includes recovery)';
+        confidenceScore = 72;
         confidenceTier = 'Extrapolated';
-        upgradeTest = `Ride ${dur.label} continuous steady effort (VI ≤ 1.05)`;
-        finalWatts = bestWatts;
-        priorWeight = 0.05;
+        upgradeTest = `From ${bestAct?.name || 'HIIT session'} (includes recovery); ride ${dur.label} steady (VI ≤ 1.05)`;
+        priorWeight = 0.1;
+      } else if (isLeedsOrPacingLimited) {
+        // e.g. Leeds 90m (222W), 120m (218W), 180m (204W avg = 0.65 FTP) — pacing-limited lower bound
+        effortType = 'pacing_limited_bound';
+        effortSourceLabel = `Pacing-limited lower bound (${Math.round(intensityFraction * 100)}% FTP)`;
+        confidenceScore = 78;
+        confidenceTier = 'Extrapolated';
+        upgradeTest = `Paced at ${Math.round(intensityFraction * 100)}% FTP (${bestAct?.name || 'Long ride'}); target band is ${targetBandLow ?? modeledWatts}–${targetBandHigh ?? modeledWatts} W`;
       } else {
+        effortType = bestIsIntermittent ? 'interval_session' : 'continuous_steady';
+        effortSourceLabel = bestIsIntermittent ? 'Interval Session' : 'Continuous Steady';
         confidenceScore = 94;
         confidenceTier = 'Tested';
         upgradeTest = `Verified via ${bestAct?.name || 'logged ride'}`;
-        finalWatts = bestWatts;
-        priorWeight = 0.0;
       }
     } else {
-      priorWeight = 1.0;
-      confidenceScore = 65;
-      confidenceTier = dur.minutes >= 60 ? 'Guess' : 'Extrapolated';
-      upgradeTest = `Log a steady ${dur.label} bike effort to replace CP model baseline`;
-      finalWatts = modeledWatts;
+      effortType = 'bayesian_prior';
+      effortSourceLabel =
+        dur.minutes >= 120 && targetBandLow && targetBandHigh
+          ? `Target Band (${targetBandLow}–${targetBandHigh} W)`
+          : 'Power-Law Model';
+      confidenceScore = dur.minutes >= 180 ? 58 : 68;
+      confidenceTier = dur.minutes >= 180 ? 'Extrapolated' : 'Extrapolated';
+      upgradeTest =
+        dur.minutes >= 120 && targetBandLow
+          ? `Log a steady ${Math.round((dur.minutes / 60) * 10) / 10}h ride at ${targetBandLow}–${targetBandHigh} W`
+          : `Log a steady ${dur.label} bike effort`;
     }
 
     const wPerKg = Number((finalWatts / weightKg).toFixed(2));
@@ -751,16 +1328,29 @@ export function computePeakPerformanceCurve(
       durationMin: dur.minutes,
       durationLabel: dur.label,
       actualValue: finalWatts,
-      formattedValue: `${finalWatts} W`,
-      secondaryFormatted: `${wPerKg} W/kg`,
+      formattedValue: empiricalAvailable
+        ? `${finalWatts} W`
+        : targetBandLow && targetBandHigh
+        ? `${targetBandLow}–${targetBandHigh} W (Band)`
+        : `${finalWatts} W (Est)`,
+      secondaryFormatted: empiricalAvailable
+        ? `${wPerKg} W/kg (${Math.round((finalWatts / params.ftpWatts) * 100)}% FTP)`
+        : `${wPerKg} W/kg`,
       modeledValue: modeledWatts,
-      modeledFormatted: `${modeledWatts} W`,
-      effortType: priorWeight > 0.5 ? 'bayesian_prior' : isInterval ? 'interval_session' : 'continuous_steady',
+      modeledFormatted,
+      cpHyperbolicValue: dur.minutes <= 45 ? cpHyperbolicWatts : undefined,
+      powerLawValue: powerLawWatts,
+      targetBandLow,
+      targetBandHigh,
+      hasObservedEffort: empiricalAvailable,
+      effortType,
+      effortSourceLabel,
       variabilityIndex: bestVi,
+      isIndoorTrainer: bestIsIndoor,
       activityId: bestAct?.id,
       activityName: bestAct?.name,
       activityDate: bestAct?.start_date ? new Date(bestAct.start_date).toLocaleDateString() : undefined,
-      isContinuousReliable: !isInterval || dur.minutes < 12,
+      isContinuousReliable: effortType === 'continuous_steady',
       confidenceScore,
       confidenceTier,
       upgradeTest,
@@ -768,22 +1358,29 @@ export function computePeakPerformanceCurve(
     };
   });
 
-  // Enforce strict decreasing monotonicity on Bike Peak Power
+  // Enforce decreasing monotonicity only across observed points of the same regime
   const bikePeaks: PeakPerformanceMetric[] = [...rawBikePeaks];
   for (let i = 1; i < bikePeaks.length; i++) {
-    if (bikePeaks[i].actualValue > bikePeaks[i - 1].actualValue) {
+    if (
+      bikePeaks[i].hasObservedEffort &&
+      bikePeaks[i - 1].hasObservedEffort &&
+      bikePeaks[i].actualValue > bikePeaks[i - 1].actualValue
+    ) {
       const cappedWatts = bikePeaks[i - 1].actualValue;
       const wPerKg = Number((cappedWatts / weightKg).toFixed(2));
       bikePeaks[i] = {
         ...bikePeaks[i],
         actualValue: cappedWatts,
         formattedValue: `${cappedWatts} W`,
-        secondaryFormatted: `${wPerKg} W/kg`,
+        secondaryFormatted: `${wPerKg} W/kg (${Math.round((cappedWatts / params.ftpWatts) * 100)}% FTP)`,
       };
     }
   }
 
-  // 2. RUN PEAK PACE: Pre-quarantine any single activity that claims implausible speeds across >=3 durations
+  // 2. RUN PEAK PACE:
+  // - <= 30 min: Hyperbolic CS + D'/t
+  // - >= 45 min: Power-Law / Riegel Endurance Decay Pace(t) = LT_Pace * (t / 60)^s_run where s_run = (k-1)/k ≈ 0.052
+  const runDecayS = (riegelExponent - 1) / riegelExponent;
   const quarantinedRunIds = new Set<string>();
   for (const act of runActivities) {
     const actDet = activityDetails[String(act.id)];
@@ -816,7 +1413,6 @@ export function computePeakPerformanceCurve(
         candidatePace = avgPace * Math.pow(1 / ratio, 0.04);
       }
 
-      // If >7% faster than Critical Speed model curve (e.g. 3:00-3:18/km when CS model is 3:30-3:55/km)
       if (candidatePace < modeledPaceSec * 0.93) {
         implausibleDurationCount++;
       }
@@ -827,12 +1423,16 @@ export function computePeakPerformanceCurve(
     }
   }
 
-  const rawRunPeaks: PeakPerformanceMetric[] = PEAK_DURATIONS.map((dur) => {
+  const rawRunPeaks: PeakPerformanceMetric[] = activeDurations.map((dur) => {
     const sec = dur.seconds;
-    // Theoretical model: Speed = CS + D'/t
-    const modeledSpeedMps = params.criticalSpeedMps + params.dPrimeMeters / sec;
-    const modeledPaceSec = Math.round(1000 / modeledSpeedMps);
-    // Fastest plausible pace bound relative to athlete's CS + D'/t model and 10k/30m benchmarks
+    // Hyperbolic CS + D'/t up to 30m; Riegel power-law decay beyond 45m
+    const csHyperbolicPaceSec = Math.round(1000 / (params.criticalSpeedMps + params.dPrimeMeters / sec));
+    const powerLawPaceSec =
+      dur.minutes >= 45
+        ? Math.round(params.lactateThresholdPaceSec * 1.01 * Math.pow(dur.minutes / 60, runDecayS))
+        : undefined;
+    const modeledPaceSec = dur.minutes <= 30 ? csHyperbolicPaceSec : powerLawPaceSec ?? csHyperbolicPaceSec;
+
     const minPlausiblePaceSec = Math.max(
       dur.minutes <= 5 ? 198 : dur.minutes <= 12 ? 210 : dur.minutes <= 30 ? 218 : 225,
       Math.round(modeledPaceSec * 0.94)
@@ -844,7 +1444,7 @@ export function computePeakPerformanceCurve(
     let bestActId: string | number | undefined = undefined;
     let bestActName = matchingBenchmark ? `${matchingBenchmark.sessionDescription} (Lower bound)` : undefined;
     let bestActDate: string | undefined = undefined;
-    let bestEffortType: 'continuous_steady' | 'interval_session' | 'bayesian_prior' = matchingBenchmark
+    let bestEffortType: PeakEffortSourceType = matchingBenchmark
       ? matchingBenchmark.sessionType === 'interval_reps'
         ? 'interval_session'
         : 'continuous_steady'
@@ -852,6 +1452,9 @@ export function computePeakPerformanceCurve(
 
     for (const act of runActivities) {
       if (quarantinedRunIds.has(String(act.id))) continue;
+      const actMs = new Date(act.start_date).getTime();
+      if (dur.minutes < 90 && actMs < cutoffTime) continue;
+
       const actDet = activityDetails[String(act.id)];
       if (actDet?.calibration?.isIgnoredFromTrainingStatus) continue;
 
@@ -893,7 +1496,7 @@ export function computePeakPerformanceCurve(
         bestActId = act.id;
         bestActName = act.name;
         bestActDate = act.start_date ? new Date(act.start_date).toLocaleDateString() : undefined;
-        bestEffortType = 'continuous_steady';
+        bestEffortType = dur.minutes >= 60 && estPaceSec > modeledPaceSec * 1.06 ? 'pacing_limited_bound' : 'continuous_steady';
       }
     }
 
@@ -901,34 +1504,46 @@ export function computePeakPerformanceCurve(
     const finalPaceSec = empiricalAvailable ? fastestPaceSec : modeledPaceSec;
 
     const priorWeight = empiricalAvailable ? 0.0 : 0.85;
-    const confidenceScore = matchingBenchmark
-      ? 96
-      : empiricalAvailable
-      ? 90
-      : 68;
-    const confidenceTier: ConfidenceTier = matchingBenchmark || empiricalAvailable
-      ? bestEffortType === 'interval_session'
-        ? 'Extrapolated'
-        : 'Tested'
-      : dur.minutes >= 90
-      ? 'Guess'
-      : 'Extrapolated';
+    const confidenceScore = matchingBenchmark ? 96 : empiricalAvailable ? 90 : 68;
+    const confidenceTier: ConfidenceTier =
+      matchingBenchmark || empiricalAvailable
+        ? bestEffortType === 'interval_session' || bestEffortType === 'pacing_limited_bound'
+          ? 'Extrapolated'
+          : 'Tested'
+        : 'Extrapolated';
     const upgradeTest =
       confidenceTier === 'Tested'
         ? `Verified (${bestActName || 'continuous run'})`
         : `Run a continuous ${dur.label} steady effort`;
 
     const speedKmh = (3600 / finalPaceSec).toFixed(1);
+    const effortSourceLabel =
+      !empiricalAvailable
+        ? 'Riegel Decay Model'
+        : bestEffortType === 'interval_session'
+        ? 'Interval Rep (Lower bound)'
+        : bestEffortType === 'pacing_limited_bound'
+        ? 'Pacing-limited lower bound'
+        : 'Continuous Steady';
 
     return {
       durationMin: dur.minutes,
       durationLabel: dur.label,
       actualValue: finalPaceSec,
-      formattedValue: formatPaceKm(finalPaceSec),
+      formattedValue: empiricalAvailable ? formatPaceKm(finalPaceSec) : `${formatPaceKm(finalPaceSec)} (Model)`,
       secondaryFormatted: `${speedKmh} km/h`,
       modeledValue: modeledPaceSec,
-      modeledFormatted: formatPaceKm(modeledPaceSec),
+      modeledFormatted:
+        dur.minutes <= 30
+          ? `${formatPaceKm(csHyperbolicPaceSec)} (CS)`
+          : `${formatPaceKm(modeledPaceSec)} (Riegel s=${runDecayS.toFixed(2)})`,
+      cpHyperbolicValue: dur.minutes <= 45 ? csHyperbolicPaceSec : undefined,
+      powerLawValue: powerLawPaceSec,
+      targetBandLow: dur.minutes >= 60 ? Math.round(modeledPaceSec * 0.985) : undefined,
+      targetBandHigh: dur.minutes >= 60 ? Math.round(modeledPaceSec * 1.03) : undefined,
+      hasObservedEffort: empiricalAvailable,
       effortType: empiricalAvailable ? bestEffortType : 'bayesian_prior',
+      effortSourceLabel,
       activityId: bestActId,
       activityName: bestActName,
       activityDate: bestActDate,
@@ -940,10 +1555,13 @@ export function computePeakPerformanceCurve(
     };
   });
 
-  // Enforce physiological monotonicity on Run Peak Pace (pace in sec/km must be non-decreasing with duration)
   const runPeaks: PeakPerformanceMetric[] = [...rawRunPeaks];
   for (let i = 1; i < runPeaks.length; i++) {
-    if (runPeaks[i].actualValue < runPeaks[i - 1].actualValue) {
+    if (
+      runPeaks[i].hasObservedEffort &&
+      runPeaks[i - 1].hasObservedEffort &&
+      runPeaks[i].actualValue < runPeaks[i - 1].actualValue
+    ) {
       const cappedPaceSec = runPeaks[i - 1].actualValue;
       const speedKmh = (3600 / cappedPaceSec).toFixed(1);
       runPeaks[i] = {

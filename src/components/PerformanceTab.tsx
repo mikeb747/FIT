@@ -33,7 +33,9 @@ import { AthleteProfile, formatSecondsToMinSec } from '../types/athlete';
 import { TrainingGoal } from '../types/goals';
 import {
   PEAK_DURATIONS,
+  CurveDurationHorizon,
   computeCriticalParameters,
+  computeEnduranceDecayAnalysis,
   computePeakPerformanceCurve,
   computeSwimRacePredictions,
   computeRunningRacePredictions,
@@ -117,13 +119,27 @@ export const PerformanceTab: React.FC<PerformanceTabProps> = ({
   const [runCourseProfile, setRunCourseProfile] = useState<RunCourseWeatherProfile>('flat_optimal');
   const [riegelExponent, setRiegelExponent] = useState<number>(1.055);
   const [continuousOnlyFilter, setContinuousOnlyFilter] = useState<boolean>(false);
+  const [curveHorizonOverride, setCurveHorizonOverride] = useState<CurveDurationHorizon | null>(null);
 
-  // Compute Critical Parameters (FTP, CP, W', LT Pace, CS, D', CSS, 100m, 400m, 1000m, 1500m)
+  // Default curve horizon follows the goal race (3h for 70.3, 6h for Ironman, 2h for Sprint/Olympic)
+  const activeCurveHorizon: CurveDurationHorizon = useMemo(() => {
+    if (curveHorizonOverride) return curveHorizonOverride;
+    if (selectedTriDistance === 'ironman') return 'ironman_6h';
+    if (selectedTriDistance === 'middle_70_3') return 'half_3h';
+    return 'standard_2h';
+  }, [curveHorizonOverride, selectedTriDistance]);
+
+  // Compute Critical Parameters (FTP, CP, W', LT Pace, CS, D', CSS, OW CSS, 100m, 400m, 1000m, 1500m)
   const criticalParams = useMemo(() => {
     return computeCriticalParameters(athleteProfile, activities);
   }, [athleteProfile, activities]);
 
-  // Compute 10-interval Peak Performance Curves (3m to 120m)
+  // Compute Power-Law Endurance Decay P(t) = FTP * (t/60)^(-s), Fatigue Resistance (1500/2500/3500 kJ) & Efficiency Drift
+  const enduranceDecay = useMemo(() => {
+    return computeEnduranceDecayAnalysis(activities, activityDetails, criticalParams, riegelExponent);
+  }, [activities, activityDetails, criticalParams, riegelExponent]);
+
+  // Compute Peak Performance Curves across the active goal horizon (up to 3h for 70.3 or 6h for Ironman)
   const { bikePeaks, runPeaks } = useMemo(() => {
     return computePeakPerformanceCurve(
       activities,
@@ -131,9 +147,22 @@ export const PerformanceTab: React.FC<PerformanceTabProps> = ({
       criticalParams,
       athleteProfile,
       lookbackDays,
-      continuousOnlyFilter
+      continuousOnlyFilter,
+      activeCurveHorizon,
+      enduranceDecay.posteriorExponentS,
+      riegelExponent
     );
-  }, [activities, activityDetails, criticalParams, athleteProfile, lookbackDays, continuousOnlyFilter]);
+  }, [
+    activities,
+    activityDetails,
+    criticalParams,
+    athleteProfile,
+    lookbackDays,
+    continuousOnlyFilter,
+    activeCurveHorizon,
+    enduranceDecay.posteriorExponentS,
+    riegelExponent,
+  ]);
 
   // Compute Unified Discipline Ability Percentiles (M40-44 70.3 Finishers Reference Population)
   const unifiedPercentiles = useMemo(() => {
@@ -176,22 +205,24 @@ export const PerformanceTab: React.FC<PerformanceTabProps> = ({
 
   const activeCurvePeaks = curveMetric === 'bike' ? bikePeaks : runPeaks;
 
-  // Dynamic Y-Axis Scale for Peak Performance Curve
+  // Dynamic Y-Axis Scale for Peak Performance Curve (includes long-ride target bands down to ~190W)
   const curveScale = useMemo(() => {
     const vals = activeCurvePeaks.flatMap((p) =>
-      [p.actualValue, p.modeledValue].filter((v): v is number => typeof v === 'number' && Number.isFinite(v) && v > 0)
+      [p.actualValue, p.modeledValue, p.targetBandLow, p.targetBandHigh].filter(
+        (v): v is number => typeof v === 'number' && Number.isFinite(v) && v > 0
+      )
     );
     if (curveMetric === 'bike') {
-      const cp = criticalParams.criticalPowerWatts || 280;
-      const rawMin = vals.length > 0 ? Math.min(...vals, cp) : 200;
-      const rawMax = vals.length > 0 ? Math.max(...vals, cp + 80) : 450;
-      const minVal = Math.max(100, Math.floor((rawMin - 25) / 25) * 25);
-      const maxVal = Math.ceil((rawMax + 25) / 25) * 25;
-      return { minVal, maxVal: Math.max(minVal + 100, maxVal) };
+      const cp = criticalParams.criticalPowerWatts || 309;
+      const rawMin = vals.length > 0 ? Math.min(...vals, 200) : 190;
+      const rawMax = vals.length > 0 ? Math.max(...vals, cp + 75) : 450;
+      const minVal = Math.max(150, Math.floor((rawMin - 20) / 25) * 25);
+      const maxVal = Math.ceil((rawMax + 20) / 25) * 25;
+      return { minVal, maxVal: Math.max(minVal + 125, maxVal) };
     } else {
       const cs = criticalParams.criticalSpeedMps > 0 ? Math.round(1000 / criticalParams.criticalSpeedMps) : 235;
       const rawMin = vals.length > 0 ? Math.min(...vals, cs - 20) : 180;
-      const rawMax = vals.length > 0 ? Math.max(...vals, cs + 25) : 290;
+      const rawMax = vals.length > 0 ? Math.max(...vals, cs + 35) : 300;
       const minVal = Math.max(140, Math.floor((rawMin - 10) / 10) * 10);
       const maxVal = Math.ceil((rawMax + 10) / 10) * 10;
       return { minVal, maxVal: Math.max(minVal + 50, maxVal) };
@@ -994,27 +1025,30 @@ export const PerformanceTab: React.FC<PerformanceTabProps> = ({
       )}
 
       {/* ------------------------------------------------------------- */}
-      {/* 7. Peak Performance Duration Curves (3m to 120m)               */}
+      {/* 7. Peak Performance Curves & Power-Law Endurance Decay         */}
       {/* ------------------------------------------------------------- */}
       <div
         className={`rounded-2xl border p-4 sm:p-5 transition-colors ${
           isLight ? 'bg-white border-slate-200 shadow-xs' : 'bg-slate-900/60 border-slate-800'
         }`}
       >
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-5">
+        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 mb-5">
           <div>
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               <BarChart2 className="w-4 h-4 text-cyan-400" />
               <h2 className={`text-sm font-extrabold tracking-tight ${isLight ? 'text-slate-900' : 'text-white'}`}>
-                Peak Performance Curves across 10 Durations (3m to 120m)
+                Peak Performance Curve &amp; Long-Course Endurance Decay (Log-Time Axis)
               </h2>
+              <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-orange-500/15 text-orange-400 border border-orange-500/25">
+                FTP: {criticalParams.ftpWatts}W · CP Est: {criticalParams.criticalPowerWatts}W (valid ≤35m)
+              </span>
             </div>
-            <p className={`text-xs ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>
-              Observed maximums vs hyperbolic Critical Power (CP + W&apos;/t) and Critical Speed (CS + D&apos;/t) models · Stream &amp; HR plausibility checked
+            <p className={`text-xs mt-0.5 ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>
+              Hyperbolic CP + W&apos;/t stops at 30–40 min · Long durations follow Power-Law Decay P(t) = FTP × (t/60)<sup>−{enduranceDecay.posteriorExponentS}</sup> &amp; Target Race Bands
             </p>
           </div>
 
-          <div className="flex flex-wrap items-center gap-2 self-start sm:self-auto">
+          <div className="flex flex-wrap items-center gap-2 self-start lg:self-auto">
             {/* Metric Switcher */}
             <div className="flex items-center p-0.5 rounded-lg bg-slate-950/40 border border-slate-800 text-xs font-bold">
               <button
@@ -1035,6 +1069,30 @@ export const PerformanceTab: React.FC<PerformanceTabProps> = ({
               >
                 Run (Pace /km)
               </button>
+            </div>
+
+            {/* Goal Race Horizon Selector (2h / 3h 70.3 / 6h Ironman) */}
+            <div className="flex items-center p-0.5 rounded-lg bg-slate-950/40 border border-slate-800 text-xs font-bold">
+              {(
+                [
+                  { id: 'standard_2h', label: '2h (Std)' },
+                  { id: 'half_3h', label: '3h (70.3)' },
+                  { id: 'ironman_6h', label: '6h (Ironman)' },
+                ] as const
+              ).map((h) => (
+                <button
+                  key={h.id}
+                  type="button"
+                  onClick={() => setCurveHorizonOverride(h.id)}
+                  className={`px-2.5 py-1 rounded-md transition-colors cursor-pointer ${
+                    activeCurveHorizon === h.id
+                      ? 'bg-cyan-500 text-slate-950 font-black shadow-xs'
+                      : 'text-slate-400 hover:text-white'
+                  }`}
+                >
+                  {h.label}
+                </button>
+              ))}
             </div>
 
             {/* Lookback Selector: Default 90d, 365d as Best of Year */}
@@ -1081,7 +1139,9 @@ export const PerformanceTab: React.FC<PerformanceTabProps> = ({
                   <span className="font-mono text-slate-500">({sel.secondaryFormatted})</span>
                 )}
                 <span className="text-slate-400">·</span>
-                <span className="font-mono text-slate-500">Model {sel.modeledFormatted}</span>
+                <span className="font-mono text-slate-400">Model: {sel.modeledFormatted}</span>
+                <span className="text-slate-400">·</span>
+                <span className="font-semibold text-amber-400">{sel.effortSourceLabel}</span>
                 <span className="text-slate-400">·</span>
                 <span className="font-semibold text-emerald-400">{sel.confidenceTier}</span>
               </div>
@@ -1099,220 +1159,559 @@ export const PerformanceTab: React.FC<PerformanceTabProps> = ({
           );
         })()}
 
-        {/* SVG Interactive Curve with Labeled X and Y Axes */}
+        {/* Legend for Curve Regimes & Point Types */}
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 mb-2 text-[11px] text-slate-400">
+          <div className="flex items-center gap-1.5">
+            <span className="w-4 h-0.5 bg-orange-500 inline-block rounded" />
+            <span>Hyperbolic CP+W&apos;/t (solid ≤30m)</span>
+          </div>
+          <div className="flex items-center gap-1.5">
+            <span className="w-4 h-0.5 border-b-2 border-dashed border-cyan-400 inline-block" />
+            <span>Power-Law Decay P(t) = FTP×(t/60)<sup>−{enduranceDecay.posteriorExponentS}</sup> (&ge;45m)</span>
+          </div>
+          {curveMetric === 'bike' && (
+            <div className="flex items-center gap-1.5">
+              <span className="w-3 h-2.5 rounded-xs bg-emerald-500/20 border border-emerald-500/40 inline-block" />
+              <span>70.3 / Ironman Target Race Bands</span>
+            </div>
+          )}
+          <div className="flex items-center gap-1.5">
+            <span className="w-2.5 h-2.5 rounded-full bg-amber-400/20 border-2 border-amber-400 inline-block" />
+            <span>Intermittent HIIT / Pacing-Limited Bound</span>
+          </div>
+        </div>
+
+        {/* SVG Interactive Curve with Log-Time X-Axis */}
         <div className="relative w-full pb-1">
-          <svg
-            viewBox={`0 0 ${svgWidth} ${svgHeight}`}
-            className="w-full h-auto select-none overflow-visible"
-          >
-            {/* Y-Axis Title */}
-            <text
-              x={14}
-              y={padTop + plotHeight / 2}
-              transform={`rotate(-90, 14, ${padTop + plotHeight / 2})`}
-              textAnchor="middle"
-              fill={isLight ? '#475569' : '#94a3b8'}
-              fontSize="10"
-              fontWeight="bold"
-            >
-              {curveMetric === 'bike' ? 'Power (W)' : 'Pace (min/km)'}
-            </text>
-
-            {/* X-Axis Title */}
-            <text
-              x={padLeft + plotWidth / 2}
-              y={svgHeight - 4}
-              textAnchor="middle"
-              fill={isLight ? '#475569' : '#94a3b8'}
-              fontSize="10"
-              fontWeight="bold"
-            >
-              Duration (minutes)
-            </text>
-
-            {/* Background Grid */}
-            <rect x={padLeft} y={padTop} width={plotWidth} height={plotHeight} fill="transparent" />
-
-            {/* Horizontal Grid Lines & Dynamic Y-Axis Labels */}
-            {[0, 0.25, 0.5, 0.75, 1].map((ratio, idx) => {
-              const y = padTop + plotHeight * ratio;
-              const labelVal =
-                curveMetric === 'bike'
-                  ? `${Math.round(curveScale.maxVal - ratio * (curveScale.maxVal - curveScale.minVal))}W`
-                  : formatPaceKm(Math.round(curveScale.minVal + ratio * (curveScale.maxVal - curveScale.minVal)));
-              return (
-                <g key={idx}>
-                  <line
-                    x1={padLeft}
-                    y1={y}
-                    x2={padLeft + plotWidth}
-                    y2={y}
-                    stroke={isLight ? '#e2e8f0' : '#1e293b'}
-                    strokeDasharray="4 4"
-                    strokeWidth="1"
-                  />
-                  <text
-                    x={padLeft - 6}
-                    y={y + 3.5}
-                    textAnchor="end"
-                    fill={isLight ? '#64748b' : '#94a3b8'}
-                    fontSize="9.5"
-                    fontFamily="monospace"
-                  >
-                    {labelVal}
-                  </text>
-                </g>
-              );
-            })}
-
-            {/* Asymptotic Threshold Guideline (CP or CS) */}
-            {(() => {
-              const cpOrCsVal =
-                curveMetric === 'bike'
-                  ? criticalParams.criticalPowerWatts
-                  : criticalParams.criticalSpeedMps > 0
-                  ? Math.round(1000 / criticalParams.criticalSpeedMps)
-                  : 235;
+          {(() => {
+            const minLog = Math.log(activeCurvePeaks[0]?.durationMin || 3);
+            const maxLog = Math.log(activeCurvePeaks[activeCurvePeaks.length - 1]?.durationMin || 180);
+            const getXForDuration = (durMin: number) => {
+              if (maxLog <= minLog) return padLeft;
+              return padLeft + ((Math.log(durMin) - minLog) / (maxLog - minLog)) * plotWidth;
+            };
+            const getYForValue = (val: number) => {
               const norm =
                 curveMetric === 'bike'
-                  ? (cpOrCsVal - curveScale.minVal) / (curveScale.maxVal - curveScale.minVal)
-                  : 1 - (cpOrCsVal - curveScale.minVal) / (curveScale.maxVal - curveScale.minVal);
-              const thresholdY = padTop + (1 - Math.max(0.05, Math.min(0.95, norm))) * plotHeight;
-              return (
-                <g>
-                  <line
-                    x1={padLeft}
-                    y1={thresholdY}
-                    x2={padLeft + plotWidth}
-                    y2={thresholdY}
-                    stroke={curveMetric === 'bike' ? '#f97316' : '#10b981'}
-                    strokeDasharray="6 3"
-                    strokeWidth="1.5"
-                    strokeOpacity="0.75"
-                  />
-                  <text
-                    x={padLeft + plotWidth - 4}
-                    y={thresholdY - 5}
-                    textAnchor="end"
-                    fill={curveMetric === 'bike' ? '#ea580c' : '#059669'}
-                    fontSize="10"
-                    fontWeight="bold"
-                  >
-                    {curveMetric === 'bike'
-                      ? `CP: ${criticalParams.criticalPowerWatts}W`
-                      : `CS: ${criticalParams.criticalSpeedPaceFormatted}`}
-                  </text>
-                </g>
-              );
-            })()}
+                  ? (val - curveScale.minVal) / (curveScale.maxVal - curveScale.minVal)
+                  : 1 - (val - curveScale.minVal) / (curveScale.maxVal - curveScale.minVal);
+              return padTop + (1 - Math.max(0, Math.min(1, norm))) * plotHeight;
+            };
 
-            {/* Modeled Hyperbolic Line */}
-            {(() => {
-              const points = activeCurvePeaks.map((p, idx) => {
-                const x = padLeft + (idx / (activeCurvePeaks.length - 1)) * plotWidth;
-                const val = p.modeledValue ?? p.actualValue;
-                const norm =
-                  curveMetric === 'bike'
-                    ? (val - curveScale.minVal) / (curveScale.maxVal - curveScale.minVal)
-                    : 1 - (val - curveScale.minVal) / (curveScale.maxVal - curveScale.minVal);
-                const y = padTop + (1 - Math.max(0, Math.min(1, norm))) * plotHeight;
-                return { x, y };
-              });
-
-              const pathD = points.reduce((acc, pt, i) => `${acc} ${i === 0 ? 'M' : 'L'} ${pt.x} ${pt.y}`, '');
-
-              return (
-                <path
-                  d={pathD}
-                  fill="none"
-                  stroke={curveMetric === 'bike' ? '#ea580c' : '#059669'}
-                  strokeWidth="2.5"
-                  strokeOpacity="0.85"
-                />
-              );
-            })()}
-
-            {/* Observed Data Points and Touch/Hover Triggers */}
-            {activeCurvePeaks.map((p, idx) => {
-              const x = padLeft + (idx / (activeCurvePeaks.length - 1)) * plotWidth;
-              const norm =
-                curveMetric === 'bike'
-                  ? (p.actualValue - curveScale.minVal) / (curveScale.maxVal - curveScale.minVal)
-                  : 1 - (p.actualValue - curveScale.minVal) / (curveScale.maxVal - curveScale.minVal);
-              const y = padTop + (1 - Math.max(0, Math.min(1, norm))) * plotHeight;
-              const isHovered = hoveredPeakIndex === idx;
-              const compactLabel = `${p.durationMin}m`;
-
-              return (
-                <g
-                  key={idx}
-                  className="cursor-pointer"
-                  onMouseEnter={() => setHoveredPeakIndex(idx)}
-                  onMouseLeave={() => setHoveredPeakIndex(null)}
-                  onClick={() => setHoveredPeakIndex((prev) => (prev === idx ? null : idx))}
+            return (
+              <svg
+                viewBox={`0 0 ${svgWidth} ${svgHeight}`}
+                className="w-full h-auto select-none overflow-visible"
+              >
+                {/* Y-Axis Title */}
+                <text
+                  x={14}
+                  y={padTop + plotHeight / 2}
+                  transform={`rotate(-90, 14, ${padTop + plotHeight / 2})`}
+                  textAnchor="middle"
+                  fill={isLight ? '#475569' : '#94a3b8'}
+                  fontSize="10"
+                  fontWeight="bold"
                 >
-                  {/* Wide Touch Hit Target Column */}
-                  <rect
-                    x={x - plotWidth / 20}
-                    y={padTop}
-                    width={plotWidth / 10}
-                    height={plotHeight + 24}
-                    fill="transparent"
-                  />
+                  {curveMetric === 'bike' ? 'Power (W)' : 'Pace (min/km)'}
+                </text>
 
-                  {/* Vertical Guide */}
-                  <line
-                    x1={x}
-                    y1={padTop}
-                    x2={x}
-                    y2={padTop + plotHeight}
-                    stroke={isHovered ? (curveMetric === 'bike' ? '#f97316' : '#10b981') : isLight ? '#f1f5f9' : '#1e293b'}
-                    strokeWidth={isHovered ? '1.5' : '1'}
-                    strokeOpacity={isHovered ? '0.6' : '1'}
-                  />
+                {/* X-Axis Title */}
+                <text
+                  x={padLeft + plotWidth / 2}
+                  y={svgHeight - 4}
+                  textAnchor="middle"
+                  fill={isLight ? '#475569' : '#94a3b8'}
+                  fontSize="10"
+                  fontWeight="bold"
+                >
+                  Duration (Log-Time Scale: 3m → {activeCurvePeaks[activeCurvePeaks.length - 1]?.durationMin >= 360 ? '6h Ironman' : activeCurvePeaks[activeCurvePeaks.length - 1]?.durationMin >= 180 ? '3h 70.3' : '2h'})
+                </text>
 
-                  {/* Circle Dot */}
-                  <circle
-                    cx={x}
-                    cy={y}
-                    r={isHovered ? 7 : 5}
-                    fill={curveMetric === 'bike' ? '#f97316' : '#10b981'}
-                    stroke={isLight ? '#ffffff' : '#0f172a'}
-                    strokeWidth="2"
-                    className="transition-all"
-                  />
+                {/* Background Grid */}
+                <rect x={padLeft} y={padTop} width={plotWidth} height={plotHeight} fill="transparent" />
 
-                  {/* X-Axis Duration Label */}
-                  <text
-                    x={x}
-                    y={padTop + plotHeight + 17}
-                    textAnchor="middle"
-                    fill={isHovered ? (isLight ? '#0f172a' : '#ffffff') : '#64748b'}
-                    fontSize="10.5"
-                    fontFamily="monospace"
-                    fontWeight={isHovered ? 'bold' : 'normal'}
-                  >
-                    {compactLabel}
-                  </text>
-                </g>
+                {/* Horizontal Grid Lines & Dynamic Y-Axis Labels */}
+                {[0, 0.25, 0.5, 0.75, 1].map((ratio, idx) => {
+                  const y = padTop + plotHeight * ratio;
+                  const labelVal =
+                    curveMetric === 'bike'
+                      ? `${Math.round(curveScale.maxVal - ratio * (curveScale.maxVal - curveScale.minVal))}W`
+                      : formatPaceKm(Math.round(curveScale.minVal + ratio * (curveScale.maxVal - curveScale.minVal)));
+                  return (
+                    <g key={idx}>
+                      <line
+                        x1={padLeft}
+                        y1={y}
+                        x2={padLeft + plotWidth}
+                        y2={y}
+                        stroke={isLight ? '#e2e8f0' : '#1e293b'}
+                        strokeDasharray="4 4"
+                        strokeWidth="1"
+                      />
+                      <text
+                        x={padLeft - 6}
+                        y={y + 3.5}
+                        textAnchor="end"
+                        fill={isLight ? '#64748b' : '#94a3b8'}
+                        fontSize="9.5"
+                        fontFamily="monospace"
+                      >
+                        {labelVal}
+                      </text>
+                    </g>
+                  );
+                })}
+
+                {/* Shaded Target Race Power Bands on Bike Chart (70.3: 252-268W @ 2-3h; Ironman: 214-236W @ 4-6h) */}
+                {curveMetric === 'bike' && activeCurveHorizon !== 'standard_2h' && (() => {
+                  const x120 = getXForDuration(120);
+                  const x180 = getXForDuration(180);
+                  const yHalfHigh = getYForValue(enduranceDecay.raceBands.half703.agBandHighWatts);
+                  const yHalfLow = getYForValue(enduranceDecay.raceBands.half703.agBandLowWatts);
+
+                  const maxDur = activeCurvePeaks[activeCurvePeaks.length - 1]?.durationMin || 180;
+                  const showImBand = maxDur >= 240;
+                  const x240 = showImBand ? getXForDuration(240) : 0;
+                  const x360 = showImBand ? getXForDuration(360) : 0;
+                  const yImHigh = showImBand ? getYForValue(enduranceDecay.raceBands.ironman.agBandHighWatts) : 0;
+                  const yImLow = showImBand ? getYForValue(enduranceDecay.raceBands.ironman.agBandLowWatts) : 0;
+
+                  return (
+                    <g>
+                      {/* 70.3 Target Band (2h - 3h: 252-268W) */}
+                      <rect
+                        x={x120}
+                        y={Math.min(yHalfHigh, yHalfLow)}
+                        width={Math.max(8, x180 - x120)}
+                        height={Math.max(6, Math.abs(yHalfLow - yHalfHigh))}
+                        fill="#10b981"
+                        fillOpacity="0.16"
+                        stroke="#10b981"
+                        strokeOpacity="0.45"
+                        strokeDasharray="3 2"
+                        rx="3"
+                      />
+                      <text
+                        x={(x120 + x180) / 2}
+                        y={Math.min(yHalfHigh, yHalfLow) - 4}
+                        textAnchor="middle"
+                        fill="#34d399"
+                        fontSize="8.5"
+                        fontWeight="bold"
+                      >
+                        70.3: {enduranceDecay.raceBands.half703.targetBandLowWatts}–{enduranceDecay.raceBands.half703.targetBandHighWatts}W
+                      </text>
+
+                      {/* Ironman Target Band (4h - 6h: 214-236W) */}
+                      {showImBand && (
+                        <>
+                          <rect
+                            x={x240}
+                            y={Math.min(yImHigh, yImLow)}
+                            width={Math.max(8, x360 - x240)}
+                            height={Math.max(6, Math.abs(yImLow - yImHigh))}
+                            fill="#0ea5e9"
+                            fillOpacity="0.16"
+                            stroke="#38bdf8"
+                            strokeOpacity="0.45"
+                            strokeDasharray="3 2"
+                            rx="3"
+                          />
+                          <text
+                            x={(x240 + x360) / 2}
+                            y={Math.min(yImHigh, yImLow) - 4}
+                            textAnchor="middle"
+                            fill="#38bdf8"
+                            fontSize="8.5"
+                            fontWeight="bold"
+                          >
+                            IM: {enduranceDecay.raceBands.ironman.targetBandLowWatts}–{enduranceDecay.raceBands.ironman.targetBandHighWatts}W
+                          </text>
+                        </>
+                      )}
+                    </g>
+                  );
+                })()}
+
+                {/* FTP / CP Reference Guideline (terminated at 40m so it doesn't imply 310W is holdable for 5 hours) */}
+                {(() => {
+                  const cpOrCsVal =
+                    curveMetric === 'bike'
+                      ? criticalParams.ftpWatts
+                      : criticalParams.criticalSpeedMps > 0
+                      ? Math.round(1000 / criticalParams.criticalSpeedMps)
+                      : 235;
+                  const thresholdY = getYForValue(cpOrCsVal);
+                  const xEnd45 = getXForDuration(60);
+                  return (
+                    <g>
+                      <line
+                        x1={padLeft}
+                        y1={thresholdY}
+                        x2={xEnd45}
+                        y2={thresholdY}
+                        stroke={curveMetric === 'bike' ? '#f97316' : '#10b981'}
+                        strokeDasharray="5 3"
+                        strokeWidth="1.5"
+                        strokeOpacity="0.7"
+                      />
+                      <text
+                        x={xEnd45}
+                        y={thresholdY - 5}
+                        textAnchor="end"
+                        fill={curveMetric === 'bike' ? '#fb923c' : '#10b981'}
+                        fontSize="9"
+                        fontWeight="bold"
+                      >
+                        {curveMetric === 'bike'
+                          ? `FTP ${criticalParams.ftpWatts}W (CP Est ~${criticalParams.criticalPowerWatts}W)`
+                          : `CS: ${criticalParams.criticalSpeedPaceFormatted}`}
+                      </text>
+                    </g>
+                  );
+                })()}
+
+                {/* 1) Hyperbolic CP + W'/t Line: Drawn SOLID up to 30m, short dashed to 45m, then STOPPED */}
+                {(() => {
+                  const shortPoints = activeCurvePeaks
+                    .filter((p) => p.durationMin <= 30)
+                    .map((p) => ({
+                      x: getXForDuration(p.durationMin),
+                      y: getYForValue(p.cpHyperbolicValue ?? p.modeledValue ?? p.actualValue),
+                    }));
+                  const transitionPoints = activeCurvePeaks
+                    .filter((p) => p.durationMin >= 30 && p.durationMin <= 45)
+                    .map((p) => ({
+                      x: getXForDuration(p.durationMin),
+                      y: getYForValue(p.modeledValue ?? p.actualValue),
+                    }));
+
+                  const solidPath = shortPoints.reduce(
+                    (acc, pt, i) => `${acc} ${i === 0 ? 'M' : 'L'} ${pt.x} ${pt.y}`,
+                    ''
+                  );
+                  const transPath = transitionPoints.reduce(
+                    (acc, pt, i) => `${acc} ${i === 0 ? 'M' : 'L'} ${pt.x} ${pt.y}`,
+                    ''
+                  );
+
+                  return (
+                    <g>
+                      <path
+                        d={solidPath}
+                        fill="none"
+                        stroke={curveMetric === 'bike' ? '#ea580c' : '#059669'}
+                        strokeWidth="2.5"
+                        strokeOpacity="0.9"
+                      />
+                      {transitionPoints.length > 1 && (
+                        <path
+                          d={transPath}
+                          fill="none"
+                          stroke={curveMetric === 'bike' ? '#ea580c' : '#059669'}
+                          strokeWidth="2"
+                          strokeDasharray="3 3"
+                          strokeOpacity="0.6"
+                        />
+                      )}
+                    </g>
+                  );
+                })()}
+
+                {/* 2) Power-Law Endurance Decay Line P(t) = FTP * (t/60)^(-s): Drawn DASHED from 45m to 3h/6h */}
+                {(() => {
+                  const decayPoints = activeCurvePeaks
+                    .filter((p) => p.durationMin >= 45)
+                    .map((p) => ({
+                      x: getXForDuration(p.durationMin),
+                      y: getYForValue(p.powerLawValue ?? p.modeledValue ?? p.actualValue),
+                    }));
+                  if (decayPoints.length < 2) return null;
+                  const decayPath = decayPoints.reduce(
+                    (acc, pt, i) => `${acc} ${i === 0 ? 'M' : 'L'} ${pt.x} ${pt.y}`,
+                    ''
+                  );
+                  return (
+                    <path
+                      d={decayPath}
+                      fill="none"
+                      stroke="#22d3ee"
+                      strokeWidth="2.2"
+                      strokeDasharray="6 4"
+                      strokeOpacity="0.85"
+                    />
+                  );
+                })()}
+
+                {/* Observed Data Points and Touch/Hover Triggers */}
+                {activeCurvePeaks.map((p, idx) => {
+                  const x = getXForDuration(p.durationMin);
+                  const y = getYForValue(p.actualValue);
+                  const isHovered = hoveredPeakIndex === idx;
+                  const compactLabel =
+                    p.durationMin >= 180 && p.durationMin % 60 === 0
+                      ? `${p.durationMin / 60}h`
+                      : `${p.durationMin}m`;
+                  const isBoundOrHiit =
+                    p.effortType === 'intermittent_hiit' ||
+                    p.effortType === 'pacing_limited_bound' ||
+                    p.effortType === 'interval_session';
+
+                  return (
+                    <g
+                      key={idx}
+                      className="cursor-pointer"
+                      onMouseEnter={() => setHoveredPeakIndex(idx)}
+                      onMouseLeave={() => setHoveredPeakIndex(null)}
+                      onClick={() => setHoveredPeakIndex((prev) => (prev === idx ? null : idx))}
+                    >
+                      {/* Wide Touch Hit Target Column */}
+                      <rect
+                        x={x - plotWidth / (activeCurvePeaks.length * 2)}
+                        y={padTop}
+                        width={plotWidth / activeCurvePeaks.length}
+                        height={plotHeight + 24}
+                        fill="transparent"
+                      />
+
+                      {/* Vertical Guide */}
+                      <line
+                        x1={x}
+                        y1={padTop}
+                        x2={x}
+                        y2={padTop + plotHeight}
+                        stroke={
+                          isHovered
+                            ? curveMetric === 'bike'
+                              ? '#f97316'
+                              : '#10b981'
+                            : isLight
+                            ? '#f1f5f9'
+                            : '#1e293b'
+                        }
+                        strokeWidth={isHovered ? '1.5' : '1'}
+                        strokeOpacity={isHovered ? '0.6' : '1'}
+                      />
+
+                      {/* Plot Dot if Observed Effort Exists, or Hollow Target Marker if Unobserved Long Duration */}
+                      {p.hasObservedEffort ? (
+                        <circle
+                          cx={x}
+                          cy={y}
+                          r={isHovered ? 6.5 : 4.8}
+                          fill={
+                            isBoundOrHiit
+                              ? isLight
+                                ? '#ffffff'
+                                : '#0f172a'
+                              : curveMetric === 'bike'
+                              ? '#f97316'
+                              : '#10b981'
+                          }
+                          stroke={
+                            p.effortType === 'intermittent_hiit'
+                              ? '#f59e0b'
+                              : p.effortType === 'pacing_limited_bound'
+                              ? '#38bdf8'
+                              : curveMetric === 'bike'
+                              ? '#f97316'
+                              : '#10b981'
+                          }
+                          strokeWidth="2.2"
+                          className="transition-all"
+                        />
+                      ) : (
+                        <circle
+                          cx={x}
+                          cy={getYForValue(p.modeledValue ?? p.actualValue)}
+                          r={isHovered ? 5 : 3.5}
+                          fill="none"
+                          stroke="#22d3ee"
+                          strokeWidth="1.5"
+                          strokeDasharray="2 2"
+                        />
+                      )}
+
+                      {/* X-Axis Duration Label */}
+                      <text
+                        x={x}
+                        y={padTop + plotHeight + 17}
+                        textAnchor="middle"
+                        fill={isHovered ? (isLight ? '#0f172a' : '#ffffff') : '#64748b'}
+                        fontSize="9.5"
+                        fontFamily="monospace"
+                        fontWeight={isHovered ? 'bold' : 'normal'}
+                      >
+                        {compactLabel}
+                      </text>
+                    </g>
+                  );
+                })}
+              </svg>
+            );
+          })()}
+        </div>
+
+        {/* ------------------------------------------------------------- */}
+        {/* Power-Law Endurance Decay, Target Race Bands & Durability     */}
+        {/* ------------------------------------------------------------- */}
+        <div
+          className={`mt-4 p-4 rounded-xl border space-y-4 ${
+            isLight ? 'bg-slate-50/90 border-slate-200' : 'bg-slate-950/50 border-slate-800/90'
+          }`}
+        >
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-800/60 pb-3">
+            <div>
+              <div className="flex items-center gap-2">
+                <Flame className="w-4 h-4 text-orange-400" />
+                <h3 className={`text-xs sm:text-sm font-extrabold ${isLight ? 'text-slate-900' : 'text-white'}`}>
+                  Endurance Decay Model: P(t) = FTP × (t / 60 min)<sup>−s</sup> &amp; Durability Signals
+                </h3>
+              </div>
+              <p className="text-[11px] text-slate-400 mt-0.5">
+                {enduranceDecay.censoringExplanation}
+              </p>
+            </div>
+            <div className="flex flex-wrap items-center gap-2 shrink-0">
+              <span className="text-[10px] font-mono font-bold px-2 py-1 rounded-lg bg-cyan-500/10 text-cyan-400 border border-cyan-500/20">
+                Bike Decay s = {enduranceDecay.posteriorExponentS.toFixed(2)} (Prior 0.20 ± 0.05 · Raw {enduranceDecay.rawObservedSlopeS})
+              </span>
+              <span className="text-[10px] font-mono font-bold px-2 py-1 rounded-lg bg-rose-500/10 text-rose-400 border border-rose-500/20">
+                Run Riegel k = {enduranceDecay.runRiegelExponentK} ↔ s = {enduranceDecay.runEquivalentDecayS}
+              </span>
+            </div>
+          </div>
+
+          {/* Target Race Power Bands (70.3 @ 2.5h & Ironman @ 5.7h) */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            {[enduranceDecay.raceBands.half703, enduranceDecay.raceBands.ironman].map((band) => {
+              const isTested = band.status === 'Tested';
+              return (
+                <div
+                  key={band.id}
+                  className={`p-3.5 rounded-xl border flex flex-col justify-between gap-2 ${
+                    isLight ? 'bg-white border-slate-200' : 'bg-slate-900/70 border-slate-800'
+                  }`}
+                >
+                  <div className="flex items-start justify-between gap-2">
+                    <div>
+                      <span className="text-xs font-extrabold text-white block">{band.label}</span>
+                      <span className="text-[11px] text-slate-400">
+                        Power-Law Midpoint: <strong className="text-orange-400 font-mono">{band.modeledWatts} W</strong> ({Math.round(band.fractionOfFtp * 100)}% of {enduranceDecay.ftpWatts}W FTP) · AG Range {band.agBandLowWatts}–{band.agBandHighWatts} W
+                      </span>
+                    </div>
+                    <span
+                      className={`text-[10px] font-black px-2 py-0.5 rounded-full shrink-0 ${
+                        isTested
+                          ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/25'
+                          : 'bg-sky-500/15 text-sky-400 border border-sky-500/25'
+                      }`}
+                    >
+                      {band.status}
+                    </span>
+                  </div>
+
+                  <div className="flex items-baseline justify-between gap-2 pt-1">
+                    <div>
+                      <span className="text-[10px] uppercase tracking-wider text-slate-400 block font-bold">
+                        Target Race Power Band
+                      </span>
+                      <span className="text-lg font-black font-mono text-emerald-400">
+                        {band.targetBandLowWatts}–{band.targetBandHighWatts} W
+                      </span>
+                    </div>
+                    {band.bestObservedWatts && (
+                      <div className="text-right">
+                        <span className="text-[10px] uppercase tracking-wider text-slate-400 block font-bold">
+                          Logged Long Ride
+                        </span>
+                        <span className="text-xs font-mono font-bold text-slate-300">
+                          {band.bestObservedWatts} W (Pacing lower bound)
+                        </span>
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="pt-2 border-t border-slate-800/60 text-[11px] flex items-center justify-between gap-2">
+                    <span className="text-cyan-400 font-semibold">
+                      {isTested ? band.upgradeTest : `Upgrade to Tested: ${band.upgradeTest}`}
+                    </span>
+                  </div>
+                </div>
               );
             })}
-          </svg>
+          </div>
+
+          {/* Fatigue Durability (After 1,500 / 2,500 / 3,500 kJ) & Efficiency Drift */}
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
+            <div
+              className={`lg:col-span-2 p-3 rounded-xl border ${
+                isLight ? 'bg-white border-slate-200' : 'bg-slate-900/50 border-slate-800'
+              }`}
+            >
+              <div className="flex items-center justify-between gap-2 mb-2">
+                <span className="text-xs font-bold text-white">
+                  Power After Fatigue (20-min MMP after Accumulated Work)
+                </span>
+                <span className="text-[10px] font-mono font-bold text-amber-400">
+                  Durability Slope: {enduranceDecay.durabilitySlopePctPer1000Kj}% / 1,000 kJ
+                </span>
+              </div>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                {enduranceDecay.fatigueBuckets.map((b) => (
+                  <div
+                    key={b.workKjThreshold}
+                    className="p-2 rounded-lg bg-slate-950/60 border border-slate-800/80"
+                  >
+                    <span className="text-[10px] text-slate-400 block">{b.label}</span>
+                    <div className="flex items-baseline gap-1.5 mt-0.5">
+                      <span className="text-sm font-black font-mono text-white">{b.best20mWatts} W</span>
+                      <span className="text-[10px] font-mono text-emerald-400">{b.retentionPct}%</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div
+              className={`p-3 rounded-xl border flex flex-col justify-between ${
+                isLight ? 'bg-white border-slate-200' : 'bg-slate-900/50 border-slate-800'
+              }`}
+            >
+              <div>
+                <div className="flex items-center justify-between gap-1 mb-1">
+                  <span className="text-xs font-bold text-white">Aerobic Efficiency Drift (NP ÷ HR)</span>
+                  <span className="text-[10px] font-mono font-bold text-emerald-400">
+                    {enduranceDecay.efficiencyDrift.driftPercent}% Drift
+                  </span>
+                </div>
+                <p className="text-[11px] text-slate-400 leading-relaxed">
+                  First Hour EF: <strong className="text-white font-mono">{enduranceDecay.efficiencyDrift.firstHourEf}</strong> → Last Hour EF: <strong className="text-white font-mono">{enduranceDecay.efficiencyDrift.lastHourEf} W/bpm</strong>
+                </p>
+              </div>
+              <p className="text-[10px] text-slate-400 pt-2 border-t border-slate-800/60 mt-2">
+                {enduranceDecay.efficiencyDrift.crossCheckNote}
+              </p>
+            </div>
+          </div>
         </div>
 
         {/* Duration Breakdown Table (Unclipped column headers, one consistent unit, Tested/Extrapolated/Guess tiers) */}
-        <div className="overflow-x-auto rounded-xl border border-slate-800/80 mt-3">
+        <div className="overflow-x-auto rounded-xl border border-slate-800/80 mt-4">
           <table className="w-full text-left text-[11px] sm:text-xs tabular-nums">
             <thead className="bg-slate-950/60 text-slate-400 uppercase text-[9px] sm:text-[10px] tracking-wider border-b border-slate-800">
               <tr>
                 <th className="py-2 px-2 sm:py-2.5 sm:px-3 whitespace-nowrap">Interval</th>
                 <th className="py-2 px-2 sm:py-2.5 sm:px-3 whitespace-nowrap">
-                  {curveMetric === 'bike' ? 'Peak Watts' : 'Peak Pace (/km)'}
+                  {curveMetric === 'bike' ? 'Observed / Target Watts' : 'Peak Pace (/km)'}
                 </th>
                 <th className="py-2 px-2 sm:py-2.5 sm:px-3 whitespace-nowrap">
-                  {curveMetric === 'bike' ? 'W/kg' : 'Speed (km/h)'}
+                  {curveMetric === 'bike' ? 'W/kg (% FTP)' : 'Speed (km/h)'}
                 </th>
-                <th className="py-2 px-2 sm:py-2.5 sm:px-3 whitespace-nowrap">Model</th>
+                <th className="py-2 px-2 sm:py-2.5 sm:px-3 whitespace-nowrap">
+                  {curveMetric === 'bike' ? 'Model (CP ≤30m / Power-Law ≥60m)' : 'Model'}
+                </th>
                 <th className="py-2 px-2 sm:py-2.5 sm:px-3 whitespace-nowrap">Effort Source</th>
                 <th className="py-2 px-2 sm:py-2.5 sm:px-3 whitespace-nowrap">Confidence</th>
               </tr>
@@ -1348,6 +1747,14 @@ export const PerformanceTab: React.FC<PerformanceTabProps> = ({
                             ? isLight
                               ? 'bg-emerald-100 text-emerald-800'
                               : 'bg-emerald-500/15 text-emerald-400'
+                            : p.effortType === 'intermittent_hiit'
+                            ? isLight
+                              ? 'bg-amber-100 text-amber-800'
+                              : 'bg-amber-500/15 text-amber-400 border border-amber-500/25'
+                            : p.effortType === 'pacing_limited_bound'
+                            ? isLight
+                              ? 'bg-sky-100 text-sky-800'
+                              : 'bg-sky-500/15 text-sky-400 border border-sky-500/25'
                             : p.effortType === 'interval_session'
                             ? isLight
                               ? 'bg-amber-100 text-amber-800'
@@ -1357,15 +1764,11 @@ export const PerformanceTab: React.FC<PerformanceTabProps> = ({
                             : 'bg-indigo-500/15 text-indigo-400'
                         }`}
                       >
-                        {p.effortType === 'continuous_steady'
-                          ? 'Continuous Steady'
-                          : p.effortType === 'interval_session'
-                          ? 'Interval Rep (Lower bound)'
-                          : 'Model Baseline'}
+                        {p.effortSourceLabel}
                       </span>
                       {p.activityName && (
                         <span
-                          className="text-[10px] text-slate-500 truncate max-w-[160px]"
+                          className="text-[10px] text-slate-500 truncate max-w-[180px]"
                           title={`${p.activityName}${p.activityDate ? ` (${p.activityDate})` : ''}`}
                         >
                           {p.activityName}{p.activityDate ? ` · ${p.activityDate}` : ''}
@@ -1386,7 +1789,7 @@ export const PerformanceTab: React.FC<PerformanceTabProps> = ({
                     >
                       {p.confidenceTier}
                     </span>
-                    <span className="hidden md:block text-[10px] text-slate-500 mt-0.5 truncate max-w-[200px]">
+                    <span className="hidden md:block text-[10px] text-slate-500 mt-0.5 truncate max-w-[220px]">
                       {p.upgradeTest}
                     </span>
                   </td>
