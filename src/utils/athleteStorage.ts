@@ -70,8 +70,14 @@ export function loadAthleteProfile(): AthleteProfile {
       profile.swimPoolPace100mSec === 90
     ) {
       profile.swim400mTimeSec = 372; // 6:12
-      profile.swimPoolPace100mSec = 96; // 1:36/100m CSS
-      profile.swimOpenWaterPace100mSec = 103; // 1:43/100m open water
+      profile.swimPoolPace100mSec = 96; // 1:36/100m Regular (Pool) CSS
+    }
+    if (
+      !profile.swimOpenWaterPace100mSec ||
+      profile.swimOpenWaterPace100mSec === 98 ||
+      profile.swimOpenWaterPace100mSec === 103
+    ) {
+      profile.swimOpenWaterPace100mSec = 105; // 1:45/100m Open Water CSS (OW CSS)
     }
     if (!profile.periodization) {
       profile.periodization = '4weeks';

@@ -751,7 +751,9 @@ export const GoalsTab: React.FC<GoalsTabProps> = ({ goals, onChangeGoals, profil
                                 ? `${formatPaceMinSec(profile.thresholdPaceRunOutdoorSec)}/km LTHR`
                                 : goal.eventType === 'bike'
                                 ? `${profile.bikeFtp}W FTP`
-                                : `${formatSwimPace100m(profile.swimPoolPace100mSec)}/100m CSS`}
+                                : goal.swimWaterType === 'pool'
+                                ? `${formatSwimPace100m(profile.swimPoolPace100mSec)}/100m Pool CSS`
+                                : `${formatSwimPace100m(profile.swimOpenWaterPace100mSec || 105)}/100m OW CSS`}
                             </div>
                           </div>
                         </div>

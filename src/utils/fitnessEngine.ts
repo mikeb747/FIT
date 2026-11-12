@@ -936,7 +936,9 @@ export function deriveEventCtlTargetAndFeasibility(params: {
 
   // Athlete physiological pace/speed helpers for expected race duration T_d
   const runThresholdSecPerKm = athleteProfile.thresholdPaceRunOutdoorSec || 232; // ~3:52/km
-  const swimCssSecPer100m = athleteProfile.swimOpenWaterPace100mSec || athleteProfile.swimPoolPace100mSec || 95;
+  const poolCssSecPer100m = athleteProfile.swimPoolPace100mSec || 96; // 1:36/100m Regular Pool CSS
+  const owCssSecPer100m = athleteProfile.swimOpenWaterPace100mSec || 105; // 1:45/100m Open Water CSS
+  const swimCssSecPer100m = owCssSecPer100m;
   const bikeFtp = athleteProfile.bikeFtp || 280;
   // Approximate flat road speed in km/h from watts
   const estimateBikeSpeedKmh = (ifFactor: number) => {
@@ -1154,7 +1156,9 @@ export function deriveEventCtlTargetAndFeasibility(params: {
       swim_5k: 5000,
       swim_10k: 10000,
     };
-    const tSwim = Math.max(0.1, ((distMMap[swimModel] / 100) * swimCssSecPer100m) / 3600);
+    const isPoolDistance = swimModel === 'swim_50m' || swimModel === 'swim_100m' || swimModel === 'swim_400m';
+    const activeSwimCss = isPoolDistance ? poolCssSecPer100m : owCssSecPer100m;
+    const tSwim = Math.max(0.1, ((distMMap[swimModel] / 100) * activeSwimCss) / 3600);
     const fMid = swimProf.longSwimHours / tSwim;
     const sMid = swimProf.longSwimHours / swimProf.weeklyHoursTarget;
     legSpecs.push({

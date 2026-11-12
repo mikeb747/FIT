@@ -338,8 +338,13 @@ export function classifyActivity(activity: StravaActivity): ActivityClassificati
   const matches = (name: string) =>
     rawType === name.toLowerCase() || rawSportType === name.toLowerCase();
 
-  // 1. Swim Family
-  if (matches('OpenWaterSwim')) {
+  // 1. Swim Family: Distinguish Pool Swim vs Open Water Swim
+  const swimTitle = (activity.name || '').toLowerCase();
+  const hasPoolKeyword = /\bpool\b|indoor\s+swim|25m|50m\s+pool/i.test(swimTitle);
+  const hasOpenWaterKeyword = /open\s*water|\bow\s+swim\b|outdoor\s+swim|lake\s+swim|sea\s+swim|ocean\s+swim|river\s+swim|triathlon\s+swim/i.test(swimTitle);
+  const hasStartGps = Array.isArray((activity as any).start_latlng) && (activity as any).start_latlng.length === 2 && !isTrainer && !hasPoolKeyword;
+
+  if (matches('OpenWaterSwim') || (matches('Swim') && (hasOpenWaterKeyword || hasStartGps))) {
     return { category: 'Swim', subType: 'Open Water Swim', isOutdoor: true };
   }
   if (matches('Swim')) {
@@ -1387,8 +1392,8 @@ export function calculateActivityTSS(
     if (effectiveDistanceM > 50 && effectiveMovingTimeSec > 30) {
       const isOpenWater = subType === 'Open Water Swim';
       const thresholdSwimPaceSec = isOpenWater
-        ? (athleteProfile?.swimOpenWaterPace100mSec || 98)
-        : (athleteProfile?.swimPoolPace100mSec || 90);
+        ? (athleteProfile?.swimOpenWaterPace100mSec || 105) // 1:45/100m OW CSS default
+        : (athleteProfile?.swimPoolPace100mSec || 96); // 1:36/100m Regular Pool CSS default
 
       const avgPace100m = effectiveMovingTimeSec / (effectiveDistanceM / 100);
       if (avgPace100m > 30 && avgPace100m < 600) {
@@ -1399,7 +1404,7 @@ export function calculateActivityTSS(
         return {
           tss: Math.round(sTss),
           type: isOpenWater ? 'sTSS (Open Water)' : 'sTSS (Pool)',
-          description: `${isOpenWater ? 'Open water' : 'Pool'} pace ${paceLabel}/100m (Threshold ${threshLabel}/100m, IF ${ifSwim.toFixed(2)})`,
+          description: `${isOpenWater ? 'Open water' : 'Pool'} pace ${paceLabel}/100m (${isOpenWater ? 'OW CSS' : 'Regular CSS'} ${threshLabel}/100m, IF ${ifSwim.toFixed(2)})`,
         };
       }
     }

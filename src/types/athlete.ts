@@ -33,8 +33,8 @@ export interface AthleteProfile {
   // Swimming Thresholds & Time Trial Benchmarks
   swim100mTimeSec: number; // seconds for 100m all-out test (1:24 = 84)
   swim400mTimeSec: number; // seconds for 400m all-out test (5:55 = 355)
-  swimPoolPace100mSec: number; // seconds per 100m for pool swimming (1:30/100m = 90)
-  swimOpenWaterPace100mSec: number; // seconds per 100m for open water swimming (1:38/100m = 98)
+  swimPoolPace100mSec: number; // Regular (Pool) CSS in seconds per 100m for pool swim sTSS & pool triathlons (1:36/100m = 96)
+  swimOpenWaterPace100mSec: number; // Open Water CSS (OW CSS) in seconds per 100m for open water swim sTSS & OW races (1:45/100m = 105)
   swimTssMode?: 'sTSS' | 'hrTSS' | 'auto'; // Swimming TSS Calculation model (default 'sTSS')
   thresholdHeartRateSwim?: number; // bpm (Swim LTHR, typically 10-14 bpm lower than Run LTHR)
   preferredSwimProtocol?: 'usms' | 'btf' | 'friel' | 'custom'; // Swim zone standard protocol
@@ -205,8 +205,8 @@ export const DEFAULT_ATHLETE_PROFILE: AthleteProfile = {
 
   swim100mTimeSec: 84, // 1:24
   swim400mTimeSec: 372, // 6:12
-  swimPoolPace100mSec: 96, // 1:36 / 100m CSS (300m / (372s - 84s))
-  swimOpenWaterPace100mSec: 103, // 1:43 / 100m open water
+  swimPoolPace100mSec: 96, // 1:36 / 100m Regular (Pool) CSS (300m / (372s - 84s))
+  swimOpenWaterPace100mSec: 105, // 1:45 / 100m Open Water CSS (OW CSS)
   swimTssMode: 'sTSS',
   thresholdHeartRateSwim: 156, // bpm (typically 10-14 bpm lower than Run LTHR)
   preferredSwimProtocol: 'btf',

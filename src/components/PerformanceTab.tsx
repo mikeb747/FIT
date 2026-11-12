@@ -253,7 +253,7 @@ export const PerformanceTab: React.FC<PerformanceTabProps> = ({
                 </span>
               </div>
               <p className={`text-xs mt-0.5 ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>
-                FTP ({criticalParams.ftpWatts}W), LT Pace ({criticalParams.lactateThresholdPaceFormatted}), CSS ({criticalParams.cssFormatted}) · Synchronized with Fitness tab goal race
+                FTP ({criticalParams.ftpWatts}W), LT Pace ({criticalParams.lactateThresholdPaceFormatted}), Pool CSS ({criticalParams.cssFormatted}), OW CSS ({criticalParams.owCssFormatted}) · Synchronized with Fitness tab goal race
               </p>
             </div>
           </div>
@@ -913,11 +913,19 @@ export const PerformanceTab: React.FC<PerformanceTabProps> = ({
                 {swimPredictions.swimDataSummary}
               </p>
             </div>
-            <div className="flex items-center gap-2">
-              <span className="text-xs font-bold text-slate-400">CSS Anchor:</span>
-              <span className="text-xs font-mono font-black text-sky-400 px-2 py-0.5 rounded bg-sky-500/10 border border-sky-500/20">
-                {swimPredictions.cssBasisPaceFormatted}
-              </span>
+            <div className="flex flex-wrap items-center gap-2">
+              <div className="flex items-center gap-1.5">
+                <span className="text-xs font-bold text-slate-400">Pool CSS:</span>
+                <span className="text-xs font-mono font-black text-sky-400 px-2 py-0.5 rounded bg-sky-500/10 border border-sky-500/20">
+                  {swimPredictions.cssBasisPaceFormatted}
+                </span>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <span className="text-xs font-bold text-slate-400">OW CSS:</span>
+                <span className="text-xs font-mono font-black text-sky-300 px-2 py-0.5 rounded bg-sky-500/15 border border-sky-400/30">
+                  {swimPredictions.owCssBasisPaceFormatted}
+                </span>
+              </div>
             </div>
           </div>
 
@@ -979,7 +987,7 @@ export const PerformanceTab: React.FC<PerformanceTabProps> = ({
           >
             <ShieldCheck className="w-4 h-4 text-sky-400 shrink-0 mt-0.5" />
             <p className="leading-relaxed">
-              <strong>Swim Confidence Upgrade:</strong> Pool sprint predictions are <strong>Tested</strong> via your 400m (6:12) and 100m (1:24) time trials (CSS 1:36/100m). For 70.3 and Ironman open-water events, logging a continuous 1,500m steady swim or open-water session will upgrade long-course confidence from <strong>Extrapolated / Guess</strong> to <strong>Tested</strong>.
+              <strong>Dual CSS Architecture (Pool vs Open Water):</strong> Pool Sprint (400m) and Pool Swim sTSS use your <strong>Regular Pool CSS ({swimPredictions.cssBasisPaceFormatted})</strong> derived from your 400m ({swimPredictions.swim400mFormatted}) &amp; 100m ({swimPredictions.swim100mFormatted}) time trials. All Open Water races (750m, 1,500m, 70.3, and Ironman ~70m) and Outdoor Swim sTSS use your <strong>Open Water CSS ({swimPredictions.owCssBasisPaceFormatted})</strong>.
             </p>
           </div>
         </div>

@@ -505,12 +505,12 @@ export const AthleteProfileModal: React.FC<AthleteProfileModalProps> = ({
 
   const handleResetPaceZonesSwim = () => {
     const t100 = parseMinSecToSeconds(swim100mStr, 84);
-    const t400 = parseMinSecToSeconds(swim400mStr, 355);
+    const t400 = parseMinSecToSeconds(swim400mStr, 372);
     const tempProfile: AthleteProfile = {
       ...profile,
       swim100mTimeSec: t100,
       swim400mTimeSec: t400,
-      swimPoolPace100mSec: parseMinSecToSeconds(swimPoolPaceStr, 90),
+      swimPoolPace100mSec: parseMinSecToSeconds(swimPoolPaceStr, 96),
       customPaceZonesSwim: undefined,
     };
     const defaultPaces = getAthleteSwimPaceZones(tempProfile);
@@ -1482,7 +1482,7 @@ export const AthleteProfileModal: React.FC<AthleteProfileModalProps> = ({
 
   // Live CSS calculation
   const t100 = parseMinSecToSeconds(swim100mStr, 84);
-  const t400 = parseMinSecToSeconds(swim400mStr, 355);
+  const t400 = parseMinSecToSeconds(swim400mStr, 372);
   const liveCss = calculateCss(t100, t400);
 
   // Live zones preview
@@ -1503,8 +1503,8 @@ export const AthleteProfileModal: React.FC<AthleteProfileModalProps> = ({
     bikeCrankLengths,
     swim100mTimeSec: t100,
     swim400mTimeSec: t400,
-    swimPoolPace100mSec: parseMinSecToSeconds(swimPoolPaceStr, 90),
-    swimOpenWaterPace100mSec: parseMinSecToSeconds(swimOpenWaterPaceStr, 98),
+    swimPoolPace100mSec: parseMinSecToSeconds(swimPoolPaceStr, 96),
+    swimOpenWaterPace100mSec: parseMinSecToSeconds(swimOpenWaterPaceStr, 105),
     swimTssMode,
     thresholdHeartRateSwim: Number(thresholdHeartRateSwim) || 156,
     preferredSwimProtocol,
@@ -1562,8 +1562,8 @@ export const AthleteProfileModal: React.FC<AthleteProfileModalProps> = ({
 
       swim100mTimeSec: t100,
       swim400mTimeSec: t400,
-      swimPoolPace100mSec: parseMinSecToSeconds(swimPoolPaceStr, 90),
-      swimOpenWaterPace100mSec: parseMinSecToSeconds(swimOpenWaterPaceStr, 98),
+      swimPoolPace100mSec: parseMinSecToSeconds(swimPoolPaceStr, 96),
+      swimOpenWaterPace100mSec: parseMinSecToSeconds(swimOpenWaterPaceStr, 105),
       swimTssMode,
       thresholdHeartRateSwim: Math.max(70, Math.min(220, Number(thresholdHeartRateSwim) || 156)),
       preferredSwimProtocol,
@@ -1605,9 +1605,9 @@ export const AthleteProfileModal: React.FC<AthleteProfileModalProps> = ({
     setBikeCrankLengthMm(172.5);
     setBikeCrankLengths({});
     setSwim100mStr('1:24');
-    setSwim400mStr('5:55');
-    setSwimPoolPaceStr('1:30');
-    setSwimOpenWaterPaceStr('1:38');
+    setSwim400mStr('6:12');
+    setSwimPoolPaceStr('1:36');
+    setSwimOpenWaterPaceStr('1:45');
     setSwimTssMode('sTSS');
     setThresholdHeartRateSwim(156);
     setPreferredSwimProtocol('btf');
@@ -3550,7 +3550,7 @@ export const AthleteProfileModal: React.FC<AthleteProfileModalProps> = ({
               <div className="p-3 rounded-2xl bg-slate-950/80 border border-slate-800 text-xs text-slate-300 flex items-start gap-2.5">
                 <Waves className="w-4 h-4 text-sky-400 shrink-0 mt-0.5" />
                 <p>
-                  Enter your all-out 100m and 400m test times. FIT Track automatically derives your <strong>Critical Swim Speed (CSS)</strong> to calculate Swim TSS (sTSS) for pool swims and open water swims.
+                  FIT Track uses a <strong>Dual CSS System</strong>: <strong>Regular CSS (Pool)</strong> (derived from your 100m &amp; 400m pool tests) calculates sTSS for Pool Swims and Pool Triathlons, while <strong>OW CSS (Open Water)</strong> (default <code className="text-sky-300">1:45/100m</code>) calculates sTSS for Outdoor/Open Water Swims and models all Open Water races (750m, 1,500m, 70.3, and Ironman).
                 </p>
               </div>
 
@@ -3564,10 +3564,17 @@ export const AthleteProfileModal: React.FC<AthleteProfileModalProps> = ({
                   <div className="flex items-center gap-1.5">
                     <input
                       type="text"
-                      placeholder="1:35"
+                      placeholder="1:24"
                       value={swim100mStr}
-                      onChange={(e) => setSwim100mStr(e.target.value)}
-                      className="w-full bg-slate-900 border border-slate-700 rounded-xl px-2.5 py-1.5 sm:px-3 sm:py-2 text-sm font-bold font-mono text-white focus:outline-none focus:border-amber-400"
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        setSwim100mStr(val);
+                        const new100 = parseMinSecToSeconds(val, 84);
+                        const new400 = parseMinSecToSeconds(swim400mStr, 372);
+                        const css = calculateCss(new100, new400);
+                        setSwimPoolPaceStr(formatSecondsToMinSec(css.cssPace100mSec));
+                      }}
+                      className="w-full bg-slate-900 border border-slate-700 rounded-xl px-2.5 py-1.5 sm:px-3 sm:py-2 text-sm font-bold font-mono text-white focus:outline-none focus:border-sky-400"
                     />
                   </div>
                   <span className="text-[11px] text-slate-500">{t100} seconds</span>
@@ -3581,26 +3588,33 @@ export const AthleteProfileModal: React.FC<AthleteProfileModalProps> = ({
                   <div className="flex items-center gap-1.5">
                     <input
                       type="text"
-                      placeholder="6:55"
+                      placeholder="6:12"
                       value={swim400mStr}
-                      onChange={(e) => setSwim400mStr(e.target.value)}
-                      className="w-full bg-slate-900 border border-slate-700 rounded-xl px-2.5 py-1.5 sm:px-3 sm:py-2 text-sm font-bold font-mono text-white focus:outline-none focus:border-amber-400"
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        setSwim400mStr(val);
+                        const new100 = parseMinSecToSeconds(swim100mStr, 84);
+                        const new400 = parseMinSecToSeconds(val, 372);
+                        const css = calculateCss(new100, new400);
+                        setSwimPoolPaceStr(formatSecondsToMinSec(css.cssPace100mSec));
+                      }}
+                      className="w-full bg-slate-900 border border-slate-700 rounded-xl px-2.5 py-1.5 sm:px-3 sm:py-2 text-sm font-bold font-mono text-white focus:outline-none focus:border-sky-400"
                     />
                   </div>
                   <span className="text-[11px] text-slate-500">{t400} seconds</span>
                 </div>
               </div>
 
-              {/* Live CSS Banner */}
+              {/* Live Dual CSS Banner */}
               <div className="p-3.5 rounded-2xl bg-sky-500/10 border border-sky-500/30 flex items-center justify-between gap-3">
                 <div className="flex items-center gap-2.5">
                   <div className="w-8 h-8 rounded-xl bg-sky-500/20 text-sky-400 flex items-center justify-center font-black text-xs">
                     CSS
                   </div>
                   <div>
-                    <span className="text-xs font-black text-sky-300 block">Critical Swim Speed (Derived)</span>
+                    <span className="text-xs font-black text-sky-300 block">Derived Pool CSS &amp; Active OW CSS</span>
                     <span className="text-[11px] text-slate-400">
-                      Speed: {liveCss.cssMps} m/s
+                      Pool Speed: {liveCss.cssMps} m/s · OW CSS: {swimOpenWaterPaceStr}/100m
                     </span>
                   </div>
                 </div>
@@ -3609,24 +3623,24 @@ export const AthleteProfileModal: React.FC<AthleteProfileModalProps> = ({
                   <span className="text-base sm:text-lg font-black font-mono text-sky-300">
                     {liveCss.cssPaceFormatted}
                   </span>
-                  <span className="text-[10px] text-slate-500 block font-mono">/100m threshold</span>
+                  <span className="text-[10px] text-slate-500 block font-mono">Pool CSS /100m</span>
                 </div>
               </div>
 
-              {/* Individual Sport Paces */}
-              <div className="grid grid-cols-2 gap-2 sm:gap-3">
+              {/* Dual CSS Paces: Regular CSS (Pool) & OW CSS (Open Water) */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 sm:gap-3">
                 <div className="p-2.5 sm:p-3.5 rounded-2xl bg-slate-950 border border-slate-800 flex flex-col gap-1.5">
                   <div className="flex items-center justify-between">
-                    <label className="text-xs font-semibold text-sky-300">Pool Pace</label>
-                    <span className="text-[10px] text-slate-500">Default</span>
+                    <label className="text-xs font-semibold text-sky-300">Regular CSS (Pool)</label>
+                    <span className="text-[10px] text-slate-500">Pool sTSS &amp; Pool Tri</span>
                   </div>
                   <div className="flex items-center gap-1.5">
                     <input
                       type="text"
-                      placeholder="1:30"
+                      placeholder="1:36"
                       value={swimPoolPaceStr}
                       onChange={(e) => setSwimPoolPaceStr(e.target.value)}
-                      className="w-full bg-slate-900 border border-slate-700 rounded-xl px-2.5 py-1.5 sm:px-3 sm:py-2 text-sm font-bold font-mono text-white focus:outline-none focus:border-amber-400"
+                      className="w-full bg-slate-900 border border-slate-700 rounded-xl px-2.5 py-1.5 sm:px-3 sm:py-2 text-sm font-bold font-mono text-white focus:outline-none focus:border-sky-400"
                     />
                     <span className="text-xs text-slate-400 font-mono whitespace-nowrap">/100m</span>
                   </div>
@@ -3634,16 +3648,16 @@ export const AthleteProfileModal: React.FC<AthleteProfileModalProps> = ({
 
                 <div className="p-2.5 sm:p-3.5 rounded-2xl bg-slate-950 border border-slate-800 flex flex-col gap-1.5">
                   <div className="flex items-center justify-between">
-                    <label className="text-xs font-semibold text-sky-300">Open Water</label>
-                    <span className="text-[10px] text-slate-500">Default</span>
+                    <label className="text-xs font-semibold text-sky-300">OW CSS (Open Water)</label>
+                    <span className="text-[10px] text-slate-500">OW sTSS &amp; OW Races</span>
                   </div>
                   <div className="flex items-center gap-1.5">
                     <input
                       type="text"
-                      placeholder="1:38"
+                      placeholder="1:45"
                       value={swimOpenWaterPaceStr}
                       onChange={(e) => setSwimOpenWaterPaceStr(e.target.value)}
-                      className="w-full bg-slate-900 border border-slate-700 rounded-xl px-2.5 py-1.5 sm:px-3 sm:py-2 text-sm font-bold font-mono text-white focus:outline-none focus:border-amber-400"
+                      className="w-full bg-slate-900 border border-slate-700 rounded-xl px-2.5 py-1.5 sm:px-3 sm:py-2 text-sm font-bold font-mono text-white focus:outline-none focus:border-sky-400"
                     />
                     <span className="text-xs text-slate-400 font-mono whitespace-nowrap">/100m</span>
                   </div>

@@ -62,8 +62,10 @@ export interface CriticalParameters {
   hrMax: number;
 
   // Swimming
-  cssSecPer100m: number;
+  cssSecPer100m: number; // Regular (Pool) CSS (e.g. 96s = 1:36/100m)
   cssFormatted: string;
+  owCssSecPer100m: number; // Open Water CSS (OW CSS, default 105s = 1:45/100m)
+  owCssFormatted: string;
   swim100mSec: number;
   swim100mFormatted: string;
   swim400mSec: number;
@@ -146,6 +148,7 @@ export interface SwimRacePredictionItem {
 
 export interface SwimRacePredictions {
   cssBasisPaceFormatted: string;
+  owCssBasisPaceFormatted: string;
   swim100mFormatted: string;
   swim400mFormatted: string;
   benchmark1000mFormatted: string;
@@ -310,27 +313,33 @@ export function computeCriticalParameters(
   const csPaceSec = Math.round(1000 / csMps);
   const dPrimeMeters = 230; // standard anaerobic running distance reserve (meters)
 
-  // Swimming: CSS Pace per 100m anchored strictly on 400m = 6:12 (372s) and 100m = 1:24 (84s) => CSS = 300 / 288 = 1.0417 m/s = 96s/100m (1:36/100m)
+  // Swimming:
+  // 1) Regular (Pool) CSS Pace per 100m anchored on 400m = 6:12 (372s) and 100m = 1:24 (84s) => CSS = 300 / 288 = 1.0417 m/s = 96s/100m (1:36/100m)
+  //    or manual override in swimPoolPace100mSec.
+  // 2) Open Water CSS (OW CSS) per 100m defaults to 1:45/100m (105s) for outdoor swim sTSS and all open-water races.
   const t100 = Number(athleteProfile?.swim100mTimeSec) || 84; // 1:24
   const rawT400 = Number(athleteProfile?.swim400mTimeSec) || 372; // 6:12
   const t400 = rawT400 === 355 || rawT400 === 415 ? 372 : rawT400;
-  let cssSec = Number(athleteProfile?.swimPoolPace100mSec) || 96; // 1:36/100m
+  let cssSec = Number(athleteProfile?.swimPoolPace100mSec) || 96; // 1:36/100m Regular Pool CSS
 
-  if (t400 && t100 && t400 > t100) {
+  if (!athleteProfile?.swimPoolPace100mSec && t400 && t100 && t400 > t100) {
     const derivedCssSpeed = (400 - 100) / (t400 - t100);
     if (derivedCssSpeed > 0.5 && derivedCssSpeed < 2.5) {
       cssSec = Math.round(100 / derivedCssSpeed);
     }
   }
 
-  // Check if activities have any dedicated 1000m or 1500m swim records
+  const rawOwCss = Number(athleteProfile?.swimOpenWaterPace100mSec) || 105;
+  const owCssSec = rawOwCss === 98 || rawOwCss === 103 ? 105 : rawOwCss; // 1:45/100m OW CSS
+
+  // Check if activities have any dedicated 1000m or 1500m open-water swim records
   let hasDirectLongSwim = false;
   let detectedLongSwimPaceSec = 0;
   for (const act of activities) {
     if (act.isDeleted) continue;
     const cls = classifyActivity(act);
     if (cls.category === 'Swim' || act.type === 'Swim') {
-      if ((act.distance || 0) >= 1400 && (act.moving_time || 0) > 600) {
+      if ((act.distance || 0) >= 1400 && (act.moving_time || 0) > 600 && cls.subType === 'Open Water Swim') {
         hasDirectLongSwim = true;
         const avgSpeed = (act.distance || 0) / (act.moving_time || 1);
         detectedLongSwimPaceSec = Math.round(100 / avgSpeed);
@@ -339,17 +348,17 @@ export function computeCriticalParameters(
     }
   }
 
-  // 1000m swim benchmark: slightly slower than CSS due to distance (~2.5% degradation)
+  // 1000m open-water swim benchmark: anchored on OW CSS (1:45/100m)
   const swim1000mSec =
     hasDirectLongSwim && detectedLongSwimPaceSec > 0
       ? Math.round(detectedLongSwimPaceSec * 10)
-      : Math.round(cssSec * 10 * 1.025);
+      : Math.round(owCssSec * 10 * 1.01);
 
-  // 1500m swim benchmark: ~4.5% degradation over CSS if modeled, or empirical pace
+  // 1500m open-water swim benchmark: anchored on OW CSS (1:45/100m) + ~1.9% distance stamina factor
   const swim1500mSec =
     hasDirectLongSwim && detectedLongSwimPaceSec > 0
       ? Math.round(detectedLongSwimPaceSec * 15)
-      : Math.round(cssSec * 15 * 1.045);
+      : Math.round(owCssSec * 15 * 1.019);
 
   return {
     ftpWatts: ftp,
@@ -368,6 +377,8 @@ export function computeCriticalParameters(
     hrMax,
     cssSecPer100m: cssSec,
     cssFormatted: formatSwimPace(cssSec),
+    owCssSecPer100m: owCssSec,
+    owCssFormatted: formatSwimPace(owCssSec),
     swim100mSec: t100,
     swim100mFormatted: formatDurationHMS(t100),
     swim400mSec: t400,
@@ -382,38 +393,43 @@ export function computeCriticalParameters(
 
 /**
  * Shared triathlon swim leg time calculation so Swim Predictions and Race Weakness
- * cards always reconcile to the exact same second.
+ * cards always reconcile to the exact same second:
+ * - Pool Triathlon (`sprint_400m`) uses Regular (Pool) CSS (`cssSecPer100m`, default 1:36/100m)
+ * - Open Water Triathlons (`sprint`, `olympic`, `middle_70_3`, `ironman`) use OW CSS (`owCssSecPer100m`, default 1:45/100m)
  */
 export function computeTriathlonSwimLegTimeSec(
   distanceId: TriathlonEventDistance,
   params: CriticalParameters
 ): { timeSec: number; pacePer100mSec: number } {
-  const css = params.cssSecPer100m; // 96s (1:36/100m)
+  const poolCss = params.cssSecPer100m; // 96s (1:36/100m Regular Pool CSS)
+  const owCss = params.owCssSecPer100m; // 105s (1:45/100m Open Water CSS)
   const p1500 = params.swim1500mSec;
-  const pace1500Per100 = p1500 / 15; // ~100.3s (1:40.3/100m)
+  const pace1500Per100 = p1500 / 15;
   const hasDirectLong = params.hasDirectLongSwimPace;
 
   if (distanceId === 'sprint_400m') {
-    // Triathlon 400m swim leg is paced controlled at/above standalone 400m TT (6:12 = 372s) + ~10s T1 lactate reserve => 6:22 (382s, 1:35.5/100m)
-    const timeSec = Math.max(params.swim400mSec + 10, Math.round(4 * css * 1.00));
+    // Pool Triathlon 400m swim leg uses Regular Pool CSS (1:36/100m) / 400m Pool TT (6:12 = 372s) + ~10s T1 lactate reserve => 6:22 (382s, 1:35.5/100m)
+    const timeSec = Math.max(params.swim400mSec + 10, Math.round(4 * poolCss * 1.00));
     return { timeSec, pacePer100mSec: timeSec / 4 };
   }
   if (distanceId === 'sprint') {
-    const timeSec = Math.round(css * 7.5 * 1.015);
+    // 750m Open Water: anchored directly on OW CSS (1:45/100m => 13:08)
+    const timeSec = Math.round(owCss * 7.5 * 1.00);
     return { timeSec, pacePer100mSec: timeSec / 7.5 };
   }
   if (distanceId === 'olympic') {
-    const timeSec = hasDirectLong ? p1500 : Math.round(css * 15 * 1.055);
+    // 1,500m Open Water: OW CSS (1:45/100m) + ~1.9% distance stamina factor (~1:47/100m => 26:45)
+    const timeSec = hasDirectLong ? p1500 : Math.round(owCss * 15 * 1.019);
     return { timeSec, pacePer100mSec: timeSec / 15 };
   }
   if (distanceId === 'middle_70_3') {
-    // 1,900m Open Water: when no open-water/long swim is logged, apply +8.3% open-water sighting/endurance factor (~1:44/100m => 32:56)
-    const pacePer100mSec = hasDirectLong ? pace1500Per100 * 1.035 : css * 1.0833;
+    // 1,900m Open Water: OW CSS (1:45/100m) + ~2.9% half-ironman stamina factor (~1:48/100m => 34:12)
+    const pacePer100mSec = hasDirectLong ? pace1500Per100 * 1.015 : owCss * 1.0286;
     const timeSec = Math.round(pacePer100mSec * 19);
     return { timeSec, pacePer100mSec: timeSec / 19 };
   }
-  // Full Ironman 3,800m Open Water: +12.5% over pool CSS (~1:48/100m => 1:08:24)
-  const pacePer100mSec = hasDirectLong ? pace1500Per100 * 1.075 : css * 1.125;
+  // Full Ironman 3,800m Open Water: OW CSS (1:45/100m) + ~5.26% marathon-swim stamina factor (~1:51/100m => 1:10:00 / 70 min)
+  const pacePer100mSec = hasDirectLong ? pace1500Per100 * 1.035 : owCss * (4200 / (38 * 105));
   const timeSec = Math.round(pacePer100mSec * 38);
   return { timeSec, pacePer100mSec: timeSec / 38 };
 }
@@ -948,7 +964,10 @@ export function computePeakPerformanceCurve(
  * always show the exact same projected split.
  */
 export function computeSwimRacePredictions(params: CriticalParameters): SwimRacePredictions {
-  const css = params.cssSecPer100m; // 96s (1:36/100m)
+  const poolCss = params.cssSecPer100m; // 96s (1:36/100m Regular Pool CSS)
+  const owCss = params.owCssSecPer100m; // 105s (1:45/100m Open Water CSS)
+  const poolCssStr = formatSwimPace(poolCss);
+  const owCssStr = formatSwimPace(owCss);
   const hasDirectLong = params.hasDirectLongSwimPace;
 
   const sprint400 = computeTriathlonSwimLegTimeSec('sprint_400m', params);
@@ -962,7 +981,7 @@ export function computeSwimRacePredictions(params: CriticalParameters): SwimRace
       distanceId: 'sprint_400m',
       name: 'Sprint Triathlon (400m Pool Swim)',
       distanceM: 400,
-      modelingBasis: '400m TT (6:12) + Tactical T1 Pacing Reserve (+10s)',
+      modelingBasis: `Pool CSS (${poolCssStr}) / 400m TT (${params.swim400mFormatted}) + T1 Reserve (+10s)`,
       predictedTimeSec: sprint400.timeSec,
       predictedTimeFormatted: formatDurationHMS(sprint400.timeSec),
       pacePer100mFormatted: formatSwimPace(sprint400.pacePer100mSec),
@@ -971,16 +990,15 @@ export function computeSwimRacePredictions(params: CriticalParameters): SwimRace
       confidenceLevel: 'high',
       confidenceScore: 95,
       confidenceTier: 'Tested',
-      upgradeTest: 'Anchored directly on 400m (6:12) & 100m (1:24) pool TTs',
-      confidenceExplanation:
-        'Tested anchor. CSS (1:36/100m) is derived directly from your 400m pool TT (6:12) and 100m pool TT (1:24). Triathlon pacing adds ~10s (+2.5%) so you exit into T1 slightly slower than an all-out standalone 400m TT.',
-      dataAnchorsUsed: ['400m Pool TT (6:12)', '100m Pool TT (1:24)', 'Derived CSS (1:36/100m)'],
+      upgradeTest: `Anchored on 400m (${params.swim400mFormatted}) & 100m (${params.swim100mFormatted}) pool TTs`,
+      confidenceExplanation: `Tested pool anchor. Regular Pool CSS (${poolCssStr}) is used strictly for pool triathlons and pool swim sTSS. Triathlon pacing adds ~10s so you exit into T1 controlled rather than at an all-out standalone TT.`,
+      dataAnchorsUsed: [`400m Pool TT (${params.swim400mFormatted})`, `100m Pool TT (${params.swim100mFormatted})`, `Pool CSS (${poolCssStr})`],
     },
     {
       distanceId: 'sprint',
       name: 'Sprint Triathlon (750m Open Water)',
       distanceM: 750,
-      modelingBasis: 'CSS (1:36/100m) + Open Water Sighting (+1.5%)',
+      modelingBasis: `OW CSS (${owCssStr}) Open-Water Baseline`,
       predictedTimeSec: sprint750.timeSec,
       predictedTimeFormatted: formatDurationHMS(sprint750.timeSec),
       pacePer100mFormatted: formatSwimPace(sprint750.pacePer100mSec),
@@ -990,17 +1008,16 @@ export function computeSwimRacePredictions(params: CriticalParameters): SwimRace
       confidenceScore: 80,
       confidenceTier: 'Extrapolated',
       upgradeTest: 'Log a 750m continuous open-water swim',
-      confidenceExplanation:
-        'Extrapolated from pool CSS (1:36/100m). Log a continuous 750m open-water effort to verify sighting and wetsuit transfer.',
-      dataAnchorsUsed: ['100m TT (1:24)', '400m TT (6:12)', 'Derived CSS (1:36/100m)'],
+      confidenceExplanation: `Modeled using your Open Water CSS (${owCssStr}). Log a continuous 750m open-water effort to verify sighting and wetsuit transfer.`,
+      dataAnchorsUsed: [`OW CSS (${owCssStr})`, `Pool CSS (${poolCssStr})`],
     },
     {
       distanceId: 'olympic',
-      name: 'Olympic Triathlon (1,500m)',
+      name: 'Olympic Triathlon (1,500m Open Water)',
       distanceM: 1500,
       modelingBasis: hasDirectLong
-        ? 'Empirical 1,500m Continuous Swim Test'
-        : 'CSS (1:36/100m) + 5.5% Open-Water & Stamina Factor',
+        ? 'Empirical 1,500m Continuous Open-Water Swim'
+        : `OW CSS (${owCssStr}) + 1.9% Distance Stamina Factor`,
       predictedTimeSec: olympic1500.timeSec,
       predictedTimeFormatted: formatDurationHMS(olympic1500.timeSec),
       pacePer100mFormatted: formatSwimPace(olympic1500.pacePer100mSec),
@@ -1009,65 +1026,66 @@ export function computeSwimRacePredictions(params: CriticalParameters): SwimRace
       confidenceLevel: hasDirectLong ? 'high' : 'moderate',
       confidenceScore: hasDirectLong ? 90 : 70,
       confidenceTier: hasDirectLong ? 'Tested' : 'Extrapolated',
-      upgradeTest: 'Swim a continuous 1,500m time trial',
+      upgradeTest: 'Swim a continuous 1,500m open-water time trial',
       confidenceExplanation: hasDirectLong
-        ? 'Tested via continuous 1,500m swim telemetry.'
-        : 'Extrapolated from 400m pool TT (6:12). Upgrade by logging a continuous 1,500m swim.',
+        ? 'Tested via continuous 1,500m open-water swim telemetry.'
+        : `Extrapolated from your Open Water CSS (${owCssStr}) across 1,500m. Upgrade by logging a continuous 1,500m open-water swim.`,
       dataAnchorsUsed: hasDirectLong
-        ? ['Continuous 1,500m Telemetry', 'CSS Threshold']
-        : ['100m TT (1:24)', '400m TT (6:12)', 'CSS Decay Model'],
+        ? ['Continuous 1,500m Telemetry', `OW CSS (${owCssStr})`]
+        : [`OW CSS (${owCssStr})`, '+1.9% Stamina Factor'],
     },
     {
       distanceId: 'middle_70_3',
-      name: 'Middle Distance 70.3 (1,900m)',
+      name: 'Middle Distance 70.3 (1,900m Open Water)',
       distanceM: 1900,
-      modelingBasis: 'CSS (1:36/100m) + 8.3% Open-Water & Endurance Factor (~1:44/100m)',
+      modelingBasis: `OW CSS (${owCssStr}) + 2.9% Half-Ironman Endurance Factor (~${formatSwimPace(half1900.pacePer100mSec)})`,
       predictedTimeSec: half1900.timeSec,
       predictedTimeFormatted: formatDurationHMS(half1900.timeSec),
       pacePer100mFormatted: formatSwimPace(half1900.pacePer100mSec),
       targetAgeGroupTop20TimeSec: 32 * 60, // 32:00
       targetAgeGroupTop20TimeFormatted: '32:00',
       confidenceLevel: hasDirectLong ? 'high' : 'extrapolated',
-      confidenceScore: hasDirectLong ? 84 : 62,
+      confidenceScore: hasDirectLong ? 84 : 64,
       confidenceTier: hasDirectLong ? 'Tested' : 'Extrapolated',
       upgradeTest: 'Log a 1,500m–1,900m continuous open-water swim',
       confidenceExplanation: hasDirectLong
-        ? 'Anchored on 1,500m sustained speed with open-water sighting adjustment.'
-        : 'Extrapolated (~1:44/100m, ~33 min) from pool CSS (1:36/100m) with +8.3% open-water sighting & distance decay. Matches realistic open-water expectation given limited open-water logs.',
-      dataAnchorsUsed: hasDirectLong ? ['1,500m Continuous Data'] : ['400m TT (6:12)', 'CSS (1:36/100m)', '+8.3% OW Factor'],
+        ? 'Anchored on 1,500m sustained open-water speed.'
+        : `Modeled from your Open Water CSS (${owCssStr}) with +2.9% distance stamina decay (${formatDurationHMS(half1900.timeSec)} @ ${formatSwimPace(half1900.pacePer100mSec)}).`,
+      dataAnchorsUsed: hasDirectLong ? ['1,500m Continuous Data'] : [`OW CSS (${owCssStr})`, '+2.9% Stamina Factor'],
     },
     {
       distanceId: 'ironman',
-      name: 'Full IRONMAN (3,800m)',
+      name: 'Full IRONMAN (3,800m Open Water)',
       distanceM: 3800,
-      modelingBasis: 'CSS (1:36/100m) + 12.5% Open-Water Stamina Factor (~1:48/100m)',
+      modelingBasis: `OW CSS (${owCssStr}) + 5.3% Marathon-Swim Stamina Factor (~${formatSwimPace(full3800.pacePer100mSec)})`,
       predictedTimeSec: full3800.timeSec,
       predictedTimeFormatted: formatDurationHMS(full3800.timeSec),
       pacePer100mFormatted: formatSwimPace(full3800.pacePer100mSec),
       targetAgeGroupTop20TimeSec: 64 * 60, // 1:04:00
       targetAgeGroupTop20TimeFormatted: '1:04:00',
       confidenceLevel: hasDirectLong ? 'moderate' : 'extrapolated',
-      confidenceScore: hasDirectLong ? 74 : 48,
+      confidenceScore: hasDirectLong ? 74 : 52,
       confidenceTier: hasDirectLong ? 'Extrapolated' : 'Guess',
       upgradeTest: 'Log a 2,500m+ continuous open-water swim',
       confidenceExplanation: hasDirectLong
         ? 'Extrapolated from 1,500m base pace across 3.8km open-water fatigue curve.'
-        : 'Guess (long-range projection). Without logged 1,500m+ open-water swims, 3.8km stamina decay is modeled at ~1:48/100m.',
-      dataAnchorsUsed: hasDirectLong ? ['1,500m Base Pace', 'Aerobic Fatigue Model'] : ['CSS (1:36/100m)', '+12.5% OW Decay'],
+        : `Anchored on your Open Water CSS (${owCssStr}) with +5.3% 3.8km stamina decay (${formatDurationHMS(full3800.timeSec)} @ ${formatSwimPace(full3800.pacePer100mSec)}).`,
+      dataAnchorsUsed: hasDirectLong ? ['1,500m Base Pace', 'Aerobic Fatigue Model'] : [`OW CSS (${owCssStr})`, '+5.3% 3.8km Decay'],
     },
   ];
 
   return {
-    cssBasisPaceFormatted: formatSwimPace(css),
+    cssBasisPaceFormatted: poolCssStr,
+    owCssBasisPaceFormatted: owCssStr,
     swim100mFormatted: params.swim100mFormatted,
     swim400mFormatted: params.swim400mFormatted,
     benchmark1000mFormatted: params.swim1000mFormatted,
     benchmark1500mFormatted: params.swim1500mFormatted,
     hasDirectLongSwimPace: hasDirectLong,
-    overallSwimConfidence: hasDirectLong ? 84 : 66,
+    overallSwimConfidence: hasDirectLong ? 84 : 68,
     swimDataSummary: hasDirectLong
-      ? 'Supported by 100m (1:24), 400m (6:12) tests and long swim telemetry.'
-      : 'Pool CSS (1:36/100m) tested via 100m (1:24) & 400m (6:12) TTs; open-water 70.3/IM splits extrapolated.',
+      ? `Pool CSS (${poolCssStr}) for pool races; OW CSS (${owCssStr}) + long swim telemetry for open-water events.`
+      : `Regular Pool CSS (${poolCssStr}) used for 400m Pool Sprint; Open Water CSS (${owCssStr}) used for all Open Water races (750m, 1.5k, 70.3, Ironman ~70m).`,
     races,
   };
 }
@@ -1294,8 +1312,9 @@ export function computeUnifiedDisciplinePercentiles(
       ? 'Top 25% AG 70.3'
       : 'Mid-Pack AG 70.3';
 
-  // 3. Swimming CSS / 70.3 Swim Ability in M40-44 70.3 field (Median 50th = 1:52/100m [112s], 75th = 1:36/100m [96s], 90th = 1:25/100m [85s])
-  let swimPercentile = Math.round(50 + ((112 - cssSec) / (112 - 85)) * 40);
+  // 3. Swimming OW CSS / 70.3 Open-Water Ability in M40-44 70.3 field (Median 50th = 1:52/100m [112s], 75th = 1:36/100m [96s], 90th = 1:25/100m [85s])
+  const owCssSec = params.owCssSecPer100m; // 105s (1:45/100m)
+  let swimPercentile = Math.round(50 + ((112 - owCssSec) / (112 - 85)) * 40);
   swimPercentile = Math.max(15, Math.min(98, swimPercentile));
   const swimTier =
     swimPercentile >= 85
@@ -1329,14 +1348,14 @@ export function computeUnifiedDisciplinePercentiles(
     },
     {
       discipline: 'swim',
-      label: 'Swimming (CSS)',
-      metricName: 'Critical Swim Speed',
-      athleteValue: formatSwimPace(cssSec),
+      label: 'Swimming (Pool / OW CSS)',
+      metricName: 'Pool CSS · Open Water CSS',
+      athleteValue: `${formatSwimPace(cssSec)} Pool · ${formatSwimPace(owCssSec)} OW`,
       percentile: swimPercentile,
       tierLabel: swimTier,
       referenceStandard: agLabel,
       timeSensitivity: 'Modest (~12% race time)',
-      roiRecommendation: 'Lowest absolute time sensitivity (~12% of race); prioritize open-water sighting & calm T1 exit.',
+      roiRecommendation: `Pool CSS (${formatSwimPace(cssSec)}) used for pool sTSS/races; OW CSS (${formatSwimPace(owCssSec)}) used for 70.3 (~34m) & Ironman (~70m) open-water splits.`,
     },
   ];
 }
@@ -1511,8 +1530,8 @@ export function computeRaceWeaknessAnalysis(
         targetPaceOrPower: formatSwimPace(benchSwimSec / (swimDistM / 100)),
         coachingInsight:
           triDistance === 'sprint_400m'
-            ? `Swim leg is ~10% of sprint duration (${formatDurationHMS(athleteSwimSec)} vs 6:12 standalone TT). Pacing controlled at CSS avoids T1 lactate spike.`
-            : `~12% of total race time. Longest logged swim: ${longestSwimMeters}m vs ${swimDistM}m race distance; +8.3% open-water factor applied until a 1,500m+ swim is logged.`,
+            ? `Pool swim leg uses Regular Pool CSS (${params.cssFormatted}, ${formatDurationHMS(athleteSwimSec)} vs ${params.swim400mFormatted} standalone TT). Pacing controlled at Pool CSS avoids T1 lactate spike.`
+            : `~12% of total race time. Modeled from Open Water CSS (${params.owCssFormatted}) → ${formatDurationHMS(athleteSwimSec)} (${formatSwimPace(swimPace100m)}). Longest logged swim: ${longestSwimMeters}m vs ${swimDistM}m race distance.`,
       },
       {
         discipline: 'bike',
