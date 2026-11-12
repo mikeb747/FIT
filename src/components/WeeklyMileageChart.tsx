@@ -13,15 +13,24 @@ import {
   computeWeeklyRunningMileage,
   computeWeeklySwimDistance,
   computeWeeklyBikeHours,
+  computeWeeklyTss,
   WeeklyMileageBucket,
   WeeklySwimBucket,
   WeeklyBikeBucket,
+  WeeklyTssBucket,
   TimeGranularity,
   getSameDayAccumulatedInPeriod,
 } from '../utils/mileageEngine';
 import { FitnessZoneCharts } from './FitnessZoneCharts';
 
-export type ChartDatasetTab = 'mileage' | 'swim_distance' | 'bike_hours' | 'cycling_power' | 'running_pace' | 'running_hr';
+export type ChartDatasetTab =
+  | 'tss'
+  | 'mileage'
+  | 'swim_distance'
+  | 'bike_hours'
+  | 'cycling_power'
+  | 'running_pace'
+  | 'running_hr';
 
 /**
  * Format a Monday date into a compact short code for 24W & 52W:
@@ -67,7 +76,7 @@ export const WeeklyMileageChart: React.FC<WeeklyMileageChartProps> = ({
   athleteProfile,
   theme = 'dark',
   onSelectActivity,
-  initialTab = 'mileage',
+  initialTab = 'tss',
 }) => {
   const isLight = theme === 'light';
   const [activeTab, setActiveTab] = useState<ChartDatasetTab>(initialTab);
@@ -76,13 +85,27 @@ export const WeeklyMileageChart: React.FC<WeeklyMileageChartProps> = ({
   const [numMonths, setNumMonths] = useState<number>(12); // 12, 24, 36 (2, 3, 6 removed, 24, 36 added)
   const [unit, setUnit] = useState<'miles' | 'km'>('miles');
   const [metricType, setMetricType] = useState<'distance' | 'time'>('distance');
+  const [tssDisciplineFilter, setTssDisciplineFilter] = useState<'all' | 'run' | 'bike' | 'swim'>('all');
 
+  const [selectedTssWeek, setSelectedTssWeek] = useState<WeeklyTssBucket | null>(null);
   const [selectedWeek, setSelectedWeek] = useState<WeeklyMileageBucket | null>(null);
   const [selectedSwimWeek, setSelectedSwimWeek] = useState<WeeklySwimBucket | null>(null);
   const [selectedBikeWeek, setSelectedBikeWeek] = useState<WeeklyBikeBucket | null>(null);
   const scrollContainerRef = React.useRef<HTMLDivElement>(null);
 
   const currentPeriodCount = granularity === 'month' ? numMonths : numWeeks;
+
+  // Compute TSS volume from activities
+  const { weeks: tssWeeks, stats: tssStats } = useMemo(() => {
+    return computeWeeklyTss(
+      activities,
+      activityDetails,
+      athleteProfile,
+      currentPeriodCount,
+      granularity,
+      tssDisciplineFilter
+    );
+  }, [activities, activityDetails, athleteProfile, currentPeriodCount, granularity, tssDisciplineFilter]);
 
   // Compute Running volume
   const { weeks, stats } = useMemo(() => {
@@ -101,19 +124,29 @@ export const WeeklyMileageChart: React.FC<WeeklyMileageChartProps> = ({
 
   // Reset selected period bucket whenever granularity or lookback range changes
   React.useEffect(() => {
+    setSelectedTssWeek(null);
     setSelectedWeek(null);
     setSelectedSwimWeek(null);
     setSelectedBikeWeek(null);
-  }, [granularity, numWeeks, numMonths]);
+  }, [granularity, numWeeks, numMonths, tssDisciplineFilter]);
 
   // Scroll to the right (current period) by default when data loads or lookback changes
   React.useEffect(() => {
     if (scrollContainerRef.current) {
       scrollContainerRef.current.scrollLeft = scrollContainerRef.current.scrollWidth;
     }
-  }, [weeks, swimWeeks, bikeWeeks, currentPeriodCount, granularity]);
+  }, [tssWeeks, weeks, swimWeeks, bikeWeeks, currentPeriodCount, granularity, activeTab]);
 
   // Active selected period or default to the most recent period
+  const activeTssIdx = useMemo(() => {
+    if (!tssWeeks.length) return -1;
+    if (selectedTssWeek) {
+      const found = tssWeeks.findIndex((w) => w.weekKey === selectedTssWeek.weekKey);
+      if (found !== -1) return found;
+    }
+    return tssWeeks.length - 1;
+  }, [tssWeeks, selectedTssWeek]);
+
   const activeRunIdx = useMemo(() => {
     if (!weeks.length) return -1;
     if (selectedWeek) {
@@ -141,11 +174,18 @@ export const WeeklyMileageChart: React.FC<WeeklyMileageChartProps> = ({
     return bikeWeeks.length - 1;
   }, [bikeWeeks, selectedBikeWeek]);
 
+  const activeTssWeek = activeTssIdx >= 0 ? tssWeeks[activeTssIdx] : null;
   const activeWeek = activeRunIdx >= 0 ? weeks[activeRunIdx] : null;
   const activeSwimWeek = activeSwimIdx >= 0 ? swimWeeks[activeSwimIdx] : null;
   const activeBikeWeek = activeBikeIdx >= 0 ? bikeWeeks[activeBikeIdx] : null;
 
   // Peak Scale calculations
+  const maxTssScale = useMemo(() => {
+    const values = tssWeeks.map((w) => w.totalTss);
+    const highest = Math.max(...values, 100);
+    return Math.ceil(highest * 1.15);
+  }, [tssWeeks]);
+
   const maxWeeklyRun = useMemo(() => {
     const values = weeks.map((w) =>
       metricType === 'distance' ? (unit === 'miles' ? w.distanceMiles : w.distanceKm) : w.movingHours
@@ -170,7 +210,11 @@ export const WeeklyMileageChart: React.FC<WeeklyMileageChartProps> = ({
     return Math.ceil(highest * 1.15);
   }, [bikeWeeks, unit, metricType]);
 
-  // Same-day accumulated values for every period bar (Run, Swim, Bike)
+  // Same-day accumulated values for every period bar (TSS, Run, Swim, Bike)
+  const tssSameDayByBar = useMemo(() => {
+    return tssWeeks.map((w) => getSameDayAccumulatedInPeriod(w.items, granularity));
+  }, [tssWeeks, granularity]);
+
   const runSameDayByBar = useMemo(() => {
     return weeks.map((w) => getSameDayAccumulatedInPeriod(w.runs, granularity));
   }, [weeks, granularity]);
@@ -184,6 +228,9 @@ export const WeeklyMileageChart: React.FC<WeeklyMileageChartProps> = ({
   }, [bikeWeeks, granularity]);
 
   // Previous period reference relative to active selected period (or current period by default)
+  const prevTssPeriod = activeTssIdx > 0 ? tssWeeks[activeTssIdx - 1] : null;
+  const prevSameDayTss = activeTssIdx > 0 ? tssSameDayByBar[activeTssIdx - 1] : null;
+
   const prevRunPeriod = activeRunIdx > 0 ? weeks[activeRunIdx - 1] : null;
   const prevSameDayRun = activeRunIdx > 0 ? runSameDayByBar[activeRunIdx - 1] : null;
 
@@ -384,6 +431,7 @@ export const WeeklyMileageChart: React.FC<WeeklyMileageChartProps> = ({
         <div className="overflow-x-auto scrollbar-none pt-1">
           <div className="inline-flex items-center p-0.5 rounded-lg bg-slate-950/40 border border-slate-800 text-[11px] font-bold">
             {[
+              { id: 'tss', label: 'TSS' },
               { id: 'mileage', label: 'Run' },
               { id: 'swim_distance', label: 'Swim' },
               { id: 'bike_hours', label: 'Bike' },
@@ -409,6 +457,374 @@ export const WeeklyMileageChart: React.FC<WeeklyMileageChartProps> = ({
           </div>
         </div>
       </div>
+
+      {/* TSS SECTION */}
+      {activeTab === 'tss' && (() => {
+        const currentVal = activeTssWeek?.totalTss || 0;
+        const activeSameDay = activeTssIdx >= 0 ? tssSameDayByBar[activeTssIdx] : null;
+        const activeSameDayVal = activeSameDay ? activeSameDay.tss : currentVal;
+
+        const avgVal = tssStats.averageWeeklyTss;
+        const peakVal = tssStats.peakWeekTss;
+        const totalVal = tssStats.totalTss;
+
+        const metricUnitLabel = 'TSS';
+        const rateUnitLabel = `TSS/${granularity === 'month' ? 'mo' : 'wk'}`;
+        const periodShortLabel = granularity === 'month' ? 'mo' : 'wk';
+
+        const prevSameDayVal = prevSameDayTss ? prevSameDayTss.tss : 0;
+        const prevFullVal = prevTssPeriod ? prevTssPeriod.totalTss : 0;
+
+        const compareBaseVal = activeTssWeek?.isCurrentWeek ? currentVal : activeSameDayVal;
+        let sameDayChangePct: number | null = null;
+        if (prevSameDayVal > 0) {
+          sameDayChangePct = Math.round(((compareBaseVal - prevSameDayVal) / prevSameDayVal) * 100);
+        } else if (prevFullVal > 0) {
+          sameDayChangePct = Math.round(((currentVal - prevFullVal) / prevFullVal) * 100);
+        } else if (compareBaseVal > 0 && prevTssPeriod) {
+          sameDayChangePct = 100;
+        }
+
+        const avgPerActivity =
+          tssStats.totalActivities > 0 ? Math.round(tssStats.totalTss / tssStats.totalActivities) : 0;
+
+        return (
+          <div className="pt-2">
+            {/* Subheader: TSS + Badge + Discipline Filter */}
+            <div className="flex flex-wrap items-center justify-between gap-3 pt-4 pb-2">
+              <div className="flex flex-wrap items-center gap-2 sm:gap-2.5">
+                <h3 className={`text-sm sm:text-base font-extrabold tracking-tight ${isLight ? 'text-slate-900' : 'text-white'}`}>
+                  Training Stress Score (TSS)
+                </h3>
+                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-rose-500/15 text-rose-700 dark:text-rose-400 border border-rose-500/20">
+                  {granularity === 'month' ? 'Monthly' : 'Mon – Sun'}
+                </span>
+
+                {/* Discipline Filter for TSS */}
+                <div className="flex items-center p-0.5 rounded-lg bg-slate-950/40 border border-slate-800 text-[11px] font-bold">
+                  {[
+                    { id: 'all' as const, label: 'All' },
+                    { id: 'run' as const, label: 'Run' },
+                    { id: 'bike' as const, label: 'Bike' },
+                    { id: 'swim' as const, label: 'Swim' },
+                  ].map((opt) => (
+                    <button
+                      key={opt.id}
+                      type="button"
+                      onClick={() => setTssDisciplineFilter(opt.id)}
+                      className={`px-2 py-0.5 sm:py-1 rounded-md transition-colors cursor-pointer ${
+                        tssDisciplineFilter === opt.id
+                          ? 'bg-amber-500 text-slate-950 shadow-xs'
+                          : isLight
+                          ? 'text-slate-600 hover:text-slate-900'
+                          : 'text-slate-400 hover:text-white'
+                      }`}
+                    >
+                      {opt.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            {/* KPI Cards */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 sm:gap-3 my-4">
+              <div className={`p-3 rounded-xl border ${isLight ? 'bg-slate-50 border-slate-200' : 'bg-slate-950/40 border-slate-800/80'}`}>
+                <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 block">
+                  {activeTssWeek && !activeTssWeek.isCurrentWeek
+                    ? activeTssWeek.shortLabel
+                    : granularity === 'month'
+                    ? 'This Month'
+                    : 'This Week'}
+                </span>
+                <div className="mt-1 flex items-baseline gap-1.5">
+                  <span className="text-xl sm:text-2xl font-black font-mono text-amber-500">{currentVal}</span>
+                  <span className="text-xs text-slate-500 font-bold">{metricUnitLabel}</span>
+                </div>
+                {prevSameDayVal > 0 ? (
+                  <div className="mt-1 flex items-center gap-1 text-[10px] font-semibold">
+                    {sameDayChangePct !== null && sameDayChangePct >= 0 ? (
+                      <span className="text-emerald-500 flex items-center gap-0.5">
+                        <ArrowUpRight className="w-3 h-3 shrink-0" />
+                        {prevSameDayVal} TSS by same day last {periodShortLabel} (+{sameDayChangePct}%)
+                      </span>
+                    ) : (
+                      <span className="text-rose-400 flex items-center gap-0.5">
+                        <ArrowDownRight className="w-3 h-3 shrink-0" />
+                        {prevSameDayVal} TSS by same day last {periodShortLabel} ({sameDayChangePct}%)
+                      </span>
+                    )}
+                  </div>
+                ) : prevFullVal > 0 ? (
+                  <div className="mt-1 flex items-center gap-1 text-[10px] font-semibold">
+                    {sameDayChangePct !== null && sameDayChangePct >= 0 ? (
+                      <span className="text-emerald-500 flex items-center gap-0.5">
+                        <ArrowUpRight className="w-3 h-3 shrink-0" />
+                        0 TSS by same day ({prevFullVal} TSS last {periodShortLabel})
+                      </span>
+                    ) : (
+                      <span className="text-rose-400 flex items-center gap-0.5">
+                        <ArrowDownRight className="w-3 h-3 shrink-0" />
+                        0 TSS by same day ({prevFullVal} TSS last {periodShortLabel})
+                      </span>
+                    )}
+                  </div>
+                ) : (
+                  <div className="mt-1 text-[10px] text-slate-500 font-semibold">
+                    0 TSS by same day last {periodShortLabel}
+                  </div>
+                )}
+              </div>
+
+              <div className={`p-3 rounded-xl border ${isLight ? 'bg-slate-50 border-slate-200' : 'bg-slate-950/40 border-slate-800/80'}`}>
+                <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 block">
+                  {granularity === 'month' ? 'Monthly Average' : 'Weekly Average'}
+                </span>
+                <div className="mt-1 flex items-baseline gap-1.5">
+                  <span className="text-xl sm:text-2xl font-black font-mono text-sky-400">{avgVal}</span>
+                  <span className="text-xs text-slate-500 font-bold">{rateUnitLabel}</span>
+                </div>
+                <span className="text-[10px] text-slate-500">
+                  {avgPerActivity > 0
+                    ? `${avgPerActivity} TSS average per workout`
+                    : `Over ${currentPeriodCount} ${granularity === 'month' ? 'months' : 'weeks'}`}
+                </span>
+              </div>
+
+              <div className={`p-3 rounded-xl border ${isLight ? 'bg-slate-50 border-slate-200' : 'bg-slate-950/40 border-slate-800/80'}`}>
+                <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 block">
+                  {granularity === 'month' ? 'Peak Month' : 'Peak Week'}
+                </span>
+                <div className="mt-1 flex items-baseline gap-1.5">
+                  <span className="text-xl sm:text-2xl font-black font-mono text-emerald-400">{peakVal}</span>
+                  <span className="text-xs text-slate-500 font-bold">{metricUnitLabel}</span>
+                </div>
+                <span className="text-[10px] text-slate-500 truncate block">{tssStats.peakWeekLabel || 'None'}</span>
+              </div>
+
+              <div className={`p-3 rounded-xl border ${isLight ? 'bg-slate-50 border-slate-200' : 'bg-slate-950/40 border-slate-800/80'}`}>
+                <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 block">Total Load</span>
+                <div className="mt-1 flex items-baseline gap-1.5">
+                  <span className="text-xl sm:text-2xl font-black font-mono text-purple-400">{totalVal}</span>
+                  <span className="text-xs text-slate-500 font-bold">{metricUnitLabel}</span>
+                </div>
+                <span className="text-[10px] text-slate-500">
+                  {tssStats.totalActivities} workouts ({tssStats.totalRunTss}R / {tssStats.totalBikeTss}B / {tssStats.totalSwimTss}S)
+                </span>
+              </div>
+            </div>
+
+            {/* Chart Area */}
+            <div className="space-y-2 mt-4">
+              <div className="flex items-center justify-between text-xs text-slate-500 px-1">
+                <span className="flex items-center gap-1.5 font-medium">
+                  <Flame className="w-3.5 h-3.5 text-rose-500" />
+                  Training Stress Score (TSS) per {granularity}
+                </span>
+                <span className="font-mono text-[11px]">Peak Scale: {maxTssScale} TSS</span>
+              </div>
+
+              <div className="-mx-4 sm:-mx-5 overflow-x-auto scrollbar-thin pb-2" ref={scrollContainerRef}>
+                <div className={`relative pt-6 pb-1 ${currentPeriodCount >= 36 ? 'min-w-[620px] sm:min-w-full' : currentPeriodCount === 52 ? 'min-w-[560px] sm:min-w-full' : 'w-full'}`}>
+                  {/* Dedicated 0-100% Bar Plot Area */}
+                  <div className="relative h-44 sm:h-52 w-full">
+                    {avgVal > 0 && (
+                      <div
+                        className="absolute left-0 right-0 border-b-2 border-dotted border-red-500 z-20 pointer-events-none"
+                        style={{ bottom: `${Math.min(92, (avgVal / maxTssScale) * 100)}%` }}
+                      >
+                        <span className="absolute right-2 -top-4 text-[10px] font-mono font-bold text-black bg-white/95 border border-slate-300 px-1.5 py-0.5 rounded shadow-sm">
+                          Avg: {avgVal} TSS
+                        </span>
+                      </div>
+                    )}
+
+                    <div className={`h-full w-full flex items-end ${currentPeriodCount >= 36 ? 'gap-[1px] sm:gap-[1.5px]' : currentPeriodCount === 52 ? 'gap-[1.5px]' : 'gap-[3px]'} px-0 relative z-10`}>
+                      {tssWeeks.map((w, idx) => {
+                        const val = w.totalTss;
+                        const heightPct = Math.min(100, Math.max(val > 0 ? 6 : 2, (val / maxTssScale) * 100));
+                        const isSelected = activeTssWeek?.weekKey === w.weekKey;
+
+                        const barSameDay = tssSameDayByBar[idx];
+                        const barSameDayVal = barSameDay ? barSameDay.tss : 0;
+                        const lineVal = w.isCurrentWeek ? prevSameDayVal : barSameDayVal;
+                        const rawLinePct = val > 0 && !w.isCurrentWeek
+                          ? heightPct * Math.min(1, lineVal / val)
+                          : Math.min(100, Math.max(0, (lineVal / maxTssScale) * 100));
+                        const showBlueLine = lineVal > 0 || (!w.isCurrentWeek && val > 0);
+                        const clampedLineStyle =
+                          !w.isCurrentWeek && val > 0 && lineVal >= val
+                            ? `calc(${heightPct}% - 2px)`
+                            : `${Math.max(val > 0 && lineVal === 0 ? 2 : 0, rawLinePct)}%`;
+
+                        return (
+                          <div
+                            key={w.weekKey}
+                            onClick={() => setSelectedTssWeek(w)}
+                            className="flex-1 min-w-0 h-full flex items-end cursor-pointer group relative"
+                          >
+                            {val > 0 && (
+                              <div
+                                style={{ bottom: `${heightPct}%` }}
+                                className={`absolute left-1/2 -translate-x-1/2 mb-1 z-20 text-[10px] font-mono font-bold transition-all whitespace-nowrap pointer-events-none ${
+                                  isSelected
+                                    ? 'text-amber-400 scale-110'
+                                    : isLight
+                                    ? 'text-slate-700 group-hover:text-amber-600'
+                                    : 'text-slate-400 group-hover:text-amber-400'
+                                } ${currentPeriodCount >= 24 && !isSelected ? 'hidden sm:block opacity-0 group-hover:opacity-100' : ''}`}
+                              >
+                                {val}
+                              </div>
+                            )}
+
+                            {showBlueLine && (
+                              <div
+                                className="absolute left-0 right-0 z-30 pointer-events-none"
+                                style={{ bottom: clampedLineStyle }}
+                                title={
+                                  w.isCurrentWeek
+                                    ? `By same day last ${granularity === 'month' ? 'month' : 'week'}: ${lineVal} TSS`
+                                    : `By same day in ${w.shortLabel}: ${lineVal} TSS (Total: ${val} TSS)`
+                                }
+                              >
+                                <div className="w-full border-b-2 border-dotted border-blue-950 dark:border-blue-300 shadow-[0_0_2px_rgba(255,255,255,0.7)]" />
+                              </div>
+                            )}
+
+                            <div
+                              className="w-full relative rounded-t-sm transition-all duration-300 border border-black box-border"
+                              style={{
+                                height: `${heightPct}%`,
+                                backgroundColor:
+                                  val === 0
+                                    ? isLight
+                                      ? '#e2e8f0'
+                                      : '#1e293b'
+                                    : isSelected
+                                    ? '#f59e0b'
+                                    : w.isCurrentWeek
+                                    ? '#fbbf24'
+                                    : isLight
+                                    ? '#38bdf8'
+                                    : '#0284c7',
+                                opacity: val === 0 ? 0.35 : isSelected ? 1 : 0.85,
+                                boxShadow: isSelected ? '0 0 12px rgba(245, 158, 11, 0.45)' : undefined,
+                              }}
+                            />
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  {/* Date labels row below the 0-100% bar plot area */}
+                  <div className={`mt-2 w-full flex items-center ${currentPeriodCount >= 36 ? 'gap-[1px] sm:gap-[1.5px]' : currentPeriodCount === 52 ? 'gap-[1.5px]' : 'gap-[3px]'}`}>
+                    {tssWeeks.map((w) => {
+                      const isSelected = activeTssWeek?.weekKey === w.weekKey;
+                      return (
+                        <div
+                          key={`lbl-${w.weekKey}`}
+                          onClick={() => setSelectedTssWeek(w)}
+                          className="flex-1 min-w-0 text-center px-0.5 cursor-pointer"
+                        >
+                          <span
+                            className={`text-[9px] ${currentPeriodCount >= 24 ? 'text-[8px] sm:text-[9px]' : ''} font-mono block truncate ${
+                              isSelected
+                                ? 'text-amber-500 font-bold'
+                                : w.isCurrentWeek
+                                ? 'text-amber-400 font-semibold'
+                                : isLight
+                                ? 'text-slate-500'
+                                : 'text-slate-400'
+                            }`}
+                            title={w.weekLabel}
+                          >
+                            {granularity === 'month'
+                              ? currentPeriodCount > 12
+                                ? formatMonthShortCode(w.mondayDate)
+                                : w.shortLabel
+                              : currentPeriodCount >= 24
+                              ? formatWeekShortCode(w.mondayDate)
+                              : w.shortLabel.replace(/^[A-Za-z]+ /, '')}
+                          </span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Selected Period TSS Breakdown */}
+            {activeTssWeek && (
+              <div className={`mt-4 p-3.5 rounded-xl border ${isLight ? 'bg-rose-50/40 border-rose-200 text-slate-900' : 'bg-slate-950/70 border-slate-800 text-slate-200'}`}>
+                <div className="flex flex-wrap items-center justify-between gap-2 pb-2 border-b border-slate-200 dark:border-slate-800">
+                  <div className="flex items-center gap-2">
+                    <Calendar className="w-4 h-4 text-rose-500" />
+                    <span className="text-xs font-bold">
+                      {activeTssWeek.weekLabel} {activeTssWeek.isCurrentWeek ? '(Current)' : ''}
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-3 text-xs font-mono flex-wrap">
+                    <span className="font-bold text-rose-500">
+                      {activeTssWeek.totalTss} TSS ({activeTssWeek.movingHours} hrs)
+                    </span>
+                    <span className="text-[11px] text-slate-400">
+                      Run {activeTssWeek.runTss} • Bike {activeTssWeek.bikeTss} • Swim {activeTssWeek.swimTss}
+                      {activeTssWeek.otherTss > 0 ? ` • Other ${activeTssWeek.otherTss}` : ''}
+                    </span>
+                    <span className="text-slate-400">{activeTssWeek.activitiesCount} workouts</span>
+                  </div>
+                </div>
+
+                {activeTssWeek.items.length === 0 ? (
+                  <p className="text-xs text-slate-400 py-3 text-center">No workouts with TSS logged in this period.</p>
+                ) : (
+                  <div className="mt-2.5 divide-y divide-slate-200/60 dark:divide-slate-800/60">
+                    {activeTssWeek.items.map((item) => {
+                      const catColor =
+                        item.category === 'Run'
+                          ? 'text-amber-500'
+                          : item.category === 'Bike'
+                          ? 'text-orange-500'
+                          : item.category === 'Swim'
+                          ? 'text-sky-500'
+                          : 'text-purple-400';
+                      return (
+                        <div
+                          key={item.id}
+                          onClick={() => onSelectActivity && onSelectActivity(item.id)}
+                          className={`py-2 flex items-center justify-between text-xs transition-colors rounded-lg px-2 -mx-2 ${
+                            onSelectActivity ? 'hover:bg-rose-500/10 cursor-pointer' : ''
+                          }`}
+                        >
+                          <div className="flex items-center gap-2 min-w-0">
+                            <span className="text-[11px] font-mono font-bold text-slate-400 shrink-0 w-8">{item.dayOfWeek}</span>
+                            <span className={`text-[10px] font-bold uppercase px-1.5 py-0.5 rounded bg-slate-800/60 ${catColor} shrink-0`}>
+                              {item.category}
+                            </span>
+                            <span className="font-medium truncate">{item.name}</span>
+                          </div>
+                          <div className="flex items-center gap-2.5 font-mono shrink-0 text-[11px]">
+                            <span className="text-slate-400 hidden sm:inline">{item.movingHours}h</span>
+                            <span className="text-[10px] text-slate-500 hidden md:inline">{item.tssType}</span>
+                            <span className="font-bold text-rose-400 flex items-center gap-0.5">
+                              <Flame className="w-3 h-3" />
+                              {item.tss} TSS
+                            </span>
+                            {onSelectActivity && <ChevronRight className="w-3.5 h-3.5 text-slate-400" />}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        );
+      })()}
 
       {/* SWIM SECTION */}
       {activeTab === 'swim_distance' && (() => {

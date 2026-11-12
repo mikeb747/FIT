@@ -1351,7 +1351,7 @@ export const FitnessTab: React.FC<FitnessTabProps> = ({
         activities={activities}
         activityDetails={activityDetails}
         athleteProfile={athleteProfile}
-        initialTab={selectedSport === 'bike' ? 'cycling_power' : 'mileage'}
+        initialTab={selectedSport === 'bike' ? 'cycling_power' : selectedSport === 'run' ? 'mileage' : selectedSport === 'swim' ? 'swim_distance' : 'tss'}
         theme={theme}
         onSelectActivity={(actId) => {
           handleOpenActivityModal(actId);

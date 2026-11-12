@@ -1,6 +1,10 @@
-import { StravaActivity } from './stravaActivities';
-import { classifyActivity } from './stravaActivities';
-import { formatSecondsToMinSec } from '../types/athlete';
+import {
+  StravaActivity,
+  StravaActivityDetailsRecord,
+  classifyActivity,
+  calculateActivityTSS,
+} from './stravaActivities';
+import { AthleteProfile, formatSecondsToMinSec } from '../types/athlete';
 
 export interface WeeklyRunRecord {
   id: string | number;
@@ -892,17 +896,26 @@ export function computeWeeklyBikeHours(
  * up to the exact same day of the week or month relative to a reference date.
  */
 export function getSameDayAccumulatedInPeriod(
-  items: { startDate: string; distanceMiles?: number; distanceKm?: number; movingTimeSec?: number; movingHours?: number }[],
+  items: {
+    startDate: string;
+    distanceMiles?: number;
+    distanceKm?: number;
+    movingTimeSec?: number;
+    movingHours?: number;
+    tss?: number;
+  }[],
   granularity: TimeGranularity,
   referenceDate: Date = new Date()
 ): {
   distanceMiles: number;
   distanceKm: number;
   movingHours: number;
+  tss: number;
 } {
   let miles = 0;
   let km = 0;
   let sec = 0;
+  let tss = 0;
 
   if (granularity === 'month') {
     const curDayOfMonth = referenceDate.getDate(); // 1..31
@@ -917,6 +930,7 @@ export function getSameDayAccumulatedInPeriod(
         miles += itemMiles;
         km += itemKm;
         sec += itemSec;
+        tss += item.tss || 0;
       }
     }
   } else {
@@ -935,6 +949,7 @@ export function getSameDayAccumulatedInPeriod(
         miles += itemMiles;
         km += itemKm;
         sec += itemSec;
+        tss += item.tss || 0;
       }
     }
   }
@@ -943,7 +958,260 @@ export function getSameDayAccumulatedInPeriod(
     distanceMiles: roundMetricVal(miles),
     distanceKm: roundMetricVal(km),
     movingHours: roundMetricVal(sec / 3600),
+    tss: Math.round(tss),
   };
 }
+
+export interface WeeklyTssActivityItem {
+  id: string | number;
+  name: string;
+  startDate: string;
+  dayOfWeek: string;
+  category: 'Run' | 'Bike' | 'Swim' | 'Gym' | 'Other';
+  tss: number;
+  tssType: string;
+  movingTimeSec: number;
+  movingHours: number;
+  distanceKm: number;
+}
+
+export interface WeeklyTssBucket {
+  weekKey: string;
+  mondayDate: Date;
+  sundayDate: Date;
+  weekLabel: string;
+  shortLabel: string;
+  isCurrentWeek: boolean;
+  totalTss: number;
+  runTss: number;
+  bikeTss: number;
+  swimTss: number;
+  otherTss: number;
+  movingHours: number;
+  activitiesCount: number;
+  items: WeeklyTssActivityItem[];
+}
+
+export interface TssSummaryStats {
+  totalTss: number;
+  totalRunTss: number;
+  totalBikeTss: number;
+  totalSwimTss: number;
+  totalOtherTss: number;
+  totalActivities: number;
+  averageWeeklyTss: number;
+  peakWeekTss: number;
+  peakWeekLabel: string;
+  currentWeekTss: number;
+  previousWeekTss: number;
+  weekOverWeekChangePct: number | null;
+}
+
+export function computeWeeklyTss(
+  activities: StravaActivity[],
+  activityDetails?: Record<string, StravaActivityDetailsRecord>,
+  athleteProfile?: AthleteProfile,
+  numPeriods: number = 12,
+  granularity: TimeGranularity = 'week',
+  disciplineFilter: 'all' | 'run' | 'bike' | 'swim' = 'all'
+): { weeks: WeeklyTssBucket[]; stats: TssSummaryStats } {
+  const now = new Date();
+  const weeksMap = new Map<string, WeeklyTssBucket>();
+  const bucketKeys: string[] = [];
+
+  if (granularity === 'month') {
+    const curYear = now.getFullYear();
+    const curMonth = now.getMonth();
+    for (let i = numPeriods - 1; i >= 0; i--) {
+      const d = new Date(curYear, curMonth - i, 1);
+      const year = d.getFullYear();
+      const month = d.getMonth();
+      const firstDay = new Date(year, month, 1, 0, 0, 0, 0);
+      const lastDay = new Date(year, month + 1, 0, 23, 59, 59, 999);
+      const key = `${year}-${String(month + 1).padStart(2, '0')}`;
+      const shortLabel = firstDay.toLocaleDateString(undefined, { month: 'short' });
+      const weekLabel = firstDay.toLocaleDateString(undefined, { month: 'long', year: 'numeric' });
+      const isCurrentWeek = year === curYear && month === curMonth;
+
+      weeksMap.set(key, {
+        weekKey: key,
+        mondayDate: firstDay,
+        sundayDate: lastDay,
+        weekLabel,
+        shortLabel,
+        isCurrentWeek,
+        totalTss: 0,
+        runTss: 0,
+        bikeTss: 0,
+        swimTss: 0,
+        otherTss: 0,
+        movingHours: 0,
+        activitiesCount: 0,
+        items: [],
+      });
+      bucketKeys.push(key);
+    }
+  } else {
+    const currentMonday = getMondayOfWeek(now);
+    const currentMondayKey = formatLocalDateKey(currentMonday);
+    for (let i = numPeriods - 1; i >= 0; i--) {
+      const mon = new Date(currentMonday);
+      mon.setDate(currentMonday.getDate() - i * 7);
+      mon.setHours(0, 0, 0, 0);
+      const key = formatLocalDateKey(mon);
+      const sunday = new Date(mon);
+      sunday.setDate(mon.getDate() + 6);
+      sunday.setHours(23, 59, 59, 999);
+
+      const { weekLabel, shortLabel } = formatWeekRange(mon);
+      const isCurrentWeek = key === currentMondayKey;
+
+      weeksMap.set(key, {
+        weekKey: key,
+        mondayDate: mon,
+        sundayDate: sunday,
+        weekLabel,
+        shortLabel,
+        isCurrentWeek,
+        totalTss: 0,
+        runTss: 0,
+        bikeTss: 0,
+        swimTss: 0,
+        otherTss: 0,
+        movingHours: 0,
+        activitiesCount: 0,
+        items: [],
+      });
+      bucketKeys.push(key);
+    }
+  }
+
+  activities.forEach((act) => {
+    if (act.isDeleted) return;
+    const details = activityDetails?.[String(act.id)];
+    if (details?.calibration?.isIgnoredFromTrainingStatus) return;
+
+    const cls = classifyActivity(act);
+    if (disciplineFilter === 'run' && cls.category !== 'Run') return;
+    if (disciplineFilter === 'bike' && cls.category !== 'Bike') return;
+    if (disciplineFilter === 'swim' && cls.category !== 'Swim') return;
+
+    const rawDateStr = act.start_date_local || act.start_date;
+    if (!rawDateStr) return;
+    const actDate = parseActivityLocalDate(rawDateStr);
+    if (isNaN(actDate.getTime())) return;
+
+    let key: string;
+    if (granularity === 'month') {
+      key = `${actDate.getFullYear()}-${String(actDate.getMonth() + 1).padStart(2, '0')}`;
+    } else {
+      const actMonday = getMondayOfWeek(actDate);
+      key = formatLocalDateKey(actMonday);
+    }
+
+    const bucket = weeksMap.get(key);
+    if (!bucket) return;
+
+    const tssRes = calculateActivityTSS(act, details, athleteProfile);
+    const tss = Math.round(details?.calibration?.manualTss ?? tssRes?.tss ?? act.suffer_score ?? 0);
+    if (tss <= 0) return;
+
+    const movingSec = details?.calibration?.calibratedMovingTimeSec ?? act.moving_time ?? 0;
+    const movingHrs = movingSec / 3600;
+    const distM = details?.calibration?.calibratedDistanceM ?? act.distance ?? 0;
+    const dayName = actDate.toLocaleDateString(undefined, { weekday: 'short' });
+
+    bucket.totalTss += tss;
+    if (cls.category === 'Run') bucket.runTss += tss;
+    else if (cls.category === 'Bike') bucket.bikeTss += tss;
+    else if (cls.category === 'Swim') bucket.swimTss += tss;
+    else bucket.otherTss += tss;
+
+    bucket.movingHours += movingHrs;
+    bucket.activitiesCount += 1;
+
+    bucket.items.push({
+      id: act.id,
+      name: act.name || `${cls.subType} Workout`,
+      startDate: rawDateStr,
+      dayOfWeek: dayName,
+      category: cls.category,
+      tss,
+      tssType: details?.calibration?.manualTss !== undefined ? 'Manual TSS' : (tssRes?.type || 'TSS'),
+      movingTimeSec: movingSec,
+      movingHours: roundMetricVal(movingHrs),
+      distanceKm: roundMetricVal(distM / 1000),
+    });
+  });
+
+  const resultWeeks: WeeklyTssBucket[] = [];
+  let totalTss = 0;
+  let totalRunTss = 0;
+  let totalBikeTss = 0;
+  let totalSwimTss = 0;
+  let totalOtherTss = 0;
+  let totalActivities = 0;
+  let peakWeekTss = 0;
+  let peakWeekLabel = '';
+
+  for (const key of bucketKeys) {
+    const b = weeksMap.get(key)!;
+    b.totalTss = Math.round(b.totalTss);
+    b.runTss = Math.round(b.runTss);
+    b.bikeTss = Math.round(b.bikeTss);
+    b.swimTss = Math.round(b.swimTss);
+    b.otherTss = Math.round(b.otherTss);
+    b.movingHours = roundMetricVal(b.movingHours);
+    b.items.sort(
+      (a, bItem) => parseActivityLocalDate(a.startDate).getTime() - parseActivityLocalDate(bItem.startDate).getTime()
+    );
+
+    totalTss += b.totalTss;
+    totalRunTss += b.runTss;
+    totalBikeTss += b.bikeTss;
+    totalSwimTss += b.swimTss;
+    totalOtherTss += b.otherTss;
+    totalActivities += b.activitiesCount;
+
+    if (b.totalTss > peakWeekTss) {
+      peakWeekTss = b.totalTss;
+      peakWeekLabel = b.shortLabel;
+    }
+
+    resultWeeks.push(b);
+  }
+
+  const currentWeek = resultWeeks[resultWeeks.length - 1];
+  const prevWeek = resultWeeks.length >= 2 ? resultWeeks[resultWeeks.length - 2] : null;
+  const currentWeekTss = currentWeek?.totalTss || 0;
+  const previousWeekTss = prevWeek?.totalTss || 0;
+
+  let weekOverWeekChangePct: number | null = null;
+  if (previousWeekTss > 0) {
+    weekOverWeekChangePct = Math.round(((currentWeekTss - previousWeekTss) / previousWeekTss) * 100);
+  }
+
+  const count = resultWeeks.length || 1;
+  const averageWeeklyTss = Math.round(totalTss / count);
+
+  return {
+    weeks: resultWeeks,
+    stats: {
+      totalTss,
+      totalRunTss,
+      totalBikeTss,
+      totalSwimTss,
+      totalOtherTss,
+      totalActivities,
+      averageWeeklyTss,
+      peakWeekTss,
+      peakWeekLabel,
+      currentWeekTss,
+      previousWeekTss,
+      weekOverWeekChangePct,
+    },
+  };
+}
+
 
 

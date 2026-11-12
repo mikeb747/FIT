@@ -352,7 +352,8 @@ export function classifyActivity(activity: StravaActivity): ActivityClassificati
   // 3. Run Family (Strictly match Run or TrailRun)
   const isRunBase = matches('Run') || matches('TrailRun');
   const isVirtualRun = matches('VirtualRun');
-  if (isVirtualRun || (isRunBase && isTrainer)) {
+  const hasTreadmillName = /treadmill|indoor run/i.test(activity.name || '');
+  if (isVirtualRun || (isRunBase && (isTrainer || hasTreadmillName))) {
     return { category: 'Run', subType: 'Treadmill Run', isOutdoor: false };
   }
   if (isRunBase) {
@@ -842,7 +843,11 @@ export function getRunActivityDetails(
   }
 
   const { subType } = classifyActivity(activity);
-  const isTreadmill = subType === 'Treadmill Run';
+  const isTreadmill =
+    subType === 'Treadmill Run' ||
+    Boolean(activity.trainer) ||
+    /treadmill|indoor run/i.test(activity.name || '') ||
+    Boolean(details?.calibration?.calibratedRunSections?.length);
 
   const rawSplits = (details?.activity?.splits_metric as any[]) || [];
   const splits: RunSplitItem[] = [];
@@ -887,8 +892,8 @@ export function getRunActivityDetails(
         movingTimeSec: Math.round(avgSecPerSplit),
         paceFormatted: `${sm}:${ss.toString().padStart(2, '0')}/km`,
         paceSecPerKm: Math.round(avgSecPerSplit),
-        gapSecPerKm: Math.round(avgSecPerSplit),
-        gapFormatted: `${sm}:${ss.toString().padStart(2, '0')}/km`,
+        gapSecPerKm: !isTreadmill ? Math.round(avgSecPerSplit) : undefined,
+        gapFormatted: !isTreadmill ? `${sm}:${ss.toString().padStart(2, '0')}/km` : undefined,
         avgHr: activity.average_heartrate ? Math.round(activity.average_heartrate) : undefined,
         isFasterThanAvg: false,
       });
@@ -903,8 +908,8 @@ export function getRunActivityDetails(
         movingTimeSec: remTime,
         paceFormatted: `${sm}:${ss.toString().padStart(2, '0')}/km`,
         paceSecPerKm: Math.round(avgSecPerSplit),
-        gapSecPerKm: Math.round(avgSecPerSplit),
-        gapFormatted: `${sm}:${ss.toString().padStart(2, '0')}/km`,
+        gapSecPerKm: !isTreadmill ? Math.round(avgSecPerSplit) : undefined,
+        gapFormatted: !isTreadmill ? `${sm}:${ss.toString().padStart(2, '0')}/km` : undefined,
         avgHr: activity.average_heartrate ? Math.round(activity.average_heartrate) : undefined,
         isFasterThanAvg: false,
       });

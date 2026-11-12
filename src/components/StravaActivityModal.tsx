@@ -1383,7 +1383,11 @@ export const StravaActivityModal: React.FC<StravaActivityModalProps> = ({
 
           {/* Running Splits Breakdown */}
           {classification.category === 'Run' && runDetails && (() => {
-            const isTreadmill = classification.subType === 'Treadmill Run';
+            const isTreadmill =
+              classification.subType === 'Treadmill Run' ||
+              Boolean(activity.trainer) ||
+              /treadmill|indoor run/i.test(currentActivityName || activity.name || '') ||
+              Boolean(detailsRecord?.calibration?.calibratedRunSections?.length);
             const effectiveSplitsMode = isTreadmill && splitsDisplayMode === 'gap' ? 'pace' : splitsDisplayMode;
 
             return (

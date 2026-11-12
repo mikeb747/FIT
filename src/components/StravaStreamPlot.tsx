@@ -718,12 +718,15 @@ export const StravaStreamPlot: React.FC<StravaStreamPlotProps> = ({
                   {runDetails.avgCadence} spm
                 </div>
               )}
-              {runDetails.gradeAdjustedPaceFormatted && (
-                <div className="px-2 py-0.5 rounded-md bg-slate-900 border border-slate-800 text-[10px] font-mono text-emerald-400 flex items-center gap-1" title="Grade Adjusted Pace">
-                  <TrendingUp className="w-3 h-3 text-emerald-400 inline" />
-                  <span>GAP {runDetails.gradeAdjustedPaceFormatted}</span>
-                </div>
-              )}
+              {classification.subType !== 'Treadmill Run' &&
+                !Boolean(activity.trainer) &&
+                !/treadmill|indoor run/i.test(activity.name || '') &&
+                runDetails.gradeAdjustedPaceFormatted && (
+                  <div className="px-2 py-0.5 rounded-md bg-slate-900 border border-slate-800 text-[10px] font-mono text-emerald-400 flex items-center gap-1" title="Grade Adjusted Pace">
+                    <TrendingUp className="w-3 h-3 text-emerald-400 inline" />
+                    <span>GAP {runDetails.gradeAdjustedPaceFormatted}</span>
+                  </div>
+                )}
             </div>
           )}
         </div>
