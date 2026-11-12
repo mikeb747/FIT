@@ -170,9 +170,11 @@ export default function App() {
   };
 
   // -------------------------------------------------------------
-  // Navigation & Recovery Tracking State
+  // Navigation & Global Goal State (Shared across Fitness & Performance)
   // -------------------------------------------------------------
   const [activeMainTab, setActiveMainTab] = useState<'activities' | 'recovery' | 'fitness' | 'performance' | 'coach'>('activities');
+  const [globalTriDistance, setGlobalTriDistance] = useState<'sprint' | 'olympic' | 'middle_70_3' | 'ironman'>('middle_70_3');
+  const [globalBikeCourseProfile, setGlobalBikeCourseProfile] = useState<'flat' | 'rolling_800m' | 'hilly'>('rolling_800m');
   
   // Garmin Connect state
   const [isGarminSyncOpen, setIsGarminSyncOpen] = useState(false);
@@ -1272,6 +1274,8 @@ export default function App() {
             theme={theme}
             stravaToken={stravaToken}
             isGoogleConnected={isGoogleConnected}
+            globalTriDistance={globalTriDistance}
+            onChangeGlobalTriDistance={setGlobalTriDistance}
             onConnectGoogle={handleConnectGoogle}
             onActivityPublished={handleActivityPublished}
             onOpenSettings={() => {
@@ -1289,6 +1293,12 @@ export default function App() {
             theme={theme}
             stravaToken={stravaToken}
             isGoogleConnected={isGoogleConnected}
+            globalTriDistance={globalTriDistance}
+            onChangeGlobalTriDistance={(dist) =>
+              setGlobalTriDistance(dist === 'sprint_400m' ? 'sprint' : dist)
+            }
+            globalBikeCourseProfile={globalBikeCourseProfile}
+            onChangeGlobalBikeCourseProfile={setGlobalBikeCourseProfile}
             onConnectGoogle={handleConnectGoogle}
             onActivityPublished={handleActivityPublished}
             onDeleteActivity={handleDeleteActivity}

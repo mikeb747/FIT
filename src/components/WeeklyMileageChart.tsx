@@ -1410,20 +1410,100 @@ export const WeeklyMileageChart: React.FC<WeeklyMileageChartProps> = ({
 
             {/* SVG / Flex Bar Chart */}
             <div className="space-y-2 mt-4">
-              <div className="flex items-center justify-between text-xs text-slate-500 px-1">
+              <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-slate-500 px-1">
                 <span className="flex items-center gap-1.5 font-medium">
                   <BarChart2 className="w-3.5 h-3.5 text-amber-500" />
                   Run {metricType === 'distance' ? `distance (${unit})` : 'moving time (hours)'} per {granularity}
                 </span>
-                <span className="font-mono text-[11px]">
-                  Peak Scale: {maxWeeklyRun} {metricUnitLabel}
-                </span>
+                <div className="flex items-center gap-3 flex-wrap text-[11px] font-mono">
+                  {granularity === 'week' && avgVal > 0 && (
+                    <span className="inline-flex items-center gap-1 text-emerald-500 dark:text-emerald-400 font-bold">
+                      <span className="w-2.5 h-2 rounded-xs bg-emerald-500/25 border border-emerald-500/60 inline-block" />
+                      Safe Ramp Band (≤ +15% / +3.5 rCTL/wk)
+                    </span>
+                  )}
+                  <span>
+                    Peak Scale: {maxWeeklyRun} {metricUnitLabel}
+                  </span>
+                </div>
               </div>
+
+              {(() => {
+                // Identify weekly ramp-cap breaches (> +15% and significant volume jump over prior week)
+                const minBase = metricType === 'distance' ? (unit === 'miles' ? 5 : 8) : 0.75;
+                const minDelta = metricType === 'distance' ? (unit === 'miles' ? 2.5 : 4.0) : 0.35;
+                const rampBreaches: { weekLabel: string; prevVal: number; val: number; capVal: number; pctJump: number }[] = [];
+                if (granularity === 'week') {
+                  weeks.forEach((w, idx) => {
+                    if (idx === 0) return;
+                    const prevW = weeks[idx - 1];
+                    const prevV =
+                      metricType === 'distance'
+                        ? unit === 'miles'
+                          ? prevW.distanceMiles
+                          : prevW.distanceKm
+                        : prevW.movingHours;
+                    const curV =
+                      metricType === 'distance'
+                        ? unit === 'miles'
+                          ? w.distanceMiles
+                          : w.distanceKm
+                        : w.movingHours;
+                    const safeCap = Math.round(Math.max(prevV * 1.15, prevV + minDelta) * 10) / 10;
+                    if (prevV >= minBase && curV > safeCap) {
+                      rampBreaches.push({
+                        weekLabel: w.shortLabel,
+                        prevVal: prevV,
+                        val: curV,
+                        capVal: safeCap,
+                        pctJump: Math.round(((curV - prevV) / prevV) * 100),
+                      });
+                    }
+                  });
+                }
+                const worstBreach = rampBreaches.sort((a, b) => b.val - b.prevVal - (a.val - a.prevVal))[0];
+                return worstBreach ? (
+                  <div
+                    className={`px-3 py-1.5 rounded-lg border text-[11px] flex items-center justify-between gap-2 ${
+                      isLight
+                        ? 'bg-rose-50 border-rose-200 text-rose-800'
+                        : 'bg-rose-950/30 border-rose-500/30 text-rose-300'
+                    }`}
+                  >
+                    <span>
+                      <strong>Ramp-Limit Breach ({worstBreach.weekLabel}):</strong> Run volume jumped from{' '}
+                      <span className="font-mono font-bold">
+                        {worstBreach.prevVal} → {worstBreach.val} {metricUnitLabel} (+{worstBreach.pctJump}%)
+                      </span>
+                      , exceeding the safe ≤+15% / +3.5 rCTL/wk (+10–15 min) bone &amp; tendon cap (safe ceiling:{' '}
+                      <span className="font-mono font-bold">
+                        {worstBreach.capVal} {metricUnitLabel}
+                      </span>
+                      ).
+                    </span>
+                  </div>
+                ) : null;
+              })()}
 
               <div className="-mx-4 sm:-mx-5 overflow-x-auto scrollbar-thin pb-2" ref={scrollContainerRef}>
                 <div className={`relative pt-6 pb-1 ${currentPeriodCount >= 36 ? 'min-w-[620px] sm:min-w-full' : currentPeriodCount === 52 ? 'min-w-[560px] sm:min-w-full' : 'w-full'}`}>
                   {/* Dedicated 0-100% Bar Plot Area */}
                   <div className="relative h-44 sm:h-52 w-full">
+                    {/* Safe Weekly Ramp-Limit Band (Avg to +15% Safe Ramp Ceiling) */}
+                    {granularity === 'week' && avgVal > 0 && (
+                      <div
+                        className="absolute left-0 right-0 bg-emerald-500/12 border-t border-dashed border-emerald-500/70 z-10 pointer-events-none"
+                        style={{
+                          bottom: `${Math.min(88, (avgVal * 0.85 / maxWeeklyRun) * 100)}%`,
+                          height: `${Math.max(6, Math.min(95, (avgVal * 1.15 / maxWeeklyRun) * 100) - Math.min(88, (avgVal * 0.85 / maxWeeklyRun) * 100))}%`,
+                        }}
+                      >
+                        <span className="absolute left-2 -top-4 text-[9px] font-mono font-bold text-emerald-700 dark:text-emerald-300 bg-white/90 dark:bg-slate-900/90 border border-emerald-500/40 px-1.5 py-0.2 rounded">
+                          Safe Ramp Cap (~{Math.round(avgVal * 1.15 * 10) / 10} {metricUnitLabel})
+                        </span>
+                      </div>
+                    )}
+
                     {/* Average Reference Line */}
                     {avgVal > 0 && (
                       <div
@@ -1445,6 +1525,26 @@ export const WeeklyMileageChart: React.FC<WeeklyMileageChartProps> = ({
                           metricType === 'distance'
                             ? (unit === 'miles' ? w.distanceMiles : w.distanceKm)
                             : w.movingHours;
+                        const prevVal =
+                          idx > 0
+                            ? metricType === 'distance'
+                              ? unit === 'miles'
+                                ? weeks[idx - 1].distanceMiles
+                                : weeks[idx - 1].distanceKm
+                              : weeks[idx - 1].movingHours
+                            : 0;
+                        const minBase = metricType === 'distance' ? (unit === 'miles' ? 5 : 8) : 0.75;
+                        const minDelta = metricType === 'distance' ? (unit === 'miles' ? 2.5 : 4.0) : 0.35;
+                        const safeRampCapVal =
+                          granularity === 'week' && prevVal >= minBase
+                            ? Math.round(Math.max(prevVal * 1.15, prevVal + minDelta) * 10) / 10
+                            : null;
+                        const isRampBreach = safeRampCapVal !== null && val > safeRampCapVal;
+                        const safeCapHeightPct =
+                          safeRampCapVal !== null
+                            ? Math.min(100, Math.max(4, (safeRampCapVal / maxWeeklyRun) * 100))
+                            : null;
+
                         const heightPct = Math.min(100, Math.max(val > 0 ? 6 : 2, (val / maxWeeklyRun) * 100));
                         const isSelected = activeWeek?.weekKey === w.weekKey;
 
@@ -1476,14 +1576,27 @@ export const WeeklyMileageChart: React.FC<WeeklyMileageChartProps> = ({
                               <div
                                 style={{ bottom: `${heightPct}%` }}
                                 className={`absolute left-1/2 -translate-x-1/2 mb-1 z-20 text-[10px] font-mono font-bold transition-all whitespace-nowrap pointer-events-none ${
-                                  isSelected
+                                  isRampBreach
+                                    ? 'text-rose-500 dark:text-rose-400 font-black'
+                                    : isSelected
                                     ? 'text-amber-400 scale-110'
                                     : isLight
                                     ? 'text-slate-700 group-hover:text-amber-600'
                                     : 'text-slate-400 group-hover:text-amber-400'
-                                } ${currentPeriodCount >= 24 && !isSelected ? 'hidden sm:block opacity-0 group-hover:opacity-100' : ''}`}
+                                } ${currentPeriodCount >= 24 && !isSelected && !isRampBreach ? 'hidden sm:block opacity-0 group-hover:opacity-100' : ''}`}
                               >
-                                {val}
+                                {val}{isRampBreach ? '!' : ''}
+                              </div>
+                            )}
+
+                            {/* Per-bar Safe Ramp Cap Marker when a weekly spike breaches the +15% cap */}
+                            {isRampBreach && safeCapHeightPct !== null && (
+                              <div
+                                className="absolute left-0 right-0 z-30 pointer-events-none"
+                                style={{ bottom: `${safeCapHeightPct}%` }}
+                                title={`Safe weekly ramp cap: ${safeRampCapVal} ${metricUnitLabel} (+15% from prior week ${prevVal} ${metricUnitLabel})`}
+                              >
+                                <div className="w-full border-b-2 border-dashed border-emerald-400" />
                               </div>
                             )}
 
@@ -1504,7 +1617,9 @@ export const WeeklyMileageChart: React.FC<WeeklyMileageChartProps> = ({
 
                             {/* Bar */}
                             <div
-                              className="w-full relative rounded-t-sm transition-all duration-300 border border-black box-border"
+                              className={`w-full relative rounded-t-sm transition-all duration-300 box-border ${
+                                isRampBreach ? 'border-2 border-rose-500' : 'border border-black'
+                              }`}
                               style={{
                                 height: `${heightPct}%`,
                                 backgroundColor:
@@ -1512,6 +1627,8 @@ export const WeeklyMileageChart: React.FC<WeeklyMileageChartProps> = ({
                                     ? isLight
                                       ? '#e2e8f0'
                                       : '#1e293b'
+                                    : isRampBreach
+                                    ? '#f43f5e'
                                     : isSelected
                                     ? '#f59e0b'
                                     : w.isCurrentWeek
@@ -1519,8 +1636,12 @@ export const WeeklyMileageChart: React.FC<WeeklyMileageChartProps> = ({
                                     : isLight
                                     ? '#38bdf8'
                                     : '#0284c7',
-                                opacity: val === 0 ? 0.35 : isSelected ? 1 : 0.85,
-                                boxShadow: isSelected ? '0 0 12px rgba(245, 158, 11, 0.45)' : undefined,
+                                opacity: val === 0 ? 0.35 : isSelected || isRampBreach ? 0.95 : 0.85,
+                                boxShadow: isSelected
+                                  ? '0 0 12px rgba(245, 158, 11, 0.45)'
+                                  : isRampBreach
+                                  ? '0 0 10px rgba(244, 63, 94, 0.4)'
+                                  : undefined,
                               }}
                             />
                           </div>

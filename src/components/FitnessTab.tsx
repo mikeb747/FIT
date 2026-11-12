@@ -57,6 +57,8 @@ interface FitnessTabProps {
   theme?: 'dark' | 'light';
   stravaToken?: string | null;
   isGoogleConnected?: boolean;
+  globalTriDistance?: 'sprint' | 'olympic' | 'middle_70_3' | 'ironman';
+  onChangeGlobalTriDistance?: (dist: 'sprint' | 'olympic' | 'middle_70_3' | 'ironman') => void;
   onOpenSettings?: () => void;
   onConnectGoogle?: () => void;
   onActivityPublished?: (activityId: string) => void;
@@ -73,6 +75,8 @@ export const FitnessTab: React.FC<FitnessTabProps> = ({
   theme = 'dark',
   stravaToken = null,
   isGoogleConnected = false,
+  globalTriDistance,
+  onChangeGlobalTriDistance,
   onOpenSettings,
   onConnectGoogle = () => {},
   onActivityPublished,
@@ -83,8 +87,17 @@ export const FitnessTab: React.FC<FitnessTabProps> = ({
   // Sport / Discipline Selector: Triathlon, Running, Cycling, Swimming
   const [selectedSport, setSelectedSport] = useState<SportFilter>('triathlon');
 
-  // Race Distance Model for Triathlon preparation targets
-  const [selectedModel, setSelectedModel] = useState<TriathlonDistanceModel>('middle_70_3');
+  // Race Distance Model for Triathlon preparation targets (synced with global goal state)
+  const [localSelectedModel, setLocalSelectedModel] = useState<TriathlonDistanceModel>(
+    globalTriDistance || 'middle_70_3'
+  );
+  const selectedModel: TriathlonDistanceModel = globalTriDistance || localSelectedModel;
+  const setSelectedModel = (dist: TriathlonDistanceModel) => {
+    setLocalSelectedModel(dist);
+    if (dist !== 'custom_goal' && onChangeGlobalTriDistance) {
+      onChangeGlobalTriDistance(dist);
+    }
+  };
   const [selectedRunningModel, setSelectedRunningModel] = useState<RunningDistanceModel>('ten_miler_10');
   const [selectedCyclingModel, setSelectedCyclingModel] = useState<CyclingDistanceModel>('fifty_m_50');
   const [selectedSwimmingModel, setSelectedSwimmingModel] = useState<SwimmingDistanceModel>('swim_1_9k');
@@ -168,7 +181,7 @@ export const FitnessTab: React.FC<FitnessTabProps> = ({
         const shortDate = evDate.toLocaleDateString('en-GB', {
           day: 'numeric',
           month: 'short',
-          ...(y !== today.getFullYear() ? { year: '2-digit' } : {}),
+          year: '2-digit',
         });
         return {
           id: g.id,
@@ -239,7 +252,7 @@ export const FitnessTab: React.FC<FitnessTabProps> = ({
         ctl: latestRecord.runCtl,
         atl: latestRecord.runAtl,
         tsb: latestRecord.runTsb,
-        label: `${latestRecord.runCtl} / ${targetPeak} Peak rCTL (${ctlLow}–${ctlHigh})`,
+        label: `${latestRecord.runCtl} / ${targetPeak} Peak rCTL (~${hrs}h/wk)`,
         formula: `rCTL = (1/7) × H_run × IF_run² × 100`,
         badge: runProfile.label,
       };
@@ -260,7 +273,7 @@ export const FitnessTab: React.FC<FitnessTabProps> = ({
         ctl: latestRecord.bikeCtl,
         atl: latestRecord.bikeAtl,
         tsb: latestRecord.bikeTsb,
-        label: `${latestRecord.bikeCtl} / ${targetPeak} Peak bCTL (${ctlLow}–${ctlHigh})`,
+        label: `${latestRecord.bikeCtl} / ${targetPeak} Peak bCTL (~${hrs}h/wk)`,
         formula: `bCTL = (1/7) × H_bike × IF_bike² × 100`,
         badge: bikeProfile.label,
       };
@@ -281,7 +294,7 @@ export const FitnessTab: React.FC<FitnessTabProps> = ({
         ctl: latestRecord.swimCtl,
         atl: latestRecord.swimAtl,
         tsb: latestRecord.swimTsb,
-        label: `${latestRecord.swimCtl} / ${targetPeak} Peak sCTL (${ctlLow}–${ctlHigh})`,
+        label: `${latestRecord.swimCtl} / ${targetPeak} Peak sCTL (~${hrs}h/wk)`,
         formula: `sCTL = (1/7) × H_swim × IF_swim³ × 100`,
         badge: swimProfile.label,
       };
@@ -292,7 +305,7 @@ export const FitnessTab: React.FC<FitnessTabProps> = ({
     return {
       title: 'Triathlon Training Load',
       headerTitle: `Triathlon Readiness & Load (${triProfile.label})`,
-      subtitle: `Age-group calibrated Peak CTL (${ctlLow}–${ctlHigh} CTL @ ~${hrs}h/wk) across Swim (sTSS), Bike, and Run.`,
+      subtitle: `Age-group calibrated Peak Target: ${targetPeak} CTL @ ~${hrs}h/wk across Swim (sTSS), Bike, and Run.`,
       score: Math.round(latestRecord.triCtl),
       target: targetPeak,
       targetRange: [ctlLow, ctlHigh] as [number, number],
@@ -838,7 +851,7 @@ export const FitnessTab: React.FC<FitnessTabProps> = ({
               <span>
                 Peak Target: <strong className={isLight ? 'text-slate-800' : 'text-slate-200'}>{disciplineFitness.target} CTL</strong>{' '}
                 <span className="font-mono text-[11px]">
-                  (Range {disciplineFitness.targetRange[0]}–{disciplineFitness.targetRange[1]} • ~{disciplineFitness.weeklyHours}h/wk)
+                  (~{disciplineFitness.weeklyHours} h/wk)
                 </span>
               </span>
               <span className="font-mono font-bold text-sky-400">
@@ -849,7 +862,7 @@ export const FitnessTab: React.FC<FitnessTabProps> = ({
               <span>
                 Race-Day Tapered Target ({ctlDerivation.taperWeeks}w taper):{' '}
                 <strong className="text-emerald-400 font-mono">
-                  {disciplineFitness.raceDayRange[0]}–{disciplineFitness.raceDayRange[1]} CTL
+                  {Math.round(disciplineFitness.target * 0.88)} CTL
                 </strong>
               </span>
               <span className="font-mono text-slate-400">TSB +10 to +25</span>
@@ -870,7 +883,7 @@ export const FitnessTab: React.FC<FitnessTabProps> = ({
               <Activity className="w-4 h-4 text-emerald-400" />
               Form (TSB) &amp; Ramp Guardrail
             </span>
-            <span className="text-[10px] font-mono text-slate-400">CTL – ATL</span>
+            <span className="text-[10px] font-mono text-slate-400">Start-of-Day (CTL_yest – ATL_yest)</span>
           </div>
 
           <div className="my-3 flex items-baseline justify-between gap-2">
@@ -958,10 +971,10 @@ export const FitnessTab: React.FC<FitnessTabProps> = ({
 
           <div className="flex items-center gap-3 self-end sm:self-auto">
             <div className="text-right hidden sm:block">
-              <div className="text-[10px] uppercase tracking-wider text-slate-400 font-bold">Peak CTL Range</div>
+              <div className="text-[10px] uppercase tracking-wider text-slate-400 font-bold">Peak Target &amp; Hours</div>
               <div className="text-sm font-mono font-black text-sky-400">
-                {ctlDerivation.targetCtlRange[0]}–{ctlDerivation.targetCtlRange[1]} CTL{' '}
-                <span className="text-xs font-normal text-slate-400">({ctlDerivation.totalWeeklyHours}h/wk)</span>
+                {ctlDerivation.targetPeakCtl} CTL{' '}
+                <span className="text-xs font-normal text-slate-400">({ctlDerivation.totalWeeklyHours} h/wk)</span>
               </div>
             </div>
             {showCtlDerivationPanel ? (
@@ -982,12 +995,12 @@ export const FitnessTab: React.FC<FitnessTabProps> = ({
                 }`}
               >
                 <div className="text-[10px] uppercase font-bold tracking-wider text-slate-400">
-                  1. Peak Target Range (2–3w out)
+                  1. Peak Target (2–3w out)
                 </div>
                 <div className="text-lg sm:text-xl font-black font-mono text-sky-400 mt-1">
                   {ctlDerivation.targetPeakCtl} CTL{' '}
                   <span className="text-xs font-normal text-slate-400">
-                    [{ctlDerivation.targetCtlRange[0]}–{ctlDerivation.targetCtlRange[1]}]
+                    ({ctlDerivation.totalWeeklyHours} h/wk)
                   </span>
                 </div>
                 <div className="text-[11px] text-slate-400 mt-0.5">
@@ -1004,10 +1017,10 @@ export const FitnessTab: React.FC<FitnessTabProps> = ({
                   2. Race-Day CTL (Post-Taper)
                 </div>
                 <div className="text-lg sm:text-xl font-black font-mono text-emerald-400 mt-1">
-                  {ctlDerivation.targetRaceDayCtlRange[0]}–{ctlDerivation.targetRaceDayCtlRange[1]} CTL
+                  {Math.round(ctlDerivation.targetPeakCtl * 0.88)} CTL
                 </div>
                 <div className="text-[11px] text-slate-400 mt-0.5">
-                  {ctlDerivation.taperWeeks}w taper (0.85–0.90 × Peak, TSB +15)
+                  {ctlDerivation.taperWeeks}w taper (0.88 × Peak, TSB +15)
                 </div>
               </div>
 
@@ -1020,13 +1033,10 @@ export const FitnessTab: React.FC<FitnessTabProps> = ({
                   3. Peak Weekly Hours (H_total)
                 </div>
                 <div className="text-lg sm:text-xl font-black font-mono text-amber-400 mt-1">
-                  {ctlDerivation.totalWeeklyHours} h/wk{' '}
-                  <span className="text-xs font-normal text-slate-400">
-                    [{ctlDerivation.totalWeeklyHoursRange[0]}–{ctlDerivation.totalWeeklyHoursRange[1]}h]
-                  </span>
+                  {ctlDerivation.totalWeeklyHours} h/wk
                 </div>
                 <div className="text-[11px] text-slate-400 mt-0.5">
-                  Available: {ctlDerivation.availableWeeklyHours}h/wk{' '}
+                  Available: {ctlDerivation.availableWeeklyHours}h/wk (~{ctlDerivation.ctlSteadyStateAtAvailable} CTL cap){' '}
                   <span className={ctlDerivation.isHoursFeasible ? 'text-emerald-400 font-bold' : 'text-rose-400 font-bold'}>
                     ({ctlDerivation.isHoursFeasible ? 'Fits schedule' : 'Exceeds hours'})
                   </span>
@@ -1072,7 +1082,7 @@ export const FitnessTab: React.FC<FitnessTabProps> = ({
                     <th className="py-2.5 px-3 text-amber-400">Peak Hours (H_d)</th>
                     <th className="py-2.5 px-3 text-purple-400">Athlete IF_d (p_d)</th>
                     <th className="py-2.5 px-3">Weekly TSS</th>
-                    <th className="py-2.5 px-3 text-sky-400">Peak CTL [Range]</th>
+                    <th className="py-2.5 px-3 text-sky-400">Peak CTL Target</th>
                     <th className="py-2.5 px-3">Current CTL</th>
                     <th className="py-2.5 px-3 text-emerald-400">Max Ramp Cap</th>
                   </tr>
@@ -1097,10 +1107,7 @@ export const FitnessTab: React.FC<FitnessTabProps> = ({
                         </td>
                         <td className="py-2.5 px-3">{Math.round(d.weeklyShare * 100)}%</td>
                         <td className="py-2.5 px-3 font-bold text-amber-400">
-                          {d.weeklyHours} h/wk{' '}
-                          <span className="text-[10px] font-normal text-slate-500">
-                            [{d.weeklyHoursRange[0]}–{d.weeklyHoursRange[1]}]
-                          </span>
+                          {d.weeklyHours} h/wk
                         </td>
                         <td className="py-2.5 px-3">
                           <span className="font-bold text-purple-400">{d.ifStats.medianIf.toFixed(2)}</span>
@@ -1119,10 +1126,7 @@ export const FitnessTab: React.FC<FitnessTabProps> = ({
                         </td>
                         <td className="py-2.5 px-3 font-bold">{d.weeklyTss} TSS</td>
                         <td className="py-2.5 px-3 font-bold text-sky-400">
-                          {d.targetPeakCtl} CTL{' '}
-                          <span className="text-[10px] font-normal text-slate-400">
-                            [{d.targetCtlRange[0]}–{d.targetCtlRange[1]}]
-                          </span>
+                          {d.targetPeakCtl} CTL
                         </td>
                         <td className="py-2.5 px-3">{d.currentCtl} CTL</td>
                         <td className="py-2.5 px-3 text-emerald-400">≤ +{d.maxSafeRampPerWeek} pts/wk</td>
@@ -1306,23 +1310,32 @@ export const FitnessTab: React.FC<FitnessTabProps> = ({
                 </p>
 
                 <div className="pt-1 space-y-1.5 text-[11px]">
-                  <div className="flex items-center justify-between">
-                    <span className="text-slate-400">1. Reachable Peak by Race Window:</span>
-                    <span className="font-mono font-bold text-sky-400">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-slate-400">
+                      1. Reachable Peak (@ {ctlDerivation.availableWeeklyHours}h/wk):
+                    </span>
+                    <span className="font-mono font-bold text-sky-400 text-right">
                       {ctlDerivation.alternatives.reachablePeakCtlByRace} Peak CTL ({ctlDerivation.alternatives.reachableRaceDayCtl} Race Day)
                     </span>
                   </div>
-                  <div className="flex items-center justify-between">
-                    <span className="text-slate-400">2. Earliest Safe Date for {ctlDerivation.targetPeakCtl} CTL:</span>
-                    <span className="font-mono font-bold text-emerald-400">
+                  <div className="flex items-start justify-between gap-2">
+                    <span className="text-slate-400 shrink-0">
+                      2. Earliest Safe Date for {ctlDerivation.targetPeakCtl} CTL:
+                    </span>
+                    <span className="font-mono font-bold text-emerald-400 text-right">
                       {ctlDerivation.alternatives.earliestFeasibleWeeksToRace} wks ({ctlDerivation.alternatives.earliestFeasibleDateStr})
                     </span>
                   </div>
-                  <div className="flex items-center justify-between">
-                    <span className="text-slate-400">3. Highest-Leverage Extra Hour:</span>
-                    <span className="font-mono font-bold text-amber-400">
-                      +1h {ctlDerivation.alternatives.highestLeverageDiscipline.label} → +{ctlDerivation.alternatives.highestLeverageDiscipline.ctlPerExtraHour} CTL
-                    </span>
+                  <div className="flex flex-col gap-0.5 pt-0.5">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-slate-400">3. Highest-Leverage Extra Hour:</span>
+                      <span className="font-mono font-bold text-amber-400 text-right">
+                        +1h {ctlDerivation.alternatives.highestLeverageDiscipline.label} → ~{ctlDerivation.alternatives.highestLeverageDiscipline.minutesSavedPerExtraHour} min/hr (+{ctlDerivation.alternatives.highestLeverageDiscipline.ctlPerExtraHour} CTL)
+                      </span>
+                    </div>
+                    <div className="text-[10px] text-slate-500 text-right">
+                      {ctlDerivation.alternatives.highestLeverageDiscipline.rationale}
+                    </div>
                   </div>
                 </div>
               </div>

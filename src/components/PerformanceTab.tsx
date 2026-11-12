@@ -66,6 +66,10 @@ interface PerformanceTabProps {
   onDeleteActivity?: (activityId: string | number) => void;
   onSelectActivity?: (activityId: string | number) => void;
   onOpenSettings?: (tab?: ProfileTab) => void;
+  globalTriDistance?: TriathlonEventDistance;
+  onChangeGlobalTriDistance?: (dist: TriathlonEventDistance) => void;
+  globalBikeCourseProfile?: BikeCourseElevationProfile;
+  onChangeGlobalBikeCourseProfile?: (course: BikeCourseElevationProfile) => void;
 }
 
 export const PerformanceTab: React.FC<PerformanceTabProps> = ({
@@ -81,19 +85,35 @@ export const PerformanceTab: React.FC<PerformanceTabProps> = ({
   onDeleteActivity,
   onSelectActivity,
   onOpenSettings,
+  globalTriDistance,
+  onChangeGlobalTriDistance,
+  globalBikeCourseProfile,
+  onChangeGlobalBikeCourseProfile,
 }) => {
   const isLight = theme === 'light';
 
   // Navigation & Category Filters
   const [selectedSport, setSelectedSport] = useState<'all' | 'bike' | 'run' | 'swim'>('all');
-  const [selectedTriDistance, setSelectedTriDistance] = useState<TriathlonEventDistance>('middle_70_3');
+  const [localTriDistance, setLocalTriDistance] = useState<TriathlonEventDistance>('middle_70_3');
+  const selectedTriDistance = globalTriDistance ?? localTriDistance;
+  const setSelectedTriDistance = (dist: TriathlonEventDistance) => {
+    setLocalTriDistance(dist);
+    onChangeGlobalTriDistance?.(dist);
+  };
+
   const [curveMetric, setCurveMetric] = useState<'bike' | 'run'>('bike');
-  const [lookbackDays, setLookbackDays] = useState<number>(365);
+  const [lookbackDays, setLookbackDays] = useState<number>(90);
   const [hoveredPeakIndex, setHoveredPeakIndex] = useState<number | null>(null);
   const [activeModalActivity, setActiveModalActivity] = useState<StravaActivity | null>(null);
 
   // Advanced Modeling Parameters
-  const [bikeElevationProfile, setBikeElevationProfile] = useState<BikeCourseElevationProfile>('rolling_800m');
+  const [localBikeElevationProfile, setLocalBikeElevationProfile] = useState<BikeCourseElevationProfile>('rolling_800m');
+  const bikeElevationProfile = globalBikeCourseProfile ?? localBikeElevationProfile;
+  const setBikeElevationProfile = (course: BikeCourseElevationProfile) => {
+    setLocalBikeElevationProfile(course);
+    onChangeGlobalBikeCourseProfile?.(course);
+  };
+
   const [runCourseProfile, setRunCourseProfile] = useState<RunCourseWeatherProfile>('flat_optimal');
   const [riegelExponent, setRiegelExponent] = useState<number>(1.055);
   const [continuousOnlyFilter, setContinuousOnlyFilter] = useState<boolean>(false);
@@ -115,12 +135,12 @@ export const PerformanceTab: React.FC<PerformanceTabProps> = ({
     );
   }, [activities, activityDetails, criticalParams, athleteProfile, lookbackDays, continuousOnlyFilter]);
 
-  // Compute Unified Discipline Ability Percentiles (Coggan W/kg, WMA Running, CSS Swim)
+  // Compute Unified Discipline Ability Percentiles (M40-44 70.3 Finishers Reference Population)
   const unifiedPercentiles = useMemo(() => {
     return computeUnifiedDisciplinePercentiles(criticalParams, athleteProfile);
   }, [criticalParams, athleteProfile]);
 
-  // Compute Swim Race Predictions with Confidence Scoring
+  // Compute Swim Race Predictions with Confidence Tiers
   const swimPredictions = useMemo(() => {
     return computeSwimRacePredictions(criticalParams);
   }, [criticalParams]);
@@ -139,23 +159,24 @@ export const PerformanceTab: React.FC<PerformanceTabProps> = ({
       athleteProfile,
       bikeElevationProfile,
       runCourseProfile,
-      riegelExponent
+      riegelExponent,
+      activities
     );
-  }, [selectedTriDistance, criticalParams, athleteProfile, bikeElevationProfile, runCourseProfile, riegelExponent]);
+  }, [selectedTriDistance, criticalParams, athleteProfile, bikeElevationProfile, runCourseProfile, riegelExponent, activities]);
 
   // SVG Curve Dimensions (fits mobile natively without forced horizontal scroll)
   const svgWidth = 600;
-  const svgHeight = 235;
-  const padLeft = 46;
+  const svgHeight = 250;
+  const padLeft = 56;
   const padRight = 16;
-  const padTop = 20;
-  const padBottom = 34;
+  const padTop = 22;
+  const padBottom = 46;
   const plotWidth = svgWidth - padLeft - padRight;
   const plotHeight = svgHeight - padTop - padBottom;
 
   const activeCurvePeaks = curveMetric === 'bike' ? bikePeaks : runPeaks;
 
-  // Dynamic Y-Axis Scale for Peak Performance Curve (prevents >460W or fast paces clipping at ceiling)
+  // Dynamic Y-Axis Scale for Peak Performance Curve
   const curveScale = useMemo(() => {
     const vals = activeCurvePeaks.flatMap((p) =>
       [p.actualValue, p.modeledValue].filter((v): v is number => typeof v === 'number' && Number.isFinite(v) && v > 0)
@@ -177,21 +198,24 @@ export const PerformanceTab: React.FC<PerformanceTabProps> = ({
     }
   }, [activeCurvePeaks, curveMetric, criticalParams]);
 
-  // Dynamic Goal Race Context Summary
-  const targetGoalsLabel = useMemo(() => {
+  // Unified Global Goal Summary (Race, Date, Course)
+  const activeGoalSummary = useMemo(() => {
     const todayIso = new Date().toISOString().split('T')[0];
     const upcoming = goals
       .filter((g) => g.status !== 'completed' && g.eventDate >= todayIso)
       .sort((a, b) => a.eventDate.localeCompare(b.eventDate));
-    if (upcoming.length === 0) {
-      return 'Target: Age-Group Peak Readiness';
+    const triGoal = upcoming.find((g) => g.eventType === 'triathlon') || upcoming[0];
+    const courseLabel =
+      bikeElevationProfile === 'flat'
+        ? 'Flat Course'
+        : bikeElevationProfile === 'rolling_800m'
+        ? '~800m Rolling Course'
+        : 'Hilly (1500m+) Course';
+    if (!triGoal) {
+      return `${weaknessAnalysis.eventName} · 2027 Goal · ${courseLabel}`;
     }
-    const topTwo = upcoming.slice(0, 2).map((g) => {
-      const yr = g.eventDate.slice(0, 4);
-      return `${g.name} (${yr})`;
-    });
-    return `Target: ${topTwo.join(' · ')}`;
-  }, [goals]);
+    return `${triGoal.name} (${triGoal.eventDate}) · ${courseLabel}`;
+  }, [goals, bikeElevationProfile, weaknessAnalysis.eventName]);
 
   const handleOpenPeakActivity = (activityId: string | number) => {
     onSelectActivity?.(activityId);
@@ -204,7 +228,7 @@ export const PerformanceTab: React.FC<PerformanceTabProps> = ({
   return (
     <div className="space-y-6">
       {/* ------------------------------------------------------------- */}
-      {/* 1. Header with Athlete Profile & Target Race Context           */}
+      {/* 1. Unified Global Goal Header (Race, Date, Course)             */}
       {/* ------------------------------------------------------------- */}
       <div
         className={`rounded-2xl border p-4 sm:p-5 transition-colors ${
@@ -219,17 +243,17 @@ export const PerformanceTab: React.FC<PerformanceTabProps> = ({
             <div className="min-w-0">
               <div className="flex flex-wrap items-center gap-2">
                 <h1 className={`text-lg sm:text-xl font-black tracking-tight ${isLight ? 'text-slate-900' : 'text-white'}`}>
-                  Performance & Race Modeling Engine
+                  Performance &amp; Race Modeling Engine
                 </h1>
                 <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-cyan-500/15 text-cyan-700 dark:text-cyan-400 border border-cyan-500/20">
                   {weaknessAnalysis.ageGroup} · {weaknessAnalysis.athleteWeightKg} kg
                 </span>
                 <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-500/15 text-amber-800 dark:text-amber-400 border border-amber-500/20 max-w-full truncate">
-                  {targetGoalsLabel}
+                  Global Goal: {activeGoalSummary}
                 </span>
               </div>
               <p className={`text-xs mt-0.5 ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>
-                FTP, Critical Speed/Power, LT Pace anchoring, confidence scoring, and race-day time opportunity modeling
+                FTP ({criticalParams.ftpWatts}W), LT Pace ({criticalParams.lactateThresholdPaceFormatted}), CSS ({criticalParams.cssFormatted}) · Synchronized with Fitness tab goal race
               </p>
             </div>
           </div>
@@ -299,83 +323,7 @@ export const PerformanceTab: React.FC<PerformanceTabProps> = ({
       </div>
 
       {/* ------------------------------------------------------------- */}
-      {/* 2. Unified Ability Percentile Meter (Reference Populations)   */}
-      {/* ------------------------------------------------------------- */}
-      <div
-        className={`rounded-2xl border p-4 sm:p-5 transition-colors ${
-          isLight ? 'bg-white border-slate-200 shadow-xs' : 'bg-slate-900/60 border-slate-800'
-        }`}
-      >
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-4">
-          <div className="flex items-center gap-2">
-            <Scale className="w-4 h-4 text-cyan-400" />
-            <h2 className={`text-sm font-extrabold tracking-tight ${isLight ? 'text-slate-900' : 'text-white'}`}>
-              Discipline Ability on Unified 0–100% Scale
-            </h2>
-          </div>
-          <span className="text-[11px] text-slate-400">
-            Coggan W/kg profile · WMA Age-Graded running · Masters Swim percentiles
-          </span>
-        </div>
-
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-          {unifiedPercentiles.map((p) => {
-            const isTop = p.percentile >= 80;
-            return (
-              <div
-                key={p.discipline}
-                className={`p-3.5 rounded-xl border flex flex-col justify-between ${
-                  isLight ? 'bg-slate-50/80 border-slate-200' : 'bg-slate-950/40 border-slate-800/80'
-                }`}
-              >
-                <div>
-                  <div className="flex items-center justify-between mb-1.5">
-                    <span className="text-xs font-bold text-slate-400">{p.label}</span>
-                    <span
-                      className={`text-[10px] font-black px-2 py-0.5 rounded-full ${
-                        isTop ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/20' : 'bg-amber-500/15 text-amber-400 border border-amber-500/20'
-                      }`}
-                    >
-                      {p.tierLabel}
-                    </span>
-                  </div>
-                  <div className="flex items-baseline gap-2 mb-2">
-                    <span className={`text-xl font-black ${isLight ? 'text-slate-900' : 'text-white'}`}>
-                      {p.percentile}th
-                    </span>
-                    <span className="text-xs font-semibold text-slate-400">percentile</span>
-                    <span className="text-xs font-bold text-cyan-400 ml-auto">{p.athleteValue}</span>
-                  </div>
-
-                  {/* Progress bar */}
-                  <div className="w-full h-2 rounded-full bg-slate-800/60 overflow-hidden mb-2">
-                    <div
-                      className={`h-full rounded-full transition-all duration-500 ${
-                        p.discipline === 'bike'
-                          ? 'bg-gradient-to-r from-orange-500 to-amber-400'
-                          : p.discipline === 'run'
-                          ? 'bg-gradient-to-r from-emerald-500 to-teal-400'
-                          : 'bg-gradient-to-r from-sky-500 to-cyan-400'
-                      }`}
-                      style={{ width: `${p.percentile}%` }}
-                    />
-                  </div>
-                </div>
-
-                <div className="mt-2 pt-2 border-t border-slate-800/50 text-[11px] text-slate-400 leading-relaxed">
-                  <div className="flex items-center justify-between font-semibold text-[10px] text-slate-500 mb-1">
-                    <span>{p.timeSensitivity}</span>
-                  </div>
-                  <p>{p.roiRecommendation}</p>
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      </div>
-
-      {/* ------------------------------------------------------------- */}
-      {/* 3. Race Weakness Analysis & Course Physics (Triathlon Focus)   */}
+      {/* 2. Race Weakness Analysis & Course Physics (Moved to Top!)     */}
       {/* ------------------------------------------------------------- */}
       {(selectedSport === 'all' || selectedSport === 'bike') && (
         <div
@@ -388,7 +336,7 @@ export const PerformanceTab: React.FC<PerformanceTabProps> = ({
               <div className="flex items-center gap-2">
                 <Compass className="w-4 h-4 text-amber-400" />
                 <h2 className={`text-sm font-extrabold tracking-tight ${isLight ? 'text-slate-900' : 'text-white'}`}>
-                  Race Weakness & Time-Gain Opportunities
+                  Race Weakness &amp; Time-Gain Opportunities
                 </h2>
               </div>
               <p className={`text-xs ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>
@@ -396,7 +344,7 @@ export const PerformanceTab: React.FC<PerformanceTabProps> = ({
               </p>
             </div>
 
-            {/* Event Distance Selector */}
+            {/* Global Event Distance Selector (Synchronized with Fitness Tab) */}
             <div className="flex items-center gap-1 p-1 rounded-xl bg-slate-950/40 border border-slate-800 text-xs font-bold self-start md:self-auto overflow-x-auto">
               <button
                 type="button"
@@ -419,7 +367,7 @@ export const PerformanceTab: React.FC<PerformanceTabProps> = ({
               <button
                 type="button"
                 onClick={() => setSelectedTriDistance('olympic')}
-                className={`px-2.5 py-1 rounded-lg transition-colors cursor-pointer ${
+                className={`px-2.5 py-1 rounded-lg transition-colors cursor-pointer shrink-0 ${
                   selectedTriDistance === 'olympic' ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:text-white'
                 }`}
               >
@@ -428,20 +376,20 @@ export const PerformanceTab: React.FC<PerformanceTabProps> = ({
               <button
                 type="button"
                 onClick={() => setSelectedTriDistance('middle_70_3')}
-                className={`px-2.5 py-1 rounded-lg transition-colors cursor-pointer ${
+                className={`px-2.5 py-1 rounded-lg transition-colors cursor-pointer shrink-0 ${
                   selectedTriDistance === 'middle_70_3' ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:text-white'
                 }`}
               >
-                70.3
+                70.3 (2027 Goal)
               </button>
               <button
                 type="button"
                 onClick={() => setSelectedTriDistance('ironman')}
-                className={`px-2.5 py-1 rounded-lg transition-colors cursor-pointer ${
+                className={`px-2.5 py-1 rounded-lg transition-colors cursor-pointer shrink-0 ${
                   selectedTriDistance === 'ironman' ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:text-white'
                 }`}
               >
-                Ironman (2028)
+                Full IRONMAN
               </button>
             </div>
           </div>
@@ -484,7 +432,7 @@ export const PerformanceTab: React.FC<PerformanceTabProps> = ({
                     : 'bg-slate-900 text-slate-400 hover:text-white border border-slate-800'
                 }`}
               >
-                ~800m Elev (2028 Goal)
+                ~800m Elev (2027 Goal)
               </button>
               <button
                 type="button"
@@ -587,6 +535,83 @@ export const PerformanceTab: React.FC<PerformanceTabProps> = ({
       )}
 
       {/* ------------------------------------------------------------- */}
+      {/* 3. Unified Ability Percentile Meter (Single Reference Pop)    */}
+      {/* ------------------------------------------------------------- */}
+      <div
+        className={`rounded-2xl border p-4 sm:p-5 transition-colors ${
+          isLight ? 'bg-white border-slate-200 shadow-xs' : 'bg-slate-900/60 border-slate-800'
+        }`}
+      >
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-4">
+          <div className="flex items-center gap-2">
+            <Scale className="w-4 h-4 text-cyan-400" />
+            <h2 className={`text-sm font-extrabold tracking-tight ${isLight ? 'text-slate-900' : 'text-white'}`}>
+              Discipline Ability on Unified 0–100% Scale
+            </h2>
+          </div>
+          <span className="text-[11px] font-semibold text-cyan-400">
+            Reference Population: {unifiedPercentiles[0]?.referenceStandard || 'M40–44 70.3 Finishers'}
+          </span>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+          {unifiedPercentiles.map((p) => {
+            const isTop = p.percentile >= 80;
+            return (
+              <div
+                key={p.discipline}
+                className={`p-3.5 rounded-xl border flex flex-col justify-between ${
+                  isLight ? 'bg-slate-50/80 border-slate-200' : 'bg-slate-950/40 border-slate-800/80'
+                }`}
+              >
+                <div>
+                  <div className="flex items-center justify-between mb-1.5">
+                    <span className="text-xs font-bold text-slate-400">{p.label}</span>
+                    <span
+                      className={`text-[10px] font-black px-2 py-0.5 rounded-full ${
+                        isTop ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/20' : 'bg-amber-500/15 text-amber-400 border border-amber-500/20'
+                      }`}
+                    >
+                      {p.tierLabel}
+                    </span>
+                  </div>
+                  <div className="flex items-baseline gap-2 mb-2">
+                    <span className={`text-xl font-black ${isLight ? 'text-slate-900' : 'text-white'}`}>
+                      {p.percentile}th
+                    </span>
+                    <span className="text-xs font-semibold text-slate-400">percentile</span>
+                    <span className="text-xs font-bold text-cyan-400 ml-auto">{p.athleteValue}</span>
+                  </div>
+
+                  {/* Progress bar */}
+                  <div className="w-full h-2 rounded-full bg-slate-800/60 overflow-hidden mb-2">
+                    <div
+                      className={`h-full rounded-full transition-all duration-500 ${
+                        p.discipline === 'bike'
+                          ? 'bg-gradient-to-r from-orange-500 to-amber-400'
+                          : p.discipline === 'run'
+                          ? 'bg-gradient-to-r from-emerald-500 to-teal-400'
+                          : 'bg-gradient-to-r from-sky-500 to-cyan-400'
+                      }`}
+                      style={{ width: `${p.percentile}%` }}
+                    />
+                  </div>
+                </div>
+
+                <div className="mt-2 pt-2 border-t border-slate-800/50 text-[11px] text-slate-400 leading-relaxed">
+                  <div className="flex items-center justify-between font-semibold text-[10px] text-slate-500 mb-1">
+                    <span>{p.timeSensitivity}</span>
+                    <span>{p.referenceStandard}</span>
+                  </div>
+                  <p>{p.roiRecommendation}</p>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* ------------------------------------------------------------- */}
       {/* 4. Running Race Pace Model Anchored from LT Pace (2027 Goals) */}
       {/* ------------------------------------------------------------- */}
       {(selectedSport === 'all' || selectedSport === 'run') && (
@@ -600,11 +625,11 @@ export const PerformanceTab: React.FC<PerformanceTabProps> = ({
               <div className="flex items-center gap-2">
                 <Footprints className="w-4 h-4 text-emerald-400" />
                 <h2 className={`text-sm font-extrabold tracking-tight ${isLight ? 'text-slate-900' : 'text-white'}`}>
-                  Running Race Pace Engine & Confidence Scoring (2027 Targets)
+                  Running Race Pace Engine &amp; Confidence Tiers (2027 Targets)
                 </h2>
               </div>
               <p className={`text-xs ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>
-                Anchored from LT pace ({criticalParams.lactateThresholdPaceFormatted}) · Cross-checked against HR regression & durability
+                Anchored from LT pace ({criticalParams.lactateThresholdPaceFormatted}) · Cross-checked against HR regression &amp; durability
               </p>
             </div>
 
@@ -644,12 +669,12 @@ export const PerformanceTab: React.FC<PerformanceTabProps> = ({
             <div className="flex items-center gap-2.5">
               <Flame className="w-4 h-4 text-rose-400 shrink-0" />
               <div>
-                <span className="text-xs font-bold text-slate-300">Durability & Riegel Decay Exponent (k):</span>
+                <span className="text-xs font-bold text-slate-300">Durability &amp; Riegel Decay Exponent (k):</span>
                 <p className="text-[11px] text-slate-400">
                   {riegelExponent === 1.045
                     ? 'High Durability (k=1.045): <5% HR drift on 60–90m steady runs allows holding the upper pace fraction.'
                     : riegelExponent === 1.085
-                    ? 'Fatigue Limiter (k=1.085): Calibrated to your London marathon decay (shin pain / fatigue limiter).'
+                    ? 'Fatigue Limiter (k=1.085): Calibrated to your marathon decay (shin/calf fatigue limiter).'
                     : 'Standard Trained Triathlete (k=1.055): Standard aerobic durability curve across 10K to Marathon.'}
                 </p>
               </div>
@@ -696,7 +721,7 @@ export const PerformanceTab: React.FC<PerformanceTabProps> = ({
                   <th className="py-2 px-2 sm:py-2.5 sm:px-3">Projected</th>
                   <th className="py-2 px-2 sm:py-2.5 sm:px-3">Logged Peak</th>
                   <th className="py-2 px-2 sm:py-2.5 sm:px-3">HR Check</th>
-                  <th className="py-2 px-2 sm:py-2.5 sm:px-3">Confidence</th>
+                  <th className="py-2 px-2 sm:py-2.5 sm:px-3">Confidence &amp; Upgrade Test</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-800/60 font-medium">
@@ -761,25 +786,23 @@ export const PerformanceTab: React.FC<PerformanceTabProps> = ({
                       <td className="py-3 px-3">
                         <span
                           className={`inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full ${
-                            r.confidenceScore >= 85
+                            r.confidenceTier === 'Tested'
                               ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/20'
-                              : r.confidenceScore >= 70
+                              : r.confidenceTier === 'Extrapolated'
                               ? 'bg-sky-500/15 text-sky-400 border border-sky-500/20'
                               : 'bg-amber-500/15 text-amber-400 border border-amber-500/20'
                           }`}
                         >
-                          {r.confidenceScore >= 85 ? (
+                          {r.confidenceTier === 'Tested' ? (
                             <CheckCircle2 className="w-3 h-3 shrink-0" />
                           ) : (
                             <AlertCircle className="w-3 h-3 shrink-0" />
                           )}
-                          {r.confidenceScore}% ({r.confidenceLabel})
+                          {r.confidenceTier}
                         </span>
-                        {r.discordanceReason && (
-                          <p className="text-[10px] text-amber-400/90 mt-1 max-w-xs leading-normal">
-                            {r.discordanceReason}
-                          </p>
-                        )}
+                        <p className="text-[10px] text-slate-400 mt-1 max-w-xs leading-normal">
+                          {r.confidenceTier === 'Tested' ? r.upgradeTest : `Upgrade: ${r.upgradeTest}`}
+                        </p>
                       </td>
                     </tr>
                   );
@@ -802,7 +825,7 @@ export const PerformanceTab: React.FC<PerformanceTabProps> = ({
           <div className="flex items-center gap-2">
             <Activity className="w-4 h-4 text-emerald-400" />
             <h2 className={`text-sm font-extrabold tracking-tight ${isLight ? 'text-slate-900' : 'text-white'}`}>
-              Structured Benchmark Sessions (VO2 & Threshold Intervals)
+              Structured Benchmark Sessions (VO2 &amp; Threshold Intervals)
             </h2>
           </div>
           <span className="text-[11px] text-slate-400">
@@ -819,11 +842,16 @@ export const PerformanceTab: React.FC<PerformanceTabProps> = ({
               }`}
             >
               <div>
-                <div className="flex items-center justify-between mb-1.5">
+                <div className="flex items-center justify-between gap-1 mb-1.5">
                   <span className="text-xs font-black text-white">{s.durationLabel}</span>
-                  <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-slate-800 text-slate-300">
-                    {s.sessionType === 'interval_reps' ? 'Interval Reps' : 'Continuous'}
-                  </span>
+                  <div className="flex items-center gap-1">
+                    <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-400 border border-amber-500/30">
+                      {s.boundTag}
+                    </span>
+                    <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-slate-800 text-slate-300">
+                      {s.sessionType === 'interval_reps' ? 'Interval Reps' : 'Continuous'}
+                    </span>
+                  </div>
                 </div>
                 <div className="text-xs font-semibold text-emerald-400 mb-1">{s.sessionDescription}</div>
                 <div className="flex items-baseline gap-2 mb-2">
@@ -838,7 +866,7 @@ export const PerformanceTab: React.FC<PerformanceTabProps> = ({
           ))}
         </div>
 
-        {/* Continuous vs Intermittent Filter Note (Point 7) */}
+        {/* Continuous vs Intermittent Filter Note */}
         <div
           className={`p-3 rounded-xl border flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs ${
             isLight ? 'bg-slate-50 border-slate-200' : 'bg-slate-950/60 border-slate-800'
@@ -878,7 +906,7 @@ export const PerformanceTab: React.FC<PerformanceTabProps> = ({
               <div className="flex items-center gap-2">
                 <Waves className="w-4 h-4 text-sky-400" />
                 <h2 className={`text-sm font-extrabold tracking-tight ${isLight ? 'text-slate-900' : 'text-white'}`}>
-                  Swim Distance Predictions & Confidence Scoring
+                  Swim Distance Predictions &amp; Confidence Tiers
                 </h2>
               </div>
               <p className={`text-xs ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>
@@ -893,10 +921,10 @@ export const PerformanceTab: React.FC<PerformanceTabProps> = ({
             </div>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5 mb-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3.5 mb-4">
             {swimPredictions.races.map((r) => {
-              const isHigh = r.confidenceLevel === 'high';
-              const isMod = r.confidenceLevel === 'moderate';
+              const isTested = r.confidenceTier === 'Tested';
+              const isExtrap = r.confidenceTier === 'Extrapolated';
               return (
                 <div
                   key={r.distanceId}
@@ -905,18 +933,18 @@ export const PerformanceTab: React.FC<PerformanceTabProps> = ({
                   }`}
                 >
                   <div>
-                    <div className="flex items-center justify-between mb-1.5">
+                    <div className="flex items-center justify-between gap-1 mb-1.5">
                       <span className="text-xs font-bold text-slate-400">{r.name}</span>
                       <span
-                        className={`text-[9px] font-black px-2 py-0.5 rounded-full ${
-                          isHigh
+                        className={`text-[9px] font-black px-2 py-0.5 rounded-full shrink-0 ${
+                          isTested
                             ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/20'
-                            : isMod
+                            : isExtrap
                             ? 'bg-sky-500/15 text-sky-400 border border-sky-500/20'
                             : 'bg-amber-500/15 text-amber-400 border border-amber-500/20'
                         }`}
                       >
-                        {r.confidenceScore}% Confidence
+                        {r.confidenceTier}
                       </span>
                     </div>
 
@@ -924,7 +952,7 @@ export const PerformanceTab: React.FC<PerformanceTabProps> = ({
                       {r.predictedTimeFormatted}
                     </div>
                     <div className="text-xs font-mono text-sky-500 dark:text-sky-400 font-bold mb-3 tabular-nums">
-                      {r.pacePer100mFormatted} ({formatSwimPaceYards(r.predictedTimeSec / (r.distanceM / 100))})
+                      {r.pacePer100mFormatted}
                     </div>
 
                     <div className="text-[10px] text-slate-400 leading-tight mb-2">
@@ -932,7 +960,10 @@ export const PerformanceTab: React.FC<PerformanceTabProps> = ({
                     </div>
                   </div>
 
-                  <div className="pt-2 border-t border-slate-800/60 mt-2 text-[10px] text-slate-400">
+                  <div className="pt-2 border-t border-slate-800/60 mt-2 text-[10px] text-slate-400 space-y-1">
+                    <p className="text-sky-400 font-semibold">
+                      {isTested ? r.upgradeTest : `Upgrade: ${r.upgradeTest}`}
+                    </p>
                     <p className="leading-relaxed">{r.confidenceExplanation}</p>
                   </div>
                 </div>
@@ -948,7 +979,7 @@ export const PerformanceTab: React.FC<PerformanceTabProps> = ({
           >
             <ShieldCheck className="w-4 h-4 text-sky-400 shrink-0 mt-0.5" />
             <p className="leading-relaxed">
-              <strong>Swim Confidence Upgrade:</strong> Sprint predictions use CSS directly with &gt;90% confidence. For 70.3 and Ironman distance events, logging a continuous 1,000m or 1,500m steady time trial in your activities will automatically upgrade long-course confidence from extrapolated (58%) to high (&gt;88%).
+              <strong>Swim Confidence Upgrade:</strong> Pool sprint predictions are <strong>Tested</strong> via your 400m (6:12) and 100m (1:24) time trials (CSS 1:36/100m). For 70.3 and Ironman open-water events, logging a continuous 1,500m steady swim or open-water session will upgrade long-course confidence from <strong>Extrapolated / Guess</strong> to <strong>Tested</strong>.
             </p>
           </div>
         </div>
@@ -971,7 +1002,7 @@ export const PerformanceTab: React.FC<PerformanceTabProps> = ({
               </h2>
             </div>
             <p className={`text-xs ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>
-              Observed maximums vs hyperbolic Critical Power (CP + W'/t) and Critical Speed (CS + D'/t) models
+              Observed maximums vs hyperbolic Critical Power (CP + W&apos;/t) and Critical Speed (CS + D&apos;/t) models · Stream &amp; HR plausibility checked
             </p>
           </div>
 
@@ -994,16 +1025,16 @@ export const PerformanceTab: React.FC<PerformanceTabProps> = ({
                   curveMetric === 'run' ? 'bg-emerald-500 text-slate-950' : 'text-slate-400 hover:text-white'
                 }`}
               >
-                Run (Pace)
+                Run (Pace /km)
               </button>
             </div>
 
-            {/* Lookback Selector */}
+            {/* Lookback Selector: Default 90d, 365d as Best of Year */}
             <div className="flex items-center p-0.5 rounded-lg bg-slate-950/40 border border-slate-800 text-xs font-bold">
               <button
                 type="button"
                 onClick={() => setLookbackDays(90)}
-                className={`px-2 py-1 rounded-md transition-colors cursor-pointer ${
+                className={`px-2.5 py-1 rounded-md transition-colors cursor-pointer ${
                   lookbackDays === 90
                     ? 'bg-indigo-600 text-white shadow-xs'
                     : 'text-slate-400 hover:text-white'
@@ -1014,13 +1045,13 @@ export const PerformanceTab: React.FC<PerformanceTabProps> = ({
               <button
                 type="button"
                 onClick={() => setLookbackDays(365)}
-                className={`px-2 py-1 rounded-md transition-colors cursor-pointer ${
+                className={`px-2.5 py-1 rounded-md transition-colors cursor-pointer ${
                   lookbackDays === 365
                     ? 'bg-indigo-600 text-white shadow-xs'
                     : 'text-slate-400 hover:text-white'
                 }`}
               >
-                365d
+                365d (Best of Year)
               </button>
             </div>
           </div>
@@ -1043,6 +1074,8 @@ export const PerformanceTab: React.FC<PerformanceTabProps> = ({
                 )}
                 <span className="text-slate-400">·</span>
                 <span className="font-mono text-slate-500">Model {sel.modeledFormatted}</span>
+                <span className="text-slate-400">·</span>
+                <span className="font-semibold text-emerald-400">{sel.confidenceTier}</span>
               </div>
               {sel.activityId && (
                 <button
@@ -1058,12 +1091,37 @@ export const PerformanceTab: React.FC<PerformanceTabProps> = ({
           );
         })()}
 
-        {/* SVG Interactive Curve (Fits 100% of mobile width cleanly with dynamic Y scale) */}
+        {/* SVG Interactive Curve with Labeled X and Y Axes */}
         <div className="relative w-full pb-1">
           <svg
             viewBox={`0 0 ${svgWidth} ${svgHeight}`}
             className="w-full h-auto select-none overflow-visible"
           >
+            {/* Y-Axis Title */}
+            <text
+              x={14}
+              y={padTop + plotHeight / 2}
+              transform={`rotate(-90, 14, ${padTop + plotHeight / 2})`}
+              textAnchor="middle"
+              fill={isLight ? '#475569' : '#94a3b8'}
+              fontSize="10"
+              fontWeight="bold"
+            >
+              {curveMetric === 'bike' ? 'Power (W)' : 'Pace (min/km)'}
+            </text>
+
+            {/* X-Axis Title */}
+            <text
+              x={padLeft + plotWidth / 2}
+              y={svgHeight - 4}
+              textAnchor="middle"
+              fill={isLight ? '#475569' : '#94a3b8'}
+              fontSize="10"
+              fontWeight="bold"
+            >
+              Duration (minutes)
+            </text>
+
             {/* Background Grid */}
             <rect x={padLeft} y={padTop} width={plotWidth} height={plotHeight} fill="transparent" />
 
@@ -1073,7 +1131,7 @@ export const PerformanceTab: React.FC<PerformanceTabProps> = ({
               const labelVal =
                 curveMetric === 'bike'
                   ? `${Math.round(curveScale.maxVal - ratio * (curveScale.maxVal - curveScale.minVal))}W`
-                  : formatPaceKm(Math.round(curveScale.minVal + ratio * (curveScale.maxVal - curveScale.minVal))).replace('/km', '');
+                  : formatPaceKm(Math.round(curveScale.minVal + ratio * (curveScale.maxVal - curveScale.minVal)));
               return (
                 <g key={idx}>
                   <line
@@ -1090,7 +1148,7 @@ export const PerformanceTab: React.FC<PerformanceTabProps> = ({
                     y={y + 3.5}
                     textAnchor="end"
                     fill={isLight ? '#64748b' : '#94a3b8'}
-                    fontSize="10"
+                    fontSize="9.5"
                     fontFamily="monospace"
                   >
                     {labelVal}
@@ -1175,7 +1233,7 @@ export const PerformanceTab: React.FC<PerformanceTabProps> = ({
                   : 1 - (p.actualValue - curveScale.minVal) / (curveScale.maxVal - curveScale.minVal);
               const y = padTop + (1 - Math.max(0, Math.min(1, norm))) * plotHeight;
               const isHovered = hoveredPeakIndex === idx;
-              const compactLabel = p.durationMin === 120 ? '2h' : `${p.durationMin}m`;
+              const compactLabel = `${p.durationMin}m`;
 
               return (
                 <g
@@ -1219,10 +1277,10 @@ export const PerformanceTab: React.FC<PerformanceTabProps> = ({
                   {/* X-Axis Duration Label */}
                   <text
                     x={x}
-                    y={padTop + plotHeight + 19}
+                    y={padTop + plotHeight + 17}
                     textAnchor="middle"
                     fill={isHovered ? (isLight ? '#0f172a' : '#ffffff') : '#64748b'}
-                    fontSize="11"
+                    fontSize="10.5"
                     fontFamily="monospace"
                     fontWeight={isHovered ? 'bold' : 'normal'}
                   >
@@ -1234,35 +1292,21 @@ export const PerformanceTab: React.FC<PerformanceTabProps> = ({
           </svg>
         </div>
 
-        {/* Duration Breakdown Table (Compact mobile layout so all 6 columns fit cleanly) */}
+        {/* Duration Breakdown Table (Unclipped column headers, one consistent unit, Tested/Extrapolated/Guess tiers) */}
         <div className="overflow-x-auto rounded-xl border border-slate-800/80 mt-3">
           <table className="w-full text-left text-[11px] sm:text-xs tabular-nums">
             <thead className="bg-slate-950/60 text-slate-400 uppercase text-[9px] sm:text-[10px] tracking-wider border-b border-slate-800">
               <tr>
-                <th className="py-2 px-1.5 sm:py-2.5 sm:px-3">
-                  <span className="sm:hidden">Intv</span>
-                  <span className="hidden sm:inline">Interval</span>
+                <th className="py-2 px-2 sm:py-2.5 sm:px-3 whitespace-nowrap">Interval</th>
+                <th className="py-2 px-2 sm:py-2.5 sm:px-3 whitespace-nowrap">
+                  {curveMetric === 'bike' ? 'Peak Watts' : 'Peak Pace (/km)'}
                 </th>
-                <th className="py-2 px-1.5 sm:py-2.5 sm:px-3">
-                  <span className="sm:hidden">Peak</span>
-                  <span className="hidden sm:inline">Peak Performance</span>
+                <th className="py-2 px-2 sm:py-2.5 sm:px-3 whitespace-nowrap">
+                  {curveMetric === 'bike' ? 'W/kg' : 'Speed (km/h)'}
                 </th>
-                <th className="py-2 px-1.5 sm:py-2.5 sm:px-3">
-                  <span className="sm:hidden">{curveMetric === 'bike' ? 'W/kg' : '/mi'}</span>
-                  <span className="hidden sm:inline">{curveMetric === 'bike' ? 'Power-to-Weight' : 'Pace (Miles)'}</span>
-                </th>
-                <th className="py-2 px-1.5 sm:py-2.5 sm:px-3">
-                  <span className="sm:hidden">Model</span>
-                  <span className="hidden sm:inline">Model Baseline</span>
-                </th>
-                <th className="py-2 px-1.5 sm:py-2.5 sm:px-3">
-                  <span className="sm:hidden">Effort</span>
-                  <span className="hidden sm:inline">Effort Classification</span>
-                </th>
-                <th className="py-2 px-1.5 sm:py-2.5 sm:px-3 text-right sm:text-left">
-                  <span className="sm:hidden">Conf</span>
-                  <span className="hidden sm:inline">Confidence</span>
-                </th>
+                <th className="py-2 px-2 sm:py-2.5 sm:px-3 whitespace-nowrap">Model</th>
+                <th className="py-2 px-2 sm:py-2.5 sm:px-3 whitespace-nowrap">Effort Source</th>
+                <th className="py-2 px-2 sm:py-2.5 sm:px-3 whitespace-nowrap">Confidence</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-800/60 font-medium">
@@ -1276,20 +1320,19 @@ export const PerformanceTab: React.FC<PerformanceTabProps> = ({
                   onMouseEnter={() => setHoveredPeakIndex(idx)}
                   onMouseLeave={() => setHoveredPeakIndex(null)}
                 >
-                  <td className="py-2 px-1.5 sm:py-2.5 sm:px-3 font-bold text-white whitespace-nowrap">
-                    <span className="sm:hidden">{p.durationMin === 120 ? '120m' : `${p.durationMin}m`}</span>
-                    <span className="hidden sm:inline">{p.durationLabel}</span>
+                  <td className="py-2 px-2 sm:py-2.5 sm:px-3 font-bold text-white whitespace-nowrap">
+                    {p.durationLabel}
                   </td>
-                  <td className="py-2 px-1.5 sm:py-2.5 sm:px-3 font-mono font-black text-cyan-500 dark:text-cyan-400 text-xs sm:text-sm whitespace-nowrap">
+                  <td className="py-2 px-2 sm:py-2.5 sm:px-3 font-mono font-black text-cyan-500 dark:text-cyan-400 text-xs sm:text-sm whitespace-nowrap">
                     {p.formattedValue}
                   </td>
-                  <td className="py-2 px-1.5 sm:py-2.5 sm:px-3 font-mono text-slate-300 whitespace-nowrap">
+                  <td className="py-2 px-2 sm:py-2.5 sm:px-3 font-mono text-slate-300 whitespace-nowrap">
                     {p.secondaryFormatted || '--'}
                   </td>
-                  <td className="py-2 px-1.5 sm:py-2.5 sm:px-3 font-mono text-slate-400 whitespace-nowrap">
+                  <td className="py-2 px-2 sm:py-2.5 sm:px-3 font-mono text-slate-400 whitespace-nowrap">
                     {p.modeledFormatted}
                   </td>
-                  <td className="py-2 px-1.5 sm:py-2.5 sm:px-3">
+                  <td className="py-2 px-2 sm:py-2.5 sm:px-3">
                     <div className="flex flex-col items-start gap-0.5">
                       <span
                         className={`text-[9px] sm:text-[10px] font-bold px-1.5 sm:px-2 py-0.5 rounded-full whitespace-nowrap ${
@@ -1306,24 +1349,15 @@ export const PerformanceTab: React.FC<PerformanceTabProps> = ({
                             : 'bg-indigo-500/15 text-indigo-400'
                         }`}
                       >
-                        <span className="sm:hidden">
-                          {p.effortType === 'continuous_steady'
-                            ? 'Steady'
-                            : p.effortType === 'interval_session'
-                            ? 'Interval'
-                            : 'Prior'}
-                        </span>
-                        <span className="hidden sm:inline">
-                          {p.effortType === 'continuous_steady'
-                            ? 'Continuous Steady'
-                            : p.effortType === 'interval_session'
-                            ? 'Interval Rep'
-                            : 'Bayesian Prior'}
-                        </span>
+                        {p.effortType === 'continuous_steady'
+                          ? 'Continuous Steady'
+                          : p.effortType === 'interval_session'
+                          ? 'Interval Rep (Lower bound)'
+                          : 'Model Baseline'}
                       </span>
                       {p.activityName && (
                         <span
-                          className="hidden sm:inline-block text-[10px] text-slate-500 truncate max-w-[160px]"
+                          className="text-[10px] text-slate-500 truncate max-w-[160px]"
                           title={`${p.activityName}${p.activityDate ? ` (${p.activityDate})` : ''}`}
                         >
                           {p.activityName}{p.activityDate ? ` · ${p.activityDate}` : ''}
@@ -1331,8 +1365,22 @@ export const PerformanceTab: React.FC<PerformanceTabProps> = ({
                       )}
                     </div>
                   </td>
-                  <td className="py-2 px-1.5 sm:py-2.5 sm:px-3 font-mono text-slate-400 text-right sm:text-left whitespace-nowrap">
-                    {p.confidenceScore}%
+                  <td className="py-2 px-2 sm:py-2.5 sm:px-3 whitespace-nowrap">
+                    <span
+                      className={`inline-block text-[9px] sm:text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                        p.confidenceTier === 'Tested'
+                          ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/20'
+                          : p.confidenceTier === 'Extrapolated'
+                          ? 'bg-sky-500/15 text-sky-400 border border-sky-500/20'
+                          : 'bg-amber-500/15 text-amber-400 border border-amber-500/20'
+                      }`}
+                      title={p.upgradeTest}
+                    >
+                      {p.confidenceTier}
+                    </span>
+                    <span className="hidden md:block text-[10px] text-slate-500 mt-0.5 truncate max-w-[200px]">
+                      {p.upgradeTest}
+                    </span>
                   </td>
                 </tr>
               ))}

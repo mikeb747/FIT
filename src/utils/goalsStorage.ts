@@ -160,11 +160,34 @@ export const DEFAULT_GOALS: TrainingGoal[] = [
 export function loadAthleteGoals(): TrainingGoal[] {
   if (typeof window === 'undefined') return [];
   try {
+    const reconcileGoalDates = (list: TrainingGoal[]): TrainingGoal[] => {
+      let changed = false;
+      const updated = list.map((g) => {
+        if (
+          g.eventDate &&
+          g.eventDate.startsWith('2028-') &&
+          (g.id.includes('2027') || /Cotswold|Oldbury|Seven Sins/i.test(g.name || ''))
+        ) {
+          changed = true;
+          return {
+            ...g,
+            eventDate: g.eventDate.replace(/^2028-/, '2027-'),
+            name: (g.name || '').replace(/2028/g, '2027'),
+          };
+        }
+        return g;
+      });
+      if (changed) {
+        saveAthleteGoals(updated);
+      }
+      return updated;
+    };
+
     const rawV2 = localStorage.getItem(GOALS_STORAGE_KEY);
     if (rawV2) {
       const parsed = JSON.parse(rawV2);
       if (Array.isArray(parsed)) {
-        return parsed;
+        return reconcileGoalDates(parsed);
       }
     }
 
@@ -173,8 +196,9 @@ export function loadAthleteGoals(): TrainingGoal[] {
     if (rawV1) {
       const parsedV1 = JSON.parse(rawV1);
       if (Array.isArray(parsedV1) && parsedV1.length > 0) {
-        saveAthleteGoals(parsedV1);
-        return parsedV1;
+        const reconciled = reconcileGoalDates(parsedV1);
+        saveAthleteGoals(reconciled);
+        return reconciled;
       }
     }
 

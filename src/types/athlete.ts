@@ -204,9 +204,9 @@ export const DEFAULT_ATHLETE_PROFILE: AthleteProfile = {
   bikeCrankLengths: {},
 
   swim100mTimeSec: 84, // 1:24
-  swim400mTimeSec: 355, // 5:55
-  swimPoolPace100mSec: 90, // 1:30 / 100m
-  swimOpenWaterPace100mSec: 98, // 1:38 / 100m
+  swim400mTimeSec: 372, // 6:12
+  swimPoolPace100mSec: 96, // 1:36 / 100m CSS (300m / (372s - 84s))
+  swimOpenWaterPace100mSec: 103, // 1:43 / 100m open water
   swimTssMode: 'sTSS',
   thresholdHeartRateSwim: 156, // bpm (typically 10-14 bpm lower than Run LTHR)
   preferredSwimProtocol: 'btf',
