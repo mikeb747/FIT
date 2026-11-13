@@ -6,15 +6,29 @@ import {
   calculateActivityTSS,
   calculateNormalizedPower,
   markStravaActivityPublishedToGoogleSheets,
-  saveStravaActivityDetails,
   getCachedStravaActivityRecord,
   getAllCachedStravaActivityRecords,
+  batchSaveStravaActivityRecords,
   updateStravaActivityRecord,
 } from './stravaActivities';
 import type { AthleteProfile } from '../types/athlete';
 import { calculateWorkKj } from '../types/athlete';
 import { computeDailyReadiness } from './readinessEngine';
 import { loadAthleteProfile } from './athleteStorage';
+import {
+  WORKOUTS_SHEET_HEADERS,
+  LEGACY_WORKOUTS_COLUMN_COUNT,
+  columnIndexToLetter,
+  serializeActivityBackupMetadata,
+  reconstructWorkoutsFromSheetRows,
+  parseWorkoutBackupCsv,
+  applyRestoredWorkoutsToStorage,
+} from './backupRestore';
+export {
+  WORKOUTS_SHEET_HEADERS,
+  parseWorkoutBackupCsv,
+  reconstructWorkoutsFromSheetRows,
+};
 
 export const GOOGLE_SHEETS_CONFIG = {
   STORAGE_KEYS: {
@@ -223,30 +237,9 @@ export async function getOrCreateTrainingLogSheet(): Promise<string> {
               startColumn: 0,
               rowData: [
                 {
-                  values: [
-                    { userEnteredValue: { stringValue: 'Date / Time' } },
-                    { userEnteredValue: { stringValue: 'Strava Activity ID' } },
-                    { userEnteredValue: { stringValue: 'Activity Name' } },
-                    { userEnteredValue: { stringValue: 'Category' } },
-                    { userEnteredValue: { stringValue: 'Sub-Type' } },
-                    { userEnteredValue: { stringValue: 'Moving Time (min)' } },
-                    { userEnteredValue: { stringValue: 'Elapsed Time (min)' } },
-                    { userEnteredValue: { stringValue: 'Distance (km)' } },
-                    { userEnteredValue: { stringValue: 'Elevation Gain (m)' } },
-                    { userEnteredValue: { stringValue: 'Pace / Speed' } },
-                    { userEnteredValue: { stringValue: 'Avg HR (bpm)' } },
-                    { userEnteredValue: { stringValue: 'Max HR (bpm)' } },
-                    { userEnteredValue: { stringValue: 'Avg Watts (W)' } },
-                    { userEnteredValue: { stringValue: 'Avg Cadence (rpm)' } },
-                    { userEnteredValue: { stringValue: 'TSS (Training Stress Score)' } },
-                    { userEnteredValue: { stringValue: 'Pre-Workout Feeling (1-5)' } },
-                    { userEnteredValue: { stringValue: 'RPE (1-10)' } },
-                    { userEnteredValue: { stringValue: 'sRPE Load' } },
-                    { userEnteredValue: { stringValue: 'Calories (kcal)' } },
-                    { userEnteredValue: { stringValue: 'FIT Track Breakdown / Notes' } },
-                    { userEnteredValue: { stringValue: 'Strava URL' } },
-                    { userEnteredValue: { stringValue: 'Synced At' } },
-                  ],
+                  values: WORKOUTS_SHEET_HEADERS.map((h) => ({
+                    userEnteredValue: { stringValue: h },
+                  })),
                 },
               ],
             },
@@ -303,6 +296,106 @@ export async function getOrCreateTrainingLogSheet(): Promise<string> {
   const newId = createdData.spreadsheetId;
   saveCachedSpreadsheetId(newId, GOOGLE_SHEETS_CONFIG.DEFAULT_SPREADSHEET_NAME);
   return newId;
+}
+
+/**
+ * Non-destructively ensures the Workouts sheet has all 30 columns (A–AD) in Row 1
+ * while preserving any existing user labels/formatting in Columns A–V.
+ */
+export async function ensureWorkoutsSheetHeaders(
+  spreadsheetId: string,
+  token: string
+): Promise<void> {
+  try {
+    // First ensure the sheet grid has at least 30 columns (default Google Sheets grid is 26 columns A–Z!)
+    const metaRes = await fetch(
+      `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}?fields=sheets(properties(sheetId,title,gridProperties.columnCount))`,
+      { headers: { Authorization: `Bearer ${token}` } }
+    );
+    let workoutsTitle = 'Workouts';
+    if (metaRes.ok) {
+      const meta = await metaRes.json();
+      const sheets: any[] = meta.sheets || [];
+      const targetSheet =
+        sheets.find((s) => s.properties?.title === 'Workouts') || sheets[0];
+      if (targetSheet?.properties?.title) {
+        workoutsTitle = targetSheet.properties.title;
+      }
+      const currentCols = targetSheet?.properties?.gridProperties?.columnCount ?? 26;
+      if (
+        targetSheet?.properties?.sheetId !== undefined &&
+        currentCols < WORKOUTS_SHEET_HEADERS.length
+      ) {
+        await fetch(
+          `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}:batchUpdate`,
+          {
+            method: 'POST',
+            headers: {
+              Authorization: `Bearer ${token}`,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              requests: [
+                {
+                  appendDimension: {
+                    sheetId: targetSheet.properties.sheetId,
+                    dimension: 'COLUMNS',
+                    length: WORKOUTS_SHEET_HEADERS.length - currentCols,
+                  },
+                },
+              ],
+            }),
+          }
+        ).catch(() => {});
+      }
+    }
+
+    const headerRes = await fetch(
+      `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(
+        `${workoutsTitle}!1:1`
+      )}`,
+      { headers: { Authorization: `Bearer ${token}` } }
+    );
+    if (!headerRes.ok) return;
+
+    const headerData = await headerRes.json();
+    const existingHeaders: string[] = headerData.values?.[0] || [];
+    const endColLetter = columnIndexToLetter(WORKOUTS_SHEET_HEADERS.length - 1);
+
+    if (existingHeaders.length === 0) {
+      await fetch(
+        `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(
+          `${workoutsTitle}!A1:${endColLetter}1`
+        )}?valueInputOption=USER_ENTERED`,
+        {
+          method: 'PUT',
+          headers: {
+            Authorization: `Bearer ${token}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ values: [[...WORKOUTS_SHEET_HEADERS]] }),
+        }
+      ).catch(() => {});
+    } else if (existingHeaders.length < WORKOUTS_SHEET_HEADERS.length) {
+      const missingHeaders = WORKOUTS_SHEET_HEADERS.slice(existingHeaders.length);
+      const startColLetter = columnIndexToLetter(existingHeaders.length);
+      await fetch(
+        `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(
+          `${workoutsTitle}!${startColLetter}1:${endColLetter}1`
+        )}?valueInputOption=USER_ENTERED`,
+        {
+          method: 'PUT',
+          headers: {
+            Authorization: `Bearer ${token}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ values: [missingHeaders] }),
+        }
+      ).catch(() => {});
+    }
+  } catch (err) {
+    console.warn('[Google Sheets] Failed to verify/extend Workouts headers:', err);
+  }
 }
 
 /**
@@ -444,7 +537,8 @@ export function buildActivitySheetRow(
   const tssResult = calculateActivityTSS(activity, details, athleteProfile);
   const tssValue = tssResult ? `${tssResult.tss} (${tssResult.type})` : '';
 
-  const rawDescription = (details?.activity?.description as string) || '';
+  const rawDescription =
+    activity.description || (details?.activity?.description as string) || '';
   const calories = (details?.activity?.calories as number) || (activity as any).calories || '';
   const stravaUrl = `https://www.strava.com/activities/${activity.id}`;
   const syncedAtFormatted = formatSheetDateTime(new Date());
@@ -475,6 +569,28 @@ export function buildActivitySheetRow(
     breakdownNotes = breakdownNotes ? `${feedbackNote} | ${breakdownNotes}` : feedbackNote;
   }
 
+  // Exact lossless columns W–AD (indices 22–29) preserve raw Strava fields (calibrations live in metadataJson)
+  const sportTypeExact = activity.sport_type || activity.type || '';
+  const rawMovingSec = activity.moving_time ?? effectiveMovingSec ?? 0;
+  const movingSecExact = rawMovingSec > 0 ? String(Math.round(rawMovingSec)) : '0';
+  const elapsedSecExact =
+    activity.elapsed_time && activity.elapsed_time > 0
+      ? String(Math.round(activity.elapsed_time))
+      : movingSecExact;
+  const rawDistanceM = activity.distance ?? effectiveDistanceM ?? 0;
+  const distanceMetersExact =
+    rawDistanceM > 0 ? String(Number(rawDistanceM.toFixed(2))) : '';
+  const maxSpeedMpsExact =
+    activity.max_speed && activity.max_speed > 0
+      ? String(Number(activity.max_speed.toFixed(3)))
+      : '';
+  const maxWattsExact =
+    isBikeOrTurbo && activity.max_watts && activity.max_watts > 0
+      ? String(Math.round(activity.max_watts))
+      : '';
+  const gearIdExact = activity.gear_id ? String(activity.gear_id) : '';
+  const metadataJson = serializeActivityBackupMetadata(activity, details);
+
   return [
     formatSheetDateTime(activity.start_date_local || activity.start_date),
     actIdStr,
@@ -498,6 +614,14 @@ export function buildActivitySheetRow(
     breakdownNotes.slice(0, 500),
     stravaUrl,
     syncedAtFormatted,
+    sportTypeExact,
+    movingSecExact,
+    elapsedSecExact,
+    distanceMetersExact,
+    maxSpeedMpsExact,
+    maxWattsExact,
+    gearIdExact,
+    metadataJson,
   ];
 }
 
@@ -516,6 +640,7 @@ export async function appendActivityToTrainingLog(
 
   const spreadsheetId = await getOrCreateTrainingLogSheet();
   const spreadsheetUrl = `https://docs.google.com/spreadsheets/d/${spreadsheetId}/edit`;
+  await ensureWorkoutsSheetHeaders(spreadsheetId, token);
 
   // Anti-duplication check: check if this activity ID is already in the sheet
   const existingIds = await getExistingActivityIdsInSheet(spreadsheetId);
@@ -591,7 +716,7 @@ export async function appendActivityToTrainingLog(
 }
 
 export interface BatchBackupProgress {
-  stage: 'checking' | 'workouts' | 'streams';
+  stage: 'checking' | 'workouts' | 'upgrading' | 'streams';
   current: number;
   total: number;
   message: string;
@@ -600,6 +725,7 @@ export interface BatchBackupProgress {
 export interface BatchBackupResult {
   success: boolean;
   backedUpCount: number;
+  upgradedCount?: number;
   alreadyCount: number;
   streamsBackedUpCount: number;
   streamsAlreadyCount: number;
@@ -610,6 +736,7 @@ export interface BatchBackupResult {
  * Batch backup multiple Strava activities and their telemetry streams to Google Sheets at once
  * - Runs automatically or via "Backup to Sheets" button
  * - Avoids duplication in both Workouts tab (Column B ID) and Streams tab (Column A ID)
+ * - Automatically upgrades any existing 22-column rows in-place with lossless Columns W–AD metadata
  * - Safely batches streams in chunks of 20 to strictly respect Google Sheets API quotas
  */
 export async function batchBackupActivitiesToGoogleSheet(
@@ -624,6 +751,7 @@ export async function batchBackupActivitiesToGoogleSheet(
     return {
       success: false,
       backedUpCount: 0,
+      upgradedCount: 0,
       alreadyCount: 0,
       streamsBackedUpCount: 0,
       streamsAlreadyCount: 0,
@@ -636,6 +764,7 @@ export async function batchBackupActivitiesToGoogleSheet(
     return {
       success: true,
       backedUpCount: 0,
+      upgradedCount: 0,
       alreadyCount: 0,
       streamsBackedUpCount: 0,
       streamsAlreadyCount: 0,
@@ -644,8 +773,9 @@ export async function batchBackupActivitiesToGoogleSheet(
 
   try {
     const spreadsheetId = spreadsheetIdParam || (await getOrCreateTrainingLogSheet());
+    await ensureWorkoutsSheetHeaders(spreadsheetId, token);
 
-    // Merge in-memory detailsMap with all IndexedDB records to guarantee all downloaded streams are available
+    // Merge in-memory detailsMap with all IndexedDB records to guarantee all downloaded streams & calibrations are available
     let mergedDetails: Record<string, StravaActivityDetailsRecord> = { ...detailsMap };
     try {
       const allCached = await getAllCachedStravaActivityRecords();
@@ -657,7 +787,7 @@ export async function batchBackupActivitiesToGoogleSheet(
     }
 
     // ==========================================
-    // 1. WORKOUTS TAB BACKUP
+    // 1. WORKOUTS TAB BACKUP + LOSSLESS UPGRADE
     // ==========================================
     onProgress?.({
       stage: 'checking',
@@ -666,7 +796,46 @@ export async function batchBackupActivitiesToGoogleSheet(
       message: 'Checking existing workouts in Google Sheets...',
     });
 
-    const existingIds = await getExistingActivityIdsInSheet(spreadsheetId);
+    const endColLetter = columnIndexToLetter(WORKOUTS_SHEET_HEADERS.length - 1); // AD
+    const startExtendedColLetter = columnIndexToLetter(LEGACY_WORKOUTS_COLUMN_COUNT); // W
+
+    let workoutsSheetPrefix = 'Workouts!';
+    let existingSheetRows: any[][] = [];
+    let checkRes = await fetch(
+      `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(
+        `Workouts!A2:${endColLetter}5000`
+      )}`,
+      { headers: { Authorization: `Bearer ${token}` } }
+    );
+    if (!checkRes.ok) {
+      workoutsSheetPrefix = '';
+      checkRes = await fetch(
+        `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/A2:${endColLetter}5000`,
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+    }
+    if (checkRes.ok) {
+      const checkData = await checkRes.json();
+      existingSheetRows = checkData.values || [];
+    }
+
+    const existingIds = new Set<string>();
+    const legacyRowIndicesNeedingUpgrade = new Map<string, number[]>();
+
+    for (let i = 0; i < existingSheetRows.length; i++) {
+      const r = existingSheetRows[i];
+      const idStr = String(r?.[1] || '').trim();
+      if (!idStr) continue;
+      existingIds.add(idStr);
+      const hasMetadataJson = Boolean(r?.[29] && String(r[29]).trim().startsWith('{'));
+      if (!hasMetadataJson) {
+        const sheetRowNumber = i + 2; // 1-indexed
+        const list = legacyRowIndicesNeedingUpgrade.get(idStr) || [];
+        list.push(sheetRowNumber);
+        legacyRowIndicesNeedingUpgrade.set(idStr, list);
+      }
+    }
+
     const toAppend = validActivities.filter((act) => !existingIds.has(String(act.id)));
 
     if (toAppend.length > 0) {
@@ -686,7 +855,9 @@ export async function batchBackupActivitiesToGoogleSheet(
         });
 
         let res = await fetch(
-          `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/Workouts!A1:append?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS`,
+          `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(
+            `${workoutsSheetPrefix}A1`
+          )}:append?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS`,
           {
             method: 'POST',
             headers: {
@@ -697,7 +868,7 @@ export async function batchBackupActivitiesToGoogleSheet(
           }
         );
 
-        if (!res.ok) {
+        if (!res.ok && workoutsSheetPrefix) {
           res = await fetch(
             `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/A1:append?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS`,
             {
@@ -717,6 +888,57 @@ export async function batchBackupActivitiesToGoogleSheet(
       }
 
       await Promise.all(toAppend.map((act) => markStravaActivityPublishedToGoogleSheets(act.id)));
+    }
+
+    // Non-destructively backfill Columns W–AD on any existing 22-column rows so historical rows become 100% lossless
+    let upgradedCount = 0;
+    if (legacyRowIndicesNeedingUpgrade.size > 0) {
+      const upgradeEntries: { range: string; values: string[][] }[] = [];
+      for (const act of validActivities) {
+        const actIdStr = String(act.id);
+        const rowNums = legacyRowIndicesNeedingUpgrade.get(actIdStr);
+        if (!rowNums || rowNums.length === 0) continue;
+        const fullRow = buildActivitySheetRow(act, mergedDetails[actIdStr], athleteProfile);
+        const extendedCols = fullRow.slice(LEGACY_WORKOUTS_COLUMN_COUNT);
+        for (const rNum of rowNums) {
+          upgradeEntries.push({
+            range: `${workoutsSheetPrefix}${startExtendedColLetter}${rNum}:${endColLetter}${rNum}`,
+            values: [extendedCols],
+          });
+        }
+      }
+
+      const UPGRADE_CHUNK = 150;
+      for (let u = 0; u < upgradeEntries.length; u += UPGRADE_CHUNK) {
+        const chunk = upgradeEntries.slice(u, u + UPGRADE_CHUNK);
+        onProgress?.({
+          stage: 'upgrading',
+          current: Math.min(u + chunk.length, upgradeEntries.length),
+          total: upgradeEntries.length,
+          message: `Enriching lossless metadata: ${Math.min(u + chunk.length, upgradeEntries.length)} / ${upgradeEntries.length}...`,
+        });
+
+        const upRes = await fetch(
+          `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values:batchUpdate`,
+          {
+            method: 'POST',
+            headers: {
+              Authorization: `Bearer ${token}`,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              valueInputOption: 'USER_ENTERED',
+              data: chunk,
+            }),
+          }
+        );
+        if (upRes.ok) {
+          upgradedCount += chunk.length;
+        }
+        if (u + UPGRADE_CHUNK < upgradeEntries.length) {
+          await new Promise((r) => setTimeout(r, 200));
+        }
+      }
     }
 
     // ==========================================
@@ -800,9 +1022,11 @@ export async function batchBackupActivitiesToGoogleSheet(
       }
     }
 
+    setLastGoogleSheetsSyncTime();
     return {
       success: true,
       backedUpCount: toAppend.length,
+      upgradedCount,
       alreadyCount: existingIds.size,
       streamsBackedUpCount: streamsAppendedCount,
       streamsAlreadyCount: existingStreamIds.size,
@@ -812,6 +1036,7 @@ export async function batchBackupActivitiesToGoogleSheet(
     return {
       success: false,
       backedUpCount: 0,
+      upgradedCount: 0,
       alreadyCount: 0,
       streamsBackedUpCount: 0,
       streamsAlreadyCount: 0,
@@ -832,6 +1057,36 @@ export interface SheetWorkoutSummary {
 }
 
 /**
+ * Fetches raw header + workout rows (A1:AD5000) from the Workouts tab of Google Sheets
+ */
+async function fetchRawWorkoutsSheetMatrix(
+  spreadsheetId: string,
+  token: string
+): Promise<{ headerRow: any[]; dataRows: any[][] }> {
+  const endColLetter = columnIndexToLetter(WORKOUTS_SHEET_HEADERS.length - 1);
+  let res = await fetch(
+    `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(
+      `Workouts!A1:${endColLetter}5000`
+    )}?valueRenderOption=FORMATTED_VALUE`,
+    { headers: { Authorization: `Bearer ${token}` } }
+  );
+  if (!res.ok) {
+    res = await fetch(
+      `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/A1:${endColLetter}5000?valueRenderOption=FORMATTED_VALUE`,
+      { headers: { Authorization: `Bearer ${token}` } }
+    );
+  }
+  if (!res.ok) return { headerRow: [], dataRows: [] };
+  const data = await res.json();
+  const values: any[][] = data.values || [];
+  if (values.length === 0) return { headerRow: [], dataRows: [] };
+  return {
+    headerRow: values[0] || [],
+    dataRows: values.slice(1),
+  };
+}
+
+/**
  * Reads existing workout rows from Google Sheets to retrieve historical metrics
  */
 export async function fetchWorkoutsFromGoogleSheet(
@@ -843,47 +1098,25 @@ export async function fetchWorkoutsFromGoogleSheet(
 
   try {
     const spreadsheetId = spreadsheetIdParam || (await getOrCreateTrainingLogSheet());
-    let res = await fetch(
-      `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/Workouts!A2:V5000`,
-      { headers: { Authorization: `Bearer ${token}` } }
-    );
-    if (!res.ok) {
-      res = await fetch(
-        `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/A2:V5000`,
-        { headers: { Authorization: `Bearer ${token}` } }
-      );
-    }
-    if (!res.ok) return result;
+    const { headerRow, dataRows } = await fetchRawWorkoutsSheetMatrix(spreadsheetId, token);
+    if (dataRows.length === 0) return result;
 
-    const data = await res.json();
-    const rows: any[][] = data.values || [];
-    for (const row of rows) {
-      const actId = String(row[1] || '').trim();
-      if (!actId) continue;
+    const { activities, detailsMap } = reconstructWorkoutsFromSheetRows(dataRows, headerRow);
+    const athleteProfile = loadAthleteProfile();
 
-      let tss: number | undefined;
-      if (row[14]) {
-        const match = String(row[14]).match(/^(\d+(?:\.\d+)?)/);
-        if (match) tss = parseFloat(match[1]);
-      }
-      const avgHr = row[10] ? parseFloat(row[10]) : undefined;
-      const maxHr = row[11] ? parseFloat(row[11]) : undefined;
-      let avgWatts: number | undefined;
-      if (row[12]) {
-        const match = String(row[12]).match(/^(\d+(?:\.\d+)?)/);
-        if (match) avgWatts = parseFloat(match[1]);
-      }
-      const rpe = row[16] ? parseFloat(row[16]) : undefined;
-
-      result.set(actId, {
-        activityId: actId,
-        date: row[0],
-        name: row[2],
-        tss,
-        avgHr,
-        maxHr,
-        avgWatts,
-        rpe,
+    for (const act of activities) {
+      const idStr = String(act.id);
+      const det = detailsMap[idStr];
+      const tssRes = calculateActivityTSS(act, det, athleteProfile);
+      result.set(idStr, {
+        activityId: idStr,
+        date: act.start_date_local || act.start_date,
+        name: act.name,
+        tss: det?.calibration?.manualTss ?? tssRes?.tss,
+        avgHr: act.average_heartrate,
+        maxHr: act.max_heartrate,
+        avgWatts: act.average_watts,
+        rpe: det?.effortFeedback?.rpe,
       });
     }
     return result;
@@ -895,7 +1128,7 @@ export async function fetchWorkoutsFromGoogleSheet(
 
 /**
  * Hydrates local activity details from existing Google Sheets data
- * Saves Strava read API calls by pulling already-calculated metrics from Google Sheets
+ * Saves Strava read API calls by pulling already-calculated metrics, descriptions, RPE, and streams from Google Sheets
  */
 export async function hydrateActivitiesFromGoogleSheet(
   activities: StravaActivity[]
@@ -904,50 +1137,53 @@ export async function hydrateActivitiesFromGoogleSheet(
   if (!token) return 0;
 
   try {
-    const sheetData = await fetchWorkoutsFromGoogleSheet();
-    if (sheetData.size === 0) return 0;
+    const spreadsheetId = await getOrCreateTrainingLogSheet();
+    const { headerRow, dataRows } = await fetchRawWorkoutsSheetMatrix(spreadsheetId, token);
+    if (dataRows.length === 0) return 0;
+
+    const { detailsMap: sheetDetails } = reconstructWorkoutsFromSheetRows(dataRows, headerRow);
 
     let hydratedCount = 0;
+    const recordsToSave: StravaActivityDetailsRecord[] = [];
+
     for (const act of activities) {
       const actId = String(act.id);
-      const metrics = sheetData.get(actId);
-      if (!metrics) continue;
+      const fromSheet = sheetDetails[actId];
+      if (!fromSheet) continue;
 
       const existing = await getCachedStravaActivityRecord(actId);
       const hasStreams = Boolean(existing?.streams && Object.keys(existing.streams).length > 0);
-      const hasTss = existing?.calibration?.manualTss !== undefined;
 
-      // If local cache lacks streams or details, hydrate what we have from Google Sheets
-      if (!hasStreams && !hasTss && (metrics.tss !== undefined || metrics.avgHr !== undefined)) {
-        await saveStravaActivityDetails(actId, {
+      if (!hasStreams && !existing?.isHydratedFromSheet) {
+        recordsToSave.push({
+          ...fromSheet,
+          ...existing,
+          id: actId,
           activity: {
-            id: act.id,
-            name: act.name,
-            type: act.type,
-            sport_type: act.sport_type,
+            ...(fromSheet.activity || {}),
+            ...(existing?.activity || {}),
           },
-          calibration: {
-            manualTss: metrics.tss,
-            calibratedAvgHeartRate: metrics.avgHr,
-            calibratedMaxHeartRate: metrics.maxHr,
-            calibratedAvgWatts: metrics.avgWatts,
-          },
-          effortFeedback: {
-            rpe: metrics.rpe,
-          },
-          googleDrivePublishedAt: new Date().toISOString(),
-          fetchedAt: new Date().toISOString(),
+          calibration: existing?.calibration || fromSheet.calibration,
+          effortFeedback: existing?.effortFeedback || fromSheet.effortFeedback,
+          googleDrivePublishedAt: existing?.googleDrivePublishedAt || fromSheet.googleDrivePublishedAt,
           isHydratedFromSheet: true,
-        } as any);
+        });
         hydratedCount++;
-      } else if (!existing?.googleDrivePublishedAt) {
-        await markStravaActivityPublishedToGoogleSheets(actId);
+      } else if (!existing?.googleDrivePublishedAt && fromSheet.googleDrivePublishedAt) {
+        recordsToSave.push({
+          ...(existing || { id: actId }),
+          googleDrivePublishedAt: fromSheet.googleDrivePublishedAt,
+        });
       }
+    }
+
+    if (recordsToSave.length > 0) {
+      await batchSaveStravaActivityRecords(recordsToSave);
     }
 
     // Also attempt restoring any raw streams stored in the Google Sheets Streams tab
     try {
-      const streamRestoreRes = await restoreStreamsFromGoogleSheet();
+      const streamRestoreRes = await restoreStreamsFromGoogleSheet(spreadsheetId);
       if (streamRestoreRes.restoredCount > 0) {
         hydratedCount += streamRestoreRes.restoredCount;
       }
@@ -959,6 +1195,205 @@ export async function hydrateActivitiesFromGoogleSheet(
   } catch (e) {
     console.warn('[Google Sheets] hydrateActivitiesFromGoogleSheet failed:', e);
     return 0;
+  }
+}
+
+export interface FullSheetRestoreResult {
+  success: boolean;
+  activities: StravaActivity[];
+  detailsMap: Record<string, StravaActivityDetailsRecord>;
+  healthLogs?: DailyRecoveryLog[];
+  restoredWorkoutsCount: number;
+  addedCount: number;
+  updatedCount: number;
+  duplicatesMerged: number;
+  streamsRestoredCount: number;
+  spreadsheetId?: string;
+  spreadsheetUrl?: string;
+  error?: string;
+}
+
+/**
+ * Full standalone restoration of Workouts + Telemetry Streams + Health/Recovery logs directly from Google Sheets
+ * (works even on a brand-new browser/device with zero local cache and without Strava API calls).
+ */
+export async function restoreWorkoutsFromGoogleSheet(options?: {
+  spreadsheetId?: string;
+  includeStreams?: boolean;
+  includeHealth?: boolean;
+  onProgress?: (message: string) => void;
+}): Promise<FullSheetRestoreResult> {
+  const token = (await ensureGoogleAccessToken({ allowPopup: false })) || getGoogleAccessToken();
+  if (!token) {
+    return {
+      success: false,
+      activities: [],
+      detailsMap: {},
+      restoredWorkoutsCount: 0,
+      addedCount: 0,
+      updatedCount: 0,
+      duplicatesMerged: 0,
+      streamsRestoredCount: 0,
+      error: 'Google authorization token required. Connect your Google account first.',
+    };
+  }
+
+  try {
+    options?.onProgress?.('Locating Training Log spreadsheet...');
+    const spreadsheetId = options?.spreadsheetId || (await getOrCreateTrainingLogSheet());
+    const spreadsheetUrl = `https://docs.google.com/spreadsheets/d/${spreadsheetId}/edit`;
+
+    options?.onProgress?.('Reading Workouts tab from Google Sheets...');
+    const { headerRow, dataRows } = await fetchRawWorkoutsSheetMatrix(spreadsheetId, token);
+
+    if (dataRows.length === 0) {
+      return {
+        success: false,
+        activities: [],
+        detailsMap: {},
+        restoredWorkoutsCount: 0,
+        addedCount: 0,
+        updatedCount: 0,
+        duplicatesMerged: 0,
+        streamsRestoredCount: 0,
+        spreadsheetId,
+        spreadsheetUrl,
+        error: 'No workout rows found in the Google Sheet Workouts tab.',
+      };
+    }
+
+    options?.onProgress?.(`Reconstructing ${dataRows.length} workout rows...`);
+    const parsed = reconstructWorkoutsFromSheetRows(dataRows, headerRow);
+
+    let streamsRestoredCount = 0;
+    if (options?.includeStreams !== false) {
+      options?.onProgress?.('Restoring telemetry streams from Streams tab...');
+      try {
+        const sRes = await fetch(
+          `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(
+            STREAMS_SHEET_TITLE + '!A2:H5000'
+          )}`,
+          { headers: { Authorization: `Bearer ${token}` } }
+        );
+        if (sRes.ok) {
+          const sData = await sRes.json();
+          const sRows: string[][] = sData.values || [];
+          for (const sRow of sRows) {
+            const actId = String(sRow?.[0] || '').trim();
+            const payload = sRow?.[6];
+            if (!actId || !payload) continue;
+            const unpacked = unpackStreamsFromStorage(payload);
+            if (unpacked) {
+              const target = parsed.detailsMap[actId] || { id: actId };
+              parsed.detailsMap[actId] = {
+                ...target,
+                streams: unpacked,
+                fetchedAt: sRow[7] || new Date().toISOString(),
+                googleDrivePublishedAt:
+                  target.googleDrivePublishedAt || sRow[7] || new Date().toISOString(),
+              };
+              streamsRestoredCount++;
+            }
+          }
+        }
+      } catch (sErr) {
+        console.warn('[Google Sheets] Streams restore notice:', sErr);
+      }
+    }
+
+    options?.onProgress?.('Saving restored workouts to local cache...');
+    const applied = await applyRestoredWorkoutsToStorage(
+      parsed.activities,
+      parsed.detailsMap,
+      parsed.duplicatesMerged
+    );
+
+    let healthLogs: DailyRecoveryLog[] | undefined;
+    if (options?.includeHealth !== false) {
+      options?.onProgress?.('Checking Health & Readiness tab...');
+      try {
+        const fetchedHealth = await fetchHealthDataFromGoogleSheet(spreadsheetId);
+        if (fetchedHealth.length > 0) {
+          healthLogs = fetchedHealth;
+        }
+      } catch {}
+    }
+
+    setLastGoogleSheetsSyncTime();
+    return {
+      success: true,
+      activities: applied.activities,
+      detailsMap: applied.detailsMap,
+      healthLogs,
+      restoredWorkoutsCount: parsed.activities.length,
+      addedCount: applied.addedCount,
+      updatedCount: applied.updatedCount,
+      duplicatesMerged: parsed.duplicatesMerged,
+      streamsRestoredCount,
+      spreadsheetId,
+      spreadsheetUrl,
+    };
+  } catch (err: any) {
+    console.error('[Google Sheets] restoreWorkoutsFromGoogleSheet failed:', err);
+    return {
+      success: false,
+      activities: [],
+      detailsMap: {},
+      restoredWorkoutsCount: 0,
+      addedCount: 0,
+      updatedCount: 0,
+      duplicatesMerged: 0,
+      streamsRestoredCount: 0,
+      error: err.message || 'Failed to restore workouts from Google Sheets',
+    };
+  }
+}
+
+export interface CsvRestoreResult {
+  success: boolean;
+  format?: 'google_sheets' | 'strava_export';
+  activities: StravaActivity[];
+  detailsMap: Record<string, StravaActivityDetailsRecord>;
+  restoredWorkoutsCount: number;
+  addedCount: number;
+  updatedCount: number;
+  duplicatesMerged: number;
+  error?: string;
+}
+
+/**
+ * Restores workouts & metadata directly from an exported CSV file
+ * (supports both Google Sheets "Workouts" CSV backups and Strava "activities.csv" exports).
+ */
+export async function restoreWorkoutsFromCsvText(csvText: string): Promise<CsvRestoreResult> {
+  try {
+    const parsed = parseWorkoutBackupCsv(csvText);
+    const applied = await applyRestoredWorkoutsToStorage(
+      parsed.activities,
+      parsed.detailsMap,
+      parsed.duplicatesMerged
+    );
+    return {
+      success: true,
+      format: parsed.format,
+      activities: applied.activities,
+      detailsMap: applied.detailsMap,
+      restoredWorkoutsCount: parsed.activities.length,
+      addedCount: applied.addedCount,
+      updatedCount: applied.updatedCount,
+      duplicatesMerged: parsed.duplicatesMerged,
+    };
+  } catch (err: any) {
+    return {
+      success: false,
+      activities: [],
+      detailsMap: {},
+      restoredWorkoutsCount: 0,
+      addedCount: 0,
+      updatedCount: 0,
+      duplicatesMerged: 0,
+      error: err.message || 'Failed to parse backup CSV file',
+    };
   }
 }
 
@@ -1416,8 +1851,8 @@ export async function getOrCreateHealthSheet(spreadsheetId: string): Promise<voi
         } else if (existingHeaders.length < HEALTH_SHEET_HEADERS.length) {
           // If the sheet had fewer columns, append only the missing columns to the right without modifying existing headers
           const missingHeaders = HEALTH_SHEET_HEADERS.slice(existingHeaders.length);
-          const startColLetter = String.fromCharCode(65 + existingHeaders.length);
-          const endColLetter = String.fromCharCode(65 + HEALTH_SHEET_HEADERS.length - 1);
+          const startColLetter = columnIndexToLetter(existingHeaders.length);
+          const endColLetter = columnIndexToLetter(HEALTH_SHEET_HEADERS.length - 1);
           await fetch(
             `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/Health!${startColLetter}1:${endColLetter}1?valueInputOption=USER_ENTERED`,
             {
@@ -1547,41 +1982,54 @@ export async function fetchHealthDataFromGoogleSheet(spreadsheetId?: string): Pr
 
       const sleepScore = Number(row[2]) || 0;
       const sleepHours = Number(row[3]) || 0;
-      const sleepDurationMinutes = Math.round(sleepHours * 60);
+      const hoursMinutes = Math.round(sleepHours * 60);
       const hrvRmssd = Number(row[4]) || 0;
       const restingHr = Number(row[5]) || 41;
 
-      // Extended Garmin biometrics
-      const rawBattery = Number(row[6]);
-      const bodyBattery = Number.isFinite(rawBattery) && rawBattery >= 0 ? rawBattery : undefined;
+      // Extended Garmin biometrics (treat blank or 0 sensor-off placeholders as undefined)
+      const rawBatteryStr = String(row[6] ?? '').trim();
+      const rawBattery = rawBatteryStr !== '' ? Number(rawBatteryStr) : NaN;
+      const bodyBattery = Number.isFinite(rawBattery) && rawBattery > 0 ? rawBattery : undefined;
 
-      const rawStress = Number(row[7]);
-      const stress = Number.isFinite(rawStress) && rawStress >= 0 ? rawStress : undefined;
+      const rawStressStr = String(row[7] ?? '').trim();
+      const rawStress = rawStressStr !== '' ? Number(rawStressStr) : NaN;
+      const stress = Number.isFinite(rawStress) && rawStress > 0 ? rawStress : undefined;
 
-      const rawResp = Number(row[8]);
-      const respiration = Number.isFinite(rawResp) && rawResp >= 0 ? rawResp : undefined;
+      const rawRespStr = String(row[8] ?? '').trim();
+      const rawResp = rawRespStr !== '' ? Number(rawRespStr) : NaN;
+      const respiration = Number.isFinite(rawResp) && rawResp > 0 ? rawResp : undefined;
 
-      const rawPulseOxStr = String(row[9] || '').replace('%', '').trim();
-      const rawPulseOx = Number(rawPulseOxStr);
-      const pulseOx = Number.isFinite(rawPulseOx) && rawPulseOx >= 0 ? rawPulseOx : undefined;
+      const rawPulseOxStr = String(row[9] ?? '').replace('%', '').trim();
+      const rawPulseOx = rawPulseOxStr !== '' ? Number(rawPulseOxStr) : NaN;
+      const pulseOx = Number.isFinite(rawPulseOx) && rawPulseOx > 0 ? rawPulseOx : undefined;
 
-      const rawVo2Run = Number(row[10]);
+      const rawVo2RunStr = String(row[10] ?? '').trim();
+      const rawVo2Run = rawVo2RunStr !== '' ? Number(rawVo2RunStr) : NaN;
       const vo2MaxRun = Number.isFinite(rawVo2Run) && rawVo2Run > 0 ? rawVo2Run : undefined;
 
-      const rawVo2Bike = Number(row[11]);
+      const rawVo2BikeStr = String(row[11] ?? '').trim();
+      const rawVo2Bike = rawVo2BikeStr !== '' ? Number(rawVo2BikeStr) : NaN;
       const vo2MaxBike = Number.isFinite(rawVo2Bike) && rawVo2Bike > 0 ? rawVo2Bike : undefined;
 
-      const rawSteps = Number(row[12]);
-      const steps = Number.isFinite(rawSteps) && rawSteps >= 0 ? rawSteps : undefined;
+      const rawStepsStr = String(row[12] ?? '').trim();
+      const rawSteps = rawStepsStr !== '' ? Number(rawStepsStr) : NaN;
+      const steps = Number.isFinite(rawSteps) && rawSteps > 0 ? Math.round(rawSteps) : undefined;
 
-      const rawCal = Number(row[13]);
-      const calories = Number.isFinite(rawCal) && rawCal >= 0 ? rawCal : undefined;
+      const rawCalStr = String(row[13] ?? '').trim();
+      const rawCal = rawCalStr !== '' ? Number(rawCalStr) : NaN;
+      const calories = Number.isFinite(rawCal) && rawCal > 0 ? Math.round(rawCal) : undefined;
 
-      const deepSleepMinutes = Number(row[14]) || 0;
-      const remSleepMinutes = Number(row[15]) || 0;
-      const lightSleepMinutes = Number(row[16]) || 0;
-      const awakeMinutes = Number(row[17]) || 0;
-      const source = (row[18] as any) || 'garmin';
+      const deepSleepMinutes = Math.round(Number(row[14]) || 0);
+      const remSleepMinutes = Math.round(Number(row[15]) || 0);
+      const lightSleepMinutes = Math.round(Number(row[16]) || 0);
+      const awakeMinutes = Math.round(Number(row[17]) || 0);
+      const stageSum = deepSleepMinutes + remSleepMinutes + lightSleepMinutes;
+      const sleepDurationMinutes =
+        stageSum > 0 && Math.abs(stageSum - hoursMinutes) <= 5
+          ? stageSum
+          : hoursMinutes;
+
+      const source = String(row[18] || 'garmin').trim().toLowerCase();
       const notes = String(row[19] || '').trim();
 
       logs.push({

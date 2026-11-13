@@ -9,6 +9,7 @@ import {
 } from './stravaActivities';
 import { getGoogleAccessToken } from './googleAuth';
 import { hydrateActivitiesFromGoogleSheet, appendActivityToTrainingLog } from './googleSheets';
+import { isDemoActivityId, isLegacyDemoActivityId } from './demoData';
 
 export interface StreamDownloaderProgress {
   isDownloading: boolean;
@@ -189,8 +190,10 @@ export async function startBackgroundStreamDownload({
     return;
   }
 
-  // Filter out deleted activities
-  const validActivities = activities.filter((a) => !a.isDeleted);
+  // Filter out deleted and sandbox demo activities (demo streams are generated locally)
+  const validActivities = activities.filter(
+    (a) => !a.isDeleted && !isDemoActivityId(a.id) && !isLegacyDemoActivityId(a.id)
+  );
   if (validActivities.length === 0 || !stravaToken) {
     return;
   }

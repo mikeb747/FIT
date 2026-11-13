@@ -33,6 +33,7 @@ import {
   ensureStravaActivityRecord,
   saveCachedStravaNewActivityIds,
   saveStravaActivityDetails,
+  deleteCachedStravaActivityRecords,
   markActivityAsDeleted,
   StravaActivity,
   StravaActivityDetailsRecord,
@@ -79,11 +80,16 @@ import {
   isDemoModeActive,
   setDemoModeActive,
   generateDemoActivities,
-  generateDemoRecoveryLogs,
+  ensureSandboxDemoActivities,
   ensureSandboxGarminReadinessLogs,
   setSandboxReadinessCleared,
   seedDemoActivityDetails,
+  clearAllDemoActivityRecordsFromDb,
   isDemoActivityId,
+  isLegacyDemoActivityId,
+  LEGACY_DEMO_ACTIVITY_IDS,
+  isDemoRecoveryLogId,
+  isLegacyDemoRecoveryLogId,
 } from './utils/demoData';
 
 const STORAGE_KEYS = {
@@ -222,12 +228,21 @@ export default function App() {
       const loaded = loadRecoveryLogs();
       if (isAIStudioEnvironment()) {
         const seeded = ensureSandboxGarminReadinessLogs(loaded);
-        if (seeded.length !== loaded.length || loaded.some((l) => String(l.id).startsWith('demo-rec-'))) {
+        const hadLegacyDemo = loaded.some((l) => isLegacyDemoRecoveryLogId(l.id));
+        const hadHealthDemo = loaded.some((l) => isDemoRecoveryLogId(l.id));
+        const hasHealthDemoNow = seeded.some((l) => isDemoRecoveryLogId(l.id));
+        if (seeded.length !== loaded.length || hadLegacyDemo || hadHealthDemo !== hasHealthDemoNow) {
           saveRecoveryLogs(seeded);
         }
         return seeded;
       }
-      return loaded;
+      const withoutDemo = loaded.filter(
+        (l) => !isDemoRecoveryLogId(l.id) && !isLegacyDemoRecoveryLogId(l.id)
+      );
+      if (withoutDemo.length !== loaded.length) {
+        saveRecoveryLogs(withoutDemo);
+      }
+      return withoutDemo;
     } catch {
       return [];
     }
@@ -346,7 +361,33 @@ export default function App() {
     return localStorage.getItem(STORAGE_KEYS.STRAVA_ATHLETE) || null;
   });
 
-  const [stravaActivities, setStravaActivities] = useState<StravaActivity[]>(() => getCachedStravaActivities());
+  const [stravaActivities, setStravaActivities] = useState<StravaActivity[]>(() => {
+    const cached = getCachedStravaActivities();
+    const hasLegacyDemo = cached.some((a) => isLegacyDemoActivityId(a.id));
+    const cleaned = hasLegacyDemo ? cached.filter((a) => !isLegacyDemoActivityId(a.id)) : cached;
+
+    if (!isAIStudioEnvironment()) {
+      const withoutDemo = cleaned.filter((a) => !isDemoActivityId(a.id));
+      if (withoutDemo.length !== cached.length) {
+        saveCachedStravaActivities(withoutDemo);
+      }
+      return withoutDemo;
+    }
+
+    if (isDemoModeActive() || hasLegacyDemo || cleaned.some((a) => isDemoActivityId(a.id))) {
+      setDemoModeActive(true);
+      const syncedDemo = ensureSandboxDemoActivities(cleaned);
+      if (hasLegacyDemo || syncedDemo.length !== cleaned.length) {
+        saveCachedStravaActivities(syncedDemo);
+      }
+      return syncedDemo;
+    }
+
+    if (hasLegacyDemo) {
+      saveCachedStravaActivities(cleaned);
+    }
+    return cleaned;
+  });
   const [stravaActivityDetails, setStravaActivityDetails] = useState<Record<string, StravaActivityDetailsRecord>>({});
 
 
@@ -396,7 +437,7 @@ export default function App() {
     setSandboxReadinessCleared(false);
     localStorage.removeItem('fit_track_garmin_disconnected');
     const demoActs = generateDemoActivities();
-    const demoLogs = generateDemoRecoveryLogs(20);
+    const demoLogs = ensureSandboxGarminReadinessLogs(loadRecoveryLogs(), true);
     saveCachedStravaActivities(demoActs);
     setStravaActivities(demoActs);
     saveRecoveryLogs(demoLogs);
@@ -418,8 +459,21 @@ export default function App() {
     setIsDemoActive(false);
     saveCachedStravaActivities([]);
     setStravaActivities([]);
-    saveRecoveryLogs([]);
-    setRecoveryLogs([]);
+    setStravaActivityDetails((prev) => {
+      const next: Record<string, StravaActivityDetailsRecord> = {};
+      for (const [k, v] of Object.entries(prev)) {
+        if (!isDemoActivityId(k) && !isLegacyDemoActivityId(k)) {
+          next[k] = v;
+        }
+      }
+      return next;
+    });
+    void clearAllDemoActivityRecordsFromDb();
+    const genuineRecovery = loadRecoveryLogs().filter(
+      (l) => !isDemoRecoveryLogId(l.id) && !isLegacyDemoRecoveryLogId(l.id)
+    );
+    saveRecoveryLogs(genuineRecovery);
+    setRecoveryLogs(genuineRecovery);
     saveAthleteGoals([]);
     setAthleteGoals([]);
   }, []);
@@ -615,6 +669,39 @@ export default function App() {
     }
   };
 
+  const handleActivitiesRestored = (
+    restoredActivities: StravaActivity[],
+    restoredDetailsMap: Record<string, StravaActivityDetailsRecord>,
+    restoredHealthLogs?: DailyRecoveryLog[]
+  ) => {
+    setIsDemoActive(false);
+    setStravaActivities(restoredActivities);
+    setStravaActivityDetails((prev) => ({
+      ...prev,
+      ...restoredDetailsMap,
+    }));
+    const sheetId = getCachedSpreadsheetId();
+    if (sheetId) {
+      setGoogleSheetUrl(`https://docs.google.com/spreadsheets/d/${sheetId}/edit`);
+    }
+    if (restoredHealthLogs && restoredHealthLogs.length > 0) {
+      setRecoveryLogs((prev) => {
+        const next = [...prev];
+        for (const item of restoredHealthLogs) {
+          const idx = next.findIndex((l) => l.date === item.date);
+          if (idx >= 0) {
+            next[idx] = { ...next[idx], ...item };
+          } else {
+            next.push(item);
+          }
+        }
+        next.sort((a, b) => a.date.localeCompare(b.date));
+        saveRecoveryLogs(next);
+        return next;
+      });
+    }
+  };
+
   // -------------------------------------------------------------
   // Strava Activities Synchronization
   // -------------------------------------------------------------
@@ -766,13 +853,28 @@ export default function App() {
         let allCached = await getAllCachedStravaActivityRecords();
         if (cancelled) return;
 
+        // Purge any removed legacy demo-act-* records from IndexedDB and memory
+        const hasLegacyKeys = Object.keys(allCached).some((k) => isLegacyDemoActivityId(k));
+        if (hasLegacyKeys) {
+          const filtered: Record<string, StravaActivityDetailsRecord> = {};
+          for (const [k, v] of Object.entries(allCached)) {
+            if (!isLegacyDemoActivityId(k)) {
+              filtered[k] = v;
+            }
+          }
+          allCached = filtered;
+          void deleteCachedStravaActivityRecords(LEGACY_DEMO_ACTIVITY_IDS);
+        }
+
         // If demo mode is active or demo activities exist, ensure streams are seeded
-        if (isDemoModeActive() || stravaActivities.some((a) => isDemoActivityId(a.id))) {
-          const hasMissingDemoStreams = stravaActivities
-            .filter((a) => isDemoActivityId(a.id))
-            .some((a) => !allCached[a.id]?.streams);
-          if (hasMissingDemoStreams || Object.keys(allCached).length === 0) {
+        const demoActivities = stravaActivities.filter((a) => isDemoActivityId(a.id));
+        if (isAIStudioEnvironment() && (isDemoModeActive() || demoActivities.length > 0)) {
+          const hasMissingDemoRecords =
+            demoActivities.length === 0 ||
+            demoActivities.some((a) => !allCached[String(a.id)]);
+          if (hasMissingDemoRecords) {
             const demoDetails = await seedDemoActivityDetails();
+            if (cancelled) return;
             allCached = { ...allCached, ...demoDetails };
           }
         }
@@ -945,9 +1047,9 @@ export default function App() {
                 setActiveMainTab('recovery');
               }}
               className="px-2.5 py-0.5 rounded-md bg-sky-500/15 hover:bg-sky-500/25 text-sky-600 dark:text-sky-400 font-bold border border-sky-500/30 cursor-pointer transition-colors"
-              title="Populate 20 days of Garmin Connect Readiness telemetry on the Readiness tab"
+              title="Populate 87 days of Garmin Health tab telemetry on the Readiness tab"
             >
-              20d Garmin Readiness
+              87d Garmin Health
             </button>
             {isDemoActive ? (
               <button
@@ -1247,6 +1349,7 @@ export default function App() {
             }}
             onDeleteActivity={handleDeleteActivity}
             onRenameActivity={handleRenameActivity}
+            onActivitiesRestored={handleActivitiesRestored}
           />
         ) : activeMainTab === 'recovery' ? (
           <RecoveryView
@@ -1348,6 +1451,7 @@ export default function App() {
         onSaveGoals={handleSaveAthleteGoals}
         initialTab={profileModalTab}
         stravaActivities={stravaActivities}
+        stravaActivityDetails={stravaActivityDetails}
         theme={theme}
         onThemeChanged={handleThemeChanged}
         displayDensity={displayDensity}
@@ -1375,6 +1479,7 @@ export default function App() {
         onOpenGarminSync={() => setIsGarminSyncOpen(true)}
         onDisconnectGarmin={handleDisconnectGarmin}
         onActivitiesUpdated={(updated) => setStravaActivities(updated)}
+        onActivitiesRestored={handleActivitiesRestored}
         isAIStudioEnv={isAIStudioEnv}
         isDemoActive={isDemoActive}
         onLoadDemoData={handleLoadDemoData}

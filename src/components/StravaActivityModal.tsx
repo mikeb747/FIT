@@ -232,7 +232,7 @@ export const StravaActivityModal: React.FC<StravaActivityModalProps> = ({
     onRenameActivity?.(activity.id, trimmed);
 
     // In background immediately try and update the name in Strava
-    if (stravaToken) {
+    if (stravaToken && !isDemoActivityId(activity.id)) {
       setStravaSyncStatus('syncing');
       try {
         const res = await updateStravaActivityName(activity.id, trimmed, stravaToken);
@@ -630,7 +630,7 @@ export const StravaActivityModal: React.FC<StravaActivityModalProps> = ({
                   {formatActivityDate(activity.start_date_local || activity.start_date)}
                 </p>
                 <a
-                  href={`https://www.strava.com/activities/${activity.id}`}
+                  href={`https://www.strava.com/activities/${String(activity.id).replace(/^demo-/, '')}`}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="inline-flex items-center gap-1 text-xs text-[#FC5200] hover:underline font-bold shrink-0 leading-none"

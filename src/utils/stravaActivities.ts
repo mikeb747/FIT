@@ -1535,6 +1535,45 @@ export async function getAllCachedStravaActivityRecords(): Promise<Record<string
   }
 }
 
+export async function batchSaveStravaActivityRecords(
+  records: StravaActivityDetailsRecord[],
+  deleteIds: string[] = []
+): Promise<void> {
+  if (typeof indexedDB === 'undefined') return;
+  if (records.length === 0 && deleteIds.length === 0) return;
+  try {
+    const database = await openStravaActivityDatabase();
+    await new Promise<void>((resolve, reject) => {
+      const transaction = database.transaction(STRAVA_ACTIVITY_STORE_NAME, 'readwrite');
+      const store = transaction.objectStore(STRAVA_ACTIVITY_STORE_NAME);
+      for (const delId of deleteIds) {
+        if (delId) store.delete(String(delId));
+      }
+      for (const rec of records) {
+        if (rec && rec.id) store.put(rec);
+      }
+      transaction.oncomplete = () => {
+        database.close();
+        resolve();
+      };
+      transaction.onerror = () => {
+        database.close();
+        reject(transaction.error || new Error('Could not batch save activity records'));
+      };
+      transaction.onabort = () => {
+        database.close();
+        reject(transaction.error || new Error('Batch save aborted'));
+      };
+    });
+  } catch (err) {
+    console.warn('[IndexedDB] batchSaveStravaActivityRecords error:', err);
+  }
+}
+
+export async function deleteCachedStravaActivityRecords(deleteIds: string[]): Promise<void> {
+  return batchSaveStravaActivityRecords([], deleteIds);
+}
+
 export function ensureStravaActivityRecord(activityId: number | string): Promise<StravaActivityDetailsRecord> {
   return updateStravaActivityRecord(activityId, (record) => record);
 }
@@ -1921,6 +1960,106 @@ export function clearActivityEffortFeedback(
     delete next.effortFeedback;
     return next;
   });
+}
+
+export async function saveActivityCommentAndDescription(
+  activityId: number | string,
+  options: {
+    commentOrDescription: string;
+    newTitle?: string;
+    rpe?: number;
+    appendToExisting?: boolean;
+    stravaAccessToken?: string | null;
+  }
+): Promise<{
+  record: StravaActivityDetailsRecord;
+  syncedToStrava: boolean;
+}> {
+  const idStr = String(activityId);
+  const { commentOrDescription, newTitle, rpe, appendToExisting = false, stravaAccessToken } = options;
+
+  // 1. Update IndexedDB activity details record (both activity.description and effortFeedback.feedbackNotes)
+  const updatedRecord = await updateStravaActivityRecord(activityId, (existing) => {
+    const act = (existing.activity || {}) as Record<string, any>;
+    const prevDesc = String(act.description || existing.effortFeedback?.feedbackNotes || '').trim();
+    const finalText =
+      appendToExisting && prevDesc && !prevDesc.includes(commentOrDescription.trim())
+        ? `${prevDesc}\n\n${commentOrDescription.trim()}`
+        : commentOrDescription.trim();
+
+    const movingTimeMin = Math.round(((Number(act.moving_time) || 2400) / 60));
+    const nextRpe = typeof rpe === 'number' && rpe >= 1 && rpe <= 10 ? rpe : existing.effortFeedback?.rpe;
+
+    return {
+      ...existing,
+      activity: {
+        ...act,
+        ...(newTitle?.trim() ? { name: newTitle.trim() } : {}),
+        description: finalText,
+      },
+      effortFeedback: {
+        ...(existing.effortFeedback || {}),
+        ...(nextRpe ? { rpe: nextRpe, sRpeLoad: Math.round(nextRpe * movingTimeMin) } : {}),
+        feedbackNotes: finalText,
+        recordedAt: new Date().toISOString(),
+      },
+    };
+  });
+
+  // 2. Update cached StravaActivity list in localStorage so UI reflects description/title immediately
+  const cachedList = getCachedStravaActivitiesSnapshot() || [];
+  if (cachedList.length > 0) {
+    const finalDesc = String(
+      (updatedRecord.activity as any)?.description ||
+      updatedRecord.effortFeedback?.feedbackNotes ||
+      commentOrDescription
+    );
+    const updatedList = cachedList.map((item) => {
+      if (String(item.id) !== idStr) return item;
+      return {
+        ...item,
+        ...(newTitle?.trim() ? { name: newTitle.trim() } : {}),
+        description: finalDesc,
+      };
+    });
+    saveCachedStravaActivities(updatedList);
+  }
+
+  // 3. Optionally sync to Strava if a live token is available and this is a real Strava activity ID
+  let syncedToStrava = false;
+  if (
+    stravaAccessToken &&
+    !idStr.startsWith('demo-') &&
+    !idStr.startsWith('local-') &&
+    /^\d+$/.test(idStr)
+  ) {
+    try {
+      const finalDesc = String(
+        (updatedRecord.activity as any)?.description ||
+        updatedRecord.effortFeedback?.feedbackNotes ||
+        commentOrDescription
+      );
+      const bodyPayload: Record<string, string> = { description: finalDesc };
+      if (newTitle?.trim()) {
+        bodyPayload.name = newTitle.trim();
+      }
+      const res = await fetch(`/api/strava/activities/${encodeURIComponent(idStr)}`, {
+        method: 'PUT',
+        headers: {
+          Authorization: `Bearer ${stravaAccessToken}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(bodyPayload),
+      });
+      if (res.ok) {
+        syncedToStrava = true;
+      }
+    } catch (err) {
+      console.warn('[Coach Skill] Could not sync workout description to Strava:', err);
+    }
+  }
+
+  return { record: updatedRecord, syncedToStrava };
 }
 
 // --------------------------------------------------------------------------

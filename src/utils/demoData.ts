@@ -1,8 +1,23 @@
-import type { StravaActivity, StravaActivityDetailsRecord } from './stravaActivities';
-import { saveStravaActivityDetails } from './stravaActivities';
+import type { StravaActivity, StravaActivityDetailsRecord, ActivityEffortFeedback } from './stravaActivities';
+import { batchSaveStravaActivityRecords, deleteCachedStravaActivityRecords } from './stravaActivities';
+import { setCachedBikeNames } from './stravaGear';
 import type { DailyRecoveryLog } from '../types/recovery';
+import demoActivitiesRaw from '../data/demoActivities2026.json';
+import demoHealthLogsRaw from '../data/demoHealthLogs2026.json';
+import demoTpEffortFeedbackRaw from '../data/demoTpEffortFeedback.json';
 
 const DEMO_MODE_STORAGE_KEY = 'fit_track_ai_studio_demo_mode_active';
+
+export const LEGACY_DEMO_ACTIVITY_IDS = Array.from(
+  { length: 12 },
+  (_, idx) => `demo-act-${idx + 1}`
+);
+
+export const DEMO_BIKE_NAMES: Record<string, string> = {
+  b4962521: 'Blue Bike',
+  b9126101: 'Black TT',
+  b3612643: 'Spin Bike',
+};
 
 /**
  * Returns true strictly when running within the Google AI Studio preview sandbox
@@ -50,261 +65,80 @@ export function setDemoModeActive(active: boolean): void {
 }
 
 /**
- * Generates realistic triathlon demo activities for the past 14 days.
+ * Checks if an activity ID belongs to the removed legacy 12-activity demo dataset.
+ */
+export function isLegacyDemoActivityId(id: string | number): boolean {
+  return String(id).startsWith('demo-act-');
+}
+
+/**
+ * Checks if a given activity ID belongs to the current AI Studio demo dataset.
+ */
+export function isDemoActivityId(id: string | number): boolean {
+  const s = String(id);
+  return s.startsWith('demo-') && !s.startsWith('demo-act-');
+}
+
+/**
+ * Checks if a recovery log ID belongs to the removed synthetic 20-day demo dataset.
+ */
+export function isLegacyDemoRecoveryLogId(id: string | number): boolean {
+  return String(id).startsWith('demo-rec-');
+}
+
+/**
+ * Checks if a recovery log ID belongs to the AI Studio Sandbox Health tab demo dataset.
+ */
+export function isDemoRecoveryLogId(id: string | number): boolean {
+  return String(id).startsWith('demo-health-');
+}
+
+/**
+ * Seeds the bike gear names from the CSV export so Bike settings and charts display
+ * human-readable bike names ('Blue Bike', 'Black TT', 'Spin Bike').
+ */
+export function seedDemoBikeNames(): void {
+  if (!isAIStudioEnvironment()) return;
+  setCachedBikeNames(DEMO_BIKE_NAMES);
+}
+
+/**
+ * Returns the 2026 Strava + TrainingPeaks demo activities (457 activities from Jan 1 – Nov 12, 2026).
  */
 export function generateDemoActivities(): StravaActivity[] {
-  const now = new Date();
-  const formatIso = (daysAgo: number, hour = 7, min = 0) => {
-    const d = new Date(now);
-    d.setDate(d.getDate() - daysAgo);
-    d.setHours(hour, min, 0, 0);
-    return d.toISOString();
-  };
+  seedDemoBikeNames();
+  return (demoActivitiesRaw as StravaActivity[]).map((act) => ({ ...act }));
+}
 
-  return [
-    {
-      id: 'demo-act-1',
-      name: 'Morning Interval Run 🏃🏻‍♂️ 5x1km @ 3:45/km',
-      type: 'Run',
-      sport_type: 'Run',
-      distance: 10450, // 10.45 km
-      moving_time: 2780, // 46m 20s
-      elapsed_time: 2950,
-      total_elevation_gain: 54,
-      start_date: formatIso(0, 6, 30),
-      start_date_local: formatIso(0, 6, 30),
-      average_speed: 3.76, // 4:26/km overall
-      max_speed: 4.88,
-      average_heartrate: 154,
-      max_heartrate: 174,
-      average_cadence: 88, // 176 spm
-      calories: 680,
-      suffer_score: 84,
-    },
-    {
-      id: 'demo-act-2',
-      name: 'Sweet Spot Intervals & Aero Position 🚴🏻‍♂️',
-      type: 'Ride',
-      sport_type: 'Ride',
-      distance: 48500, // 48.5 km
-      moving_time: 5400, // 1h 30m
-      elapsed_time: 5580,
-      total_elevation_gain: 340,
-      start_date: formatIso(1, 14, 0),
-      start_date_local: formatIso(1, 14, 0),
-      average_speed: 8.98, // 32.3 km/h
-      max_speed: 13.8,
-      average_heartrate: 148,
-      max_heartrate: 167,
-      average_watts: 248,
-      average_cadence: 91,
-      calories: 1240,
-      suffer_score: 98,
-    },
-    {
-      id: 'demo-act-3',
-      name: 'Threshold CSS Set 20x100m on 1:40 🏊🏻',
-      type: 'Swim',
-      sport_type: 'Swim',
-      distance: 2800, // 2800m
-      moving_time: 2700, // 45m
-      elapsed_time: 3100,
-      total_elevation_gain: 0,
-      start_date: formatIso(2, 6, 45),
-      start_date_local: formatIso(2, 6, 45),
-      average_speed: 1.04, // 1:36/100m
-      max_speed: 1.25,
-      average_heartrate: 141,
-      max_heartrate: 159,
-      average_cadence: 32,
-      calories: 520,
-      suffer_score: 65,
-      laps: Array.from({ length: 20 }, (_, i) => ({
-        id: 3000 + i,
-        lap_index: i + 1,
-        name: `Lap ${i + 1}`,
-        distance: 100,
-        moving_time: 96,
-        elapsed_time: 100,
-        average_speed: 1.04,
-        average_heartrate: 136 + Math.round((i / 20) * 12),
-        average_cadence: 30 + (i % 4),
-      })),
-    },
-    {
-      id: 'demo-act-4',
-      name: 'Gym 🏋🏻 Full Body Strength & Core',
-      type: 'WeightTraining',
-      sport_type: 'WeightTraining',
-      distance: 0,
-      moving_time: 3000, // 50m
-      elapsed_time: 3300,
-      total_elevation_gain: 0,
-      start_date: formatIso(3, 17, 30),
-      start_date_local: formatIso(3, 17, 30),
-      average_heartrate: 118,
-      max_heartrate: 142,
-      calories: 340,
-      suffer_score: 32,
-    },
-    {
-      id: 'demo-act-5',
-      name: 'Endurance Long Ride with Climbs 🚴🏻',
-      type: 'Ride',
-      sport_type: 'Ride',
-      distance: 82400, // 82.4 km
-      moving_time: 9900, // 2h 45m
-      elapsed_time: 10400,
-      total_elevation_gain: 780,
-      start_date: formatIso(4, 8, 0),
-      start_date_local: formatIso(4, 8, 0),
-      average_speed: 8.32, // 30.0 km/h
-      max_speed: 16.2,
-      average_heartrate: 139,
-      max_heartrate: 164,
-      average_watts: 215,
-      average_cadence: 88,
-      calories: 2150,
-      suffer_score: 135,
-    },
-    {
-      id: 'demo-act-6',
-      name: 'Sunday Long Progression Run 🏃🏻‍♂️',
-      type: 'Run',
-      sport_type: 'Run',
-      distance: 18200, // 18.2 km
-      moving_time: 4860, // 1h 21m
-      elapsed_time: 4950,
-      total_elevation_gain: 92,
-      start_date: formatIso(5, 7, 30),
-      start_date_local: formatIso(5, 7, 30),
-      average_speed: 3.74, // 4:27/km
-      max_speed: 4.55,
-      average_heartrate: 151,
-      max_heartrate: 169,
-      average_cadence: 87,
-      calories: 1220,
-      suffer_score: 120,
-    },
-    {
-      id: 'demo-act-7',
-      name: 'Active Recovery Spin & High Cadence 🚴🏻',
-      type: 'Ride',
-      sport_type: 'Ride',
-      distance: 25000,
-      moving_time: 3300,
-      elapsed_time: 3400,
-      total_elevation_gain: 110,
-      start_date: formatIso(6, 12, 15),
-      start_date_local: formatIso(6, 12, 15),
-      average_speed: 7.57, // 27.2 km/h
-      max_speed: 10.5,
-      average_heartrate: 116,
-      max_heartrate: 132,
-      average_watts: 165,
-      average_cadence: 94,
-      calories: 550,
-      suffer_score: 28,
-    },
-    {
-      id: 'demo-act-8',
-      name: 'Open Water Swim Technique 🏊🏻',
-      type: 'Swim',
-      sport_type: 'Swim',
-      distance: 2200,
-      moving_time: 2160,
-      elapsed_time: 2400,
-      total_elevation_gain: 0,
-      start_date: formatIso(7, 7, 0),
-      start_date_local: formatIso(7, 7, 0),
-      average_speed: 1.02,
-      max_speed: 1.2,
-      average_heartrate: 136,
-      max_heartrate: 152,
-      average_cadence: 32,
-      calories: 430,
-      suffer_score: 48,
-      laps: [
-        { id: 8001, lap_index: 1, name: 'Main Outward Lap', distance: 1200, moving_time: 1180, elapsed_time: 1200, average_cadence: 31, average_heartrate: 134 },
-        { id: 8002, lap_index: 2, name: 'Return Lap', distance: 1000, moving_time: 980, elapsed_time: 1000, average_cadence: 33, average_heartrate: 138 },
-      ],
-    },
-    {
-      id: 'demo-act-9',
-      name: 'Tempo Run 8km Sustained 🏃🏻‍♂️',
-      type: 'Run',
-      sport_type: 'Run',
-      distance: 12000,
-      moving_time: 3120,
-      elapsed_time: 3200,
-      total_elevation_gain: 60,
-      start_date: formatIso(8, 6, 45),
-      start_date_local: formatIso(8, 6, 45),
-      average_speed: 3.85, // 4:20/km
-      max_speed: 4.6,
-      average_heartrate: 158,
-      max_heartrate: 172,
-      average_cadence: 89,
-      calories: 810,
-      suffer_score: 95,
-    },
-    {
-      id: 'demo-act-10',
-      name: 'Gym 🏋🏻 Squats & Core Stability',
-      type: 'WeightTraining',
-      sport_type: 'WeightTraining',
-      distance: 0,
-      moving_time: 2700,
-      elapsed_time: 3000,
-      total_elevation_gain: 0,
-      start_date: formatIso(9, 18, 0),
-      start_date_local: formatIso(9, 18, 0),
-      average_heartrate: 114,
-      max_heartrate: 139,
-      calories: 310,
-      suffer_score: 28,
-    },
-    {
-      id: 'demo-act-11',
-      name: 'Weekend Metric Century 🚴🏻 102km',
-      type: 'Ride',
-      sport_type: 'Ride',
-      distance: 102400,
-      moving_time: 12200, // 3h 23m
-      elapsed_time: 13100,
-      total_elevation_gain: 980,
-      start_date: formatIso(10, 8, 30),
-      start_date_local: formatIso(10, 8, 30),
-      average_speed: 8.39, // 30.2 km/h
-      max_speed: 17.5,
-      average_heartrate: 144,
-      max_heartrate: 168,
-      average_watts: 228,
-      average_cadence: 90,
-      calories: 2750,
-      suffer_score: 175,
-    },
-    {
-      id: 'demo-act-12',
-      name: 'Indoor Treadmill Aerobic Run 🏃🏻‍♂️',
-      type: 'Run',
-      sport_type: 'Run',
-      trainer: true,
-      distance: 7500,
-      moving_time: 2250,
-      elapsed_time: 2310,
-      total_elevation_gain: 0,
-      start_date: formatIso(11, 7, 15),
-      start_date_local: formatIso(11, 7, 15),
-      average_speed: 3.33, // 5:00/km
-      max_speed: 4.0,
-      average_heartrate: 132,
-      max_heartrate: 145,
-      average_cadence: 86,
-      calories: 490,
-      suffer_score: 42,
-    },
-  ];
+/**
+ * Ensures any newly added demo activities in `demoActivities2026.json` are merged into
+ * existing cached activities when Demo Mode is active in the AI Studio Sandbox,
+ * while preserving user edits/calibrations on already-cached activities.
+ */
+export function ensureSandboxDemoActivities(existingActivities: StravaActivity[]): StravaActivity[] {
+  if (!isAIStudioEnvironment()) {
+    return (existingActivities || []).filter((a) => !isDemoActivityId(a.id) && !isLegacyDemoActivityId(a.id));
+  }
+  seedDemoBikeNames();
+  const byId = new Map<string, StravaActivity>();
+  for (const demoAct of generateDemoActivities()) {
+    byId.set(String(demoAct.id), demoAct);
+  }
+  for (const cachedAct of existingActivities || []) {
+    if (!cachedAct || isLegacyDemoActivityId(cachedAct.id)) continue;
+    byId.set(String(cachedAct.id), cachedAct);
+  }
+  return Array.from(byId.values()).sort((a, b) =>
+    (b.start_date || '').localeCompare(a.start_date || '')
+  );
+}
+
+/**
+ * Removes all demo activity records (both current and legacy) from IndexedDB.
+ */
+export async function clearAllDemoActivityRecordsFromDb(): Promise<void> {
+  const currentIds = (demoActivitiesRaw as StravaActivity[]).map((a) => String(a.id));
+  await deleteCachedStravaActivityRecords([...LEGACY_DEMO_ACTIVITY_IDS, ...currentIds]);
 }
 
 const SANDBOX_READINESS_CLEARED_KEY = 'fit_track_sandbox_readiness_cleared';
@@ -330,143 +164,38 @@ export function setSandboxReadinessCleared(cleared: boolean): void {
 }
 
 /**
- * Generates 20 days of realistic Garmin Connect physiological readiness & recovery logs
- * for the Readiness tab when using the AI Studio Sandbox.
+ * Returns the 87 days of Garmin Health tab telemetry (Aug 17 – Nov 12, 2026)
+ * for the Readiness tab when running in the AI Studio Sandbox.
  */
-export function generateDemoRecoveryLogs(daysCount = 20): DailyRecoveryLog[] {
-  const now = new Date();
-  const logs: DailyRecoveryLog[] = [];
-
-  for (let i = daysCount - 1; i >= 0; i--) {
-    const dt = new Date(now);
-    dt.setDate(dt.getDate() - i);
-    const yStr = dt.getFullYear();
-    const mStr = String(dt.getMonth() + 1).padStart(2, '0');
-    const dStr = String(dt.getDate()).padStart(2, '0');
-    const dateStr = `${yStr}-${mStr}-${dStr}`;
-
-    // Realistic training microcycle pattern (hard interval days, endurance days, recovery days)
-    const isHardDay = i % 5 === 1 || i % 7 === 3;
-    const isRestDay = i % 6 === 0;
-
-    // Sleep duration between ~7.1h and ~8.4h (deterministic wave so charts are smooth & reproducible)
-    let sleepHours = 7.55 + Math.sin(i * 0.85) * 0.45 + Math.cos(i * 0.4) * 0.2;
-    if (isHardDay) sleepHours -= 0.25;
-    if (isRestDay) sleepHours += 0.45;
-    const sleepDurationMinutes = Math.round(Math.max(415, Math.min(520, sleepHours * 60)));
-
-    // Sleep architecture stages (Deep, REM, Light, Awake)
-    const deepRatio = 0.195 + Math.cos(i * 0.75) * 0.025 + (isRestDay ? 0.015 : isHardDay ? -0.015 : 0);
-    const remRatio = 0.23 + Math.sin(i * 0.65) * 0.025;
-    const deepSleepMinutes = Math.round(sleepDurationMinutes * deepRatio);
-    const remSleepMinutes = Math.round(sleepDurationMinutes * remRatio);
-    const awakeMinutes = Math.round(16 + ((i * 7) % 14) + (isHardDay ? 5 : 0));
-    const lightSleepMinutes = Math.max(
-      120,
-      sleepDurationMinutes - deepSleepMinutes - remSleepMinutes - awakeMinutes
-    );
-
-    // Morning RHR (baseline ~41 bpm; lower after high deep sleep / rest days, slightly elevated after hard load)
-    const restingHr = Math.round(
-      41 +
-        (isHardDay ? 3 : 0) -
-        (isRestDay ? 1 : 0) -
-        (deepSleepMinutes > 92 ? 1 : 0) +
-        Math.sin(i * 0.55) * 1.5
-    );
-
-    // Overnight HRV rMSSD (baseline ~74 ms; higher with longer restorative sleep, dips after hard sessions)
-    const hrvRmssd = Math.round(
-      74 -
-        (isHardDay ? 9 : 0) +
-        (isRestDay ? 7 : 0) +
-        (sleepDurationMinutes - 450) * 0.08 +
-        Math.cos(i * 0.7) * 4
-    );
-
-    const sleepScore = Math.min(
-      97,
-      Math.max(
-        68,
-        Math.round(78 + (sleepHours - 7.5) * 9 + (hrvRmssd >= 74 ? 4 : -3) - (awakeMinutes > 26 ? 3 : 0))
-      )
-    );
-
-    const bodyBattery = Math.min(
-      99,
-      Math.max(58, Math.round(sleepScore * 0.96 + (isRestDay ? 5 : isHardDay ? -6 : 0)))
-    );
-    const stress = Math.min(
-      48,
-      Math.max(16, Math.round(24 + (isHardDay ? 9 : isRestDay ? -5 : 0) + Math.sin(i * 0.9) * 4))
-    );
-    const respiration = Number(
-      (14.1 + (isHardDay ? 0.6 : isRestDay ? -0.3 : 0) + Math.sin(i * 0.5) * 0.3).toFixed(1)
-    );
-    const pulseOx = Math.min(99, Math.max(95, Math.round(96.6 + Math.cos(i * 0.8) * 1.1)));
-    const vo2MaxRun = i < 8 ? 59 : 58;
-    const vo2MaxBike = i < 10 ? 62 : 61;
-    const steps = Math.round(
-      (isRestDay ? 7800 : isHardDay ? 13800 : 10600) + Math.sin(i * 1.1) * 1450
-    );
-    const calories = Math.round(
-      (isRestDay ? 2360 : isHardDay ? 3340 : 2820) + Math.cos(i * 0.9) * 210
-    );
-
-    logs.push({
-      id: `demo-rec-${dateStr}`,
-      date: dateStr,
-      sleepDurationMinutes,
-      sleepScore,
-      deepSleepMinutes,
-      remSleepMinutes,
-      lightSleepMinutes,
-      awakeMinutes,
-      restingHr,
-      hrvRmssd,
-      subjectiveFeel: isRestDay ? 5 : isHardDay ? 3 : 4,
-      source: 'garmin',
-      bodyBattery,
-      stress,
-      respiration,
-      pulseOx,
-      vo2MaxRun,
-      vo2MaxBike,
-      steps,
-      calories,
-      tags: isHardDay
-        ? ['Garmin Connect', 'High Load Recovery']
-        : isRestDay
-        ? ['Garmin Connect', 'Prime Readiness']
-        : ['Garmin Connect', 'HRV Balanced'],
-      notes: isHardDay
-        ? 'Garmin Connect: Post-interval load — slightly elevated morning RHR'
-        : isRestDay
-        ? 'Garmin Connect: Full recovery day & peak Body Battery charge'
-        : 'Garmin Connect: Steady aerobic block & balanced overnight HRV',
-    });
-  }
-
-  return logs;
+export function generateDemoRecoveryLogs(): DailyRecoveryLog[] {
+  return (demoHealthLogsRaw as DailyRecoveryLog[]).map((log) => ({ ...log }));
 }
 
 /**
- * Ensures 20 days of Garmin Connect Readiness data are present when running in the AI Studio Sandbox.
- * Preserves any genuine user-logged or synced entries while backfilling the 20-day window.
+ * Ensures all 87 days of Garmin Health tab data are present when running in the AI Studio Sandbox.
+ * Strips any legacy synthetic `demo-rec-*` logs and preserves genuine user-logged or synced entries.
  */
 export function ensureSandboxGarminReadinessLogs(
   existingLogs: DailyRecoveryLog[],
   forceSeed = false
 ): DailyRecoveryLog[] {
-  if (!isAIStudioEnvironment()) return existingLogs;
-  if (!forceSeed && isSandboxReadinessCleared()) return existingLogs;
+  const withoutLegacySynthetic = (existingLogs || []).filter(
+    (l) => l && !isLegacyDemoRecoveryLogId(l.id)
+  );
 
-  const sandbox20 = generateDemoRecoveryLogs(20);
-  // Keep only non-demo user logs and overlay them on top of the 20-day sandbox baseline
-  const genuineLogs = (existingLogs || []).filter((l) => l && !String(l.id).startsWith('demo-rec-'));
+  if (!isAIStudioEnvironment()) {
+    return withoutLegacySynthetic.filter((l) => !isDemoRecoveryLogId(l.id));
+  }
+
+  if (!forceSeed && isSandboxReadinessCleared()) {
+    return withoutLegacySynthetic.filter((l) => !isDemoRecoveryLogId(l.id));
+  }
+
+  const sandboxHealthLogs = generateDemoRecoveryLogs();
+  const genuineLogs = withoutLegacySynthetic.filter((l) => !isDemoRecoveryLogId(l.id));
 
   const byDate = new Map<string, DailyRecoveryLog>();
-  for (const demoLog of sandbox20) {
+  for (const demoLog of sandboxHealthLogs) {
     byDate.set(demoLog.date, demoLog);
   }
   for (const realLog of genuineLogs) {
@@ -474,13 +203,6 @@ export function ensureSandboxGarminReadinessLogs(
   }
 
   return Array.from(byDate.values()).sort((a, b) => a.date.localeCompare(b.date));
-}
-
-/**
- * Checks if a given activity ID belongs to the AI Studio demo dataset.
- */
-export function isDemoActivityId(id: string | number): boolean {
-  return String(id).startsWith('demo-act-');
 }
 
 export interface DemoStreamMetric {
@@ -492,168 +214,199 @@ export interface DemoStreamMetric {
 
 export type DemoStreamsMap = Record<string, DemoStreamMetric>;
 
+function hashActivitySeed(id: string | number): number {
+  const s = String(id);
+  let h = 0;
+  for (let i = 0; i < s.length; i++) {
+    h = (h * 31 + s.charCodeAt(i)) | 0;
+  }
+  return Math.abs(h % 1000) / 1000;
+}
+
 /**
- * Generates realistic, high-fidelity Strava streams for any demo activity.
+ * Generates realistic, sensor-faithful Strava streams for any demo activity from the 2026 CSV export.
+ * Only emits heartrate or power streams when those sensors were actually recorded on the activity.
  */
 export function generateDemoStreamsForActivity(activity: StravaActivity): DemoStreamsMap {
-  const numPoints = 300;
-  const totalTimeSec = activity.moving_time || 2400;
-  const totalDistanceM = activity.distance || 10000;
-  const avgHr = activity.average_heartrate || 145;
-  const maxHr = activity.max_heartrate || 172;
-  const avgSpeed = activity.average_speed || (totalDistanceM > 0 && totalTimeSec > 0 ? totalDistanceM / totalTimeSec : 3.5);
-  const avgWatts = activity.average_watts || 220;
-  const avgCadence = activity.average_cadence || (activity.type === 'Run' ? 88 : 90);
+  const isSwim = activity.type === 'Swim' || activity.sport_type === 'Swim' || activity.sport_type === 'OpenWaterSwim';
+  const isRide = activity.type === 'Ride' || activity.type === 'VirtualRide' || activity.sport_type === 'Ride' || activity.sport_type === 'VirtualRide';
+  const isRun = activity.type === 'Run' || activity.sport_type === 'Run';
+  const isStationaryWorkout = (!activity.distance || activity.distance <= 0) && !isSwim && !isRide && !isRun;
+
+  const hasHr = Boolean(activity.average_heartrate && activity.average_heartrate > 0);
+  const hasWatts = Boolean(isRide && activity.average_watts && activity.average_watts > 0);
+  const hasCadence = Boolean(activity.average_cadence && activity.average_cadence > 0);
   const elevGain = activity.total_elevation_gain || 0;
+  const hasAltitude = !isSwim && !isStationaryWorkout && (elevGain > 0 || (!activity.trainer && (isRide || isRun)));
+
+  if (isStationaryWorkout && !hasHr) {
+    return {};
+  }
+
+  const numPoints = 100;
+  const totalTimeSec = Math.max(60, activity.moving_time || activity.elapsed_time || 1800);
+  const totalDistanceM = Math.max(0, activity.distance || 0);
+  const avgHr = activity.average_heartrate || 130;
+  const maxHr = Math.max(avgHr + 6, activity.max_heartrate || avgHr + 18);
+  const avgSpeed =
+    activity.average_speed ||
+    (totalDistanceM > 0 && totalTimeSec > 0 ? totalDistanceM / totalTimeSec : 0);
+  const avgWatts = activity.average_watts || 0;
+  const npWatts = activity.weighted_average_watts || avgWatts;
+  const avgCadence = activity.average_cadence || 0;
+  const phase = hashActivitySeed(activity.id) * Math.PI * 2;
+
+  const nameLower = (activity.name || '').toLowerCase();
+  const is3030Bike = isRide && (/30\/30|30\/15|hiit|anaerobic/i.test(nameLower));
+  const isSweetSpotBike = isRide && (/sweet\s*spot/i.test(nameLower));
+  const intervalMatch = isRun ? nameLower.match(/(\d+)\s*x\s*(\d+)/i) : null;
+  const runIntervalsCount = intervalMatch ? Math.min(12, Math.max(2, parseInt(intervalMatch[1], 10))) : 0;
 
   const timeData: number[] = new Array(numPoints);
   const distData: number[] = new Array(numPoints);
-  const hrData: number[] = new Array(numPoints);
-  const velocityData: number[] = new Array(numPoints);
-  const cadenceData: number[] = new Array(numPoints);
-  const altData: number[] = new Array(numPoints);
-  const wattsData: number[] | null = activity.type === 'Ride' || activity.sport_type === 'Ride' ? new Array(numPoints) : null;
+  const hrData: number[] | null = hasHr ? new Array(numPoints) : null;
+  const velocityData: number[] | null = totalDistanceM > 0 ? new Array(numPoints) : null;
+  const cadenceData: number[] | null = hasCadence ? new Array(numPoints) : null;
+  const altData: number[] | null = hasAltitude ? new Array(numPoints) : null;
+  const wattsData: number[] | null = hasWatts ? new Array(numPoints) : null;
 
-  const isRide = activity.type === 'Ride' || activity.sport_type === 'Ride';
-  const isRun = activity.type === 'Run' || activity.sport_type === 'Run';
-  const isSwim = activity.type === 'Swim' || activity.sport_type === 'Swim';
-
-  // Base elevation profile parameters
-  const baseAlt = 45;
+  const baseAlt = isRide && activity.type === 'VirtualRide' ? 42 : 35;
 
   for (let i = 0; i < numPoints; i++) {
     const fraction = i / (numPoints - 1);
     timeData[i] = Math.round(fraction * totalTimeSec);
     distData[i] = Math.round(fraction * totalDistanceM);
 
-    // Natural undulating elevation profile matching total elevation gain
-    const elevCurve =
-      Math.sin(fraction * Math.PI * 2) * 0.35 +
-      Math.sin(fraction * Math.PI * 6) * 0.15 +
-      Math.cos(fraction * Math.PI * 3.5) * 0.1;
-    const currentAlt = Math.max(10, Math.round(baseAlt + (elevGain > 0 ? elevGain * (elevCurve + 0.4) : 0)));
-    altData[i] = currentAlt;
+    const wave1 = Math.sin(fraction * Math.PI * 4 + phase);
+    const wave2 = Math.cos(fraction * Math.PI * 9 + phase * 1.7);
+    const noise = wave1 * 0.55 + wave2 * 0.35;
 
-    if (activity.id === 'demo-act-1') {
-      // 5x1km interval run: Warmup (0-20%), 5 interval bouts, Cooldown (90-100%)
-      if (fraction < 0.20) {
-        // Warmup: 4:45/km -> 4:35/km (speed ~3.55 - 3.65 m/s)
-        const ramp = fraction / 0.20;
-        velocityData[i] = Number((3.50 + ramp * 0.18 + Math.sin(i * 0.3) * 0.05).toFixed(2));
-        hrData[i] = Math.round(132 + ramp * 16 + Math.sin(i * 0.4) * 2);
-        cadenceData[i] = Math.round(85 + ramp * 2);
-      } else if (fraction >= 0.90) {
-        // Cooldown: 4:55/km
-        const cool = (fraction - 0.90) / 0.10;
-        velocityData[i] = Number((3.45 - cool * 0.20 + Math.sin(i * 0.3) * 0.04).toFixed(2));
-        hrData[i] = Math.round(152 - cool * 16 + Math.sin(i * 0.4) * 2);
-        cadenceData[i] = Math.round(85 - cool * 2);
+    if (altData) {
+      const climbShape =
+        Math.sin(fraction * Math.PI * 2 + phase * 0.5) * 0.35 +
+        Math.sin(fraction * Math.PI * 5 + phase) * 0.18 +
+        0.42;
+      const scale = Math.min(450, elevGain * 0.32);
+      altData[i] = Math.max(5, Math.round(baseAlt + scale * climbShape));
+    }
+
+    if (is3030Bike) {
+      // Warmup (0-18%), micro-intervals (18%-86%), cooldown (86%-100%)
+      if (fraction < 0.18 || fraction > 0.86) {
+        const easyFactor = fraction < 0.18 ? 0.65 + (fraction / 0.18) * 0.2 : 0.78 - ((fraction - 0.86) / 0.14) * 0.2;
+        if (wattsData) wattsData[i] = Math.max(70, Math.round(avgWatts * easyFactor + noise * 10));
+        if (hrData) hrData[i] = Math.min(maxHr, Math.max(85, Math.round(avgHr - 10 + easyFactor * 8 + noise * 3)));
+        if (velocityData) velocityData[i] = Number(Math.max(2, avgSpeed * (0.88 + easyFactor * 0.12)).toFixed(2));
+        if (cadenceData) cadenceData[i] = Math.max(60, Math.round(avgCadence - 4 + noise * 3));
       } else {
-        // 5 intervals and 4 recoveries across 0.20 to 0.90
-        const intervalCycle = ((fraction - 0.20) / 0.70) * 5; // 0 to 5
-        const cycleFraction = intervalCycle - Math.floor(intervalCycle);
-        const isBout = cycleFraction < 0.60; // 60% interval, 40% recovery
-        const boutNum = Math.floor(intervalCycle);
-
-        if (isBout) {
-          // Hard 1km bout @ 3:45/km (speed 4.44 m/s)
-          const boutProgress = cycleFraction / 0.60;
-          velocityData[i] = Number((4.42 + Math.sin(i * 0.5) * 0.08).toFixed(2));
-          hrData[i] = Math.round(164 + boutNum * 1.5 + boutProgress * 7 + Math.sin(i * 0.3) * 1.5);
-          cadenceData[i] = Math.round(90 + Math.sin(i * 0.2) * 1.5);
-        } else {
-          // Recovery jog @ 5:15/km (speed 3.15 m/s)
-          const recProgress = (cycleFraction - 0.60) / 0.40;
-          velocityData[i] = Number((3.15 + Math.sin(i * 0.4) * 0.06).toFixed(2));
-          hrData[i] = Math.round(168 - recProgress * 18 + Math.sin(i * 0.3) * 2);
-          cadenceData[i] = Math.round(84 + Math.sin(i * 0.2));
+        const cycle = ((fraction - 0.18) / 0.68) * 14;
+        const onBout = cycle - Math.floor(cycle) < 0.5;
+        const peakW = Math.max(avgWatts * 1.48, npWatts * 1.32);
+        const restW = Math.max(85, avgWatts * 0.58);
+        if (wattsData) wattsData[i] = Math.round((onBout ? peakW : restW) + noise * 12);
+        if (hrData) {
+          const drift = ((fraction - 0.18) / 0.68) * (maxHr - avgHr) * 0.65;
+          hrData[i] = Math.min(maxHr, Math.round(avgHr + (onBout ? 9 : -3) + drift + noise * 2));
         }
+        if (velocityData) velocityData[i] = Number(Math.max(2, avgSpeed * (onBout ? 1.12 : 0.91)).toFixed(2));
+        if (cadenceData) cadenceData[i] = Math.max(65, Math.round(avgCadence + (onBout ? 8 : -5) + noise * 2));
       }
-    } else if (activity.id === 'demo-act-2' && wattsData) {
-      // 3 x 15min Sweet Spot intervals on bike
-      if (fraction < 0.16) {
-        // Warmup: 160W -> 210W
-        const ramp = fraction / 0.16;
-        wattsData[i] = Math.round(165 + ramp * 50 + Math.sin(i * 0.4) * 8);
-        hrData[i] = Math.round(120 + ramp * 18 + Math.sin(i * 0.3) * 2);
-        cadenceData[i] = Math.round(86 + ramp * 4);
-        velocityData[i] = Number((7.8 + ramp * 1.2 + Math.sin(i * 0.3) * 0.2).toFixed(2));
-      } else if (fraction >= 0.84) {
-        // Cooldown: 160W
-        const cool = (fraction - 0.84) / 0.16;
-        wattsData[i] = Math.round(180 - cool * 35 + Math.sin(i * 0.4) * 6);
-        hrData[i] = Math.round(140 - cool * 20 + Math.sin(i * 0.3) * 2);
-        cadenceData[i] = Math.round(88 - cool * 4);
-        velocityData[i] = Number((8.0 - cool * 1.0).toFixed(2));
+    } else if (isSweetSpotBike) {
+      if (fraction < 0.15 || fraction > 0.87) {
+        if (wattsData) wattsData[i] = Math.max(80, Math.round(avgWatts * 0.72 + noise * 10));
+        if (hrData) hrData[i] = Math.min(maxHr, Math.round(avgHr - 10 + noise * 3));
+        if (velocityData) velocityData[i] = Number(Math.max(2, avgSpeed * 0.9).toFixed(2));
+        if (cadenceData) cadenceData[i] = Math.max(65, Math.round(avgCadence - 3 + noise * 2));
       } else {
-        // 3 sweet spot blocks with 2 recovery valleys
-        const block = ((fraction - 0.16) / 0.68) * 3; // 0 to 3
-        const blockFraction = block - Math.floor(block);
-        const isSweetSpot = blockFraction < 0.72; // 72% sweet spot, 28% rest
-
-        if (isSweetSpot) {
-          // Sweet spot @ 282-290W (88-92% FTP)
-          wattsData[i] = Math.round(282 + Math.sin(i * 0.25) * 12 + Math.cos(i * 0.6) * 6);
-          hrData[i] = Math.round(158 + Math.floor(block) * 2 + Math.sin(i * 0.2) * 3);
-          cadenceData[i] = Math.round(92 + Math.sin(i * 0.3) * 2);
-          velocityData[i] = Number((9.8 + Math.sin(i * 0.3) * 0.4).toFixed(2));
-        } else {
-          // Recovery @ 145W
-          wattsData[i] = Math.round(145 + Math.sin(i * 0.3) * 8);
-          hrData[i] = Math.round(136 + Math.sin(i * 0.2) * 3);
-          cadenceData[i] = Math.round(84 + Math.sin(i * 0.3) * 2);
-          velocityData[i] = Number((7.2 + Math.sin(i * 0.3) * 0.3).toFixed(2));
-        }
+        const block = ((fraction - 0.15) / 0.72) * 3;
+        const inWork = block - Math.floor(block) < 0.76;
+        if (wattsData) wattsData[i] = Math.round((inWork ? avgWatts * 1.16 : avgWatts * 0.62) + noise * 8);
+        if (hrData) hrData[i] = Math.min(maxHr, Math.round(avgHr + (inWork ? 8 : -8) + noise * 2));
+        if (velocityData) velocityData[i] = Number(Math.max(2, avgSpeed * (inWork ? 1.07 : 0.88)).toFixed(2));
+        if (cadenceData) cadenceData[i] = Math.max(65, Math.round(avgCadence + (inWork ? 4 : -4) + noise * 2));
       }
-    } else if (activity.id === 'demo-act-6') {
-      // Sunday Long Progression Run (Negative splits progression from 4:45/km to 3:55/km)
-      const progress = fraction; // 0 to 1
-      const targetSpeed = 3.50 + progress * 0.75 + Math.sin(i * 0.3) * 0.05; // 3.50 m/s (4:45/km) -> 4.25 m/s (3:55/km)
-      velocityData[i] = Number(targetSpeed.toFixed(2));
-      hrData[i] = Math.round(138 + progress * 29 + Math.sin(i * 0.35) * 2);
-      cadenceData[i] = Math.round(86 + progress * 6 + Math.sin(i * 0.2) * 1);
+    } else if (runIntervalsCount >= 2) {
+      if (fraction < 0.15 || fraction > 0.88) {
+        if (velocityData) velocityData[i] = Number(Math.max(1.8, avgSpeed * 0.86 + noise * 0.08).toFixed(2));
+        if (hrData) hrData[i] = Math.min(maxHr, Math.max(90, Math.round(avgHr - 12 + noise * 3)));
+        if (cadenceData) cadenceData[i] = Math.max(68, Math.round(avgCadence - 3 + noise * 1.5));
+      } else {
+        const cycle = ((fraction - 0.15) / 0.73) * runIntervalsCount;
+        const inRep = cycle - Math.floor(cycle) < 0.68;
+        if (velocityData) velocityData[i] = Number(Math.max(1.8, avgSpeed * (inRep ? 1.12 : 0.82) + noise * 0.06).toFixed(2));
+        if (hrData) {
+          const repDrift = ((fraction - 0.15) / 0.73) * (maxHr - avgHr) * 0.6;
+          hrData[i] = Math.min(maxHr, Math.round(avgHr + (inRep ? 9 : -7) + repDrift + noise * 2));
+        }
+        if (cadenceData) cadenceData[i] = Math.max(70, Math.round(avgCadence + (inRep ? 3 : -3) + noise));
+      }
     } else if (isSwim) {
-      // Realistic swimming stroke cadence: 30-35 spm
-      const noise = Math.sin(i * 0.4) * 2;
-      hrData[i] = Math.round(140 + Math.sin(i * 0.2) * 5);
-      velocityData[i] = Number(Math.max(0.6, avgSpeed + Math.sin(i * 0.3) * 0.06).toFixed(2));
-      cadenceData[i] = Math.round(32 + noise);
+      if (hrData) {
+        const warmup = Math.min(1, fraction * 5);
+        const drift = fraction * Math.min(14, maxHr - avgHr) * 0.5;
+        hrData[i] = Math.min(maxHr, Math.max(75, Math.round(avgHr - 8 + warmup * 8 + drift + noise * 4)));
+      }
+      if (velocityData) {
+        velocityData[i] = Number(Math.max(0.4, avgSpeed + noise * 0.06).toFixed(2));
+      }
+      if (cadenceData) {
+        cadenceData[i] = Math.max(18, Math.round(avgCadence + noise * 2));
+      }
     } else {
-      // Standard realistic generator for other activities
-      const noise = Math.sin(i * 0.25) * 0.5 + Math.cos(i * 0.6) * 0.3;
-      const warmupRatio = Math.min(1, fraction * 6);
-      const fatigueDrift = fraction * (maxHr - avgHr) * 0.45;
+      // Steady aerobic / hilly endurance ride, run, walk, or strength HR trace
+      const warmup = Math.min(1, fraction * 6);
+      const drift = fraction * Math.min(18, maxHr - avgHr) * 0.45;
+      const terrainEffect = Math.sin(fraction * Math.PI * 5 + phase);
 
-      hrData[i] = Math.min(maxHr, Math.max(105, Math.round((avgHr - 12) + warmupRatio * 12 + fatigueDrift + noise * 4)));
-      velocityData[i] = Number(Math.max(0.5, avgSpeed + noise * 0.2).toFixed(2));
-      cadenceData[i] = Math.round(avgCadence + noise * 2);
-
+      if (hrData) {
+        hrData[i] = Math.min(
+          maxHr,
+          Math.max(65, Math.round(avgHr - 9 + warmup * 9 + drift + terrainEffect * 4 + noise * 3))
+        );
+      }
+      if (velocityData) {
+        const speedSpread = isRide ? avgSpeed * 0.14 : avgSpeed * 0.06;
+        velocityData[i] = Number(Math.max(0.5, avgSpeed - terrainEffect * speedSpread * 0.5 + noise * speedSpread * 0.4).toFixed(2));
+      }
+      if (cadenceData) {
+        cadenceData[i] = Math.max(45, Math.round(avgCadence + noise * (isRide ? 5 : 2)));
+      }
       if (wattsData) {
-        wattsData[i] = Math.max(80, Math.round(avgWatts + noise * 24 + Math.sin(fraction * Math.PI * 4) * 20));
+        const variability = Math.max(16, (npWatts - avgWatts) * 2.2 + avgWatts * 0.14);
+        wattsData[i] = Math.max(
+          45,
+          Math.round(avgWatts + terrainEffect * variability * 0.65 + noise * variability * 0.45)
+        );
       }
     }
   }
 
   const streamMetric = (data: number[]): DemoStreamMetric => ({
     data,
-    series_type: 'distance',
+    series_type: totalDistanceM > 0 ? 'distance' : 'time',
     original_size: data.length,
     resolution: 'high',
   });
 
   const streams: DemoStreamsMap = {
     time: streamMetric(timeData),
-    distance: streamMetric(distData),
-    heartrate: streamMetric(hrData),
-    velocity_smooth: streamMetric(velocityData),
-    cadence: streamMetric(cadenceData),
   };
 
-  // Swim activities strictly have no altitude streams
-  if (!isSwim) {
+  if (totalDistanceM > 0) {
+    streams.distance = streamMetric(distData);
+  }
+  if (hrData) {
+    streams.heartrate = streamMetric(hrData);
+  }
+  if (velocityData) {
+    streams.velocity_smooth = streamMetric(velocityData);
+  }
+  if (cadenceData) {
+    streams.cadence = streamMetric(cadenceData);
+  }
+  if (altData) {
     streams.altitude = streamMetric(altData);
   }
-
   if (wattsData) {
     streams.watts = streamMetric(wattsData);
   }
@@ -662,151 +415,143 @@ export function generateDemoStreamsForActivity(activity: StravaActivity): DemoSt
 }
 
 /**
- * Builds realistic full Strava activity details (splits_metric, laps, and telemetry streams)
- * for any demo activity so the full analysis, zone charts, and splits bar charts render completely.
+ * Builds full Strava activity details (splits_metric, laps, and telemetry streams)
+ * for any demo activity so analysis, zone charts, and splits bar charts render seamlessly.
  */
 export function generateDemoActivityDetails(activity: StravaActivity): StravaActivityDetailsRecord {
   const streams = generateDemoStreamsForActivity(activity);
+  const hasStreams = Object.keys(streams).length > 0;
   const isRun = activity.type === 'Run' || activity.sport_type === 'Run';
-  const isBike = activity.type === 'Ride' || activity.sport_type === 'Ride';
-  const isSwim = activity.type === 'Swim' || activity.sport_type === 'Swim';
+  const isSwim = activity.type === 'Swim' || activity.sport_type === 'Swim' || activity.sport_type === 'OpenWaterSwim';
+  const seed = hashActivitySeed(activity.id);
 
-  // Generate splits_metric for Run activities
-  let splits_metric: any[] = [];
-  if (isRun) {
-    const totalKm = (activity.distance || 10000) / 1000;
+  // Generate 1km splits_metric for Run activities
+  const splits_metric: any[] = [];
+  if (isRun && (activity.distance || 0) >= 400 && (activity.moving_time || 0) > 0) {
+    const totalKm = activity.distance / 1000;
     const fullKm = Math.floor(totalKm);
     const remainder = totalKm - fullKm;
+    const avgSplitSec = activity.moving_time / totalKm;
+    const elevPerKm = (activity.total_elevation_gain || 0) / Math.max(1, totalKm);
 
-    if (activity.id === 'demo-act-1') {
-      // 5x1km interval splits
-      splits_metric = [
-        { split: 1, distance: 1000, moving_time: 288, elapsed_time: 288, average_speed: 3.47, average_heartrate: 142, elevation_difference: 8 },
-        { split: 2, distance: 1000, moving_time: 282, elapsed_time: 282, average_speed: 3.55, average_heartrate: 146, elevation_difference: 5 },
-        { split: 3, distance: 1000, moving_time: 224, elapsed_time: 224, average_speed: 4.46, average_heartrate: 168, elevation_difference: -2 },
-        { split: 4, distance: 1000, moving_time: 270, elapsed_time: 270, average_speed: 3.70, average_heartrate: 151, elevation_difference: 2 },
-        { split: 5, distance: 1000, moving_time: 225, elapsed_time: 225, average_speed: 4.44, average_heartrate: 171, elevation_difference: 4 },
-        { split: 6, distance: 1000, moving_time: 265, elapsed_time: 265, average_speed: 3.77, average_heartrate: 153, elevation_difference: -3 },
-        { split: 7, distance: 1000, moving_time: 226, elapsed_time: 226, average_speed: 4.42, average_heartrate: 172, elevation_difference: 12 },
-        { split: 8, distance: 1000, moving_time: 258, elapsed_time: 258, average_speed: 3.88, average_heartrate: 155, elevation_difference: 4 },
-        { split: 9, distance: 1000, moving_time: 223, elapsed_time: 223, average_speed: 4.48, average_heartrate: 173, elevation_difference: -6 },
-        { split: 10, distance: 1000, moving_time: 225, elapsed_time: 225, average_speed: 4.44, average_heartrate: 174, elevation_difference: 3 },
-        { split: 11, distance: 450, moving_time: 132, elapsed_time: 132, average_speed: 3.41, average_heartrate: 148, elevation_difference: 2 },
-      ];
-    } else if (activity.id === 'demo-act-6') {
-      // Progression run splits: 4:45 down to 3:55
-      const paces = [285, 283, 280, 276, 272, 269, 266, 262, 259, 255, 252, 248, 244, 241, 238, 235, 234, 235];
-      for (let k = 0; k < fullKm; k++) {
-        const sec = paces[k] || 260;
-        splits_metric.push({
-          split: k + 1,
-          distance: 1000,
-          moving_time: sec,
-          elapsed_time: sec,
-          average_speed: Number((1000 / sec).toFixed(2)),
-          average_heartrate: Math.round(138 + k * 1.8),
-          elevation_difference: Math.round(Math.sin(k * 0.8) * 8),
-        });
+    for (let k = 1; k <= fullKm; k++) {
+      const variation = Math.sin(k * 0.85 + seed * 5) * Math.min(9, avgSplitSec * 0.03);
+      const sec = Math.max(120, Math.round(avgSplitSec + variation));
+      const splitObj: Record<string, unknown> = {
+        split: k,
+        distance: 1000,
+        moving_time: sec,
+        elapsed_time: sec,
+        average_speed: Number((1000 / sec).toFixed(2)),
+        elevation_difference: elevPerKm > 0 ? Math.round(Math.sin(k * 1.1 + seed) * elevPerKm) : 0,
+      };
+      if (activity.average_heartrate && activity.average_heartrate > 0) {
+        splitObj.average_heartrate = Math.round(
+          activity.average_heartrate + (k / Math.max(1, fullKm) - 0.5) * 8 + Math.sin(k * 0.7) * 2
+        );
       }
-      if (remainder >= 0.05) {
-        const sec = Math.round(remainder * 235);
-        splits_metric.push({
-          split: fullKm + 1,
-          distance: Math.round(remainder * 1000),
-          moving_time: sec,
-          elapsed_time: sec,
-          average_speed: Number(((remainder * 1000) / sec).toFixed(2)),
-          average_heartrate: 169,
-          elevation_difference: 2,
-        });
+      splits_metric.push(splitObj);
+    }
+
+    if (remainder >= 0.05) {
+      const remDist = Math.round(remainder * 1000);
+      const sec = Math.max(10, Math.round(remainder * avgSplitSec));
+      const splitObj: Record<string, unknown> = {
+        split: fullKm + 1,
+        distance: remDist,
+        moving_time: sec,
+        elapsed_time: sec,
+        average_speed: Number((remDist / sec).toFixed(2)),
+        elevation_difference: 0,
+      };
+      if (activity.average_heartrate && activity.average_heartrate > 0) {
+        splitObj.average_heartrate = Math.round(activity.average_heartrate + 3);
       }
-    } else {
-      const avgSplitSec = Math.round((activity.moving_time || 2400) / Math.max(1, totalKm));
-      for (let k = 1; k <= fullKm; k++) {
-        const sec = Math.round(avgSplitSec + Math.sin(k * 0.7) * 8);
-        splits_metric.push({
-          split: k,
-          distance: 1000,
-          moving_time: sec,
-          elapsed_time: sec,
-          average_speed: Number((1000 / sec).toFixed(2)),
-          average_heartrate: Math.round((activity.average_heartrate || 145) + Math.sin(k * 0.6) * 4),
-          elevation_difference: Math.round(Math.sin(k * 0.9) * 6),
-        });
-      }
-      if (remainder >= 0.05) {
-        const sec = Math.round(remainder * avgSplitSec);
-        splits_metric.push({
-          split: fullKm + 1,
-          distance: Math.round(remainder * 1000),
-          moving_time: sec,
-          elapsed_time: sec,
-          average_speed: Number(((remainder * 1000) / sec).toFixed(2)),
-          average_heartrate: activity.average_heartrate || 145,
-          elevation_difference: 2,
-        });
-      }
+      splits_metric.push(splitObj);
     }
   }
 
-  // Generate laps for Bike or Swim activities if not present
-  let laps: any[] = (activity as any).laps || [];
-  if (isBike && laps.length === 0) {
-    if (activity.id === 'demo-act-2') {
-      laps = [
-        { id: 201, lap_index: 1, name: 'Warmup', distance: 8000, moving_time: 1000, elapsed_time: 1000, average_speed: 8.0, average_watts: 185, average_heartrate: 132, average_cadence: 88, elevation_gain: 35 },
-        { id: 202, lap_index: 2, name: 'Sweet Spot 1', distance: 8900, moving_time: 900, elapsed_time: 900, average_speed: 9.88, average_watts: 282, average_heartrate: 161, average_cadence: 93, elevation_gain: 55 },
-        { id: 203, lap_index: 3, name: 'Recovery 1', distance: 2100, moving_time: 300, elapsed_time: 300, average_speed: 7.0, average_watts: 145, average_heartrate: 136, average_cadence: 84, elevation_gain: 15 },
-        { id: 204, lap_index: 4, name: 'Sweet Spot 2', distance: 9000, moving_time: 900, elapsed_time: 900, average_speed: 10.0, average_watts: 286, average_heartrate: 163, average_cadence: 94, elevation_gain: 60 },
-        { id: 205, lap_index: 5, name: 'Recovery 2', distance: 2100, moving_time: 300, elapsed_time: 300, average_speed: 7.0, average_watts: 142, average_heartrate: 137, average_cadence: 84, elevation_gain: 15 },
-        { id: 206, lap_index: 6, name: 'Sweet Spot 3', distance: 9100, moving_time: 900, elapsed_time: 900, average_speed: 10.1, average_watts: 288, average_heartrate: 165, average_cadence: 94, elevation_gain: 70 },
-        { id: 207, lap_index: 7, name: 'Cooldown', distance: 9300, moving_time: 1100, elapsed_time: 1100, average_speed: 8.45, average_watts: 172, average_heartrate: 128, average_cadence: 87, elevation_gain: 40 },
-      ];
-    } else if (activity.id === 'demo-act-5') {
-      laps = [
-        { id: 501, lap_index: 1, name: 'Outward Flat Rolling', distance: 22000, moving_time: 2500, elapsed_time: 2500, average_speed: 8.8, average_watts: 212, average_heartrate: 136, average_cadence: 89, elevation_gain: 120 },
-        { id: 502, lap_index: 2, name: 'First Mountain Pass', distance: 16000, moving_time: 2400, elapsed_time: 2400, average_speed: 6.67, average_watts: 278, average_heartrate: 162, average_cadence: 86, elevation_gain: 340 },
-        { id: 503, lap_index: 3, name: 'Valley Traverse', distance: 24000, moving_time: 2700, elapsed_time: 2700, average_speed: 8.89, average_watts: 218, average_heartrate: 138, average_cadence: 88, elevation_gain: 110 },
-        { id: 504, lap_index: 4, name: 'Second Ridge & Descent', distance: 20400, moving_time: 2300, elapsed_time: 2300, average_speed: 8.87, average_watts: 245, average_heartrate: 152, average_cadence: 90, elevation_gain: 210 },
-      ];
+  // Generate 100m (or open water segment) laps for Swim activities if not present
+  let laps: any[] = Array.isArray(activity.laps) ? [...activity.laps] : [];
+  if (isSwim && laps.length === 0 && (activity.distance || 0) >= 100 && (activity.moving_time || 0) > 0) {
+    const lapUnit = activity.sport_type === 'OpenWaterSwim' ? 500 : 100;
+    const fullLaps = Math.floor(activity.distance / lapUnit);
+    const remM = Math.round(activity.distance - fullLaps * lapUnit);
+    const pacePerM = activity.moving_time / activity.distance;
+
+    for (let l = 1; l <= fullLaps; l++) {
+      const lapMov = Math.max(20, Math.round(lapUnit * pacePerM + Math.sin(l * 0.7 + seed * 4) * (lapUnit === 500 ? 6 : 2)));
+      const lapObj: Record<string, unknown> = {
+        id: `${activity.id}-lap-${l}`,
+        lap_index: l,
+        name: `Lap ${l}`,
+        distance: lapUnit,
+        moving_time: lapMov,
+        elapsed_time: lapMov,
+        average_speed: Number((lapUnit / lapMov).toFixed(2)),
+      };
+      if (activity.average_heartrate && activity.average_heartrate > 0) {
+        lapObj.average_heartrate = Math.round(activity.average_heartrate + Math.sin(l * 0.5) * 4);
+      }
+      if (activity.average_cadence && activity.average_cadence > 0) {
+        lapObj.average_cadence = Math.round(activity.average_cadence + (l % 3) - 1);
+      }
+      laps.push(lapObj);
+    }
+
+    if (remM >= 25) {
+      const lapMov = Math.max(15, Math.round(remM * pacePerM));
+      laps.push({
+        id: `${activity.id}-lap-${fullLaps + 1}`,
+        lap_index: fullLaps + 1,
+        name: `Lap ${fullLaps + 1}`,
+        distance: remM,
+        moving_time: lapMov,
+        elapsed_time: lapMov,
+        average_speed: Number((remM / lapMov).toFixed(2)),
+        ...(activity.average_heartrate ? { average_heartrate: Math.round(activity.average_heartrate) } : {}),
+      });
     }
   }
 
+  const nowIso = new Date().toISOString();
   const enhancedActivity: Record<string, unknown> = {
     ...activity,
-    splits_metric: splits_metric.length > 0 ? splits_metric : (activity as any).splits_metric,
-    laps: laps.length > 0 ? laps : (activity as any).laps,
+    ...(splits_metric.length > 0 ? { splits_metric } : {}),
+    ...(laps.length > 0 ? { laps } : {}),
   };
+
+  const tpFeedbackMap = demoTpEffortFeedbackRaw as Record<string, ActivityEffortFeedback>;
+  const effortFeedback = tpFeedbackMap[String(activity.id)]
+    ? { ...tpFeedbackMap[String(activity.id)] }
+    : undefined;
 
   return {
     id: String(activity.id),
     activity: enhancedActivity,
-    streams: streams as unknown as Record<string, unknown>,
-    fetchedAt: new Date().toISOString(),
-    lapsFetchedAt: new Date().toISOString(),
-    noStreamsAvailable: false,
+    streams: hasStreams ? (streams as unknown as Record<string, unknown>) : undefined,
+    ...(effortFeedback ? { effortFeedback } : {}),
+    fetchedAt: nowIso,
+    lapsFetchedAt: nowIso,
+    noStreamsAvailable: !hasStreams,
   };
 }
 
 /**
- * Seeds all demo activity detail records into IndexedDB and returns them in a key-value record map.
+ * Generates all 457 demo activity detail records in memory, removes any legacy demo-act-* records,
+ * persists them in a single fast IndexedDB transaction, and returns the record map.
  */
 export async function seedDemoActivityDetails(): Promise<Record<string, StravaActivityDetailsRecord>> {
   const activities = generateDemoActivities();
   const detailMap: Record<string, StravaActivityDetailsRecord> = {};
+  const recordsList: StravaActivityDetailsRecord[] = [];
 
   for (const act of activities) {
-    try {
-      const details = generateDemoActivityDetails(act);
-      const saved = await saveStravaActivityDetails(act.id, {
-        activity: details.activity || (act as any),
-        streams: details.streams,
-      });
-      detailMap[saved.id] = saved;
-    } catch (err) {
-      console.warn(`[Demo Seed] Failed to seed details for demo activity ${act.id}:`, err);
-    }
+    const record = generateDemoActivityDetails(act);
+    detailMap[record.id] = record;
+    recordsList.push(record);
   }
 
+  await batchSaveStravaActivityRecords(recordsList, LEGACY_DEMO_ACTIVITY_IDS);
   return detailMap;
 }

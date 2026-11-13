@@ -44,9 +44,10 @@ import type { AthleteProfile, DayOfWeek } from '../types/athlete';
 import { formatSecondsToMinSec } from '../types/athlete';
 import type { TrainingGoal } from '../types/goals';
 import { saveAthleteGoals } from '../utils/goalsStorage';
+import { saveAthleteProfile } from '../utils/athleteStorage';
 import type { DailyRecoveryLog } from '../types/recovery';
 import type { StravaActivity, StravaActivityDetailsRecord } from '../utils/stravaActivities';
-import { applyRunSectionsCalibration } from '../utils/stravaActivities';
+import { applyRunSectionsCalibration, saveActivityCommentAndDescription } from '../utils/stravaActivities';
 import { ActivityCalibrationModal } from './ActivityCalibrationModal';
 import type {
   RecommendedWorkout,
@@ -55,6 +56,10 @@ import type {
   CoachChatMessage,
   CoachGoalAction,
   CoachWorkoutCalibrationAction,
+  CoachWorkoutCommentAction,
+  CoachPrescribeWorkoutAction,
+  CoachTrainingEvaluationAction,
+  CoachProfileUpdateAction,
   CoachAction,
   CalibratedLapProposal,
   WorkoutReviewItem,
@@ -125,7 +130,7 @@ export const CoachTab: React.FC<CoachTabProps> = ({
   // Coach System State
   const [coachStatus, setCoachStatus] = useState<{ available: boolean; model: string }>({
     available: true,
-    model: 'gemini-3.8-flash',
+    model: 'gemini-4-hydrogen',
   });
 
   // Recommended Workout State
@@ -464,9 +469,8 @@ export const CoachTab: React.FC<CoachTabProps> = ({
       );
       const res = await sendCoachChatMessage(query, payload, chatMessages);
 
-      // Execute goal mutations if returned by the coach
-      if (res.executedAction) {
-        const action = res.executedAction;
+      // Helper to execute any Coach Skill action (primary or additional)
+      const executeCoachSkillAction = async (action: CoachAction) => {
         if (action.type === 'add_goal' && action.goal) {
           const rawGoal = action.goal;
           const goalName = rawGoal.name || 'Goal Race';
@@ -531,6 +535,81 @@ export const CoachTab: React.FC<CoachTabProps> = ({
             saveAthleteGoals(updated);
             onGoalsUpdated?.(updated);
           }
+        } else if (action.type === 'update_workout_comment') {
+          try {
+            const { record } = await saveActivityCommentAndDescription(action.activityId, {
+              commentOrDescription: action.commentOrDescription,
+              newTitle: action.newTitle,
+              rpe: action.rpe,
+              appendToExisting: action.appendToExisting ?? true,
+              stravaAccessToken: stravaToken,
+            });
+            onActivityDetailsUpdated?.(record);
+          } catch (err) {
+            console.warn('[Coach Workout Comment Skill] Failed to persist comment:', err);
+          }
+        } else if (action.type === 'update_athlete_profile') {
+          const u = action.updates || {};
+          const nextProfile: AthleteProfile = { ...athleteProfile };
+          if (typeof u.bikeFtp === 'number' && u.bikeFtp > 50) nextProfile.bikeFtp = u.bikeFtp;
+          if (typeof u.lactateThresholdHeartRate === 'number' && u.lactateThresholdHeartRate > 100) {
+            nextProfile.thresholdHeartRateRun = u.lactateThresholdHeartRate;
+          }
+          if (typeof u.thresholdHeartRateRun === 'number' && u.thresholdHeartRateRun > 100) {
+            nextProfile.thresholdHeartRateRun = u.thresholdHeartRateRun;
+          }
+          if (typeof u.thresholdPaceRunOutdoorSec === 'number' && u.thresholdPaceRunOutdoorSec > 120) {
+            nextProfile.thresholdPaceRunOutdoorSec = u.thresholdPaceRunOutdoorSec;
+          }
+          if (typeof u.thresholdPaceRunTreadmillSec === 'number' && u.thresholdPaceRunTreadmillSec > 120) {
+            nextProfile.thresholdPaceRunTreadmillSec = u.thresholdPaceRunTreadmillSec;
+          }
+          if (typeof u.swimPoolPace100mSec === 'number' && u.swimPoolPace100mSec > 40) {
+            nextProfile.swimPoolPace100mSec = u.swimPoolPace100mSec;
+          }
+          const injInfo = action.injuryAddedOrUpdated || (u.injuryArea ? {
+            area: String(u.injuryArea),
+            severity: (u.injurySeverity || 'mild') as 'mild' | 'moderate' | 'severe',
+            status: 'active' as const,
+            notes: u.injuryNotes ? String(u.injuryNotes) : undefined,
+          } : undefined);
+          if (injInfo) {
+            const existingInjuries = [...(nextProfile.injuries || [])];
+            const idx = existingInjuries.findIndex(
+              (inj) =>
+                inj.bodyArea.toLowerCase() === injInfo.area.toLowerCase() ||
+                inj.name.toLowerCase().includes(injInfo.area.toLowerCase())
+            );
+            const newInjury = {
+              id: idx >= 0 ? existingInjuries[idx].id : `inj_${Date.now()}`,
+              name: idx >= 0 ? existingInjuries[idx].name : `${injInfo.area} Limitation`,
+              bodyArea: (idx >= 0 ? existingInjuries[idx].bodyArea : 'Other') as any,
+              status: (injInfo.status === 'resolved' ? 'cleared' : injInfo.status === 'recovering' ? 'recovering' : 'active') as any,
+              painLevel: injInfo.severity === 'severe' ? 7 : injInfo.severity === 'moderate' ? 5 : 3,
+              sportModifications:
+                idx >= 0
+                  ? existingInjuries[idx].sportModifications
+                  : injInfo.notes || 'Avoid high-impact spikes; prioritize controlled aerobic load',
+              notes: injInfo.notes || 'Updated via Coach Gemini chat',
+            };
+            if (idx >= 0) {
+              existingInjuries[idx] = newInjury;
+            } else {
+              existingInjuries.push(newInjury);
+            }
+            nextProfile.injuries = existingInjuries;
+          }
+          saveAthleteProfile(nextProfile);
+          onProfileUpdated?.(nextProfile);
+        }
+      };
+
+      if (res.executedAction) {
+        await executeCoachSkillAction(res.executedAction);
+      }
+      if (res.additionalActions && res.additionalActions.length > 0) {
+        for (const extraAction of res.additionalActions) {
+          await executeCoachSkillAction(extraAction);
         }
       }
 
@@ -539,6 +618,8 @@ export const CoachTab: React.FC<CoachTabProps> = ({
         role: 'model',
         content: res.answer,
         executedAction: res.executedAction,
+        additionalActions: res.additionalActions,
+        skillsUsed: res.skillsUsed,
         confidenceRating: res.confidenceRating,
         groundingSources: res.groundingSources,
         timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
@@ -742,6 +823,25 @@ export const CoachTab: React.FC<CoachTabProps> = ({
     } as any);
     setSelectedCalibrationActivity(act);
     setIsFixDataModalOpen(true);
+  };
+
+  const handleSavePrescribedWorkoutToToday = (msgId: string, action: CoachPrescribeWorkoutAction) => {
+    setTodayWorkout(action.workout);
+    saveTodayRecommendedWorkout(action.workout);
+    const updatedMessages: CoachChatMessage[] = chatMessages.map((m) => {
+      if (m.id === msgId && m.executedAction && m.executedAction.type === 'prescribe_workout') {
+        return {
+          ...m,
+          executedAction: {
+            ...m.executedAction,
+            status: 'saved_to_today' as const,
+          },
+        };
+      }
+      return m;
+    });
+    setChatMessages(updatedMessages);
+    saveCoachChatHistory(updatedMessages);
   };
 
   const handleCopyWorkout = () => {
@@ -2155,6 +2255,26 @@ ${todayWorkout.structure.map((s) => `• [${s.phase}] (${s.duration}): ${s.descr
             <span className="text-xs font-bold text-slate-500">Quick prompts:</span>
             {[
               {
+                label: '🏃 Progress Last 2 Thursday Runs',
+                query: 'How should i progress my run workouts from the last 2 thursdays.',
+              },
+              {
+                label: '🌲 Add Seven Sins to My Goals',
+                query: 'Can you add Seven Sins to my Goals',
+              },
+              {
+                label: '📊 Evaluate This Week & CTL Ramp',
+                query: 'Evaluate my current week and last week training against my goals, weeks until race, and CTL ramp rate.',
+              },
+              {
+                label: '💬 Add Comment to 8x1km Run',
+                query: 'Add a coach comment to my 8 x 1km run on Thursday: Controlled VO2/threshold reps at 3:32/km with 70s rest, RPE 8/10.',
+              },
+              {
+                label: '📅 Plan Upcoming Run (Schedule + Injury Aware)',
+                query: 'Plan my next structured run workout taking into account my weekly work schedule, injuries, and goal race countdown.',
+              },
+              {
                 label: "⚡ I did today's run at 3:30/km",
                 query: 'I did todays run at 3:30/km',
               },
@@ -2163,41 +2283,8 @@ ${todayWorkout.structure.map((s) => `• [${s.phase}] (${s.duration}): ${s.descr
                 query: 'I want to run under 1 hour a Chippenham Spring 10 mile',
               },
               {
-                label: '✏️ Edit Chippenham to 58m',
-                query: 'Change the Chippenham Spring 10 Mile target time to 58 minutes',
-              },
-              {
-                label: '🗑️ Delete Chippenham Goal',
-                query: 'Delete the Chippenham Spring 10 Mile race goal',
-              },
-              {
-                label: '🏊 Frame Swim vs 2028 Ironman',
-                query:
-                  'in the future, when we look at activities can we frame the analysis in the context of the week and hitting long term goals. For example my swimming is often short intervals with long 30-45 second rest periods 50m/100m/200m, where i am stronger conpared to 4x400m with 20 seconds rest which would suit a 1.9km or 3.8km swim better.',
-              },
-              {
-                label: '⭐ Rate Last 10 Days Swimming',
+                label: '🏊 Rate Last 10 Days Swimming',
                 query: 'Could you rate my last 10 days of swimming relative to my new 2028 Ironman objective?',
-              },
-              {
-                label: '🎯 Add Goal: Flat Ironman June 2028',
-                query: 'Add new long-term goal Flat Ironman June 18, 2028 Priority C',
-              },
-              {
-                label: '⏱️ Deep Lap & HR Drift Analysis',
-                query: "Can you analyze yesterday's swim session in detail: lap paces, TSS, interval heart rate drift, and zone distribution?",
-              },
-              {
-                label: '🏃 Progress Thursday Run Workouts',
-                query: 'How should i progress my run workouts from the last 2 thursdays.',
-              },
-              {
-                label: '⚡ 4h 30m 70.3: Run vs TT Aero Gains',
-                query: 'For a goal time of 4hrs 30min for a half IronMan would I gain most by working on my run distance or time spent in the TT position on the bike?',
-              },
-              {
-                label: '📋 Check Coach Athlete Profile Access',
-                query: 'Does Coach Gemini have access to my details in the Athlete tab, periodization cycle, current injuries & limitations, training availability & work schedule?',
               },
             ].map((p, i) => (
               <button
@@ -2263,11 +2350,28 @@ ${todayWorkout.structure.map((s) => `• [${s.phase}] (${s.duration}): ${s.descr
                             : 'bg-zinc-950/80 border-zinc-800 text-zinc-200'
                         }`}
                       >
-                        {/* Confidence Rating Badge if present */}
-                        {(msg.confidenceRating || msg.content.includes('High Confidence')) && (
-                          <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-amber-400/15 border border-amber-400/30 text-amber-300">
-                            <span>★</span>
-                            <span>{msg.confidenceRating || 'High Confidence 8.5/10'}</span>
+                        {/* Active Coach Skills & Confidence Rating Badges */}
+                        {((msg.skillsUsed && msg.skillsUsed.length > 0) || msg.confidenceRating || msg.content.includes('High Confidence')) && (
+                          <div className="flex flex-wrap items-center gap-1.5 pb-1">
+                            {msg.skillsUsed && msg.skillsUsed.map((skill, sIdx) => (
+                              <span
+                                key={sIdx}
+                                className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold border ${
+                                  theme === 'light'
+                                    ? 'bg-indigo-50 border-indigo-200 text-indigo-700'
+                                    : 'bg-indigo-500/15 border-indigo-500/30 text-indigo-300'
+                                }`}
+                              >
+                                <Zap className="w-2.5 h-2.5 text-amber-400" />
+                                <span>Skill: {skill}</span>
+                              </span>
+                            ))}
+                            {(msg.confidenceRating || msg.content.includes('High Confidence')) && (
+                              <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-amber-400/15 border border-amber-400/30 text-amber-300">
+                                <span>★</span>
+                                <span>{msg.confidenceRating || 'High Confidence 8.5/10'}</span>
+                              </div>
+                            )}
                           </div>
                         )}
 
@@ -2715,6 +2819,246 @@ ${todayWorkout.structure.map((s) => `• [${s.phase}] (${s.duration}): ${s.descr
                                 <Sliders className={`w-3.5 h-3.5 ${theme === 'light' ? 'text-slate-500' : 'text-zinc-400'}`} />
                                 <span>Open in Fix Data Modal</span>
                               </button>
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Executed Action Card: Workout Comment / Description Updated */}
+                        {msg.executedAction?.type === 'update_workout_comment' && (
+                          <div className={`p-3.5 rounded-xl border border-emerald-500/35 bg-emerald-500/10 text-xs space-y-2.5 animate-in fade-in duration-200 ${
+                            theme === 'light' ? 'text-slate-800' : 'text-zinc-200'
+                          }`}>
+                            <div className="flex items-center justify-between gap-2 pb-1.5 border-b border-emerald-500/20">
+                              <div className="flex items-center gap-2">
+                                <span className="p-1 rounded bg-emerald-500/20 text-emerald-400">
+                                  <FileText className="w-3.5 h-3.5" />
+                                </span>
+                                <div>
+                                  <span className="font-bold text-emerald-400">Workout Note &amp; Description Saved</span>
+                                  <div className={`text-[10px] ${theme === 'light' ? 'text-slate-500' : 'text-zinc-400'}`}>
+                                    Activity: {msg.executedAction.activityName} ({msg.executedAction.activityDate})
+                                  </div>
+                                </div>
+                              </div>
+                              <div className="flex items-center gap-1.5">
+                                {msg.executedAction.rpe && (
+                                  <span className="px-2 py-0.5 rounded text-[10px] font-black bg-amber-400/20 text-amber-300 border border-amber-400/30">
+                                    RPE {msg.executedAction.rpe}/10
+                                  </span>
+                                )}
+                                <span className="px-2 py-0.5 rounded text-[10px] font-black uppercase bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                                  ✓ Saved
+                                </span>
+                              </div>
+                            </div>
+                            {msg.executedAction.newTitle && (
+                              <div className="text-[11px]">
+                                <span className="opacity-70">Updated Title: </span>
+                                <strong className="font-bold">{msg.executedAction.newTitle}</strong>
+                              </div>
+                            )}
+                            <div className={`p-2.5 rounded-lg border italic text-[11px] leading-relaxed ${
+                              theme === 'light'
+                                ? 'bg-white border-slate-200 text-slate-700'
+                                : 'bg-black/40 border-zinc-800 text-zinc-300'
+                            }`}>
+                              &ldquo;{msg.executedAction.commentOrDescription}&rdquo;
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Executed Action Card: Prescribed Workout in Chat */}
+                        {msg.executedAction?.type === 'prescribe_workout' && msg.executedAction.workout && (
+                          <div className={`p-4 rounded-xl border border-amber-500/40 bg-amber-500/10 text-xs space-y-3 shadow-lg animate-in fade-in duration-200 ${
+                            theme === 'light' ? 'text-slate-800' : 'text-zinc-200'
+                          }`}>
+                            <div className="flex items-center justify-between gap-2 pb-2 border-b border-amber-500/20">
+                              <div className="flex items-center gap-2">
+                                <span className="p-1.5 rounded-lg bg-amber-400/20 text-amber-300 font-bold">
+                                  <Zap className="w-4 h-4" />
+                                </span>
+                                <div>
+                                  <span className="font-bold text-amber-400">Prescribed Workout Plan</span>
+                                  <div className={`text-[10px] ${theme === 'light' ? 'text-slate-600' : 'text-zinc-400'}`}>
+                                    {msg.executedAction.scheduledFor || 'Upcoming Session'} &middot; {msg.executedAction.workout.sport.toUpperCase()} &middot; {msg.executedAction.workout.durationMin} min &middot; {msg.executedAction.workout.estimatedTss} TSS
+                                  </div>
+                                </div>
+                              </div>
+                              <span className="px-2 py-0.5 rounded text-[10px] font-black uppercase bg-amber-400/20 text-amber-300 border border-amber-400/40">
+                                {msg.executedAction.workout.intensity.replace('_', ' ')}
+                              </span>
+                            </div>
+
+                            <div className={`font-black text-sm ${theme === 'light' ? 'text-slate-900' : 'text-zinc-100'}`}>
+                              {msg.executedAction.workout.title}
+                            </div>
+
+                            {/* Target Zones */}
+                            <div className="flex flex-wrap gap-2 text-[11px]">
+                              {msg.executedAction.workout.targetZones.pace && (
+                                <span className="px-2 py-0.5 rounded bg-cyan-500/15 border border-cyan-500/30 text-cyan-300 font-semibold">
+                                  ⏱️ Pace: {msg.executedAction.workout.targetZones.pace}
+                                </span>
+                              )}
+                              {msg.executedAction.workout.targetZones.watts && (
+                                <span className="px-2 py-0.5 rounded bg-amber-500/15 border border-amber-500/30 text-amber-300 font-semibold">
+                                  ⚡ Power: {msg.executedAction.workout.targetZones.watts}
+                                </span>
+                              )}
+                              {msg.executedAction.workout.targetZones.heartRate && (
+                                <span className="px-2 py-0.5 rounded bg-rose-500/15 border border-rose-500/30 text-rose-300 font-semibold">
+                                  ❤️ HR: {msg.executedAction.workout.targetZones.heartRate}
+                                </span>
+                              )}
+                            </div>
+
+                            {/* Structure Steps */}
+                            {msg.executedAction.workout.structure && msg.executedAction.workout.structure.length > 0 && (
+                              <div className={`rounded-lg border divide-y text-[11px] ${
+                                theme === 'light'
+                                  ? 'bg-white border-slate-200 divide-slate-200'
+                                  : 'bg-black/40 border-zinc-800 divide-zinc-800'
+                              }`}>
+                                {msg.executedAction.workout.structure.map((step, idx) => (
+                                  <div key={idx} className="px-3 py-1.5 flex items-center justify-between gap-2">
+                                    <div className="min-w-0">
+                                      <span className="font-bold text-amber-400 mr-1.5">{step.phase} ({step.duration}):</span>
+                                      <span>{step.description}</span>
+                                    </div>
+                                    {step.target && (
+                                      <span className="font-mono text-[10px] px-1.5 py-0.5 rounded bg-zinc-800 text-zinc-200 shrink-0">
+                                        {step.target}
+                                      </span>
+                                    )}
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+
+                            {/* Save to Today's Workout Button */}
+                            <div className="pt-2 border-t border-amber-500/20 flex items-center justify-between gap-2">
+                              {msg.executedAction.status === 'saved_to_today' ? (
+                                <div className="flex items-center gap-2 text-emerald-400 font-bold text-xs">
+                                  <CheckCircle2 className="w-4 h-4" />
+                                  <span>Saved to Today&apos;s Workout!</span>
+                                  <button
+                                    type="button"
+                                    onClick={() => setActiveSubTab('today')}
+                                    className="ml-2 px-2.5 py-1 rounded bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/30 text-[10px] cursor-pointer"
+                                  >
+                                    Open Today&apos;s Workout Tab &rarr;
+                                  </button>
+                                </div>
+                              ) : (
+                                <button
+                                  type="button"
+                                  onClick={() => handleSavePrescribedWorkoutToToday(msg.id, msg.executedAction as CoachPrescribeWorkoutAction)}
+                                  className="px-3.5 py-1.5 rounded-lg bg-amber-400 hover:bg-amber-300 text-slate-950 font-black text-xs transition-all cursor-pointer flex items-center gap-1.5 shadow-sm"
+                                >
+                                  <Plus className="w-3.5 h-3.5 stroke-[2.5]" />
+                                  <span>Save as Today&apos;s Workout</span>
+                                </button>
+                              )}
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Executed Action Card: Training Evaluation & CTL Ramp Rate Audit */}
+                        {msg.executedAction?.type === 'evaluate_training' && (
+                          <div className={`p-4 rounded-xl border border-indigo-500/40 bg-indigo-500/10 text-xs space-y-3 shadow-md animate-in fade-in duration-200 ${
+                            theme === 'light' ? 'text-slate-800' : 'text-zinc-200'
+                          }`}>
+                            <div className="flex items-center justify-between gap-2 pb-2 border-b border-indigo-500/20">
+                              <div className="flex items-center gap-2">
+                                <span className="p-1.5 rounded-lg bg-indigo-500/20 text-indigo-300 font-bold">
+                                  <TrendingUp className="w-4 h-4" />
+                                </span>
+                                <div>
+                                  <span className="font-bold text-indigo-300">Training &amp; Goal Alignment Audit</span>
+                                  <div className={`text-[10px] ${theme === 'light' ? 'text-slate-600' : 'text-zinc-400'}`}>
+                                    {msg.executedAction.periodLabel}
+                                  </div>
+                                </div>
+                              </div>
+                              <div className="flex items-center gap-1.5">
+                                <span className="px-2 py-0.5 rounded text-[11px] font-black bg-amber-400/20 text-amber-300 border border-amber-400/30">
+                                  ★ {msg.executedAction.ratingScore}/10
+                                </span>
+                                <span className="px-2 py-0.5 rounded text-[10px] font-black uppercase bg-indigo-500/20 text-indigo-300 border border-indigo-500/30">
+                                  {msg.executedAction.verdictLabel || msg.executedAction.verdict.replace(/_/g, ' ')}
+                                </span>
+                              </div>
+                            </div>
+
+                            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 text-[11px]">
+                              <div className={`p-2 rounded-lg border ${theme === 'light' ? 'bg-white border-slate-200' : 'bg-black/40 border-zinc-800'}`}>
+                                <span className="text-[10px] opacity-65 block">CTL Ramp Rate (7d)</span>
+                                <span className="font-bold text-emerald-400">
+                                  {(msg.executedAction.ctlRampRatePtsPerWeek ?? 0) >= 0 ? '+' : ''}{(msg.executedAction.ctlRampRatePtsPerWeek ?? 0).toFixed(1)} pts/wk
+                                </span>
+                              </div>
+                              {msg.executedAction.weeksToPrimaryGoal !== undefined && (
+                                <div className={`p-2 rounded-lg border ${theme === 'light' ? 'bg-white border-slate-200' : 'bg-black/40 border-zinc-800'}`}>
+                                  <span className="text-[10px] opacity-65 block">Goal Countdown</span>
+                                  <span className="font-bold text-amber-400">
+                                    {msg.executedAction.weeksToPrimaryGoal} weeks ({msg.executedAction.primaryGoalName || 'Target Race'})
+                                  </span>
+                                </div>
+                              )}
+                              <div className={`p-2 rounded-lg border col-span-2 sm:col-span-1 ${theme === 'light' ? 'bg-white border-slate-200' : 'bg-black/40 border-zinc-800'}`}>
+                                <span className="text-[10px] opacity-65 block">Goal Alignment</span>
+                                <span className="font-semibold truncate block">{msg.executedAction.goalAlignmentSummary}</span>
+                              </div>
+                            </div>
+
+                            {msg.executedAction.highlights && msg.executedAction.highlights.length > 0 && (
+                              <div className="space-y-1">
+                                {msg.executedAction.highlights.map((h, i) => (
+                                  <div key={i} className="flex items-start gap-1.5 text-[11px]">
+                                    <span className="text-indigo-400 font-bold">•</span>
+                                    <span>{h}</span>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+
+                            {msg.executedAction.nextStepRecommendation && (
+                              <div className={`p-2 rounded-lg border text-[11px] ${
+                                theme === 'light'
+                                  ? 'bg-amber-50 border-amber-200 text-amber-900'
+                                  : 'bg-amber-500/10 border-amber-500/25 text-amber-200'
+                              }`}>
+                                <strong className="font-bold">Next Step: </strong>
+                                {msg.executedAction.nextStepRecommendation}
+                              </div>
+                            )}
+                          </div>
+                        )}
+
+                        {/* Executed Action Card: Athlete Profile / Injury / Schedule Updated */}
+                        {msg.executedAction?.type === 'update_athlete_profile' && (
+                          <div className="p-3.5 rounded-xl border border-amber-500/30 bg-amber-500/10 text-xs space-y-2 animate-in fade-in duration-200">
+                            <div className="flex items-center justify-between gap-2 pb-1.5 border-b border-amber-500/20">
+                              <div className="flex items-center gap-2">
+                                <span className="p-1 rounded bg-amber-400/20 text-amber-300 font-bold">
+                                  <ShieldAlert className="w-3.5 h-3.5" />
+                                </span>
+                                <span className="font-bold text-amber-300">Athlete Profile &amp; Constraints Updated</span>
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => onOpenSettings()}
+                                className={`text-[10px] font-bold px-2 py-0.5 rounded border cursor-pointer ${
+                                  theme === 'light'
+                                    ? 'bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-300'
+                                    : 'bg-zinc-800 hover:bg-zinc-700 text-zinc-200 border-zinc-700'
+                                }`}
+                              >
+                                View Athlete Settings
+                              </button>
+                            </div>
+                            <div className={`text-[11px] ${theme === 'light' ? 'text-slate-700' : 'text-zinc-300'}`}>
+                              {msg.executedAction.description}
                             </div>
                           </div>
                         )}

@@ -135,7 +135,67 @@ export interface CoachWorkoutCalibrationAction {
   description: string;
 }
 
-export type CoachAction = CoachGoalAction | CoachWorkoutCalibrationAction;
+export interface CoachWorkoutCommentAction {
+  type: 'update_workout_comment';
+  status?: 'applied' | 'pending';
+  activityId: string | number;
+  activityName: string;
+  activityDate: string;
+  commentOrDescription: string;
+  newTitle?: string;
+  rpe?: number;
+  appendToExisting?: boolean;
+  syncedToStrava?: boolean;
+  description: string;
+}
+
+export interface CoachPrescribeWorkoutAction {
+  type: 'prescribe_workout';
+  status?: 'proposed' | 'saved_to_today';
+  workout: RecommendedWorkout;
+  scheduledFor?: string; // e.g. "Next Thursday (2026-11-19)" or "Today"
+  progressionContext?: string;
+  description: string;
+}
+
+export interface CoachTrainingEvaluationAction {
+  type: 'evaluate_training';
+  periodLabel: string; // e.g. "Current Week", "Last Week", "Today's Session", "Last 2 Thursdays"
+  ratingScore: number; // 1 to 10
+  verdict: 'on_track' | 'overreaching' | 'under_stimulating' | 'optimal_progression' | 'recovery_needed';
+  verdictLabel: string;
+  totalDurationMin: number;
+  totalTss: number;
+  ctlRampRatePtsPerWeek?: number;
+  weeksToPrimaryGoal?: number;
+  primaryGoalName?: string;
+  goalAlignmentSummary: string;
+  highlights: string[];
+  nextStepRecommendation: string;
+  description: string;
+}
+
+export interface CoachProfileUpdateAction {
+  type: 'update_athlete_profile';
+  status?: 'applied';
+  updates?: Record<string, any>;
+  injuryAddedOrUpdated?: {
+    area: string;
+    severity: 'mild' | 'moderate' | 'severe';
+    status: 'active' | 'recovering' | 'resolved';
+    notes?: string;
+  };
+  scheduleUpdated?: string;
+  description: string;
+}
+
+export type CoachAction =
+  | CoachGoalAction
+  | CoachWorkoutCalibrationAction
+  | CoachWorkoutCommentAction
+  | CoachPrescribeWorkoutAction
+  | CoachTrainingEvaluationAction
+  | CoachProfileUpdateAction;
 
 export interface CoachChatMessage {
   id: string;
@@ -144,6 +204,8 @@ export interface CoachChatMessage {
   timestamp: string;
   feedback?: 'like' | 'dislike' | null;
   executedAction?: CoachAction;
+  additionalActions?: CoachAction[];
+  skillsUsed?: string[];
   confidenceRating?: string;
   groundingSources?: { uri: string; title: string }[];
 }
@@ -163,6 +225,7 @@ export interface CoachActivityRecord {
   paceFormatted?: string; // e.g. "4:38/km" for runs
   speedKmh?: number; // e.g. 31.4 km/h for bike
   avgWatts?: number;
+  weightedAvgWatts?: number;
   avgHeartrate?: number;
   maxHeartrate?: number;
   avgCadence?: number;
@@ -170,7 +233,14 @@ export interface CoachActivityRecord {
   tss?: number;
   isIndoor?: boolean;
   notes?: string;
+  description?: string;
   rpe?: number;
+  workoutClassification?: 'structured_intervals' | 'tempo_threshold' | 'long_endurance' | 'aerobic_base' | 'easy_or_cooldown' | 'strength_mobility';
+  isQualityWorkout?: boolean;
+  isEasyOrCooldown?: boolean;
+  intervalStructureSummary?: string; // e.g. "8 x 1km @ 3:32/km (17.0 km/h) with 70s rest"
+  activeWorkSummary?: string; // e.g. "8.0 km (28m 16s) active work @ 3:32/km vs 4:29/km overall w/ warmup & rests"
+  lapsSummary?: string;
 }
 
 export type WorkoutAssessmentType = 'optimal' | 'too_hard' | 'too_short' | 'not_hard_enough';
@@ -271,6 +341,12 @@ export interface CoachRequestPayload {
     runKm: number;
     avgDailyTss: number;
     last3DaysActivities: string[];
+    currentWeekTss?: number;
+    currentWeekHours?: number;
+    currentWeekSessions?: number;
+    lastWeekTss?: number;
+    lastWeekHours?: number;
+    lastWeekSessions?: number;
   };
   fitnessStats?: {
     ctl: number;
@@ -278,11 +354,18 @@ export interface CoachRequestPayload {
     tsb: number;
     tfi: number;
     limitingFactor?: string;
+    ctlRampRate7d?: number; // pts/week change over last 7 days
+    ctlRampRate28dAvg?: number; // avg pts/week change over last 28 days
+    rampRateAssessment?: string; // e.g. "Optimal Build (+4.2 CTL/wk)"
+    swimCtl?: number;
+    bikeCtl?: number;
+    runCtl?: number;
   };
   goals?: any[];
   preferredSport?: CoachSport | 'auto';
   targetDurationMin?: number;
   customNotes?: string;
 }
+
 
 

@@ -383,3 +383,420 @@ export function reconstructWorkoutFromQuery(
     description: desc,
   };
 }
+
+export interface ActivityStructureInsight {
+  workoutClassification:
+    | 'structured_intervals'
+    | 'tempo_threshold'
+    | 'long_endurance'
+    | 'aerobic_base'
+    | 'easy_or_cooldown'
+    | 'strength_mobility';
+  isQualityWorkout: boolean;
+  isEasyOrCooldown: boolean;
+  intervalStructureSummary?: string;
+  activeWorkSummary?: string;
+  lapsSummary?: string;
+}
+
+/**
+ * Deduces what type of workout was performed from:
+ * 1. Calibrated run sections (`calibratedRunSections`) or calibrated swim laps (`calibratedLaps`)
+ * 2. Raw Strava laps (`laps` / `splits_metric`)
+ * 3. Time + power/pace/HR stream spread & Variability Index (NP / Avg Watts or MaxHR - AvgHR)
+ * 4. Title & description patterns (e.g. "8 x 1km @ 3:32/km 70s rest", "8 x 3min treadmill 17kph 3:32/km 70sec rest", "HIIT30/15s")
+ *
+ * Crucially separates the ACTIVE INTERVAL PACE/POWER from the diluted overall average (which includes warm-up, rest intervals, and cool-down).
+ */
+export function analyzeActivityStructureAndLaps(
+  act: any,
+  details?: any,
+  athleteProfile?: any
+): ActivityStructureInsight {
+  const name = String(act?.name || '').trim();
+  const nameLower = name.toLowerCase();
+  const descLower = String(act?.description || details?.activity?.description || details?.effortFeedback?.feedbackNotes || '').toLowerCase();
+  const combined = `${nameLower} ${descLower}`;
+  const sportRaw = String(act?.sport_type || act?.type || act?.sport || '').toLowerCase();
+
+  const isRun = sportRaw.includes('run');
+  const isBike = sportRaw.includes('ride') || sportRaw.includes('bike');
+  const isSwim = sportRaw.includes('swim');
+  const isStrength = sportRaw.includes('weight') || sportRaw.includes('strength') || sportRaw.includes('gym') || sportRaw.includes('workout');
+
+  const movingTimeSec =
+    details?.calibration?.calibratedMovingTimeSec ??
+    act?.movingTimeSec ??
+    act?.moving_time ??
+    (act?.movingTimeMin ? act.movingTimeMin * 60 : 0);
+  const movingTimeMin = Math.round(movingTimeSec / 60);
+  const distanceM =
+    details?.calibration?.calibratedDistanceM ??
+    act?.distanceM ??
+    act?.distance ??
+    (act?.distanceKm ? act.distanceKm * 1000 : 0);
+  const distanceKm = distanceM / 1000;
+
+  const avgHr = details?.calibration?.calibratedAvgHeartRate ?? act?.avgHeartrate ?? act?.average_heartrate ?? 0;
+  const maxHr = details?.calibration?.calibratedMaxHeartRate ?? act?.maxHeartrate ?? act?.max_heartrate ?? 0;
+  const hrSpread = maxHr > 0 && avgHr > 0 ? maxHr - avgHr : 0;
+
+  const avgWatts = details?.calibration?.calibratedAvgWatts ?? act?.avgWatts ?? act?.average_watts ?? 0;
+  const weightedWatts = details?.calibration?.calibratedNormalizedPower ?? act?.weightedAvgWatts ?? act?.weighted_average_watts ?? 0;
+  const variabilityIndex = weightedWatts > 0 && avgWatts > 0 ? weightedWatts / avgWatts : 1.0;
+
+  // Overall pace string for runs
+  let overallPaceStr = act?.paceFormatted || '';
+  if (!overallPaceStr && isRun && distanceKm > 0 && movingTimeSec > 0) {
+    const secPerKm = movingTimeSec / distanceKm;
+    const pMin = Math.floor(secPerKm / 60);
+    const pSec = Math.round(secPerKm % 60);
+    overallPaceStr = `${pMin}:${pSec.toString().padStart(2, '0')}/km`;
+  }
+
+  // 1. Check explicit Easy / Cooldown / Recovery sessions first
+  const hasEasyKeyword = /\b(cooldown|cool-down|cool down|recovery|easy|shakeout|warm-up|warmup|jog)\b/i.test(nameLower);
+  const hasIntervalPatternInTitle =
+    /(\d+)\s*x\s*(\d+(?:\.\d+)?)\s*(km|m|min|sec|s)\b/i.test(combined) ||
+    /\b(hiit|intervals?|vo2|fartlek|repeats?|track|30\/15|40\/20)\b/i.test(combined);
+
+  if (isStrength) {
+    return {
+      workoutClassification: 'strength_mobility',
+      isQualityWorkout: false,
+      isEasyOrCooldown: false,
+      intervalStructureSummary: `Strength & conditioning session (${movingTimeMin} min)`,
+    };
+  }
+
+  if (hasEasyKeyword && !hasIntervalPatternInTitle) {
+    return {
+      workoutClassification: 'easy_or_cooldown',
+      isQualityWorkout: false,
+      isEasyOrCooldown: true,
+      intervalStructureSummary: `Supplementary easy / recovery / cooldown session (${distanceKm.toFixed(2)} km @ ${overallPaceStr || 'easy effort'}, avg HR ${avgHr || 'low'} bpm)`,
+      activeWorkSummary: `Low-intensity recovery/cooldown volume (${movingTimeMin} min) — should not be confused with the day's primary structured interval workout.`,
+    };
+  }
+
+  // 2. Check Calibrated Run Sections if available
+  const calibratedSections: any[] = details?.calibration?.calibratedRunSections || [];
+  if (isRun && calibratedSections.length >= 3) {
+    const speeds = calibratedSections.map((s) => Number(s.speedKph) || 0).filter((v) => v > 0);
+    const maxSecSpeed = speeds.length > 0 ? Math.max(...speeds) : 0;
+    const minSecSpeed = speeds.length > 0 ? Math.min(...speeds) : 0;
+
+    if (maxSecSpeed - minSecSpeed >= 2.0) {
+      const workLaps = calibratedSections.filter((s) => (Number(s.speedKph) || 0) >= maxSecSpeed - 1.2);
+      const restLaps = calibratedSections.filter(
+        (s, idx) => idx > 0 && idx < calibratedSections.length - 1 && (Number(s.speedKph) || 0) < maxSecSpeed - 1.2
+      );
+      if (workLaps.length >= 2) {
+        const avgWorkSpeed = workLaps.reduce((acc, l) => acc + Number(l.speedKph), 0) / workLaps.length;
+        const workPace = speedKphToPace(avgWorkSpeed);
+        const totalWorkSec = workLaps.reduce((acc, l) => acc + (Number(l.durationSec) || 0), 0);
+        const totalWorkDistM = workLaps.reduce(
+          (acc, l) => acc + (Number(l.distanceM) || Math.round((Number(l.speedKph) / 3.6) * (Number(l.durationSec) || 0))),
+          0
+        );
+        const avgRestSec =
+          restLaps.length > 0
+            ? Math.round(restLaps.reduce((acc, l) => acc + (Number(l.durationSec) || 0), 0) / restLaps.length)
+            : 0;
+        const singleWorkSec = Math.round(totalWorkSec / workLaps.length);
+        const singleWorkDistM = Math.round(totalWorkDistM / workLaps.length);
+        const repLabel =
+          singleWorkDistM >= 950 && singleWorkDistM <= 1050
+            ? `${workLaps.length} x 1km`
+            : singleWorkSec % 60 === 0
+              ? `${workLaps.length} x ${singleWorkSec / 60}min`
+              : `${workLaps.length} x ${singleWorkDistM}m (${singleWorkSec}s)`;
+
+        const workMin = Math.floor(totalWorkSec / 60);
+        const workRemSec = Math.round(totalWorkSec % 60);
+        const structStr = `${repLabel} @ ${workPace.paceFormatted} (${avgWorkSpeed.toFixed(1)} km/h)${avgRestSec > 0 ? ` with ${avgRestSec}s rest` : ''}`;
+        const activeStr = `${(totalWorkDistM / 1000).toFixed(2)} km (${workMin}m ${workRemSec}s) of high-intensity active work @ ${workPace.paceFormatted} (overall workout average ${overallPaceStr} is diluted by warm-up, ${restLaps.length} rest intervals, and cool-down)`;
+
+        return {
+          workoutClassification: 'structured_intervals',
+          isQualityWorkout: true,
+          isEasyOrCooldown: false,
+          intervalStructureSummary: structStr,
+          activeWorkSummary: activeStr,
+          lapsSummary: `${calibratedSections.length} calibrated laps: Warm-up + ${structStr} + Cool-down`,
+        };
+      }
+    }
+  }
+
+  // 3. Parse Interval Structure from Title/Description (e.g. "8 x 1km @ 3:32/km 70s rest" or "8 x 3min treadmill 17kph 3:32/km 70sec rest")
+  const kmRepMatch = combined.match(/(\d+)\s*x\s*(\d+(?:\.\d+)?)\s*km/i);
+  const minRepMatch = combined.match(/(\d+)\s*x\s*(\d+(?:\.\d+)?)\s*(?:min|m)(?!\w)/i);
+  const meterRepMatch = combined.match(/(\d+)\s*x\s*(\d{3,4})\s*m(?:eter)?/i);
+  const hiitMatch = combined.match(/(\d+)\/(\d+)s?\s*(\d+)\s*x\s*(\d+)/i);
+
+  const paceInTextMatch = combined.match(/(\d+):(\d{2})\s*(?:\/km|min\/km)/i);
+  const kphInTextMatch = combined.match(/(\d+(?:\.\d+)?)\s*(?:kph|km\/h|kmh)/i);
+  const restSecMatch = combined.match(/(\d+)\s*(?:sec|s)\s*(?:rest|rec)/i);
+  const restMinMatch = combined.match(/(\d+(?:\.\d+)?)\s*(?:min|m)\s*(?:rest|rec)/i);
+
+  if (kmRepMatch || minRepMatch || meterRepMatch) {
+    let targetSpeedKph = 17.0;
+    let targetPaceStr = '3:32/km';
+    if (paceInTextMatch) {
+      const p = paceStrToSpeed(`${paceInTextMatch[1]}:${paceInTextMatch[2]}`);
+      targetSpeedKph = p.speedKph;
+      targetPaceStr = p.paceFormatted;
+    } else if (kphInTextMatch) {
+      targetSpeedKph = parseFloat(kphInTextMatch[1]);
+      targetPaceStr = speedKphToPace(targetSpeedKph).paceFormatted;
+    } else if (isRun && athleteProfile?.runThresholdPaceSec) {
+      const ltSpeed = 3600 / athleteProfile.runThresholdPaceSec;
+      targetSpeedKph = Number((ltSpeed * 1.05).toFixed(2));
+      targetPaceStr = speedKphToPace(targetSpeedKph).paceFormatted;
+    }
+
+    const restSec = restSecMatch
+      ? parseInt(restSecMatch[1], 10)
+      : restMinMatch
+        ? Math.round(parseFloat(restMinMatch[1]) * 60)
+        : 70;
+
+    let reps = 0;
+    let repDistM = 0;
+    let repDurSec = 0;
+    let repSpecLabel = '';
+
+    if (kmRepMatch) {
+      reps = parseInt(kmRepMatch[1], 10);
+      const kmVal = parseFloat(kmRepMatch[2]);
+      repDistM = Math.round(kmVal * 1000);
+      repDurSec = Math.round(repDistM / (targetSpeedKph / 3.6));
+      repSpecLabel = `${reps} x ${kmVal}km`;
+    } else if (minRepMatch) {
+      reps = parseInt(minRepMatch[1], 10);
+      const minVal = parseFloat(minRepMatch[2]);
+      repDurSec = Math.round(minVal * 60);
+      repDistM = Math.round((targetSpeedKph / 3.6) * repDurSec);
+      repSpecLabel = `${reps} x ${minVal}min`;
+    } else if (meterRepMatch) {
+      reps = parseInt(meterRepMatch[1], 10);
+      repDistM = parseInt(meterRepMatch[2], 10);
+      repDurSec = Math.round(repDistM / (targetSpeedKph / 3.6));
+      repSpecLabel = `${reps} x ${repDistM}m`;
+    }
+
+    const totalWorkSec = reps * repDurSec;
+    const totalWorkDistKm = (reps * repDistM) / 1000;
+    const totalRestSec = reps * restSec;
+    const warmupCoolSec = Math.max(0, movingTimeSec - totalWorkSec - totalRestSec);
+    const workMin = Math.floor(totalWorkSec / 60);
+    const workRemSec = Math.round(totalWorkSec % 60);
+
+    const intervalStructureSummary = `${repSpecLabel} @ ${targetPaceStr} (${targetSpeedKph} km/h) with ${restSec}s rest`;
+    const activeWorkSummary = `Active Intervals: ${totalWorkDistKm.toFixed(2)} km (${workMin}m ${workRemSec.toString().padStart(2, '0')}s time-on-tension) @ ${targetPaceStr} (${targetSpeedKph} km/h), plus ${reps}x${restSec}s recovery (${Math.round(totalRestSec / 60)}m rest) and ~${Math.round(warmupCoolSec / 60)}m warm-up/cool-down. Note: Overall average pace (${overallPaceStr}) includes warm-up & rest intervals — evaluate this workout by its ${targetPaceStr} active interval pace!`;
+
+    return {
+      workoutClassification: 'structured_intervals',
+      isQualityWorkout: true,
+      isEasyOrCooldown: false,
+      intervalStructureSummary,
+      activeWorkSummary,
+      lapsSummary: `Warm-up + ${repSpecLabel} @ ${targetPaceStr} (${Math.round(repDurSec)}s / ${repDistM}m per rep, ${restSec}s rest) + Cool-down`,
+    };
+  }
+
+  // 4. Check Bike HIIT / Power Interval patterns (e.g. "HIIT30/15s 3x13 120%")
+  if (isBike && (hiitMatch || hasIntervalPatternInTitle || variabilityIndex >= 1.08 || hrSpread >= 24)) {
+    const ftp = athleteProfile?.bikeFtp || 315;
+    const pctMatch = combined.match(/(\d{2,3})\s*%/);
+    const targetPct = pctMatch ? parseInt(pctMatch[1], 10) : 115;
+    const targetWatts = Math.round((ftp * targetPct) / 100);
+    const structDesc = hiitMatch
+      ? `${hiitMatch[3]} sets of ${hiitMatch[4]} x (${hiitMatch[1]}s ON @ ~${targetWatts}W [${targetPct}% FTP] / ${hiitMatch[2]}s OFF)`
+      : `Structured Bike Intervals (Avg ${avgWatts}W${weightedWatts ? ` / NP ${weightedWatts}W` : ''}, Peak HR ${maxHr} bpm)`;
+    return {
+      workoutClassification: 'structured_intervals',
+      isQualityWorkout: true,
+      isEasyOrCooldown: false,
+      intervalStructureSummary: structDesc,
+      activeWorkSummary: `High-intensity bike interval stimulus (${structDesc}) — overall average power (${avgWatts}W) includes spinning recoveries between sets.`,
+    };
+  }
+
+  // 5. Check Raw Strava Laps / Splits if available
+  const rawLaps: any[] = details?.activity?.laps || act?.laps || [];
+  if (rawLaps.length >= 4 && isRun) {
+    const lapSpeeds = rawLaps
+      .map((l) => (Number(l.average_speed) || 0) * 3.6)
+      .filter((s) => s > 0);
+    if (lapSpeeds.length >= 4) {
+      const maxLapKph = Math.max(...lapSpeeds);
+      const minLapKph = Math.min(...lapSpeeds);
+      if (maxLapKph - minLapKph >= 2.5) {
+        const fastLaps = rawLaps.filter((l) => (Number(l.average_speed) || 0) * 3.6 >= maxLapKph - 1.5);
+        if (fastLaps.length >= 2) {
+          const avgFastKph =
+            fastLaps.reduce((acc, l) => acc + (Number(l.average_speed) || 0) * 3.6, 0) / fastLaps.length;
+          const fastPace = speedKphToPace(avgFastKph);
+          const totalFastDistKm = fastLaps.reduce((acc, l) => acc + (Number(l.distance) || 0), 0) / 1000;
+          const totalFastSec = fastLaps.reduce((acc, l) => acc + (Number(l.moving_time) || 0), 0);
+          return {
+            workoutClassification: 'structured_intervals',
+            isQualityWorkout: true,
+            isEasyOrCooldown: false,
+            intervalStructureSummary: `${fastLaps.length} fast interval laps averaging ${fastPace.paceFormatted} (${avgFastKph.toFixed(1)} km/h)`,
+            activeWorkSummary: `${totalFastDistKm.toFixed(2)} km (${Math.round(totalFastSec / 60)} min) active interval work @ ${fastPace.paceFormatted} vs ${overallPaceStr} overall average`,
+            lapsSummary: `${rawLaps.length} recorded laps (${fastLaps.length} work intervals @ ${fastPace.paceFormatted})`,
+          };
+        }
+      }
+    }
+  }
+
+  // 6. Check Stream Data (velocity_smooth / watts / heartrate) for unlabelled intervals
+  const streams = details?.streams as Record<string, { data?: number[] }> | undefined;
+  if (streams?.velocity_smooth?.data && streams.velocity_smooth.data.length > 120 && isRun) {
+    const velData = streams.velocity_smooth.data.filter((v) => typeof v === 'number' && v > 0.5);
+    if (velData.length > 120) {
+      const sorted = [...velData].sort((a, b) => b - a);
+      const p90Mps = sorted[Math.floor(sorted.length * 0.1)];
+      const p50Mps = sorted[Math.floor(sorted.length * 0.5)];
+      if (p90Mps - p50Mps >= 0.75) {
+        const fastSamples = velData.filter((v) => v >= p90Mps * 0.94);
+        const fastKph = (fastSamples.reduce((a, b) => a + b, 0) / fastSamples.length) * 3.6;
+        const fastPace = speedKphToPace(fastKph);
+        return {
+          workoutClassification: 'structured_intervals',
+          isQualityWorkout: true,
+          isEasyOrCooldown: false,
+          intervalStructureSummary: `Detected interval surges @ ~${fastPace.paceFormatted} (${fastKph.toFixed(1)} km/h) from velocity stream`,
+          activeWorkSummary: `High-speed interval surges @ ${fastPace.paceFormatted} vs ${overallPaceStr} overall average`,
+        };
+      }
+    }
+  }
+
+  // 7. Check HR spread heuristic (e.g., max HR >= avg HR + 22 bpm on a run/ride indicates intervals)
+  if ((isRun || isBike) && hrSpread >= 22 && maxHr >= 155) {
+    return {
+      workoutClassification: 'structured_intervals',
+      isQualityWorkout: true,
+      isEasyOrCooldown: false,
+      intervalStructureSummary: `High-variability interval session (Avg HR ${avgHr} bpm vs Peak HR ${maxHr} bpm — +${hrSpread} bpm spread)`,
+      activeWorkSummary: `Large HR spread (${avgHr} avg / ${maxHr} max bpm) indicates hard intervals separated by recovery periods; overall average (${overallPaceStr || `${avgWatts}W`}) includes rest periods.`,
+    };
+  }
+
+  // 8. Check Tempo / Threshold vs Long Endurance vs Easy/Aerobic Base
+  if (/\b(tempo|threshold|sweet\s*spot|ltp|race\s*pace)\b/i.test(combined)) {
+    return {
+      workoutClassification: 'tempo_threshold',
+      isQualityWorkout: true,
+      isEasyOrCooldown: false,
+      intervalStructureSummary: `Sustained Tempo / Threshold workout (${distanceKm.toFixed(2)} km, ${movingTimeMin} min)`,
+    };
+  }
+
+  if ((isRun && movingTimeMin >= 75) || (isBike && movingTimeMin >= 105) || (isSwim && distanceM >= 2500)) {
+    return {
+      workoutClassification: 'long_endurance',
+      isQualityWorkout: true,
+      isEasyOrCooldown: false,
+      intervalStructureSummary: `Long Endurance ${isRun ? 'Run' : isBike ? 'Ride' : 'Swim'} (${distanceKm.toFixed(2)} km, ${movingTimeMin} min)`,
+    };
+  }
+
+  // Check if short & low HR run on same day or in general -> easy/cooldown
+  if (isRun && movingTimeMin <= 36 && avgHr > 0 && avgHr <= 128) {
+    return {
+      workoutClassification: 'easy_or_cooldown',
+      isQualityWorkout: false,
+      isEasyOrCooldown: true,
+      intervalStructureSummary: `Easy / Recovery Run (${distanceKm.toFixed(2)} km @ ${overallPaceStr}, avg HR ${avgHr} bpm)`,
+    };
+  }
+
+  return {
+    workoutClassification: 'aerobic_base',
+    isQualityWorkout: movingTimeMin >= 40,
+    isEasyOrCooldown: false,
+    intervalStructureSummary: `Aerobic Base ${isRun ? 'Run' : isBike ? 'Ride' : isSwim ? 'Swim' : 'Session'} (${distanceKm.toFixed(2)} km, ${movingTimeMin} min)`,
+  };
+}
+
+export interface DayOfWeekWorkoutGroup {
+  date: string; // YYYY-MM-DD
+  dayOfWeek: string;
+  primaryWorkout: any;
+  secondaryWorkouts: any[]; // e.g. cooldown run, recovery run, evening swim on the same date
+}
+
+/**
+ * Groups activities occurring on a target day of week (e.g. "Thursday") by DISTINCT calendar dates (`startDate`),
+ * and selects the PRIMARY structured/quality workout for each date while keeping easy/cooldown/recovery runs
+ * in `secondaryWorkouts` so the coach never confuses a same-day cooldown jog for the previous week's workout!
+ */
+export function getStructuredWorkoutsByDayOfWeek(
+  activities: any[],
+  targetDayOfWeek: string,
+  sportFilter?: 'run' | 'bike' | 'swim'
+): DayOfWeekWorkoutGroup[] {
+  const dayLower = targetDayOfWeek.toLowerCase();
+  const matching = (activities || []).filter((a) => {
+    const aDay = String(a.dayOfWeek || '').toLowerCase();
+    if (aDay !== dayLower) return false;
+    if (sportFilter) {
+      const s = String(a.sport || a.type || '').toLowerCase();
+      if (sportFilter === 'run' && !s.includes('run')) return false;
+      if (sportFilter === 'bike' && !s.includes('ride') && !s.includes('bike')) return false;
+      if (sportFilter === 'swim' && !s.includes('swim')) return false;
+    }
+    return true;
+  });
+
+  // Group by distinct calendar date (YYYY-MM-DD)
+  const byDate = new Map<string, any[]>();
+  for (const act of matching) {
+    const dateKey = String(act.startDate || '').slice(0, 10);
+    if (!dateKey) continue;
+    const list = byDate.get(dateKey) || [];
+    list.push(act);
+    byDate.set(dateKey, list);
+  }
+
+  // Sort dates newest first
+  const sortedDates = Array.from(byDate.keys()).sort((a, b) => b.localeCompare(a));
+
+  return sortedDates.map((date) => {
+    const dayActs = byDate.get(date) || [];
+    // Score each activity on that date to pick the primary structured workout
+    const scored = dayActs.map((a) => {
+      let priority = 0;
+      const nameLower = String(a.name || '').toLowerCase();
+      if (a.workoutClassification === 'structured_intervals') priority += 100;
+      else if (a.workoutClassification === 'tempo_threshold') priority += 80;
+      else if (a.workoutClassification === 'long_endurance') priority += 70;
+      else if (a.isQualityWorkout) priority += 50;
+
+      if (/(\d+)\s*x\s*(\d+)/i.test(nameLower)) priority += 60;
+      if (/\b(cooldown|cool-down|recovery|easy|shakeout)\b/i.test(nameLower) || a.isEasyOrCooldown) {
+        priority -= 80;
+      }
+      priority += (Number(a.tss) || 0) * 0.5 + (Number(a.movingTimeMin) || 0) * 0.3;
+      return { act: a, priority };
+    });
+
+    scored.sort((a, b) => b.priority - a.priority);
+    const primaryWorkout = scored[0].act;
+    const secondaryWorkouts = scored.slice(1).map((s) => s.act);
+
+    return {
+      date,
+      dayOfWeek: targetDayOfWeek,
+      primaryWorkout,
+      secondaryWorkouts,
+    };
+  });
+}
+

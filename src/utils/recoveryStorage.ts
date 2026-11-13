@@ -146,8 +146,8 @@ export function resetRecoveryLogsToDefaults(): DailyRecoveryLog[] {
 }
 
 /**
- * Parses CSV export from Garmin Connect or TrainingPeaks
- * Supports columns: Date, Resting_HR / RHR, HRV / rMSSD, Sleep_Hours / Sleep_Minutes, Sleep_Score, Deep, REM
+ * Parses CSV export from Google Sheets Health tab, Garmin Connect, or TrainingPeaks.
+ * Supports full 21-column Health tab exports as well as compact Sleep/HRV/RHR CSVs.
  */
 export function parseGarminOrTpCsv(csvText: string): { imported: DailyRecoveryLog[]; error?: string } {
   try {
@@ -158,13 +158,31 @@ export function parseGarminOrTpCsv(csvText: string): { imported: DailyRecoveryLo
 
     const header = lines[0].toLowerCase().split(',').map((h) => h.trim().replace(/^["']|["']$/g, ''));
 
-    const dateCol = header.findIndex((h) => h.includes('date') || h.includes('timestamp'));
+    const dateCol = header.findIndex((h) => h === 'date' || h.includes('date') || h.includes('timestamp'));
     const rhrCol = header.findIndex((h) => h.includes('rhr') || h.includes('resting') || h.includes('heart'));
     const hrvCol = header.findIndex((h) => h.includes('hrv') || h.includes('rmssd') || h.includes('variability'));
-    const sleepCol = header.findIndex((h) => h.includes('sleep') && (h.includes('min') || h.includes('hour') || h.includes('duration') || h.includes('total')));
-    const scoreCol = header.findIndex((h) => h.includes('score') || h.includes('quality'));
+    const sleepCol = header.findIndex(
+      (h) => h.includes('sleep') && (h.includes('min') || h.includes('hour') || h.includes('hrs') || h.includes('duration') || h.includes('total'))
+    );
+    const scoreCol = (() => {
+      const explicitSleepScore = header.findIndex((h) => h.includes('sleep') && (h.includes('score') || h.includes('quality')));
+      if (explicitSleepScore >= 0) return explicitSleepScore;
+      return header.findIndex((h) => (h.includes('score') && !h.includes('readiness')) || h.includes('quality'));
+    })();
     const deepCol = header.findIndex((h) => h.includes('deep'));
     const remCol = header.findIndex((h) => h.includes('rem'));
+    const lightCol = header.findIndex((h) => h.includes('light'));
+    const awakeCol = header.findIndex((h) => h.includes('awake'));
+    const batteryCol = header.findIndex((h) => h.includes('body battery') || h === 'battery');
+    const stressCol = header.findIndex((h) => h.includes('stress'));
+    const respCol = header.findIndex((h) => h.includes('respiration') || h.includes('brpm'));
+    const pulseOxCol = header.findIndex((h) => h.includes('pulse ox') || h.includes('spo2'));
+    const vo2RunCol = header.findIndex((h) => h.includes('vo2') && h.includes('run'));
+    const vo2BikeCol = header.findIndex((h) => h.includes('vo2') && h.includes('bike'));
+    const stepsCol = header.findIndex((h) => h === 'steps' || h.includes('steps'));
+    const calCol = header.findIndex((h) => h.includes('calories') || h.includes('kcal'));
+    const sourceCol = header.findIndex((h) => h === 'source');
+    const notesCol = header.findIndex((h) => h.includes('notes') || h.includes('tags'));
 
     if (dateCol === -1) {
       return { imported: [], error: 'Could not find a "Date" column in the uploaded CSV header.' };
@@ -177,36 +195,44 @@ export function parseGarminOrTpCsv(csvText: string): { imported: DailyRecoveryLo
       const rawDate = parts[dateCol];
       if (!rawDate) continue;
 
-      // Normalize date to YYYY-MM-DD
-      let dateObj = new Date(rawDate);
-      if (isNaN(dateObj.getTime())) {
-        const splitDate = rawDate.split(/[-/]/);
-        if (splitDate.length === 3) {
-          if (splitDate[0].length === 4) {
-            dateObj = new Date(`${splitDate[0]}-${splitDate[1]}-${splitDate[2]}`);
-          } else {
-            dateObj = new Date(`${splitDate[2]}-${splitDate[1]}-${splitDate[0]}`);
+      let dateStr = '';
+      if (/^\d{4}-\d{2}-\d{2}$/.test(rawDate)) {
+        dateStr = rawDate;
+      } else {
+        let dateObj = new Date(rawDate);
+        if (isNaN(dateObj.getTime())) {
+          const splitDate = rawDate.split(/[-/]/);
+          if (splitDate.length === 3) {
+            if (splitDate[0].length === 4) {
+              dateObj = new Date(`${splitDate[0]}-${splitDate[1]}-${splitDate[2]}`);
+            } else {
+              dateObj = new Date(`${splitDate[2]}-${splitDate[1]}-${splitDate[0]}`);
+            }
           }
         }
+        if (isNaN(dateObj.getTime())) continue;
+        dateStr = dateObj.toISOString().split('T')[0];
       }
-
-      if (isNaN(dateObj.getTime())) continue;
-      const dateStr = dateObj.toISOString().split('T')[0];
 
       // Parse Resting HR (default 41)
       let rhr = rhrCol >= 0 ? parseFloat(parts[rhrCol]) : 41;
       if (isNaN(rhr) || rhr <= 20 || rhr > 140) rhr = 41;
 
-      // Parse HRV rMSSD
-      let hrv = hrvCol >= 0 ? parseFloat(parts[hrvCol]) : 75;
-      if (isNaN(hrv) || hrv <= 0) hrv = 75;
+      // Parse HRV rMSSD (preserve 0 if explicitly 0 in Health tab export, default 75 if missing)
+      let hrv = 75;
+      if (hrvCol >= 0 && parts[hrvCol] !== '') {
+        const parsedHrv = parseFloat(parts[hrvCol]);
+        if (Number.isFinite(parsedHrv) && parsedHrv >= 0) {
+          hrv = parsedHrv;
+        }
+      }
 
       // Parse Sleep duration in minutes
-      let sleepMinutes = 480;
-      if (sleepCol >= 0) {
+      let hoursMinutes = 480;
+      if (sleepCol >= 0 && parts[sleepCol] !== '') {
         const val = parseFloat(parts[sleepCol]);
-        if (!isNaN(val)) {
-          sleepMinutes = val <= 24 ? Math.round(val * 60) : Math.round(val);
+        if (!isNaN(val) && val > 0) {
+          hoursMinutes = val <= 24 ? Math.round(val * 60) : Math.round(val);
         }
       }
 
@@ -214,17 +240,66 @@ export function parseGarminOrTpCsv(csvText: string): { imported: DailyRecoveryLo
       let score = scoreCol >= 0 ? parseInt(parts[scoreCol], 10) : 80;
       if (isNaN(score) || score <= 0) score = 80;
 
-      // Parse deep & rem
-      let deep = deepCol >= 0 ? parseFloat(parts[deepCol]) : Math.round(sleepMinutes * 0.18);
-      if (deep <= 10 && deep > 0) deep = Math.round(deep * 60);
-      if (isNaN(deep)) deep = Math.round(sleepMinutes * 0.18);
+      // Parse sleep stages
+      const hasExplicitStageCols = deepCol >= 0 && remCol >= 0 && lightCol >= 0;
+      let deep: number;
+      let rem: number;
+      let light: number;
+      let awake: number;
 
-      let rem = remCol >= 0 ? parseFloat(parts[remCol]) : Math.round(sleepMinutes * 0.22);
-      if (rem <= 10 && rem > 0) rem = Math.round(rem * 60);
-      if (isNaN(rem)) rem = Math.round(sleepMinutes * 0.22);
+      if (hasExplicitStageCols) {
+        deep = Math.max(0, Math.round(parseFloat(parts[deepCol]) || 0));
+        rem = Math.max(0, Math.round(parseFloat(parts[remCol]) || 0));
+        light = Math.max(0, Math.round(parseFloat(parts[lightCol]) || 0));
+        awake = awakeCol >= 0 ? Math.max(0, Math.round(parseFloat(parts[awakeCol]) || 0)) : 0;
+      } else {
+        deep = deepCol >= 0 ? parseFloat(parts[deepCol]) : Math.round(hoursMinutes * 0.18);
+        if (deep <= 10 && deep > 0) deep = Math.round(deep * 60);
+        if (isNaN(deep)) deep = Math.round(hoursMinutes * 0.18);
 
-      const awake = Math.max(15, Math.round(sleepMinutes * 0.06));
-      const light = Math.max(60, sleepMinutes - deep - rem);
+        rem = remCol >= 0 ? parseFloat(parts[remCol]) : Math.round(hoursMinutes * 0.22);
+        if (rem <= 10 && rem > 0) rem = Math.round(rem * 60);
+        if (isNaN(rem)) rem = Math.round(hoursMinutes * 0.22);
+
+        awake = awakeCol >= 0 && parts[awakeCol] !== ''
+          ? Math.max(0, Math.round(parseFloat(parts[awakeCol]) || 0))
+          : Math.max(15, Math.round(hoursMinutes * 0.06));
+        light = lightCol >= 0 && parts[lightCol] !== ''
+          ? Math.max(0, Math.round(parseFloat(parts[lightCol]) || 0))
+          : Math.max(60, hoursMinutes - Math.round(deep) - Math.round(rem));
+      }
+
+      const stageSum = Math.round(deep) + Math.round(rem) + Math.round(light);
+      const sleepMinutes =
+        hasExplicitStageCols && stageSum > 0 && Math.abs(stageSum - hoursMinutes) <= 5
+          ? stageSum
+          : hoursMinutes;
+
+      const parsePositiveOpt = (colIdx: number, stripPercent = false): number | undefined => {
+        if (colIdx < 0) return undefined;
+        const raw = (stripPercent ? (parts[colIdx] || '').replace('%', '') : parts[colIdx] || '').trim();
+        if (!raw) return undefined;
+        const n = Number(raw);
+        return Number.isFinite(n) && n > 0 ? n : undefined;
+      };
+
+      const bodyBattery = parsePositiveOpt(batteryCol);
+      const stress = parsePositiveOpt(stressCol);
+      const respiration = parsePositiveOpt(respCol);
+      const pulseOx = parsePositiveOpt(pulseOxCol, true);
+      const vo2MaxRun = parsePositiveOpt(vo2RunCol);
+      const vo2MaxBike = parsePositiveOpt(vo2BikeCol);
+      const rawSteps = parsePositiveOpt(stepsCol);
+      const steps = rawSteps !== undefined ? Math.round(rawSteps) : undefined;
+      const rawCal = parsePositiveOpt(calCol);
+      const calories = rawCal !== undefined ? Math.round(rawCal) : undefined;
+
+      const rawSource = sourceCol >= 0 ? (parts[sourceCol] || '').toLowerCase() : '';
+      const source: DailyRecoveryLog['source'] =
+        rawSource === 'garmin' || rawSource === 'trainingpeaks' || rawSource === 'manual'
+          ? rawSource
+          : 'csv';
+      const notes = notesCol >= 0 && parts[notesCol] ? parts[notesCol] : 'Imported from Garmin CSV';
 
       imported.push({
         id: `import_${dateStr}`,
@@ -236,9 +311,17 @@ export function parseGarminOrTpCsv(csvText: string): { imported: DailyRecoveryLo
         deepSleepMinutes: Math.round(deep),
         remSleepMinutes: Math.round(rem),
         lightSleepMinutes: Math.round(light),
-        awakeMinutes: awake,
-        source: 'csv',
-        notes: 'Imported from Garmin CSV',
+        awakeMinutes: Math.round(awake),
+        source,
+        notes,
+        ...(bodyBattery !== undefined ? { bodyBattery } : {}),
+        ...(stress !== undefined ? { stress } : {}),
+        ...(respiration !== undefined ? { respiration } : {}),
+        ...(pulseOx !== undefined ? { pulseOx } : {}),
+        ...(vo2MaxRun !== undefined ? { vo2MaxRun } : {}),
+        ...(vo2MaxBike !== undefined ? { vo2MaxBike } : {}),
+        ...(steps !== undefined ? { steps } : {}),
+        ...(calories !== undefined ? { calories } : {}),
       });
     }
 
@@ -246,6 +329,7 @@ export function parseGarminOrTpCsv(csvText: string): { imported: DailyRecoveryLo
       return { imported: [], error: 'No valid recovery date rows could be extracted from the file.' };
     }
 
+    imported.sort((a, b) => a.date.localeCompare(b.date));
     return { imported };
   } catch (err: any) {
     return { imported: [], error: `Failed to parse CSV file: ${err.message || 'Unknown error'}` };

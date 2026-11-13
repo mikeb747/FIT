@@ -39,9 +39,13 @@ import {
   Gauge,
   BookOpen,
   Copy,
+  Download,
+  Upload,
 } from 'lucide-react';
 import {
   batchBackupActivitiesToGoogleSheet,
+  restoreWorkoutsFromGoogleSheet,
+  restoreWorkoutsFromCsvText,
   getCachedSpreadsheetId,
   setCustomSpreadsheetId,
 } from '../utils/googleSheets';
@@ -84,7 +88,8 @@ import { SwimHeartRateProtocolsModal, SwimProtocolId } from './SwimHeartRateProt
 import type { TrainingGoal } from '../types/goals';
 import { loadAthleteGoals, saveAthleteGoals } from '../utils/goalsStorage';
 import { GoalsTab } from './GoalsTab';
-import type { StravaActivity } from '../utils/stravaActivities';
+import type { StravaActivity, StravaActivityDetailsRecord } from '../utils/stravaActivities';
+import type { DailyRecoveryLog } from '../types/recovery';
 import { classifyActivity } from '../utils/stravaActivities';
 import { StravaIcon } from './StravaIcon';
 import { getCachedBikeNames, setCachedBikeName, resolveMissingBikeNames } from '../utils/stravaGear';
@@ -125,6 +130,7 @@ interface AthleteProfileModalProps {
   onSaveGoals?: (goals: TrainingGoal[]) => void;
   initialTab?: ProfileTab;
   stravaActivities?: StravaActivity[];
+  stravaActivityDetails?: Record<string, StravaActivityDetailsRecord>;
 
   // Settings tab props
   theme?: AppTheme;
@@ -148,8 +154,13 @@ interface AthleteProfileModalProps {
   onOpenGarminSync?: () => void;
   onDisconnectGarmin?: () => void;
 
-  // Auto-rename sync update callback
+  // Auto-rename sync & backup restore callbacks
   onActivitiesUpdated?: (activities: StravaActivity[]) => void;
+  onActivitiesRestored?: (
+    activities: StravaActivity[],
+    detailsMap: Record<string, StravaActivityDetailsRecord>,
+    healthLogs?: DailyRecoveryLog[]
+  ) => void;
 
   // AI Studio Sandbox Demo Mode
   isAIStudioEnv?: boolean;
@@ -238,6 +249,7 @@ export const AthleteProfileModal: React.FC<AthleteProfileModalProps> = ({
   onSaveGoals,
   initialTab,
   stravaActivities,
+  stravaActivityDetails,
   theme = 'dark',
   onThemeChanged,
   displayDensity = 'standard',
@@ -255,6 +267,7 @@ export const AthleteProfileModal: React.FC<AthleteProfileModalProps> = ({
   onOpenGarminSync,
   onDisconnectGarmin,
   onActivitiesUpdated,
+  onActivitiesRestored,
   isAIStudioEnv = false,
   isDemoActive = false,
   onLoadDemoData,
@@ -279,6 +292,11 @@ export const AthleteProfileModal: React.FC<AthleteProfileModalProps> = ({
   const [isBackingUpSheets, setIsBackingUpSheets] = useState(false);
   const [backupFeedback, setBackupFeedback] = useState<string | null>(null);
   const [backupProgressMsg, setBackupProgressMsg] = useState<string | null>(null);
+  const [isRestoringSheets, setIsRestoringSheets] = useState(false);
+  const [isImportingCsv, setIsImportingCsv] = useState(false);
+  const [restoreProgressMsg, setRestoreProgressMsg] = useState<string | null>(null);
+  const [restoreFeedback, setRestoreFeedback] = useState<{ type: 'ok' | 'err'; text: string } | null>(null);
+  const backupCsvInputRef = useRef<HTMLInputElement>(null);
   const [showSheetsAuthSetup, setShowSheetsAuthSetup] = useState(false);
   const [sheetsSetupTab, setSheetsSetupTab] = useState<'bridge' | 'oauth' | 'branding'>('bridge');
   const [sheetsBridgeUrl, setSheetsBridgeUrl] = useState(() => getGoogleSheetsBridgeUrl());
@@ -357,7 +375,7 @@ export const AthleteProfileModal: React.FC<AthleteProfileModalProps> = ({
       const acts = stravaActivities || [];
       const res = await batchBackupActivitiesToGoogleSheet(
         acts,
-        {},
+        stravaActivityDetails || {},
         profile,
         undefined,
         (prog) => {
@@ -368,10 +386,12 @@ export const AthleteProfileModal: React.FC<AthleteProfileModalProps> = ({
         let msg = '';
         if (res.backedUpCount > 0 && res.streamsBackedUpCount > 0) {
           msg = `Backed up ${res.backedUpCount} workouts & ${res.streamsBackedUpCount} streams!`;
-        } else if (res.streamsBackedUpCount > 0) {
-          msg = `Backed up ${res.streamsBackedUpCount} streams!`;
         } else if (res.backedUpCount > 0) {
           msg = `Backed up ${res.backedUpCount} workouts!`;
+        } else if (res.upgradedCount && res.upgradedCount > 0) {
+          msg = `Upgraded ${res.upgradedCount} rows with lossless metadata!`;
+        } else if (res.streamsBackedUpCount > 0) {
+          msg = `Backed up ${res.streamsBackedUpCount} streams!`;
         } else {
           msg = `All ${res.alreadyCount || acts.length} workouts & streams up to date!`;
         }
@@ -387,6 +407,114 @@ export const AthleteProfileModal: React.FC<AthleteProfileModalProps> = ({
     } finally {
       setIsBackingUpSheets(false);
       setBackupProgressMsg(null);
+    }
+  };
+
+  const handleRestoreFromSheetsFromSettings = async () => {
+    if (customSheetIdInput.trim()) {
+      setCustomSpreadsheetId(customSheetIdInput.trim());
+    }
+    let token = getGoogleAccessToken();
+    if (!token) {
+      try {
+        await initGoogleAuth();
+        token = await ensureGoogleAccessToken({ allowPopup: true });
+        setSheetsConnectionMode(getGoogleConnectionMode());
+        setSheetsUserEmail(getSavedGoogleUserEmail());
+      } catch (err: any) {
+        setRestoreFeedback({
+          type: 'err',
+          text: err.message || 'Could not connect Google account',
+        });
+        setTimeout(() => setRestoreFeedback(null), 5000);
+        return;
+      }
+    }
+    if (!token) return;
+
+    setIsRestoringSheets(true);
+    setRestoreFeedback(null);
+    setRestoreProgressMsg('Connecting to Google Sheets...');
+    try {
+      const res = await restoreWorkoutsFromGoogleSheet({
+        onProgress: (msg) => setRestoreProgressMsg(msg),
+      });
+      if (res.success) {
+        if (onActivitiesRestored) {
+          onActivitiesRestored(res.activities, res.detailsMap, res.healthLogs);
+        } else if (onActivitiesUpdated) {
+          onActivitiesUpdated(res.activities);
+        }
+        const streamPart =
+          res.streamsRestoredCount > 0 ? ` & ${res.streamsRestoredCount} streams` : '';
+        const healthPart =
+          res.healthLogs && res.healthLogs.length > 0
+            ? ` + ${res.healthLogs.length} health logs`
+            : '';
+        setRestoreFeedback({
+          type: 'ok',
+          text: `Restored ${res.restoredWorkoutsCount.toLocaleString()} workouts${streamPart}${healthPart} from Google Sheets!`,
+        });
+        setTimeout(() => setRestoreFeedback(null), 6000);
+      } else {
+        setRestoreFeedback({
+          type: 'err',
+          text: res.error || 'Could not restore from Google Sheets',
+        });
+        setTimeout(() => setRestoreFeedback(null), 6000);
+      }
+    } catch (err: any) {
+      setRestoreFeedback({
+        type: 'err',
+        text: err.message || 'Error restoring from Google Sheets',
+      });
+      setTimeout(() => setRestoreFeedback(null), 6000);
+    } finally {
+      setIsRestoringSheets(false);
+      setRestoreProgressMsg(null);
+    }
+  };
+
+  const handleImportBackupCsvFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+
+    setIsImportingCsv(true);
+    setRestoreFeedback(null);
+    try {
+      const csvText = await file.text();
+      const res = await restoreWorkoutsFromCsvText(csvText);
+      if (res.success) {
+        if (onActivitiesRestored) {
+          onActivitiesRestored(res.activities, res.detailsMap);
+        } else if (onActivitiesUpdated) {
+          onActivitiesUpdated(res.activities);
+        }
+        const dedupeNote =
+          res.duplicatesMerged > 0 ? ` (${res.duplicatesMerged} duplicates merged)` : '';
+        setRestoreFeedback({
+          type: 'ok',
+          text: `Restored ${res.restoredWorkoutsCount.toLocaleString()} workouts from ${
+            res.format === 'strava_export' ? 'Strava CSV' : 'Sheets Backup CSV'
+          }${dedupeNote}!`,
+        });
+        setTimeout(() => setRestoreFeedback(null), 6000);
+      } else {
+        setRestoreFeedback({
+          type: 'err',
+          text: res.error || 'Failed to import CSV backup',
+        });
+        setTimeout(() => setRestoreFeedback(null), 6000);
+      }
+    } catch (err: any) {
+      setRestoreFeedback({
+        type: 'err',
+        text: err.message || 'Failed to read CSV file',
+      });
+      setTimeout(() => setRestoreFeedback(null), 6000);
+    } finally {
+      setIsImportingCsv(false);
     }
   };
 
@@ -2099,7 +2227,7 @@ export const AthleteProfileModal: React.FC<AthleteProfileModalProps> = ({
                     <button
                       type="button"
                       onClick={handleBackupToSheetsFromSettings}
-                      disabled={isBackingUpSheets || (!stravaActivities || stravaActivities.length === 0)}
+                      disabled={isBackingUpSheets || isRestoringSheets || (!stravaActivities || stravaActivities.length === 0)}
                       className={`flex-1 min-w-[140px] py-2 px-3 rounded-xl border text-xs font-bold flex items-center justify-center gap-2 transition-all shadow-xs cursor-pointer ${
                         backupFeedback
                           ? 'bg-emerald-500/20 border-emerald-500/40 text-emerald-300'
@@ -2122,6 +2250,61 @@ export const AthleteProfileModal: React.FC<AthleteProfileModalProps> = ({
                         <>
                           <FileSpreadsheet className="w-4 h-4 text-emerald-400" />
                           <span>Backup to Sheets</span>
+                        </>
+                      )}
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={handleRestoreFromSheetsFromSettings}
+                      disabled={isRestoringSheets || isBackingUpSheets || isImportingCsv}
+                      className={`py-2 px-3 rounded-xl border text-xs font-bold flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
+                        theme === 'light'
+                          ? 'bg-sky-50 hover:bg-sky-100 text-sky-900 border-sky-200 shadow-xs'
+                          : 'bg-sky-500/15 hover:bg-sky-500/25 text-sky-300 border-sky-500/30'
+                      } disabled:opacity-50 disabled:cursor-not-allowed active:scale-98`}
+                      title="Restore full workout history, streams & health logs from your Google Sheet"
+                    >
+                      {isRestoringSheets ? (
+                        <>
+                          <Loader2 className="w-3.5 h-3.5 animate-spin text-sky-400" />
+                          <span>{restoreProgressMsg || 'Restoring...'}</span>
+                        </>
+                      ) : (
+                        <>
+                          <Download className="w-3.5 h-3.5 text-sky-400" />
+                          <span>Restore from Sheets</span>
+                        </>
+                      )}
+                    </button>
+
+                    <input
+                      ref={backupCsvInputRef}
+                      type="file"
+                      accept=".csv,text/csv"
+                      onChange={handleImportBackupCsvFile}
+                      className="hidden"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => backupCsvInputRef.current?.click()}
+                      disabled={isImportingCsv || isRestoringSheets || isBackingUpSheets}
+                      className={`py-2 px-3 rounded-xl border text-xs font-bold flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
+                        theme === 'light'
+                          ? 'bg-white hover:bg-slate-100 text-slate-700 border-slate-200 shadow-xs'
+                          : 'bg-slate-900 hover:bg-slate-800 text-slate-200 border-slate-800'
+                      } disabled:opacity-50 disabled:cursor-not-allowed active:scale-98`}
+                      title="Restore workouts from an exported Google Sheets Workouts CSV or Strava activities.csv"
+                    >
+                      {isImportingCsv ? (
+                        <>
+                          <Loader2 className="w-3.5 h-3.5 animate-spin text-emerald-400" />
+                          <span>Importing CSV...</span>
+                        </>
+                      ) : (
+                        <>
+                          <Upload className="w-3.5 h-3.5 text-emerald-400" />
+                          <span>Import Backup CSV</span>
                         </>
                       )}
                     </button>
@@ -2159,6 +2342,23 @@ export const AthleteProfileModal: React.FC<AthleteProfileModalProps> = ({
                       </a>
                     )}
                   </div>
+
+                  {restoreFeedback && (
+                    <div
+                      className={`p-2.5 rounded-xl border text-xs font-semibold flex items-center gap-2 ${
+                        restoreFeedback.type === 'ok'
+                          ? 'bg-emerald-500/15 border-emerald-500/30 text-emerald-300'
+                          : 'bg-rose-500/15 border-rose-500/30 text-rose-300'
+                      }`}
+                    >
+                      {restoreFeedback.type === 'ok' ? (
+                        <Check className="w-4 h-4 text-emerald-400 shrink-0" />
+                      ) : (
+                        <AlertTriangle className="w-4 h-4 text-rose-400 shrink-0" />
+                      )}
+                      <span>{restoreFeedback.text}</span>
+                    </div>
+                  )}
 
                   {/* Integrated In-App Permanent Sync & Official Branding Setup Drawer */}
                   {showSheetsAuthSetup && (

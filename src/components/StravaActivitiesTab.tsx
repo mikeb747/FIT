@@ -28,6 +28,8 @@ import {
   TrendingUp,
   RotateCcw,
   SlidersHorizontal,
+  Download,
+  Upload,
 } from 'lucide-react';
 import { StravaIcon } from './StravaIcon';
 import type {
@@ -46,10 +48,16 @@ import {
 } from '../utils/stravaActivities';
 import { applyRenameRulesToName } from '../utils/activityRenameRules';
 import type { AthleteProfile } from '../types/athlete';
+import type { DailyRecoveryLog } from '../types/recovery';
 import { StravaActivityModal } from './StravaActivityModal';
 import { MuteBadgeIcon } from './MuteBadgeIcon';
 import { PWAInstallButton } from './PWAInstallButton';
-import { batchBackupActivitiesToGoogleSheet } from '../utils/googleSheets';
+import {
+  batchBackupActivitiesToGoogleSheet,
+  restoreWorkoutsFromGoogleSheet,
+  restoreWorkoutsFromCsvText,
+} from '../utils/googleSheets';
+import { ensureGoogleAccessToken, getGoogleAccessToken, initGoogleAuth } from '../utils/googleAuth';
 import { isDemoModeActive } from '../utils/demoData';
 
 export type ActivitySortMetric =
@@ -225,6 +233,11 @@ interface StravaActivitiesTabProps {
   onOpenAthleteProfile?: () => void;
   onDeleteActivity?: (activityId: string | number) => void;
   onRenameActivity?: (activityId: string | number, newName: string) => void;
+  onActivitiesRestored?: (
+    activities: StravaActivity[],
+    detailsMap: Record<string, StravaActivityDetailsRecord>,
+    healthLogs?: DailyRecoveryLog[]
+  ) => void;
 }
 
 function formatDuration(seconds: number): string {
@@ -291,10 +304,70 @@ export const StravaActivitiesTab: React.FC<StravaActivitiesTabProps> = ({
   onOpenAthleteProfile,
   onDeleteActivity,
   onRenameActivity,
+  onActivitiesRestored,
 }) => {
   const isLight = theme === 'light';
   const [selectedCategory, setSelectedCategory] = useState<ActivityFilterCategory>('All');
   const [activeModalActivity, setActiveModalActivity] = useState<StravaActivity | null>(null);
+  const [isRestoringBackup, setIsRestoringBackup] = useState(false);
+  const [restoreStatusText, setRestoreStatusText] = useState<string | null>(null);
+  const [restoreErrorText, setRestoreErrorText] = useState<string | null>(null);
+  const emptyStateCsvRef = useRef<HTMLInputElement>(null);
+
+  const handleEmptyStateRestoreSheets = async () => {
+    setRestoreErrorText(null);
+    let token = getGoogleAccessToken();
+    if (!token) {
+      try {
+        await initGoogleAuth();
+        token = await ensureGoogleAccessToken({ allowPopup: true });
+      } catch (err: any) {
+        setRestoreErrorText(err.message || 'Could not connect Google account');
+        return;
+      }
+    }
+    if (!token) return;
+    setIsRestoringBackup(true);
+    setRestoreStatusText('Connecting to Google Sheets...');
+    try {
+      const res = await restoreWorkoutsFromGoogleSheet({
+        onProgress: (msg) => setRestoreStatusText(msg),
+      });
+      if (res.success) {
+        onActivitiesRestored?.(res.activities, res.detailsMap, res.healthLogs);
+      } else {
+        setRestoreErrorText(res.error || 'Could not restore workouts from Google Sheets');
+      }
+    } catch (err: any) {
+      setRestoreErrorText(err.message || 'Failed to restore from Google Sheets');
+    } finally {
+      setIsRestoringBackup(false);
+      setRestoreStatusText(null);
+    }
+  };
+
+  const handleEmptyStateImportCsv = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    setRestoreErrorText(null);
+    setIsRestoringBackup(true);
+    setRestoreStatusText('Importing backup CSV...');
+    try {
+      const text = await file.text();
+      const res = await restoreWorkoutsFromCsvText(text);
+      if (res.success) {
+        onActivitiesRestored?.(res.activities, res.detailsMap);
+      } else {
+        setRestoreErrorText(res.error || 'Failed to import CSV backup');
+      }
+    } catch (err: any) {
+      setRestoreErrorText(err.message || 'Could not read CSV file');
+    } finally {
+      setIsRestoringBackup(false);
+      setRestoreStatusText(null);
+    }
+  };
 
   // Floating Search & Filter / Sort States
   const [searchQuery, setSearchQuery] = useState('');
@@ -545,7 +618,7 @@ export const StravaActivitiesTab: React.FC<StravaActivitiesTabProps> = ({
         </div>
         <h3 className="text-lg font-black text-white mb-2">Connect Your Strava Account</h3>
         <p className="text-xs sm:text-sm text-slate-400 mb-6 leading-relaxed">
-          Authorize FIT Track to view your synced strength workouts, runs, rides, and recent Strava activities directly inside the app.
+          Authorize FIT Track to view your synced strength workouts, runs, rides, and recent Strava activities directly inside the app — or restore your full history from a Google Sheets backup.
         </p>
         <button
           type="button"
@@ -555,6 +628,52 @@ export const StravaActivitiesTab: React.FC<StravaActivitiesTabProps> = ({
           <StravaIcon className="w-4 h-4" />
           <span>Authorize with Strava</span>
         </button>
+
+        <div className="w-full border-t border-slate-800/80 my-5 pt-5 flex flex-col items-center gap-2.5">
+          <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500">
+            Or Restore from Backup
+          </span>
+          <div className="flex flex-wrap items-center justify-center gap-2 w-full">
+            <button
+              type="button"
+              onClick={handleEmptyStateRestoreSheets}
+              disabled={isRestoringBackup}
+              className="px-4 py-2.5 rounded-xl bg-emerald-500/15 hover:bg-emerald-500/25 border border-emerald-500/30 text-emerald-300 font-bold text-xs flex items-center justify-center gap-2 transition-all cursor-pointer disabled:opacity-50"
+            >
+              {isRestoringBackup && restoreStatusText ? (
+                <>
+                  <Loader2 className="w-3.5 h-3.5 animate-spin text-emerald-400" />
+                  <span>{restoreStatusText}</span>
+                </>
+              ) : (
+                <>
+                  <Download className="w-3.5 h-3.5 text-emerald-400" />
+                  <span>Restore from Google Sheets</span>
+                </>
+              )}
+            </button>
+
+            <input
+              ref={emptyStateCsvRef}
+              type="file"
+              accept=".csv,text/csv"
+              onChange={handleEmptyStateImportCsv}
+              className="hidden"
+            />
+            <button
+              type="button"
+              onClick={() => emptyStateCsvRef.current?.click()}
+              disabled={isRestoringBackup}
+              className="px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-750 border border-slate-700 text-slate-200 font-bold text-xs flex items-center justify-center gap-2 transition-all cursor-pointer disabled:opacity-50"
+            >
+              <Upload className="w-3.5 h-3.5 text-sky-400" />
+              <span>Import Backup CSV</span>
+            </button>
+          </div>
+          {restoreErrorText && (
+            <p className="text-xs text-rose-400 mt-1">{restoreErrorText}</p>
+          )}
+        </div>
       </div>
     );
   }
