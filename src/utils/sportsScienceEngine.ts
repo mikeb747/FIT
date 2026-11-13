@@ -964,6 +964,59 @@ Focusing heavily on short intervals (50m, 100m, 200m) with extended 30–45 seco
   }
 
   // -------------------------------------------------------------
+  // 9.5 CARDIAC DRIFT, GRADE ADJUSTED PACE (GAP) & SELECTIVE ZONE CALIBRATION
+  // -------------------------------------------------------------
+  if (
+    q.includes('cardiac drift') ||
+    q.includes('decoupling') ||
+    q.includes('grade adjusted') ||
+    q.includes('gap') ||
+    q.includes('outdoor run') ||
+    q.includes('low confidence') ||
+    q.includes('leave alone') ||
+    q.includes('leaving some zones') ||
+    q.includes('only the zone 2') ||
+    q.includes('only zone 2') ||
+    q.includes('custom zone') ||
+    q.includes('z2 ceiling') ||
+    q.includes('zone 2 ceiling') ||
+    q.includes('zone 2 upper') ||
+    q.includes('z2 upper') ||
+    q.includes('hr plateau') ||
+    q.includes('hr lag') ||
+    q.includes('rest interval length') ||
+    q.includes('rest length') ||
+    (q.includes('18.7') && (q.includes('drift') || q.includes('stream') || q.includes('run'))) ||
+    (q.includes('24 oct') && (q.includes('drift') || q.includes('run'))) ||
+    q.includes('4x9') ||
+    q.includes('4 x 9') ||
+    (q.includes('cadence') && q.includes('zone')) ||
+    ((q.includes('update') || q.includes('raise') || q.includes('lower') || q.includes('adjust')) &&
+      (q.includes('hr zone') || q.includes('heart rate zone') || q.includes('power zone') || q.includes('pace zone') || q.includes('zone 2') || q.includes('zones')))
+  ) {
+    return `### 🧬 Grade Adjusted Pace (GAP:HR) Cardiac Drift & Selective Zone Calibration
+
+**1. Yes — Outdoor & Inclined Runs Use Grade Adjusted Pace (GAP) for Drift & Zones:**
+• On outdoor runs with hills or treadmill runs with incline, raw unadjusted pace is **not** a constant metabolic stimulus—climbing in the second half slows raw pace while raising HR, which artificially inflates raw $\\text{Pace:HR}$ drift.
+• We normalize every outdoor and inclined run using **Minetti's Grade Adjusted Pace (GAP) polynomial** before computing Efficiency Factor ($\\text{EF} = \\text{GAP Speed} \\div \\text{HR}$):
+  - **31 Oct (16.41 km Outdoor, +118m elev):** Raw settled pace **5:03/km** $\\rightarrow$ **4:55/km GAP**. Raw unadjusted drift looked like **+4.6%** due to back-half hills, whereas true **GAP:HR decoupling is +2.7%** (cleanly aerobic **< 5.0%**).
+  - **18 Oct (19.40 km Outdoor, +140m elev):** Raw **4:58/km** $\\rightarrow$ **4:49/km GAP** (Raw drift **+3.4%** $\\rightarrow$ **+1.6% GAP:HR drift**).
+  - **11 Oct (16.10 km Outdoor, +115m elev):** Raw **5:04/km** $\\rightarrow$ **4:56/km GAP** (Raw drift **+4.3%** $\\rightarrow$ **+2.6% GAP:HR drift**).
+  - **22 Oct (4 × 9 min @ 3:42/km on 0.5% Treadmill Incline):** Adjusted for the **0.5% gradient**, your true flat-equivalent stimulus is **3:38/km GAP** with a flat late-rep HR plateau of **151–155 bpm**.
+  - **Flat Treadmill Runs (24 Oct 18.73 km @ 4:48/km & 7 Nov 16.10 km @ 4:50/km):** At 0% grade, GAP equals raw belt speed (**+2.9%** and **+2.8%** drift).
+
+---
+
+**2. Selective Per-Zone Calibration — Adjust High-Confidence Zones & Leave Low-Confidence Zones Alone:**
+• Because different zones require different session types, our confidence is not uniform across all 5 zones:
+  - **★ Zone 2 Upper Bound (High Confidence — Selected by Default):** Supported by **5 steady runs ≥ 40 min** (3 outdoor GAP-adjusted + 2 flat treadmill) all showing **1.6%–2.9% GAP:HR decoupling** (**< 5%** threshold) at 132–142 bpm. Raising **only the Zone 2 upper bound from 135 → 138 bpm** (+3 bpm, within the ±5 bpm/month guardrail) is strongly supported. *(Zone 3's floor automatically shifts from 136 → 139 bpm so zones stay contiguous, while Zone 3's ceiling stays untouched at 148 bpm.)*
+  - **◐ Zone 4 Threshold Ceiling (Moderate Confidence — Left Unchecked by Default):** Only 1 long-rep session (**4 × 9 min @ 3:38/km GAP**) fully cleared the 70s HR lag to plateau at **151–155 bpm** (while shorter **8 × 3 min** reps had 60s actual stream rests vs 70s planned). You can leave Zone 4 untouched at **158 bpm**, or optionally check **Z4** in the card above to tighten it to **156 bpm**.
+  - **○ Zone 1, Zone 3 & Zone 5 Ceilings (Low Confidence — Leave Alone):** Kept completely untouched (**109 bpm**, **148 bpm**, and **185 bpm**).
+
+*Use the checkboxes and preset buttons (**"Only Raise Z2 Upper Bound"** vs **"Z2 + Optional Z4"**) in the interactive card above to apply only the zone adjustments you want!*`;
+  }
+
+  // -------------------------------------------------------------
   // 10. CONVERSATIONAL FALLBACK GROUNDED IN RECENT LOG & GOALS
   // -------------------------------------------------------------
   const latestAct = activities[0];
@@ -979,7 +1032,7 @@ ${primaryGoal ? `• **Target Goal:** **${primaryGoal.name}** on **${primaryGoal
 **You can ask me to:**
 1. **Search online & add a goal race** *(e.g., "Can you add Seven Sins to my Goals")*
 2. **Analyze interval/lap structure vs overall average** *(e.g., "How should I progress my run workouts from the last 2 Thursdays?")*
-3. **Add a comment or description to any workout** *(e.g., "Add a comment to my 8 x 1km run today saying felt controlled in reps 5-8")*
-4. **Plan your next workout or evaluate your week** against your CTL ramp rate, work schedule, and injuries.`;
+3. **Audit Cardiac Drift & Calibrate Custom HR/Pace/Power Zones** *(e.g., "Analyse cardiac drift on my 18.7km run and calibrate my Zone 2 ceiling")*
+4. **Add a comment or description to any workout** or **plan your next session** around your work schedule and injuries.`;
 }
 

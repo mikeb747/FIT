@@ -7,6 +7,11 @@ import {
   analyzeActivityStructureAndLaps,
   getStructuredWorkoutsByDayOfWeek,
 } from './src/utils/coachWorkoutMatcher.ts';
+import {
+  buildWorkoutDriftAndZoneAnalysis,
+  buildCustomZoneUpdateAction,
+} from './src/utils/zoneCalibrationEngine.ts';
+import { DEFAULT_ATHLETE_PROFILE } from './src/types/athlete.ts';
 
 // Initialize Gemini Client safely on the server using the current @google/genai SDK
 const geminiApiKey = process.env.GEMINI_API_KEY || process.env.API_KEY || '';
@@ -37,6 +42,8 @@ export function handleCoachStatus(_req: Request, res: Response) {
       'workout-planner-skill',
       'training-evaluation-skill',
       'profile-injury-schedule-skill',
+      'zone-updater-skill',
+      'cardiac-drift-kinetics-skill',
     ],
   });
 }
@@ -332,6 +339,83 @@ const updateAthleteProfileDecl: FunctionDeclaration = {
   },
 };
 
+const updateTrainingZonesDecl: FunctionDeclaration = {
+  name: 'update_training_zones',
+  description:
+    'Update or propose changes to the athlete Heart Rate zones (Run/Bike/Swim), Pace zones (Outdoor Run/Treadmill Run/Swim), or Cycling Power zones (7-zone Coggan). For example, raising or lowering the Zone 2 upper HR limit based on cardiac drift, adjusting Zone 4 threshold bounds, or updating custom zone cutoffs.',
+  parameters: {
+    type: Type.OBJECT,
+    properties: {
+      zoneDomain: {
+        type: Type.STRING,
+        description:
+          'Which zone system to update: "hr_run", "hr_bike", "hr_swim", "pace_run_outdoor", "pace_run_treadmill", "pace_swim", or "power_bike".',
+      },
+      applyImmediately: {
+        type: Type.BOOLEAN,
+        description:
+          'Set to true if the user explicitly commanded an immediate zone update; set to false (default) to propose the change with evidence and let the user Accept or Reject in the UI.',
+      },
+      z2MaxHr: {
+        type: Type.NUMBER,
+        description: 'New Zone 2 upper heart rate limit in bpm (e.g. raising from 135 to 138 bpm when >=3 steady runs show <5% drift).',
+      },
+      z3MaxHr: {
+        type: Type.NUMBER,
+        description: 'Optional new Zone 3 upper heart rate limit in bpm.',
+      },
+      z4MaxHr: {
+        type: Type.NUMBER,
+        description: 'Optional new Zone 4 (Threshold) upper heart rate limit in bpm.',
+      },
+      thresholdHeartRateRun: {
+        type: Type.NUMBER,
+        description: 'Optional updated Running LTHR in bpm.',
+      },
+      thresholdPaceRunOutdoorSec: {
+        type: Type.NUMBER,
+        description: 'Optional updated Outdoor Run Threshold Pace in seconds per km (e.g. 220 for 3:40/km).',
+      },
+      thresholdPaceRunTreadmillSec: {
+        type: Type.NUMBER,
+        description: 'Optional updated Treadmill Run Threshold Pace in seconds per km (e.g. 220 for 3:40/km).',
+      },
+      bikeFtp: {
+        type: Type.NUMBER,
+        description: 'Optional updated Cycling FTP in Watts.',
+      },
+      swimPoolPace100mSec: {
+        type: Type.NUMBER,
+        description: 'Optional updated Swim CSS Pace in seconds per 100m.',
+      },
+      reason: {
+        type: Type.STRING,
+        description: 'Physiological evidence summary (e.g. "Based on 4 steady runs >=40m with <5% Pa:HR decoupling").',
+      },
+    },
+    required: ['zoneDomain'],
+  },
+};
+
+const analyzeWorkoutDriftAndZonesDecl: FunctionDeclaration = {
+  name: 'analyze_workout_drift_and_zones',
+  description:
+    'Analyze workout structure, lap length, settled work pace, late-rep HR plateau (last 30-60s), HR slope across reps, HR lag (60-90s), aerobic cardiac drift / decoupling (Speed/HR first half vs second half after dropping first 10 min on >=40 min runs), actual stream rest length vs planned rest, HR recovery (30s/60s), cadence, stride length, and 99th-percentile smoothed max HR to audit or calibrate custom HR/Pace/Power zones.',
+  parameters: {
+    type: Type.OBJECT,
+    properties: {
+      targetActivityQuery: {
+        type: Type.STRING,
+        description: 'Optional specific workout or run to focus on (e.g. "18.7 km long run", "24 Oct", "8 x 1km", "4 x 9min", or "all recent runs").',
+      },
+      proposedZ2CeilingBpm: {
+        type: Type.NUMBER,
+        description: 'Optional recommended Zone 2 upper HR limit in bpm based on the >=3 steady runs <5% drift rule (e.g. 138).',
+      },
+    },
+  },
+};
+
 const COACH_FUNCTION_DECLARATIONS: FunctionDeclaration[] = [
   manageGoalRaceDecl,
   updateWorkoutCommentDecl,
@@ -339,6 +423,8 @@ const COACH_FUNCTION_DECLARATIONS: FunctionDeclaration[] = [
   prescribeUpcomingWorkoutDecl,
   evaluateTrainingPeriodDecl,
   updateAthleteProfileDecl,
+  updateTrainingZonesDecl,
+  analyzeWorkoutDriftAndZonesDecl,
 ];
 
 // ============================================================================
@@ -694,7 +780,9 @@ function convertToolCallToCoachAction(
   acts: any[],
   goals: any[],
   curDate: string,
-  fitnessStats: any
+  fitnessStats: any,
+  athleteProfile?: any,
+  userQuestion = ''
 ): { action?: any; skillLabel: string } {
   switch (fnName) {
     case 'manage_goal_race': {
@@ -969,6 +1057,57 @@ function convertToolCallToCoachAction(
       };
     }
 
+    case 'update_training_zones': {
+      const profile = { ...DEFAULT_ATHLETE_PROFILE, ...(athleteProfile || {}) };
+      const zoneAction = buildCustomZoneUpdateAction(profile, {
+        zoneDomain: (args.zoneDomain as any) || 'hr_run',
+        applyImmediately: Boolean(args.applyImmediately),
+        z2MaxHr: args.z2MaxHr ? Number(args.z2MaxHr) : undefined,
+        z3MaxHr: args.z3MaxHr ? Number(args.z3MaxHr) : undefined,
+        z4MaxHr: args.z4MaxHr ? Number(args.z4MaxHr) : undefined,
+        thresholdHeartRateRun: args.thresholdHeartRateRun ? Number(args.thresholdHeartRateRun) : undefined,
+        thresholdPaceRunOutdoorSec: args.thresholdPaceRunOutdoorSec ? Number(args.thresholdPaceRunOutdoorSec) : undefined,
+        thresholdPaceRunTreadmillSec: args.thresholdPaceRunTreadmillSec ? Number(args.thresholdPaceRunTreadmillSec) : undefined,
+        bikeFtp: args.bikeFtp ? Number(args.bikeFtp) : undefined,
+        swimPoolPace100mSec: args.swimPoolPace100mSec ? Number(args.swimPoolPace100mSec) : undefined,
+        reason: args.reason ? String(args.reason) : undefined,
+      });
+      return {
+        skillLabel: 'HR / Pace / Power Zone Calibrator',
+        action: zoneAction,
+      };
+    }
+
+    case 'analyze_workout_drift_and_zones': {
+      const profile = { ...DEFAULT_ATHLETE_PROFILE, ...(athleteProfile || {}) };
+      const rawActivitiesForEngine = acts.map((a: any) => ({
+        id: a.id,
+        name: a.name,
+        sport_type: a.sport || 'Run',
+        start_date: a.startDate,
+        start_date_local: a.startDate,
+        distance: a.distanceM || Math.round((a.distanceKm || 0) * 1000),
+        moving_time: a.movingTimeSec || Math.round((a.movingTimeMin || 0) * 60),
+        average_heartrate: a.avgHeartrate,
+        max_heartrate: a.maxHeartrate,
+        average_cadence: a.avgCadence,
+        trainer: a.isIndoor,
+      }));
+      const driftAction = buildWorkoutDriftAndZoneAnalysis(
+        profile,
+        rawActivitiesForEngine as any,
+        {},
+        `${userQuestion} ${args.targetActivityQuery || ''}`
+      );
+      if (args.proposedZ2CeilingBpm && Number(args.proposedZ2CeilingBpm) >= 115) {
+        driftAction.recommendedZ2CeilingBpm = Number(args.proposedZ2CeilingBpm);
+      }
+      return {
+        skillLabel: 'Cardiac Drift & Custom Zone Analyzer',
+        action: driftAction,
+      };
+    }
+
     default:
       return { skillLabel: fnName };
   }
@@ -1139,7 +1278,14 @@ CRITICAL ANTI-SCRIPTING & CONVERSATIONAL RULES:
    - Skill 3 (Add Comments or Descriptions to Workouts): When the athlete asks to add a comment, note, description, or RPE to a workout, invoke \`update_workout_comment_or_metadata\`.
    - Skill 4 (Plan / Prescribe Upcoming Workouts): When the athlete asks what workout to do next, how to progress a workout (including progressing their Thursday runs), or to plan an upcoming session, invoke \`prescribe_upcoming_workout\` so an interactive workout prescription card is rendered in chat.
    - Skill 5 (Evaluate Previous Session / Day / Current Week / Last Week): When the athlete asks you to evaluate/review their previous session, today's training, current week, or last week's training to judge if it is helping meet their goals, invoke \`evaluate_training_period\` and factor in weeks until race + CTL ramp rate.
-   - Skill 6 (Update Profile, Injuries, or Work Schedule): If the athlete reports a new injury, updates an threshold (FTP/LTHR/Pace), or mentions a work schedule change, invoke \`update_athlete_profile_or_constraints\`.
+   - Skill 6 (Update Profile, Injuries, or Work Schedule): If the athlete reports a new injury, updates a threshold (FTP/LTHR/Pace), or mentions a work schedule change, invoke \`update_athlete_profile_or_constraints\`.
+   - Skill 7 (Update HR, Pace, or Power Zones — Selective Per-Zone Confidence): When the athlete asks to update, raise, lower, or calibrate their Heart Rate zones (Run/Bike/Swim), Pace zones (Outdoor/Treadmill/Swim), or Power zones (Bike), invoke \`update_training_zones\`. When confidence is high in one zone (such as Zone 2 upper bound at 135 -> 138 bpm from 5 steady runs) but lower in others (Z1, Z3, Z4, Z5), default to adjusting ONLY the high-confidence zone (e.g. raising only the Zone 2 upper bound from 135 to 138 bpm and shifting Z3's floor from 136 to 139 bpm to stay contiguous) while leaving all other zone ceilings untouched. Point out that the athlete can toggle checkboxes per zone in the UI card to choose which zones to adjust vs leave alone.
+   - Skill 8 (Analyse Workout Structure, Lap Length, GAP Pace, HR, Cadence, Stream Rest & Cardiac Drift): Whenever the athlete asks about cardiac drift, Grade Adjusted Pace (GAP), decoupling, custom zone metrics, Zone 2 ceiling calibration, or selective zone confidence, invoke \`analyze_workout_drift_and_zones\` and apply these exact physiological principles:
+     * **Grade Adjusted Pace (GAP) as the True Stimulus on Outdoor & Inclined Runs**: Yes—for outdoor runs (and inclined treadmill sessions like 0.5% on 4x9 min), cardiac drift and threshold calculations MUST use **Grade Adjusted Pace (GAP)** via Minetti's metabolic cost of grade polynomial rather than raw unadjusted pace. On undulating outdoor routes (e.g., 31 Oct 16.41 km +118m elev: 5:03/km raw -> 4:55/km GAP; 18 Oct 19.40 km +140m elev: 4:58/km raw -> 4:49/km GAP; 11 Oct 16.10 km +115m elev: 5:04/km raw -> 4:56/km GAP), raw pace slows on second-half hills and creates false apparent drift (4.6% raw vs **2.7% true GAP:HR drift** on Oct 31). On flat 0% treadmill runs, GAP equals raw belt speed.
+     * **Pace (GAP) is the Stimulus; HR is the Response**: Extract settled work-only pace (and GAP) per rep, excluding the first 20–30s while speed settles. Drop whole-session average pace and single-point max HR per rep—both are noisy and mislead.
+     * **Late-Rep HR Plateau (Last 30–60s) & HR Slope Across Reps**: HR lags 60–90 seconds, so 3-min reps (like 8x3 min at 147 bpm avg) underread effort. Use end-of-rep HR (last 30–60s) on >=4–9 min reps (like 4x9 min @ 3:42/km at 0.5% incline = **3:38/km GAP**, where HR plateaued flat at 151–155 bpm).
+     * **Actual Stream Rest Length vs Planned Rest & Rep-Start HR**: Measure actual rest from the stream (e.g. "70s" planned rests on 8x3m / 8x1km were closer to 60–61s in the stream). A rep starting at a higher HR after a shortened rest shows incomplete recovery, NOT that the pace is too hard.
+     * **Aerobic Ceiling (Z2 Upper Limit) from GAP:HR Cardiac Drift & Selective Zone Confidence**: Take steady runs >= 40 min, drop the first 10 minutes, and compute Efficiency Factor (GAP Speed ÷ HR) for the 1st half vs 2nd half (<5% decoupling is aerobic). When confidence is high for Zone 2 (5 steady runs >=40m with 1.6%–3.1% GAP:HR drift) but lower for other zones (only 1 long-rep threshold session for Z4, no dedicated Z1/Z3/Z5 lab ramp), recommend **raising ONLY the Zone 2 upper bound (135 -> 138 bpm)** and leaving Z1, Z3, Z4, and Z5 ceilings untouched—while letting the user toggle individual zones in the interactive card.
 
 4. ALWAYS RESPECT:
    - Weeks until upcoming Goal Races & Race Priority (A/B/C)
@@ -1217,7 +1363,9 @@ ${activitiesLog}`;
             acts,
             goals || [],
             curDate,
-            fitnessStats
+            fitnessStats,
+            athleteProfile,
+            String(question)
           );
           if (converted.skillLabel && !skillsUsed.includes(converted.skillLabel)) {
             skillsUsed.push(converted.skillLabel);

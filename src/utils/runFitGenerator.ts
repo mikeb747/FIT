@@ -1,4 +1,4 @@
-import { StravaActivity, CalibratedRunSection } from './stravaActivities';
+import { StravaActivity, CalibratedRunSection, CalibratedSwimLap } from './stravaActivities';
 import { toGarminTime } from './fitGenerator';
 import { pollStravaUploadStatus, StravaUploadResult } from './stravaUpload';
 
@@ -79,13 +79,28 @@ export interface RunFitParams {
   sections: CalibratedRunSection[];
 }
 
+export interface SwimFitParams {
+  activity: StravaActivity;
+  workoutName: string;
+  startTimestampMs: number;
+  totalElapsedSec: number;
+  totalMovingSec: number;
+  totalDistanceM: number;
+  poolLengthM?: number;
+  timeStream: number[];
+  speedStream: number[]; // m/s
+  distanceStream: number[]; // meters
+  heartrateStream?: number[];
+  cadenceStream?: number[];
+  laps: CalibratedSwimLap[];
+}
+
 /**
  * Builds a standard Garmin / Strava compliant binary .FIT file for a treadmill / indoor run.
  * Preserves timestamps, original heartrate, and cadence, while updating speed, distance, and laps.
  */
 export function generateRunFitFile(params: RunFitParams): Uint8Array {
   const {
-    workoutName,
     startTimestampMs,
     totalDurationSec,
     totalDistanceM,
@@ -394,6 +409,340 @@ export function generateRunFitFile(params: RunFitParams): Uint8Array {
   return completeFile;
 }
 
+/**
+ * Builds a Garmin / Strava compliant binary .FIT file for a calibrated Pool Swim workout.
+ * Preserves timestamps, heartrate, and stroke cadence while writing calibrated swim & rest laps,
+ * pool length, active lengths, and exact moving vs elapsed time.
+ */
+export function generateSwimFitFile(params: SwimFitParams): Uint8Array {
+  const {
+    startTimestampMs,
+    totalElapsedSec,
+    totalMovingSec,
+    totalDistanceM,
+    poolLengthM = 25,
+    timeStream,
+    speedStream,
+    distanceStream,
+    heartrateStream,
+    cadenceStream,
+    laps,
+  } = params;
+
+  const activeLaps = laps.filter((l) => !l.isIgnored);
+  const records = new ByteWriter();
+  const startGarminTime = toGarminTime(startTimestampMs);
+  const endGarminTime = toGarminTime(startTimestampMs + Math.max(1, totalElapsedSec) * 1000);
+  const elapsedMs = Math.round(Math.max(1, totalElapsedSec) * 1000);
+  const movingMs = Math.round(Math.max(1, totalMovingSec) * 1000);
+
+  // -------------------------------------------------------------
+  // 1. File ID Message (Global 0, Local 0)
+  // -------------------------------------------------------------
+  records.writeUint8(0x40 | 0);
+  records.writeUint8(0);
+  records.writeUint8(0);
+  records.writeUint16LE(0);
+  records.writeUint8(5);
+
+  records.writeUint8(0); records.writeUint8(1); records.writeUint8(0x00); // type (4 = activity)
+  records.writeUint8(1); records.writeUint8(2); records.writeUint8(0x84); // manufacturer (1 = Garmin)
+  records.writeUint8(2); records.writeUint8(2); records.writeUint8(0x84); // product (3438 = FR255)
+  records.writeUint8(3); records.writeUint8(4); records.writeUint8(0x86); // serial_number
+  records.writeUint8(4); records.writeUint8(4); records.writeUint8(0x86); // time_created
+
+  records.writeUint8(0x00 | 0);
+  records.writeUint8(4);
+  records.writeUint16LE(1);
+  records.writeUint16LE(3438);
+  records.writeUint32LE(3438182702);
+  records.writeUint32LE(startGarminTime);
+
+  // -------------------------------------------------------------
+  // 2. Device Info Message (Global 23, Local 1)
+  // -------------------------------------------------------------
+  records.writeUint8(0x40 | 1);
+  records.writeUint8(0);
+  records.writeUint8(0);
+  records.writeUint16LE(23);
+  records.writeUint8(5);
+
+  records.writeUint8(253); records.writeUint8(4); records.writeUint8(0x86);
+  records.writeUint8(0);   records.writeUint8(1); records.writeUint8(0x02);
+  records.writeUint8(1);   records.writeUint8(1); records.writeUint8(0x02);
+  records.writeUint8(2);   records.writeUint8(2); records.writeUint8(0x84);
+  records.writeUint8(4);   records.writeUint8(2); records.writeUint8(0x84);
+
+  records.writeUint8(0x00 | 1);
+  records.writeUint32LE(startGarminTime);
+  records.writeUint8(0);
+  records.writeUint8(1);
+  records.writeUint16LE(1);
+  records.writeUint16LE(2905);
+
+  // -------------------------------------------------------------
+  // 3. Record Messages (Global 20, Local 2)
+  // -------------------------------------------------------------
+  records.writeUint8(0x40 | 2);
+  records.writeUint8(0);
+  records.writeUint8(0);
+  records.writeUint16LE(20);
+  records.writeUint8(5);
+
+  records.writeUint8(253); records.writeUint8(4); records.writeUint8(0x86); // timestamp
+  records.writeUint8(5);   records.writeUint8(4); records.writeUint8(0x86); // distance (cm)
+  records.writeUint8(6);   records.writeUint8(2); records.writeUint8(0x84); // speed (mm/s)
+  records.writeUint8(3);   records.writeUint8(1); records.writeUint8(0x02); // heart_rate (bpm)
+  records.writeUint8(4);   records.writeUint8(1); records.writeUint8(0x02); // cadence (strokes/min)
+
+  const numRecords = timeStream.length;
+  for (let i = 0; i < numRecords; i++) {
+    const elapsedSec = timeStream[i];
+    const recGarminTime = startGarminTime + elapsedSec;
+    const distCm = Math.min(0xFFFFFFFF, Math.round((distanceStream[i] || 0) * 100));
+    const speedMms = Math.min(65535, Math.round((speedStream[i] || 0) * 1000));
+    const hr = heartrateStream?.[i] !== undefined && heartrateStream[i] > 30 ? Math.round(heartrateStream[i]) : 0xFF;
+    const cad = cadenceStream?.[i] !== undefined && cadenceStream[i] > 0 ? Math.round(cadenceStream[i]) : 0xFF;
+
+    records.writeUint8(0x00 | 2);
+    records.writeUint32LE(recGarminTime);
+    records.writeUint32LE(distCm);
+    records.writeUint16LE(speedMms);
+    records.writeUint8(hr);
+    records.writeUint8(cad);
+  }
+
+  // -------------------------------------------------------------
+  // 4. Lap Messages (Global 19, Local 3) — Pool Swim & Rest Laps
+  // -------------------------------------------------------------
+  records.writeUint8(0x40 | 3);
+  records.writeUint8(0);
+  records.writeUint8(0);
+  records.writeUint16LE(19);   // Global Message Number: 19 (lap)
+  records.writeUint8(17);      // 17 fields
+
+  records.writeUint8(254); records.writeUint8(2); records.writeUint8(0x84); // message_index (uint16)
+  records.writeUint8(253); records.writeUint8(4); records.writeUint8(0x86); // timestamp (uint32)
+  records.writeUint8(2);   records.writeUint8(4); records.writeUint8(0x86); // start_time (uint32)
+  records.writeUint8(7);   records.writeUint8(4); records.writeUint8(0x86); // total_elapsed_time (uint32 ms)
+  records.writeUint8(8);   records.writeUint8(4); records.writeUint8(0x86); // total_timer_time (uint32 ms)
+  records.writeUint8(9);   records.writeUint8(4); records.writeUint8(0x86); // total_distance (uint32 cm)
+  records.writeUint8(13);  records.writeUint8(2); records.writeUint8(0x84); // avg_speed (uint16 mm/s)
+  records.writeUint8(14);  records.writeUint8(2); records.writeUint8(0x84); // max_speed (uint16 mm/s)
+  records.writeUint8(15);  records.writeUint8(1); records.writeUint8(0x02); // avg_heart_rate (uint8)
+  records.writeUint8(16);  records.writeUint8(1); records.writeUint8(0x02); // max_heart_rate (uint8)
+  records.writeUint8(17);  records.writeUint8(1); records.writeUint8(0x02); // avg_cadence (uint8)
+  records.writeUint8(18);  records.writeUint8(1); records.writeUint8(0x02); // max_cadence (uint8)
+  records.writeUint8(25);  records.writeUint8(1); records.writeUint8(0x00); // sport (5 = swimming)
+  records.writeUint8(26);  records.writeUint8(1); records.writeUint8(0x00); // sub_sport (17 = lap_swimming)
+  records.writeUint8(32);  records.writeUint8(2); records.writeUint8(0x84); // num_lengths (uint16)
+  records.writeUint8(40);  records.writeUint8(2); records.writeUint8(0x84); // num_active_lengths (uint16)
+  records.writeUint8(38);  records.writeUint8(1); records.writeUint8(0x00); // swim_stroke (0 = freestyle)
+
+  let cumulativeSec = 0;
+  for (let sIdx = 0; sIdx < activeLaps.length; sIdx++) {
+    const lap = activeLaps[sIdx];
+    const durSec = Math.max(1, lap.movingTimeSec || 0);
+    const isRest = Boolean(lap.isRest || lap.distanceM <= 0);
+    const distM = isRest ? 0 : Math.max(0, lap.distanceM);
+
+    const lapStartSec = cumulativeSec;
+    const lapEndSec = cumulativeSec + durSec;
+    cumulativeSec = lapEndSec;
+
+    const lapStartGarmin = startGarminTime + Math.round(lapStartSec);
+    const lapEndGarmin = startGarminTime + Math.round(lapEndSec);
+    const lapDurationMs = Math.round(durSec * 1000);
+    const lapDistCm = Math.round(distM * 100);
+    const lapSpeedMms = !isRest && durSec > 0 ? Math.round((distM / durSec) * 1000) : 0;
+    const numLengths = !isRest && distM > 0 ? Math.max(1, Math.round(distM / poolLengthM)) : 0;
+
+    let sumHr = 0, countHr = 0, maxHr = 0;
+    let sumCad = 0, countCad = 0, maxCad = 0;
+    if (heartrateStream && timeStream) {
+      for (let i = 0; i < timeStream.length; i++) {
+        const t = timeStream[i];
+        if (t >= lapStartSec && t <= lapEndSec) {
+          const val = heartrateStream[i];
+          if (val > 30) {
+            sumHr += val;
+            countHr++;
+            if (val > maxHr) maxHr = val;
+          }
+        }
+      }
+    }
+    if (cadenceStream && timeStream) {
+      for (let i = 0; i < timeStream.length; i++) {
+        const t = timeStream[i];
+        if (t >= lapStartSec && t <= lapEndSec) {
+          const val = cadenceStream[i];
+          if (val > 0) {
+            sumCad += val;
+            countCad++;
+            if (val > maxCad) maxCad = val;
+          }
+        }
+      }
+    }
+
+    const avgHr = countHr > 0 ? Math.round(sumHr / countHr) : 0xFF;
+    const avgCad = countCad > 0 ? Math.round(sumCad / countCad) : 0xFF;
+
+    records.writeUint8(0x00 | 3);
+    records.writeUint16LE(sIdx);
+    records.writeUint32LE(lapEndGarmin);
+    records.writeUint32LE(lapStartGarmin);
+    records.writeUint32LE(lapDurationMs);
+    records.writeUint32LE(lapDurationMs);
+    records.writeUint32LE(lapDistCm);
+    records.writeUint16LE(lapSpeedMms);
+    records.writeUint16LE(lapSpeedMms);
+    records.writeUint8(avgHr);
+    records.writeUint8(maxHr || avgHr);
+    records.writeUint8(avgCad);
+    records.writeUint8(maxCad || avgCad);
+    records.writeUint8(5);  // Sport: Swimming (5)
+    records.writeUint8(17); // SubSport: Lap Swimming (17)
+    records.writeUint16LE(numLengths);
+    records.writeUint16LE(numLengths);
+    records.writeUint8(isRest ? 0xFF : 0); // 0 = freestyle, 0xFF = rest
+  }
+
+  // -------------------------------------------------------------
+  // 5. Session Message (Global 18, Local 4) — Pool Swim Session
+  // -------------------------------------------------------------
+  records.writeUint8(0x40 | 4);
+  records.writeUint8(0);
+  records.writeUint8(0);
+  records.writeUint16LE(18);   // Global Message Number: 18 (session)
+  records.writeUint8(19);      // 19 fields
+
+  records.writeUint8(254); records.writeUint8(2); records.writeUint8(0x84); // message_index (uint16)
+  records.writeUint8(253); records.writeUint8(4); records.writeUint8(0x86); // timestamp (uint32)
+  records.writeUint8(2);   records.writeUint8(4); records.writeUint8(0x86); // start_time (uint32)
+  records.writeUint8(7);   records.writeUint8(4); records.writeUint8(0x86); // total_elapsed_time (uint32 ms)
+  records.writeUint8(8);   records.writeUint8(4); records.writeUint8(0x86); // total_timer_time (uint32 ms)
+  records.writeUint8(9);   records.writeUint8(4); records.writeUint8(0x86); // total_distance (uint32 cm)
+  records.writeUint8(14);  records.writeUint8(2); records.writeUint8(0x84); // avg_speed (uint16 mm/s)
+  records.writeUint8(15);  records.writeUint8(2); records.writeUint8(0x84); // max_speed (uint16 mm/s)
+  records.writeUint8(16);  records.writeUint8(1); records.writeUint8(0x02); // avg_heart_rate (uint8)
+  records.writeUint8(17);  records.writeUint8(1); records.writeUint8(0x02); // max_heart_rate (uint8)
+  records.writeUint8(18);  records.writeUint8(1); records.writeUint8(0x02); // avg_cadence (uint8)
+  records.writeUint8(19);  records.writeUint8(1); records.writeUint8(0x02); // max_cadence (uint8)
+  records.writeUint8(5);   records.writeUint8(1); records.writeUint8(0x00); // sport (5 = swimming)
+  records.writeUint8(6);   records.writeUint8(1); records.writeUint8(0x00); // sub_sport (17 = lap_swimming)
+  records.writeUint8(25);  records.writeUint8(2); records.writeUint8(0x84); // num_laps (uint16)
+  records.writeUint8(44);  records.writeUint8(2); records.writeUint8(0x84); // pool_length (uint16 cm)
+  records.writeUint8(46);  records.writeUint8(1); records.writeUint8(0x00); // pool_length_unit (0 = metric)
+  records.writeUint8(47);  records.writeUint8(2); records.writeUint8(0x84); // num_active_lengths (uint16)
+  records.writeUint8(110); records.writeUint8(32); records.writeUint8(0x07); // sport_profile_name
+
+  const overallAvgSpeedMms = totalMovingSec > 0 ? Math.round((totalDistanceM / totalMovingSec) * 1000) : 0;
+  const overallMaxSpeedMms = Math.max(
+    ...activeLaps.map((l) =>
+      !l.isRest && l.distanceM > 0 && l.movingTimeSec > 0
+        ? Math.round((l.distanceM / l.movingTimeSec) * 1000)
+        : 0
+    ),
+    overallAvgSpeedMms
+  );
+
+  let totalHr = 0, countTotalHr = 0, peakHr = 0;
+  let totalCad = 0, countTotalCad = 0, peakCad = 0;
+  if (heartrateStream) {
+    heartrateStream.forEach((h) => {
+      if (h > 30) {
+        totalHr += h;
+        countTotalHr++;
+        if (h > peakHr) peakHr = h;
+      }
+    });
+  }
+  if (cadenceStream) {
+    cadenceStream.forEach((c) => {
+      if (c > 0) {
+        totalCad += c;
+        countTotalCad++;
+        if (c > peakCad) peakCad = c;
+      }
+    });
+  }
+
+  const sessionAvgHr = countTotalHr > 0 ? Math.round(totalHr / countTotalHr) : 0xFF;
+  const sessionAvgCad = countTotalCad > 0 ? Math.round(totalCad / countTotalCad) : 0xFF;
+  const totalActiveLengths = Math.max(1, Math.round(totalDistanceM / poolLengthM));
+
+  records.writeUint8(0x00 | 4);
+  records.writeUint16LE(0);
+  records.writeUint32LE(endGarminTime);
+  records.writeUint32LE(startGarminTime);
+  records.writeUint32LE(elapsedMs);
+  records.writeUint32LE(movingMs);
+  records.writeUint32LE(Math.round(totalDistanceM * 100));
+  records.writeUint16LE(overallAvgSpeedMms);
+  records.writeUint16LE(overallMaxSpeedMms);
+  records.writeUint8(sessionAvgHr);
+  records.writeUint8(peakHr || sessionAvgHr);
+  records.writeUint8(sessionAvgCad);
+  records.writeUint8(peakCad || sessionAvgCad);
+  records.writeUint8(5);  // Swimming
+  records.writeUint8(17); // Lap Swimming
+  records.writeUint16LE(activeLaps.length);
+  records.writeUint16LE(Math.round(poolLengthM * 100)); // e.g. 2500 cm = 25m
+  records.writeUint8(0); // metric
+  records.writeUint16LE(totalActiveLengths);
+  records.writeString('Pool Swim', 32);
+
+  // -------------------------------------------------------------
+  // 6. Activity Message (Global 34, Local 5)
+  // -------------------------------------------------------------
+  records.writeUint8(0x40 | 5);
+  records.writeUint8(0);
+  records.writeUint8(0);
+  records.writeUint16LE(34);
+  records.writeUint8(5);
+
+  records.writeUint8(253); records.writeUint8(4); records.writeUint8(0x86);
+  records.writeUint8(0);   records.writeUint8(4); records.writeUint8(0x86);
+  records.writeUint8(1);   records.writeUint8(2); records.writeUint8(0x84);
+  records.writeUint8(2);   records.writeUint8(1); records.writeUint8(0x00);
+  records.writeUint8(3);   records.writeUint8(1); records.writeUint8(0x00);
+
+  records.writeUint8(0x00 | 5);
+  records.writeUint32LE(endGarminTime);
+  records.writeUint32LE(movingMs);
+  records.writeUint16LE(1);
+  records.writeUint8(0);
+  records.writeUint8(26);
+
+  // -------------------------------------------------------------
+  // 7. Assemble Full FIT File with 14-byte Header & CRC16
+  // -------------------------------------------------------------
+  const dataBytes = records.getBytes();
+  const header = new ByteWriter();
+  header.writeUint8(14);
+  header.writeUint8(0x20);
+  header.writeUint16LE(2064);
+  header.writeUint32LE(dataBytes.length);
+  header.writeString('.FIT', 4);
+
+  const headerBytesPartial = header.getBytes();
+  const headerCrc = calculateCrc(headerBytesPartial, 0, 12);
+  header.writeUint16LE(headerCrc);
+
+  const fullHeaderBytes = header.getBytes();
+  const completeFile = new Uint8Array(fullHeaderBytes.length + dataBytes.length + 2);
+  completeFile.set(fullHeaderBytes, 0);
+  completeFile.set(dataBytes, fullHeaderBytes.length);
+
+  const fileCrc = calculateCrc(completeFile, 0, fullHeaderBytes.length + dataBytes.length);
+  completeFile[completeFile.length - 2] = fileCrc & 0xFF;
+  completeFile[completeFile.length - 1] = (fileCrc >> 8) & 0xFF;
+
+  return completeFile;
+}
+
 /** Converts binary FIT bytes to base64 string */
 export function runFitToBase64(fitBytes: Uint8Array): string {
   let binary = '';
@@ -426,12 +775,18 @@ export async function uploadRunFitToStrava(
   workoutName: string,
   accessToken: string,
   description?: string,
-  onStatusUpdate?: (status: string, uploadId?: number | string) => void
+  onStatusUpdate?: (status: string, uploadId?: number | string) => void,
+  sportType: 'Run' | 'Swim' = 'Run'
 ): Promise<StravaUploadResult> {
   const isGitHubPages = typeof window !== 'undefined' && window.location.hostname.includes('github.io');
-  const safeName = workoutName?.trim() || 'Treadmill Workout';
+  const safeName = workoutName?.trim() || (sportType === 'Swim' ? 'Pool Swim Workout' : 'Treadmill Workout');
   const fileName = `${safeName.replace(/\s+/g, '_')}_Calibrated.fit`;
-  const desc = description || 'Calibrated treadmill run with reconstructed speed & distance streams via GymFIT.';
+  const desc =
+    description ||
+    (sportType === 'Swim'
+      ? 'Calibrated pool swim with corrected lap distances & times via FIT Track.'
+      : 'Calibrated treadmill run with reconstructed speed & distance streams via FIT Track.');
+  const activityType = sportType === 'Swim' ? 'swim' : 'run';
 
   let initialUploadId: string | number | null = null;
 
@@ -439,7 +794,7 @@ export async function uploadRunFitToStrava(
   if (!isGitHubPages) {
     try {
       const fitBase64 = runFitToBase64(fitBytes);
-      onStatusUpdate?.('Sending corrected workout to Strava...');
+      onStatusUpdate?.(`Sending corrected ${sportType.toLowerCase()} workout to Strava...`);
 
       const res = await fetch('/api/strava/upload', {
         method: 'POST',
@@ -449,8 +804,8 @@ export async function uploadRunFitToStrava(
           name: safeName,
           fileName,
           description: desc,
-          sport_type: 'Run',
-          activity_type: 'run',
+          sport_type: sportType,
+          activity_type: activityType,
           accessToken,
         }),
       });
@@ -489,8 +844,8 @@ export async function uploadRunFitToStrava(
       formData.append('name', safeName);
       formData.append('description', desc);
       formData.append('data_type', 'fit');
-      formData.append('sport_type', 'Run');
-      formData.append('activity_type', 'run');
+      formData.append('sport_type', sportType);
+      formData.append('activity_type', activityType);
 
       onStatusUpdate?.('Uploading directly to Strava API...');
 
@@ -546,3 +901,4 @@ export async function uploadRunFitToStrava(
   // Step 3: Poll status every 4 seconds
   return pollStravaUploadStatus(initialUploadId, accessToken, onStatusUpdate);
 }
+

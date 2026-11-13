@@ -49,6 +49,7 @@ import type { DailyRecoveryLog } from '../types/recovery';
 import type { StravaActivity, StravaActivityDetailsRecord } from '../utils/stravaActivities';
 import { applyRunSectionsCalibration, saveActivityCommentAndDescription } from '../utils/stravaActivities';
 import { ActivityCalibrationModal } from './ActivityCalibrationModal';
+import { applyZoneUpdateToProfile, updateZoneActionSelection } from '../utils/zoneCalibrationEngine';
 import type {
   RecommendedWorkout,
   PeriodizedPlan,
@@ -60,6 +61,8 @@ import type {
   CoachPrescribeWorkoutAction,
   CoachTrainingEvaluationAction,
   CoachProfileUpdateAction,
+  CoachUpdateZonesAction,
+  CoachDriftAndZoneAnalysisAction,
   CoachAction,
   CalibratedLapProposal,
   WorkoutReviewItem,
@@ -601,6 +604,10 @@ export const CoachTab: React.FC<CoachTabProps> = ({
           }
           saveAthleteProfile(nextProfile);
           onProfileUpdated?.(nextProfile);
+        } else if (action.type === 'update_training_zones' && action.status === 'applied') {
+          const nextProfile = applyZoneUpdateToProfile(athleteProfile, action);
+          saveAthleteProfile(nextProfile);
+          onProfileUpdated?.(nextProfile);
         }
       };
 
@@ -835,6 +842,149 @@ export const CoachTab: React.FC<CoachTabProps> = ({
           executedAction: {
             ...m.executedAction,
             status: 'saved_to_today' as const,
+          },
+        };
+      }
+      return m;
+    });
+    setChatMessages(updatedMessages);
+    saveCoachChatHistory(updatedMessages);
+  };
+
+  const handleToggleZoneToApply = (
+    msgId: string,
+    currentZoneAction: CoachUpdateZonesAction,
+    zoneNum: number,
+    overrideMax?: number
+  ) => {
+    const currentSelected = currentZoneAction.selectedZonesToApply || [2];
+    let nextSelected: number[];
+    if (overrideMax !== undefined) {
+      nextSelected = currentSelected.includes(zoneNum) ? currentSelected : [...currentSelected, zoneNum];
+    } else {
+      nextSelected = currentSelected.includes(zoneNum)
+        ? currentSelected.filter((z) => z !== zoneNum)
+        : [...currentSelected, zoneNum];
+    }
+
+    const updatedZoneAction = updateZoneActionSelection(
+      athleteProfile,
+      currentZoneAction,
+      nextSelected,
+      overrideMax !== undefined ? { zone: zoneNum, newMax: overrideMax } : undefined
+    );
+
+    const updatedMessages: CoachChatMessage[] = chatMessages.map((m) => {
+      if (m.id !== msgId || !m.executedAction) return m;
+      if (m.executedAction.type === 'update_training_zones') {
+        return {
+          ...m,
+          executedAction: updatedZoneAction,
+        };
+      }
+      if (m.executedAction.type === 'analyze_workout_drift_and_zones') {
+        return {
+          ...m,
+          executedAction: {
+            ...m.executedAction,
+            proposedZoneAction: updatedZoneAction,
+          },
+        };
+      }
+      return m;
+    });
+    setChatMessages(updatedMessages);
+    saveCoachChatHistory(updatedMessages);
+  };
+
+  const handleSetZoneSelectionPreset = (
+    msgId: string,
+    currentZoneAction: CoachUpdateZonesAction,
+    presetZones: number[]
+  ) => {
+    const updatedZoneAction = updateZoneActionSelection(
+      athleteProfile,
+      currentZoneAction,
+      presetZones
+    );
+    const updatedMessages: CoachChatMessage[] = chatMessages.map((m) => {
+      if (m.id !== msgId || !m.executedAction) return m;
+      if (m.executedAction.type === 'update_training_zones') {
+        return {
+          ...m,
+          executedAction: updatedZoneAction,
+        };
+      }
+      if (m.executedAction.type === 'analyze_workout_drift_and_zones') {
+        return {
+          ...m,
+          executedAction: {
+            ...m.executedAction,
+            proposedZoneAction: updatedZoneAction,
+          },
+        };
+      }
+      return m;
+    });
+    setChatMessages(updatedMessages);
+    saveCoachChatHistory(updatedMessages);
+  };
+
+  const handleAcceptZoneUpdate = (msgId: string, zoneAction: CoachUpdateZonesAction) => {
+    const nextProfile = applyZoneUpdateToProfile(athleteProfile, zoneAction);
+    saveAthleteProfile(nextProfile);
+    onProfileUpdated?.(nextProfile);
+
+    const updatedMessages: CoachChatMessage[] = chatMessages.map((m) => {
+      if (m.id !== msgId || !m.executedAction) return m;
+      if (m.executedAction.type === 'update_training_zones') {
+        return {
+          ...m,
+          executedAction: {
+            ...m.executedAction,
+            status: 'applied' as const,
+          },
+        };
+      }
+      if (m.executedAction.type === 'analyze_workout_drift_and_zones' && m.executedAction.proposedZoneAction) {
+        return {
+          ...m,
+          executedAction: {
+            ...m.executedAction,
+            proposedZoneAction: {
+              ...m.executedAction.proposedZoneAction,
+              status: 'applied' as const,
+            },
+          },
+        };
+      }
+      return m;
+    });
+    setChatMessages(updatedMessages);
+    saveCoachChatHistory(updatedMessages);
+  };
+
+  const handleRejectZoneUpdate = (msgId: string) => {
+    const updatedMessages: CoachChatMessage[] = chatMessages.map((m) => {
+      if (m.id !== msgId || !m.executedAction) return m;
+      if (m.executedAction.type === 'update_training_zones') {
+        return {
+          ...m,
+          executedAction: {
+            ...m.executedAction,
+            status: 'rejected' as const,
+          },
+        };
+      }
+      if (m.executedAction.type === 'analyze_workout_drift_and_zones' && m.executedAction.proposedZoneAction) {
+        return {
+          ...m,
+          executedAction: {
+            ...m.executedAction,
+            proposedZoneAction: {
+              ...m.executedAction.proposedZoneAction,
+              status: 'rejected' as const,
+            },
           },
         };
       }
@@ -2255,6 +2405,14 @@ ${todayWorkout.structure.map((s) => `• [${s.phase}] (${s.duration}): ${s.descr
             <span className="text-xs font-bold text-slate-500">Quick prompts:</span>
             {[
               {
+                label: '🧬 Cardiac Drift & Custom Zone Audit (18.7km + Intervals)',
+                query: 'Analyse workout structure, lap length, pace, cadence, rest interval length, and cardiac drift on my 18.7km long run and interval sessions to calibrate my custom zones.',
+              },
+              {
+                label: '🎯 Raise Z2 Ceiling (+3 bpm from Drift)',
+                query: 'Update my running HR zones: raise Zone 2 upper limit to 138 bpm based on cardiac drift.',
+              },
+              {
                 label: '🏃 Progress Last 2 Thursday Runs',
                 query: 'How should i progress my run workouts from the last 2 thursdays.',
               },
@@ -3060,6 +3218,617 @@ ${todayWorkout.structure.map((s) => `• [${s.phase}] (${s.duration}): ${s.descr
                             <div className={`text-[11px] ${theme === 'light' ? 'text-slate-700' : 'text-zinc-300'}`}>
                               {msg.executedAction.description}
                             </div>
+                          </div>
+                        )}
+
+                        {/* Executed Action Card: Update HR / Power / Pace Zones Skill */}
+                        {msg.executedAction?.type === 'update_training_zones' && (() => {
+                          const za = msg.executedAction as CoachUpdateZonesAction;
+                          const isHrDomain = za.zoneDomain.startsWith('hr_');
+                          const selectedSet = new Set<number>(za.selectedZonesToApply || [2]);
+                          const isLocked = za.status === 'applied' || za.status === 'rejected';
+                          return (
+                            <div className={`p-4 rounded-xl border border-teal-500/40 bg-teal-500/10 text-xs space-y-3 shadow-lg animate-in fade-in duration-200 ${
+                              theme === 'light' ? 'text-slate-800' : 'text-zinc-200'
+                            }`}>
+                              <div className="flex items-center justify-between gap-2 pb-2 border-b border-teal-500/20">
+                                <div className="flex items-center gap-2">
+                                  <span className="p-1.5 rounded-lg bg-teal-500/20 text-teal-400 font-bold">
+                                    <Sliders className="w-4 h-4" />
+                                  </span>
+                                  <div>
+                                    <span className="font-bold text-teal-400">{za.domainLabel}</span>
+                                    <div className={`text-[10px] ${theme === 'light' ? 'text-slate-600' : 'text-zinc-400'}`}>
+                                      {za.confidenceLabel}
+                                    </div>
+                                  </div>
+                                </div>
+                                <span className={`px-2 py-0.5 rounded text-[10px] font-black uppercase border ${
+                                  za.status === 'applied'
+                                    ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40'
+                                    : za.status === 'rejected'
+                                    ? 'bg-rose-500/20 text-rose-300 border-rose-500/40'
+                                    : 'bg-amber-400/20 text-amber-300 border-amber-400/40'
+                                }`}>
+                                  {za.status === 'applied'
+                                    ? '✓ Zones Applied'
+                                    : za.status === 'rejected'
+                                    ? '✕ Rejected'
+                                    : 'Selective Zone Update'}
+                                </span>
+                              </div>
+
+                              <div className={`text-[11px] leading-relaxed ${theme === 'light' ? 'text-slate-700' : 'text-zinc-300'}`}>
+                                <strong>Evidence:</strong> {za.evidenceSummary}
+                              </div>
+                              <div className={`text-[10px] px-2.5 py-1.5 rounded-lg border ${
+                                theme === 'light'
+                                  ? 'bg-amber-50 border-amber-200 text-amber-800'
+                                  : 'bg-amber-500/10 border-amber-500/25 text-amber-200'
+                              }`}>
+                                🛡️ <strong>Guardrail &amp; Selective Confidence:</strong> {za.monthlyGuardrailNote}
+                              </div>
+
+                              {/* Selective Zone Mode Presets (for HR domains) */}
+                              {isHrDomain && !isLocked && (
+                                <div className="flex flex-wrap items-center justify-between gap-2 pt-0.5">
+                                  <span className="text-[10px] font-bold opacity-80">
+                                    Choose Which Zone Upper Bounds to Adjust (Leave Low-Confidence Zones Alone):
+                                  </span>
+                                  <div className="flex flex-wrap items-center gap-1.5">
+                                    <button
+                                      type="button"
+                                      onClick={() => handleSetZoneSelectionPreset(msg.id, za, [2])}
+                                      className={`px-2 py-1 rounded text-[10px] font-bold border cursor-pointer transition-all ${
+                                        selectedSet.size === 1 && selectedSet.has(2)
+                                          ? 'bg-teal-400 text-slate-950 border-teal-300 shadow-xs'
+                                          : 'bg-zinc-900/60 text-zinc-300 border-zinc-700 hover:border-teal-400/50'
+                                      }`}
+                                    >
+                                      ✓ Only Raise Z2 Upper Bound (High Confidence)
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => handleSetZoneSelectionPreset(msg.id, za, [2, 4])}
+                                      className={`px-2 py-1 rounded text-[10px] font-bold border cursor-pointer transition-all ${
+                                        selectedSet.has(2) && selectedSet.has(4) && selectedSet.size === 2
+                                          ? 'bg-teal-400 text-slate-950 border-teal-300 shadow-xs'
+                                          : 'bg-zinc-900/60 text-zinc-300 border-zinc-700 hover:border-teal-400/50'
+                                      }`}
+                                    >
+                                      Adjust Z2 + Optional Z4 Ceiling
+                                    </button>
+                                  </div>
+                                </div>
+                              )}
+
+                              {/* Zone Diff Table with Per-Zone Checkbox, Confidence & Upper-Bound Stepper */}
+                              <div className={`rounded-lg border divide-y text-[11px] overflow-hidden ${
+                                theme === 'light'
+                                  ? 'bg-white border-slate-200 divide-slate-200'
+                                  : 'bg-black/40 border-zinc-800 divide-zinc-800'
+                              }`}>
+                                <div className={`px-3 py-1.5 grid grid-cols-12 font-bold text-[10px] uppercase tracking-wider ${
+                                  theme === 'light' ? 'bg-slate-100 text-slate-600' : 'bg-zinc-900 text-zinc-400'
+                                }`}>
+                                  <span className="col-span-4">Zone &amp; Confidence</span>
+                                  <span className="col-span-2">Current</span>
+                                  <span className="col-span-3">Proposed Range</span>
+                                  <span className="col-span-3 text-right">Upper Bound Action</span>
+                                </div>
+                                {za.zoneDiffs.map((zd) => {
+                                  const isSelected = selectedSet.has(zd.zone);
+                                  const confColor =
+                                    zd.confidence === 'high'
+                                      ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40'
+                                      : zd.confidence === 'medium'
+                                      ? 'bg-amber-400/20 text-amber-300 border-amber-400/40'
+                                      : 'bg-zinc-700/40 text-zinc-400 border-zinc-600/40';
+                                  return (
+                                    <div
+                                      key={zd.zone}
+                                      className={`px-3 py-2 space-y-1 transition-colors ${
+                                        zd.changed
+                                          ? theme === 'light'
+                                            ? 'bg-teal-50/80'
+                                            : 'bg-teal-500/10'
+                                          : ''
+                                      }`}
+                                    >
+                                      <div className="grid grid-cols-12 items-center gap-1">
+                                        <div className="col-span-4 flex items-center gap-2 min-w-0">
+                                          {isHrDomain && zd.zone < 5 && (
+                                            <input
+                                              type="checkbox"
+                                              checked={isSelected}
+                                              disabled={isLocked}
+                                              onChange={() => handleToggleZoneToApply(msg.id, za, zd.zone)}
+                                              className="w-3.5 h-3.5 accent-teal-400 rounded cursor-pointer shrink-0"
+                                              title={`Toggle adjusting Zone ${zd.zone} upper bound vs leaving alone`}
+                                            />
+                                          )}
+                                          <div className="min-w-0">
+                                            <div className="font-bold truncate">
+                                              Z{zd.zone} &middot; {zd.name}
+                                            </div>
+                                            {zd.confidenceLabel && (
+                                              <span className={`inline-block mt-0.5 px-1.5 py-0.2 rounded text-[9px] font-bold border ${confColor}`}>
+                                                {zd.confidenceLabel}
+                                              </span>
+                                            )}
+                                          </div>
+                                        </div>
+                                        <span className="col-span-2 font-mono text-[10px] opacity-75">{zd.beforeRange}</span>
+                                        <div className="col-span-3 flex items-center gap-1.5">
+                                          <span className={`font-mono text-[10px] ${zd.changed ? 'text-teal-400 font-bold' : 'opacity-70'}`}>
+                                            {zd.afterRange}
+                                          </span>
+                                          {isHrDomain && isSelected && !isLocked && zd.zone < 5 && (
+                                            <div className="inline-flex items-center gap-0.5 ml-1">
+                                              <button
+                                                type="button"
+                                                onClick={() => handleToggleZoneToApply(msg.id, za, zd.zone, zd.afterMax - 1)}
+                                                className="px-1.5 py-0.5 rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-200 border border-zinc-700 text-[9px] font-mono cursor-pointer"
+                                                title="Lower upper bound by 1 bpm"
+                                              >
+                                                -1
+                                              </button>
+                                              <button
+                                                type="button"
+                                                onClick={() => handleToggleZoneToApply(msg.id, za, zd.zone, zd.afterMax + 1)}
+                                                className="px-1.5 py-0.5 rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-200 border border-zinc-700 text-[9px] font-mono cursor-pointer"
+                                                title="Raise upper bound by 1 bpm"
+                                              >
+                                                +1
+                                              </button>
+                                            </div>
+                                          )}
+                                        </div>
+                                        <span className={`col-span-3 text-right text-[10px] ${zd.changed ? 'text-amber-400 font-bold' : 'opacity-60'}`}>
+                                          {zd.deltaSummary || (zd.changed ? 'Updated' : 'Leave Alone')}
+                                        </span>
+                                      </div>
+                                      {zd.confidenceReason && (
+                                        <div className="text-[9px] opacity-65 pl-5 leading-snug">
+                                          {zd.confidenceReason}
+                                        </div>
+                                      )}
+                                    </div>
+                                  );
+                                })}
+                              </div>
+
+                              {za.appliedSelectionSummary && (
+                                <div className="text-[10px] font-semibold text-teal-300 flex items-center justify-between">
+                                  <span>📌 Active Selection: {za.appliedSelectionSummary}</span>
+                                </div>
+                              )}
+
+                              {/* Accept / Reject Action Bar */}
+                              <div className="pt-2 border-t border-teal-500/20 flex flex-wrap items-center justify-between gap-2">
+                                {za.status === 'applied' ? (
+                                  <div className="flex items-center gap-2 text-emerald-400 font-bold text-xs">
+                                    <CheckCircle2 className="w-4 h-4" />
+                                    <span>Selected zone bounds saved to Athlete Profile! ({za.appliedSelectionSummary || 'Updated'})</span>
+                                    <button
+                                      type="button"
+                                      onClick={() => onOpenSettings()}
+                                      className="px-2 py-0.5 rounded bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/30 text-[10px] cursor-pointer"
+                                    >
+                                      View Zones in Athlete Tab &rarr;
+                                    </button>
+                                  </div>
+                                ) : za.status === 'rejected' ? (
+                                  <span className="text-[11px] text-rose-400 font-semibold">
+                                    Zone change rejected — keeping all existing zones unchanged.
+                                  </span>
+                                ) : (
+                                  <div className="flex items-center gap-2">
+                                    <button
+                                      type="button"
+                                      onClick={() => handleAcceptZoneUpdate(msg.id, za)}
+                                      disabled={isHrDomain && selectedSet.size === 0}
+                                      className="px-3.5 py-1.5 rounded-lg bg-teal-400 hover:bg-teal-300 disabled:opacity-40 text-slate-950 font-black text-xs transition-all cursor-pointer flex items-center gap-1.5 shadow-sm"
+                                    >
+                                      <Check className="w-3.5 h-3.5 stroke-[2.5]" />
+                                      <span>
+                                        {isHrDomain && selectedSet.size === 1 && selectedSet.has(2)
+                                          ? `Apply Selected Only (Raise Z2 Upper Bound → ${za.zoneDiffs.find((d) => d.zone === 2)?.afterMax ?? 138} bpm)`
+                                          : `Apply Selected Zone Updates (${selectedSet.size} Zone${selectedSet.size === 1 ? '' : 's'})`}
+                                      </span>
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => handleRejectZoneUpdate(msg.id)}
+                                      className={`px-3 py-1.5 rounded-lg border font-bold text-xs transition-colors cursor-pointer ${
+                                        theme === 'light'
+                                          ? 'bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-300'
+                                          : 'bg-zinc-800 hover:bg-zinc-700 text-zinc-300 border-zinc-700'
+                                      }`}
+                                    >
+                                      Leave All Zones Alone
+                                    </button>
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          );
+                        })()}
+
+                        {/* Executed Action Card: Cardiac Drift, Interval Kinetics & Custom Zone Calibration Audit */}
+                        {msg.executedAction?.type === 'analyze_workout_drift_and_zones' && (
+                          <div className={`p-4 rounded-xl border border-cyan-500/40 bg-cyan-500/5 text-xs space-y-3.5 shadow-xl animate-in fade-in duration-200 ${
+                            theme === 'light' ? 'text-slate-800' : 'text-zinc-200'
+                          }`}>
+                            <div className="flex flex-wrap items-center justify-between gap-2 pb-2 border-b border-cyan-500/20">
+                              <div className="flex items-center gap-2">
+                                <span className="p-1.5 rounded-lg bg-cyan-500/20 text-cyan-400 font-bold">
+                                  <Activity className="w-4 h-4" />
+                                </span>
+                                <div>
+                                  <span className="font-bold text-cyan-400">
+                                    Cardiac Drift (GAP:HR), Interval Kinetics &amp; Selective Zone Calibration
+                                  </span>
+                                  <div className={`text-[10px] ${theme === 'light' ? 'text-slate-600' : 'text-zinc-400'}`}>
+                                    Grade Adjusted Pace (GAP) = Stimulus &middot; HR = Response &middot; Cadence &amp; Stream Rest = Controls
+                                  </div>
+                                </div>
+                              </div>
+                              <span className="px-2 py-0.5 rounded text-[10px] font-black uppercase bg-emerald-500/20 text-emerald-300 border border-emerald-500/40">
+                                High Confidence ({msg.executedAction.steadyRunAudits.length} Steady + {msg.executedAction.intervalSessionAudits.length} Interval Runs)
+                              </span>
+                            </div>
+
+                            {/* Key Benchmarks Banner */}
+                            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-[11px]">
+                              <div className={`p-2.5 rounded-lg border ${theme === 'light' ? 'bg-white border-slate-200' : 'bg-black/40 border-zinc-800'}`}>
+                                <span className="text-[10px] opacity-65 block">Z2 Aerobic Ceiling (GAP:HR &lt; 5%)</span>
+                                <span className="font-black text-teal-400 text-xs">
+                                  {msg.executedAction.currentZ2CeilingBpm} &rarr; {msg.executedAction.recommendedZ2CeilingBpm} bpm (+{msg.executedAction.recommendedZ2CeilingBpm - msg.executedAction.currentZ2CeilingBpm} bpm)
+                                </span>
+                                <span className="text-[9px] text-emerald-400 block">High Confidence (5/5 steady runs)</span>
+                              </div>
+                              <div className={`p-2.5 rounded-lg border ${theme === 'light' ? 'bg-white border-slate-200' : 'bg-black/40 border-zinc-800'}`}>
+                                <span className="text-[10px] opacity-65 block">Sustainable LT2 Boundary (GAP)</span>
+                                <span className="font-black text-amber-400 text-xs">
+                                  {msg.executedAction.sustainableThresholdBoundary}
+                                </span>
+                                <span className="text-[9px] opacity-70 block">Moderate Confidence (1 session &ge;9m reps)</span>
+                              </div>
+                              <div className={`p-2.5 rounded-lg border ${theme === 'light' ? 'bg-white border-slate-200' : 'bg-black/40 border-zinc-800'}`}>
+                                <span className="text-[10px] opacity-65 block">99th Pct Smoothed Max HR</span>
+                                <span className="font-black text-rose-400 text-xs">
+                                  {msg.executedAction.p99MaxHrEstimate} bpm (Spikes Filtered)
+                                </span>
+                                <span className="text-[9px] opacity-70 block">Z1, Z3, Z5: Leave Alone</span>
+                              </div>
+                            </div>
+
+                            {/* 1. Steady Runs (>=40 min) Cardiac Drift Table (with Outdoor GAP vs Raw Drift) */}
+                            {msg.executedAction.steadyRunAudits.length > 0 && (
+                              <div className="space-y-1.5">
+                                <div className="font-bold text-[11px] flex flex-wrap items-center justify-between gap-1">
+                                  <span>1. Steady Runs (&ge;40 min, First 10m Dropped) — Grade Adjusted Pace (GAP:HR) Drift Audit:</span>
+                                  <span className="text-[10px] text-emerald-400 font-semibold">
+                                    Outdoor Runs Use Minetti GAP &middot; &lt;5.0% Drift = Aerobic
+                                  </span>
+                                </div>
+                                <div className={`rounded-lg border divide-y text-[10px] overflow-x-auto ${
+                                  theme === 'light' ? 'bg-white border-slate-200 divide-slate-200' : 'bg-black/40 border-zinc-800 divide-zinc-800'
+                                }`}>
+                                  <div className={`px-2.5 py-1.5 grid grid-cols-12 font-bold uppercase tracking-wider ${
+                                    theme === 'light' ? 'bg-slate-100 text-slate-600' : 'bg-zinc-900 text-zinc-400'
+                                  }`}>
+                                    <span className="col-span-3">Date &amp; Run</span>
+                                    <span className="col-span-3">Raw Pace &rarr; GAP Pace</span>
+                                    <span className="col-span-2">1st vs 2nd HR</span>
+                                    <span className="col-span-2">Cadence / Stride</span>
+                                    <span className="col-span-2 text-right">GAP:HR Drift</span>
+                                  </div>
+                                  {msg.executedAction.steadyRunAudits.map((sr, idx) => (
+                                    <div key={idx} className="px-2.5 py-1.5 space-y-0.5">
+                                      <div className="grid grid-cols-12 items-center gap-1">
+                                        <span className="col-span-3 font-semibold truncate">
+                                          {sr.date.slice(5)} &middot; {sr.distanceKm}km ({sr.durationMin}m)
+                                          <span className={`ml-1 px-1 py-0.2 rounded text-[8px] uppercase ${
+                                            sr.isIndoorTreadmill
+                                              ? 'bg-zinc-800 text-zinc-300'
+                                              : 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
+                                          }`}>
+                                            {sr.isIndoorTreadmill ? 'TM' : 'Outdoor GAP'}
+                                          </span>
+                                        </span>
+                                        <span className="col-span-3 font-mono">
+                                          {sr.usesGapForDrift && sr.gapPaceFormatted && sr.gapPaceFormatted !== sr.settledPaceFormatted ? (
+                                            <>
+                                              <span className="opacity-70">{sr.settledPaceFormatted}</span>
+                                              <span className="text-cyan-300 font-bold"> &rarr; {sr.gapPaceFormatted} GAP</span>
+                                              {sr.elevationGainM ? (
+                                                <span className="text-[9px] opacity-65"> (+{sr.elevationGainM}m)</span>
+                                              ) : null}
+                                            </>
+                                          ) : (
+                                            <span>{sr.settledPaceFormatted} (0% Flat)</span>
+                                          )}
+                                        </span>
+                                        <span className="col-span-2 font-mono">
+                                          {sr.avgHrFirstHalf}&rarr;{sr.avgHrSecondHalf} bpm
+                                        </span>
+                                        <span className="col-span-2 font-mono">
+                                          {sr.cadenceSecondHalfSpm} spm / {sr.strideLengthM}m
+                                        </span>
+                                        <div className="col-span-2 text-right font-mono">
+                                          <span className={`font-bold ${
+                                            sr.paHrDecouplingPct < 5.0 ? 'text-emerald-400' : 'text-amber-400'
+                                          }`}>
+                                            +{sr.paHrDecouplingPct.toFixed(1)}% ✓
+                                          </span>
+                                          {sr.usesGapForDrift &&
+                                            sr.rawPaHrDecouplingPct !== undefined &&
+                                            Math.abs(sr.rawPaHrDecouplingPct - sr.paHrDecouplingPct) >= 0.3 && (
+                                              <span className="block text-[8px] opacity-60">
+                                                (raw pace: +{sr.rawPaHrDecouplingPct.toFixed(1)}%)
+                                              </span>
+                                            )}
+                                        </div>
+                                      </div>
+                                      {sr.dataQualityFlag && (
+                                        <div className="text-[9px] opacity-70 italic">
+                                          ↳ {sr.dataQualityFlag}
+                                        </div>
+                                      )}
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+
+                            {/* 2. Interval Sessions Late-Rep HR Plateau, HR Lag & Stream Rest Table */}
+                            {msg.executedAction.intervalSessionAudits.length > 0 && (
+                              <div className="space-y-1.5">
+                                <div className="font-bold text-[11px] flex items-center justify-between">
+                                  <span>2. Interval Sessions — Late-Rep HR Plateau (Last 45s), GAP Pace &amp; Stream Rest Audit:</span>
+                                  <span className="text-[10px] text-amber-400 font-semibold">HR Lags 60–90s</span>
+                                </div>
+                                <div className={`rounded-lg border divide-y text-[10px] ${
+                                  theme === 'light' ? 'bg-white border-slate-200 divide-slate-200' : 'bg-black/40 border-zinc-800 divide-zinc-800'
+                                }`}>
+                                  {msg.executedAction.intervalSessionAudits.map((ia, idx) => (
+                                    <div key={idx} className="p-2.5 space-y-1">
+                                      <div className="flex flex-wrap items-center justify-between gap-1">
+                                        <span className="font-bold text-[11px] text-cyan-300">
+                                          {ia.date} &middot; {ia.formatSummary}
+                                          {ia.gapWorkPace && ia.gapWorkPace !== ia.settledWorkPace && (
+                                            <span className="ml-1.5 px-1.5 py-0.5 rounded bg-cyan-500/20 text-cyan-200 border border-cyan-500/30 text-[9px] font-mono">
+                                              GAP: {ia.gapWorkPace} ({ia.gradientPct ?? 0.5}% incline)
+                                            </span>
+                                          )}
+                                        </span>
+                                        <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold border ${
+                                          ia.isRepLongEnoughForHr
+                                            ? 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30'
+                                            : 'bg-amber-500/15 text-amber-300 border-amber-500/30'
+                                        }`}>
+                                          {ia.isRepLongEnoughForHr ? '✓ Clears 70s HR Lag' : '⚠️ 3m Rep Underreads Avg HR'}
+                                        </span>
+                                      </div>
+                                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5 text-[10px] pt-0.5">
+                                        <div>
+                                          <span className="opacity-65 block">Late-Rep Plateau HR:</span>
+                                          <strong className="font-mono text-amber-300">{ia.lateRepPlateauHrRange}</strong>
+                                          <span className="opacity-60 block text-[9px]">(Whole-rep avg: {ia.wholeRepAvgHr} bpm)</span>
+                                        </div>
+                                        <div>
+                                          <span className="opacity-65 block">Cross-Rep HR Slope:</span>
+                                          <strong className="font-mono">+{ia.hrSlopeBpmPerRep} bpm/rep</strong>
+                                          <span className="opacity-60 block text-[9px]">99th Pct Max: {ia.p99SmoothedMaxHr} bpm</span>
+                                        </div>
+                                        <div>
+                                          <span className="opacity-65 block">Stream vs Plan Rest:</span>
+                                          <strong className="font-mono text-cyan-300">{ia.actualStreamRestSec}s actual</strong>
+                                          <span className="opacity-60 block text-[9px]">(Planned: {ia.plannedRestSec}s | {ia.workToRestRatio})</span>
+                                        </div>
+                                        <div>
+                                          <span className="opacity-65 block">Cadence &amp; Stride:</span>
+                                          <strong className="font-mono">{ia.meanCadenceSpm} spm &middot; {ia.strideLengthM}m</strong>
+                                          <span className="opacity-60 block text-[9px]">Drop: {ia.cadenceDropSpm} spm (No collapse)</span>
+                                        </div>
+                                      </div>
+                                      <div className="text-[10px] opacity-85 pt-0.5 leading-relaxed">
+                                        {ia.sustainabilityVerdict}
+                                      </div>
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+
+                            {/* 3. Embedded Selective Zone Update with Per-Zone Confidence & Checkboxes */}
+                            {msg.executedAction.proposedZoneAction && (() => {
+                              const pza = msg.executedAction.proposedZoneAction!;
+                              const selectedSet = new Set<number>(pza.selectedZonesToApply || [2]);
+                              const isLocked = pza.status === 'applied' || pza.status === 'rejected';
+                              const z2AfterMax = pza.zoneDiffs.find((d) => d.zone === 2)?.afterMax ?? msg.executedAction.recommendedZ2CeilingBpm;
+                              return (
+                                <div className={`p-3 rounded-xl border space-y-2.5 ${
+                                  theme === 'light'
+                                    ? 'bg-teal-50/70 border-teal-300'
+                                    : 'bg-teal-950/30 border-teal-500/40'
+                                }`}>
+                                  <div className="flex flex-wrap items-center justify-between gap-2">
+                                    <div>
+                                      <span className="font-bold text-teal-400 text-xs block">
+                                        🎯 Selective Zone Calibration: Choose Which Zones to Adjust vs Leave Alone
+                                      </span>
+                                      <span className="text-[10px] opacity-80">
+                                        Default selection adjusts <strong>ONLY Zone 2&apos;s upper bound (135 &rarr; 138 bpm)</strong> where confidence is high, leaving Z1, Z3, Z4 &amp; Z5 ceilings untouched.
+                                      </span>
+                                    </div>
+                                    {!isLocked && (
+                                      <div className="flex items-center gap-1.5">
+                                        <button
+                                          type="button"
+                                          onClick={() => handleSetZoneSelectionPreset(msg.id, pza, [2])}
+                                          className={`px-2 py-1 rounded text-[10px] font-bold border cursor-pointer transition-all ${
+                                            selectedSet.size === 1 && selectedSet.has(2)
+                                              ? 'bg-teal-400 text-slate-950 border-teal-300'
+                                              : 'bg-zinc-900/70 text-zinc-300 border-zinc-700 hover:border-teal-400/50'
+                                          }`}
+                                        >
+                                          Only Z2 Upper Bound
+                                        </button>
+                                        <button
+                                          type="button"
+                                          onClick={() => handleSetZoneSelectionPreset(msg.id, pza, [2, 4])}
+                                          className={`px-2 py-1 rounded text-[10px] font-bold border cursor-pointer transition-all ${
+                                            selectedSet.has(2) && selectedSet.has(4) && selectedSet.size === 2
+                                              ? 'bg-teal-400 text-slate-950 border-teal-300'
+                                              : 'bg-zinc-900/70 text-zinc-300 border-zinc-700 hover:border-teal-400/50'
+                                          }`}
+                                        >
+                                          Z2 + Optional Z4
+                                        </button>
+                                      </div>
+                                    )}
+                                  </div>
+
+                                  <div className="grid grid-cols-1 sm:grid-cols-5 gap-1.5 text-[10px]">
+                                    {pza.zoneDiffs.map((zd) => {
+                                      const isSelected = selectedSet.has(zd.zone);
+                                      const badgeStyle =
+                                        zd.confidence === 'high'
+                                          ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40'
+                                          : zd.confidence === 'medium'
+                                          ? 'bg-amber-400/20 text-amber-300 border-amber-400/40'
+                                          : 'bg-zinc-800 text-zinc-400 border-zinc-700';
+                                      return (
+                                        <div
+                                          key={zd.zone}
+                                          className={`p-2 rounded-lg border flex flex-col justify-between gap-1 transition-all ${
+                                            isSelected
+                                              ? 'border-teal-400 bg-teal-500/15 shadow-xs'
+                                              : zd.changed
+                                              ? 'border-cyan-500/40 bg-cyan-500/10'
+                                              : 'border-zinc-800/70 bg-black/25 opacity-80'
+                                          }`}
+                                        >
+                                          <div className="flex items-center justify-between gap-1">
+                                            <label className="flex items-center gap-1.5 font-bold cursor-pointer">
+                                              {zd.zone < 5 && (
+                                                <input
+                                                  type="checkbox"
+                                                  checked={isSelected}
+                                                  disabled={isLocked}
+                                                  onChange={() => handleToggleZoneToApply(msg.id, pza, zd.zone)}
+                                                  className="w-3.5 h-3.5 accent-teal-400 rounded cursor-pointer"
+                                                />
+                                              )}
+                                              <span>Z{zd.zone} {zd.name}</span>
+                                            </label>
+                                          </div>
+
+                                          <span className={`px-1.5 py-0.2 rounded text-[8px] font-bold border w-fit ${badgeStyle}`}>
+                                            {zd.confidence === 'high'
+                                              ? '★ High Confidence'
+                                              : zd.confidence === 'medium'
+                                              ? '◐ Moderate (Optional)'
+                                              : 'Low — Leave Alone'}
+                                          </span>
+
+                                          <div className="pt-0.5">
+                                            <div className="font-mono text-[11px] font-bold text-teal-300">
+                                              {zd.afterRange}
+                                            </div>
+                                            <div className="text-[9px] opacity-70">
+                                              Was: {zd.beforeRange}
+                                            </div>
+                                          </div>
+
+                                          {isSelected && !isLocked && zd.zone < 5 ? (
+                                            <div className="flex items-center justify-between gap-1 pt-1 border-t border-teal-500/20">
+                                              <span className="text-[9px] text-amber-300 font-semibold">Ceiling:</span>
+                                              <div className="flex items-center gap-1">
+                                                <button
+                                                  type="button"
+                                                  onClick={() => handleToggleZoneToApply(msg.id, pza, zd.zone, zd.afterMax - 1)}
+                                                  className="px-1.5 py-0.2 rounded bg-zinc-900 hover:bg-zinc-800 text-zinc-200 border border-zinc-700 text-[9px] font-mono cursor-pointer"
+                                                >
+                                                  -1
+                                                </button>
+                                                <button
+                                                  type="button"
+                                                  onClick={() => handleToggleZoneToApply(msg.id, pza, zd.zone, zd.afterMax + 1)}
+                                                  className="px-1.5 py-0.2 rounded bg-zinc-900 hover:bg-zinc-800 text-zinc-200 border border-zinc-700 text-[9px] font-mono cursor-pointer"
+                                                >
+                                                  +1
+                                                </button>
+                                              </div>
+                                            </div>
+                                          ) : (
+                                            <div className="text-[9px] opacity-65 pt-0.5">
+                                              {zd.deltaSummary}
+                                            </div>
+                                          )}
+                                        </div>
+                                      );
+                                    })}
+                                  </div>
+
+                                  {pza.appliedSelectionSummary && (
+                                    <div className="text-[10px] font-semibold text-teal-300">
+                                      📌 {pza.appliedSelectionSummary}
+                                    </div>
+                                  )}
+
+                                  <div className="pt-1.5 flex flex-wrap items-center justify-between gap-2 border-t border-teal-500/20">
+                                    {pza.status === 'applied' ? (
+                                      <div className="flex items-center gap-2 text-emerald-400 font-bold text-xs">
+                                        <CheckCircle2 className="w-4 h-4" />
+                                        <span>Saved to Athlete Profile: {pza.appliedSelectionSummary}</span>
+                                        <button
+                                          type="button"
+                                          onClick={() => onOpenSettings()}
+                                          className="px-2 py-0.5 rounded bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/30 text-[10px] cursor-pointer"
+                                        >
+                                          View Athlete Zones &rarr;
+                                        </button>
+                                      </div>
+                                    ) : pza.status === 'rejected' ? (
+                                      <span className="text-[11px] text-rose-400 font-semibold">
+                                        Proposed zone adjustment rejected — keeping all zones untouched.
+                                      </span>
+                                    ) : (
+                                      <div className="flex flex-wrap items-center gap-2">
+                                        <button
+                                          type="button"
+                                          onClick={() => handleAcceptZoneUpdate(msg.id, pza)}
+                                          disabled={selectedSet.size === 0}
+                                          className="px-3.5 py-1.5 rounded-lg bg-teal-400 hover:bg-teal-300 disabled:opacity-40 text-slate-950 font-black text-xs transition-all cursor-pointer flex items-center gap-1.5 shadow-sm"
+                                        >
+                                          <Check className="w-3.5 h-3.5 stroke-[2.5]" />
+                                          <span>
+                                            {selectedSet.size === 1 && selectedSet.has(2)
+                                              ? `Apply Only Z2 Upper Bound (${msg.executedAction.currentZ2CeilingBpm} → ${z2AfterMax} bpm)`
+                                              : `Apply Selected Zones (${Array.from(selectedSet).sort().map((z) => `Z${z}`).join(', ')})`}
+                                          </span>
+                                        </button>
+                                        <button
+                                          type="button"
+                                          onClick={() => handleRejectZoneUpdate(msg.id)}
+                                          className={`px-3 py-1.5 rounded-lg border font-bold text-xs transition-colors cursor-pointer ${
+                                            theme === 'light'
+                                              ? 'bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-300'
+                                              : 'bg-zinc-800 hover:bg-zinc-700 text-zinc-300 border-zinc-700'
+                                          }`}
+                                        >
+                                          Leave All Zones Alone
+                                        </button>
+                                      </div>
+                                    )}
+                                  </div>
+                                </div>
+                              );
+                            })()}
                           </div>
                         )}
 

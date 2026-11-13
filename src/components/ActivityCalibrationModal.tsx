@@ -44,6 +44,7 @@ import {
 } from '../types/athlete';
 import {
   generateRunFitFile,
+  generateSwimFitFile,
   downloadRunFitFile,
   uploadRunFitToStrava,
 } from '../utils/runFitGenerator';
@@ -86,7 +87,8 @@ const LapDurationInput: React.FC<{
   timeDiscrepancySec?: number;
   onCommit: (seconds: number) => void;
   isAlternate?: boolean;
-}> = ({ durationSec, isLastAutoExtended, timeDiscrepancySec, onCommit, isAlternate }) => {
+  disabled?: boolean;
+}> = ({ durationSec, isLastAutoExtended, timeDiscrepancySec, onCommit, isAlternate, disabled }) => {
   const [localVal, setLocalVal] = useState(() => formatSecondsToMinSec(durationSec));
   const [isFocused, setIsFocused] = useState(false);
 
@@ -108,7 +110,7 @@ const LapDurationInput: React.FC<{
     } else {
       const num = parseFloat(trimmed);
       if (!isNaN(num) && num > 0) {
-        if (num >= 30 && Number.isInteger(num)) {
+        if (num >= 15 && Number.isInteger(num)) {
           sec = num;
         } else {
           sec = Math.round(num * 60);
@@ -125,6 +127,7 @@ const LapDurationInput: React.FC<{
         type="text"
         inputMode="numeric"
         value={localVal}
+        disabled={disabled}
         onFocus={(e) => {
           setIsFocused(true);
           e.target.select();
@@ -140,7 +143,7 @@ const LapDurationInput: React.FC<{
           }
         }}
         placeholder="m:ss"
-        className={`w-full px-1.5 py-1 rounded-lg font-mono text-xs text-center focus:outline-none transition-colors ${
+        className={`w-full px-1.5 py-1 rounded-lg font-mono text-xs text-center focus:outline-none transition-colors disabled:opacity-40 ${
           isAlternate
             ? 'bg-white border border-sky-300 text-slate-900 focus:border-sky-500 font-semibold'
             : 'bg-slate-950 border border-slate-700/80 text-white focus:border-emerald-400'
@@ -228,6 +231,7 @@ export const ActivityCalibrationModal: React.FC<ActivityCalibrationModalProps> =
 }) => {
   const classification = classifyActivity(activity);
   const existingCalib = detailsRecord?.calibration;
+  const isSwim = classification.category === 'Swim';
 
   // Form State
   const [isIgnored, setIsIgnored] = useState<boolean>(
@@ -283,28 +287,80 @@ export const ActivityCalibrationModal: React.FC<ActivityCalibrationModalProps> =
   );
 
   // Swim Laps
-  const rawLaps = (detailsRecord?.activity?.laps as any[]) || [];
-  const initialLaps: CalibratedSwimLap[] = existingCalib?.calibratedLaps && existingCalib.calibratedLaps.length > 0
-    ? existingCalib.calibratedLaps.map((lap) => ({
+  const detailedSwimLaps = detailsRecord?.activity?.laps;
+  const rawLaps = useMemo(() => {
+    if (Array.isArray(detailedSwimLaps) && detailedSwimLaps.length > 0) {
+      return detailedSwimLaps;
+    }
+    if (Array.isArray(activity.laps) && activity.laps.length > 0) {
+      return activity.laps;
+    }
+    return [];
+  }, [detailedSwimLaps, activity.laps]);
+
+  const mapRawSwimLaps = (lapsArr: any[]): CalibratedSwimLap[] =>
+    lapsArr.map((lap, idx) => {
+      const dist = Math.round(lap.distance || 0);
+      const time = Math.round(lap.moving_time || lap.elapsed_time || 0);
+      const isRest = dist <= 0;
+      const paceSec = dist > 0 && time > 0 ? (time / dist) * 100 : 0;
+      return {
+        lapIndex: idx + 1,
+        distanceM: dist,
+        movingTimeSec: time,
+        pacePer100mFormatted: isRest ? '' : formatSecondsToMinSec(paceSec) + '/100m',
+        isIgnored: false,
+        isRest,
+      };
+    });
+
+  const [swimLaps, setSwimLaps] = useState<CalibratedSwimLap[]>(() => {
+    if (existingCalib?.calibratedLaps && existingCalib.calibratedLaps.length > 0) {
+      return existingCalib.calibratedLaps.map((lap) => ({
         ...lap,
         isRest: Boolean(lap.isRest || lap.distanceM <= 0),
-      }))
-    : rawLaps.map((lap, idx) => {
-        const dist = Math.round(lap.distance || 0);
-        const time = Math.round(lap.moving_time || lap.elapsed_time || 0);
-        const isRest = dist <= 0;
-        const paceSec = dist > 0 && time > 0 ? (time / dist) * 100 : 0;
-        return {
-          lapIndex: idx + 1,
+      }));
+    }
+    if (rawLaps.length > 0) {
+      return mapRawSwimLaps(rawLaps);
+    }
+    if (isSwim && originalDistanceM > 0) {
+      const dist = Math.round(originalDistanceM);
+      const time = Math.round(originalMovingSec || 1200);
+      const paceSec = dist > 0 && time > 0 ? (time / dist) * 100 : 0;
+      return [
+        {
+          lapIndex: 1,
           distanceM: dist,
           movingTimeSec: time,
-          pacePer100mFormatted: isRest ? '' : formatSecondsToMinSec(paceSec) + '/100m',
+          pacePer100mFormatted: formatSecondsToMinSec(paceSec) + '/100m',
           isIgnored: false,
-          isRest,
-        };
-      });
+          isRest: false,
+        },
+      ];
+    }
+    return [];
+  });
 
-  const [swimLaps, setSwimLaps] = useState<CalibratedSwimLap[]>(initialLaps);
+  const swimLapsInitialized = useRef(
+    Boolean(existingCalib?.calibratedLaps?.length || rawLaps.length)
+  );
+
+  useEffect(() => {
+    if (!isSwim || swimLapsInitialized.current) return;
+    if (existingCalib?.calibratedLaps && existingCalib.calibratedLaps.length > 0) {
+      setSwimLaps(
+        existingCalib.calibratedLaps.map((lap) => ({
+          ...lap,
+          isRest: Boolean(lap.isRest || lap.distanceM <= 0),
+        }))
+      );
+      swimLapsInitialized.current = true;
+    } else if (rawLaps.length > 0) {
+      setSwimLaps(mapRawSwimLaps(rawLaps));
+      swimLapsInitialized.current = true;
+    }
+  }, [isSwim, existingCalib?.calibratedLaps, rawLaps]);
 
   // Indoor Run Simulated Laps / Sections
   const isRun = classification.category === 'Run';
@@ -394,15 +450,53 @@ export const ActivityCalibrationModal: React.FC<ActivityCalibrationModalProps> =
     ? Math.max(...runSections.map((s) => s.speedKph || 0))
     : 0;
 
-  // Swim Laps Recalculate
+  // Swim Laps Computed Totals & Handlers
+  const activeSwimLaps = swimLaps.filter((l) => !l.isIgnored && !l.isRest && l.distanceM > 0);
+  const nonIgnoredSwimLaps = swimLaps.filter((l) => !l.isIgnored);
+  const totalSwimDistanceM = activeSwimLaps.reduce((acc, l) => acc + l.distanceM, 0);
+  const totalSwimMovingSec = activeSwimLaps.reduce((acc, l) => acc + l.movingTimeSec, 0);
+  const totalSwimElapsedSec = nonIgnoredSwimLaps.reduce((acc, l) => acc + l.movingTimeSec, 0);
+  const avgSwimPaceSecPer100m =
+    totalSwimDistanceM > 0 ? (totalSwimMovingSec / totalSwimDistanceM) * 100 : 0;
+  const avgSwimPaceFormatted =
+    avgSwimPaceSecPer100m > 0 ? formatSecondsToMinSec(avgSwimPaceSecPer100m) + '/100m' : '-';
+
   const recalculateSwimTotals = (updatedLaps: CalibratedSwimLap[]) => {
     if (classification.category !== 'Swim') return;
-    const activeLaps = updatedLaps.filter((l) => !l.isIgnored && !l.isRest && l.distanceM > 0);
-    const sumDist = activeLaps.reduce((acc, l) => acc + l.distanceM, 0);
-    const sumTime = activeLaps.reduce((acc, l) => acc + l.movingTimeSec, 0);
+    const active = updatedLaps.filter((l) => !l.isIgnored && !l.isRest && l.distanceM > 0);
+    const sumDist = active.reduce((acc, l) => acc + l.distanceM, 0);
+    const sumTime = active.reduce((acc, l) => acc + l.movingTimeSec, 0);
 
     setDistanceInput(sumDist > 0 ? sumDist.toString() : '0');
     setMovingTimeInput(formatSecondsToMinSec(sumTime));
+  };
+
+  const handleAddSwimLap = (isRestLap = false) => {
+    const nextIdx = swimLaps.length + 1;
+    const lastActive = [...swimLaps].reverse().find((l) => !l.isRest && l.distanceM > 0);
+    const defaultDist = isRestLap ? 0 : lastActive?.distanceM || 100;
+    const defaultTime = isRestLap ? 20 : lastActive?.movingTimeSec || 95;
+    const paceSec = !isRestLap && defaultDist > 0 ? (defaultTime / defaultDist) * 100 : 0;
+
+    const newLap: CalibratedSwimLap = {
+      lapIndex: nextIdx,
+      distanceM: defaultDist,
+      movingTimeSec: defaultTime,
+      pacePer100mFormatted: isRestLap ? '' : formatSecondsToMinSec(paceSec) + '/100m',
+      isIgnored: false,
+      isRest: isRestLap,
+    };
+    const updated = [...swimLaps, newLap];
+    setSwimLaps(updated);
+    recalculateSwimTotals(updated);
+  };
+
+  const handleRemoveSwimLap = (index: number) => {
+    const updated = swimLaps
+      .filter((_, i) => i !== index)
+      .map((l, idx) => ({ ...l, lapIndex: idx + 1 }));
+    setSwimLaps(updated);
+    recalculateSwimTotals(updated);
   };
 
   // Work calculation preview for power
@@ -457,7 +551,7 @@ export const ActivityCalibrationModal: React.FC<ActivityCalibrationModalProps> =
     setRunSections(updated);
   };
 
-  // Helper: Build the simulated speed & distance streams and new laps array
+  // Helper: Build the simulated speed & distance streams and new laps array for Run
   const buildSimulatedStreamsAndLaps = () => {
     const rawStreams = detailsRecord?.streams as Record<string, { data?: any[] }> | undefined;
     const originalTimeStream = rawStreams?.time?.data as number[] | undefined;
@@ -542,6 +636,242 @@ export const ActivityCalibrationModal: React.FC<ActivityCalibrationModalProps> =
       newLaps,
       totalDistanceM: totalSimulatedDistanceM > 0 ? totalSimulatedDistanceM : cumDist,
     };
+  };
+
+  // Helper: Build the simulated speed & distance streams and new laps array for Pool Swim
+  const buildSimulatedSwimStreamsAndLaps = () => {
+    const validLaps = swimLaps.filter((l) => !l.isIgnored);
+    const totalElapsed = Math.max(
+      1,
+      validLaps.reduce((acc, l) => acc + Math.max(1, l.movingTimeSec || 0), 0)
+    );
+    const totalMoving = Math.max(
+      1,
+      validLaps
+        .filter((l) => !l.isRest && l.distanceM > 0)
+        .reduce((acc, l) => acc + Math.max(1, l.movingTimeSec || 0), 0)
+    );
+    const totalDist = validLaps
+      .filter((l) => !l.isRest && l.distanceM > 0)
+      .reduce((acc, l) => acc + Math.max(0, l.distanceM || 0), 0);
+
+    // Synthesize 1-second time stream covering the exact total elapsed swim duration
+    const timeStream = Array.from({ length: Math.ceil(totalElapsed) + 1 }, (_, i) => i);
+    const speedStream: number[] = [];
+    const distanceStream: number[] = [];
+    let cumDist = 0;
+
+    const boundaries: { endTime: number; speedMps: number; isRest: boolean; lap: CalibratedSwimLap }[] = [];
+    let currentEnd = 0;
+    validLaps.forEach((lap) => {
+      const durSec = Math.max(1, lap.movingTimeSec || 0);
+      const isRest = Boolean(lap.isRest || lap.distanceM <= 0);
+      const distM = isRest ? 0 : Math.max(0, lap.distanceM || 0);
+      currentEnd += durSec;
+      boundaries.push({
+        endTime: currentEnd,
+        speedMps: !isRest && durSec > 0 ? distM / durSec : 0,
+        isRest,
+        lap,
+      });
+    });
+
+    let maxSpeedMps = 0;
+    for (let i = 0; i < timeStream.length; i++) {
+      const t = timeStream[i];
+      let activeSpeedMps = boundaries.length > 0 ? boundaries[0].speedMps : 0;
+      for (const b of boundaries) {
+        if (t <= b.endTime) {
+          activeSpeedMps = b.speedMps;
+          break;
+        }
+        activeSpeedMps = b.speedMps;
+      }
+
+      if (activeSpeedMps > maxSpeedMps) {
+        maxSpeedMps = activeSpeedMps;
+      }
+
+      if (i > 0) {
+        const dt = Math.max(0, timeStream[i] - timeStream[i - 1]);
+        cumDist += activeSpeedMps * dt;
+      }
+
+      speedStream.push(Number(activeSpeedMps.toFixed(3)));
+      distanceStream.push(Number(cumDist.toFixed(1)));
+    }
+
+    let lapStartSec = 0;
+    const newLaps = validLaps.map((lap, idx) => {
+      const durSec = Math.max(1, lap.movingTimeSec || 0);
+      const isRest = Boolean(lap.isRest || lap.distanceM <= 0);
+      const distM = isRest ? 0 : Math.max(0, lap.distanceM || 0);
+      const lapEndSec = lapStartSec + durSec;
+      const startIdx = timeStream.findIndex((t) => t >= lapStartSec);
+      let endIdx = timeStream.findIndex((t) => t >= lapEndSec);
+      if (endIdx === -1) endIdx = timeStream.length - 1;
+      const spdMps = !isRest && durSec > 0 ? Number((distM / durSec).toFixed(3)) : 0;
+
+      const lapObj = {
+        id: Number(activity.id) * 100 + (idx + 1),
+        resource_state: 2,
+        name: isRest ? `Rest ${idx + 1}` : `Lap ${idx + 1}`,
+        activity: { id: activity.id },
+        athlete: (activity as any).athlete || { id: 0 },
+        elapsed_time: Math.round(durSec),
+        moving_time: Math.round(durSec),
+        start_date: activity.start_date,
+        start_date_local: activity.start_date_local,
+        distance: distM,
+        start_index: Math.max(0, startIdx),
+        end_index: Math.max(startIdx, endIdx),
+        total_elevation_gain: 0,
+        average_speed: spdMps,
+        max_speed: spdMps,
+        lap_index: idx + 1,
+        split: idx + 1,
+      };
+      lapStartSec = lapEndSec;
+      return lapObj;
+    });
+
+    return {
+      timeStream,
+      speedStream,
+      distanceStream,
+      newLaps,
+      totalDistanceM: totalDist > 0 ? totalDist : Math.round(cumDist),
+      totalMovingSec: totalMoving,
+      totalElapsedSec: totalElapsed,
+      maxSpeedMps,
+    };
+  };
+
+  // Download Corrected Swim FIT File
+  const handleDownloadSwimFit = () => {
+    const sim = buildSimulatedSwimStreamsAndLaps();
+    const rawStreams = detailsRecord?.streams as Record<string, { data?: any[] }> | undefined;
+    const hrData = rawStreams?.heartrate?.data as number[] | undefined;
+    const cadenceData = rawStreams?.cadence?.data as number[] | undefined;
+
+    const startTimestampMs = activity.start_date
+      ? new Date(activity.start_date).getTime()
+      : Date.now() - Math.round(sim.totalElapsedSec) * 1000;
+
+    const fitBytes = generateSwimFitFile({
+      activity,
+      workoutName: `${activity.name} (Calibrated Pool Swim)`,
+      startTimestampMs,
+      totalElapsedSec: Math.round(sim.totalElapsedSec),
+      totalMovingSec: Math.round(sim.totalMovingSec),
+      totalDistanceM: Math.round(sim.totalDistanceM),
+      poolLengthM: 25,
+      timeStream: sim.timeStream,
+      speedStream: sim.speedStream,
+      distanceStream: sim.distanceStream,
+      heartrateStream: hrData,
+      cadenceStream: cadenceData,
+      laps: swimLaps,
+    });
+
+    const safeFilename = `${activity.name.replace(/[^a-zA-Z0-9_-]/g, '_')}_calibrated_swim.fit`;
+    downloadRunFitFile(fitBytes, safeFilename);
+  };
+
+  // Upload Corrected Pool Swim to Strava
+  const handleUploadSwimToStrava = async () => {
+    if (!stravaToken) {
+      setStravaUploadError('Strava access token is not available. Please connect or refresh your Strava account in Settings.');
+      return;
+    }
+
+    setIsUploadingToStrava(true);
+    setStravaUploadError(null);
+    setStravaUploadSuccess(null);
+    setUploadStatusMsg('Preparing corrected Pool Swim .FIT workout payload...');
+
+    try {
+      const sim = buildSimulatedSwimStreamsAndLaps();
+      const rawStreams = detailsRecord?.streams as Record<string, { data?: any[] }> | undefined;
+      const hrData = rawStreams?.heartrate?.data as number[] | undefined;
+      const cadenceData = rawStreams?.cadence?.data as number[] | undefined;
+
+      const startTimestampMs = activity.start_date
+        ? new Date(activity.start_date).getTime()
+        : Date.now() - Math.round(sim.totalElapsedSec) * 1000;
+
+      const fitBytes = generateSwimFitFile({
+        activity,
+        workoutName: `${activity.name} (Calibrated Pool Swim)`,
+        startTimestampMs,
+        totalElapsedSec: Math.round(sim.totalElapsedSec),
+        totalMovingSec: Math.round(sim.totalMovingSec),
+        totalDistanceM: Math.round(sim.totalDistanceM),
+        poolLengthM: 25,
+        timeStream: sim.timeStream,
+        speedStream: sim.speedStream,
+        distanceStream: sim.distanceStream,
+        heartrateStream: hrData,
+        cadenceStream: cadenceData,
+        laps: swimLaps,
+      });
+
+      const res = await uploadRunFitToStrava(
+        fitBytes,
+        `${activity.name} (Calibrated Pool Swim)`,
+        stravaToken,
+        `Calibrated pool swim with ${activeSwimLaps.length} active laps (${Math.round(sim.totalDistanceM)}m in ${formatSecondsToMinSec(sim.totalMovingSec)}).`,
+        (status: string) => setUploadStatusMsg(status),
+        'Swim'
+      );
+
+      if (res.success) {
+        if (res.activityId && String(res.activityId) !== String(activity.id)) {
+          const calibrationPayload: ActivityCalibration = {
+            isIgnoredFromTrainingStatus: false,
+            calibratedDistanceM: Math.round(sim.totalDistanceM),
+            calibratedMovingTimeSec: Math.round(sim.totalMovingSec),
+            calibratedMaxHeartRate: maxHrInput ? parseInt(maxHrInput, 10) : undefined,
+            calibratedAvgHeartRate: avgHrInput ? parseInt(avgHrInput, 10) : undefined,
+            calibratedLaps: swimLaps,
+            calibrationNotes:
+              notes.trim() ||
+              `Republished calibrated pool swim to Strava (#${res.activityId}); superseded original activity #${activity.id}.`,
+          };
+
+          const replaced = await replaceRepublishedStravaActivity({
+            oldActivity: activity,
+            newActivityId: res.activityId,
+            calibratedName: `${activity.name} (Calibrated Pool Swim)`,
+            calibratedDistanceM: Math.round(sim.totalDistanceM),
+            calibratedMovingTimeSec: Math.round(sim.totalMovingSec),
+            maxSpeedMps: sim.maxSpeedMps,
+            calibration: calibrationPayload,
+            newLaps: sim.newLaps,
+            simulatedStreams: {
+              timeStream: sim.timeStream,
+              speedStream: sim.speedStream,
+              distanceStream: sim.distanceStream,
+            },
+            existingDetails: detailsRecord,
+          });
+
+          onCalibrationSaved(replaced.newDetailsRecord);
+        }
+
+        setStravaUploadSuccess({
+          uploadId: res.uploadId ?? 'uploaded',
+          activityId: res.activityId,
+        });
+      } else {
+        setStravaUploadError(res.error || 'Failed to upload pool swim workout to Strava');
+      }
+    } catch (err: any) {
+      setStravaUploadError(err.message || 'An error occurred while uploading pool swim to Strava');
+    } finally {
+      setIsUploadingToStrava(false);
+      setUploadStatusMsg('');
+    }
   };
 
   // Download Corrected FIT File
@@ -678,6 +1008,9 @@ export const ActivityCalibrationModal: React.FC<ActivityCalibrationModalProps> =
       if (isRun && runSections.length > 0) {
         finalDistM = totalSimulatedDistanceM;
         finalMovingSec = Math.round(totalSimulatedDurationSec);
+      } else if (isSwim && swimLaps.length > 0) {
+        finalDistM = totalSwimDistanceM;
+        finalMovingSec = Math.round(totalSwimMovingSec);
       }
 
       const calibrationPayload: ActivityCalibration = {
@@ -688,7 +1021,7 @@ export const ActivityCalibrationModal: React.FC<ActivityCalibrationModalProps> =
         calibratedAvgHeartRate: avgHrInput ? parseInt(avgHrInput, 10) : undefined,
         calibratedAvgWatts: isBikeOrTurbo && avgWattsInput ? parseInt(avgWattsInput, 10) : undefined,
         calibratedNormalizedPower: isBikeOrTurbo && npWattsInput ? parseInt(npWattsInput, 10) : undefined,
-        calibratedLaps: classification.category === 'Swim' && swimLaps.length > 0 ? swimLaps : undefined,
+        calibratedLaps: isSwim && swimLaps.length > 0 ? swimLaps : undefined,
         calibratedRunSections: isRun && runSections.length > 0 ? runSections : undefined,
         calibrationNotes: notes.trim() || undefined,
         replacesActivityId:
@@ -700,7 +1033,7 @@ export const ActivityCalibrationModal: React.FC<ActivityCalibrationModalProps> =
       // 1. Save calibration metadata
       let updatedRecord = await saveActivityCalibration(targetActivityId, calibrationPayload);
 
-      // 2. If run sections are defined, rebuild the local streams & overwrite laps so the UI & charts update instantly
+      // 2. If run sections or swim laps are defined, rebuild the local streams & overwrite laps so the UI & charts update instantly
       if (isRun && runSections.length > 0) {
         const sim = buildSimulatedStreamsAndLaps();
         updatedRecord = await updateStravaActivityRecord(targetActivityId, (record) => {
@@ -718,6 +1051,44 @@ export const ActivityCalibrationModal: React.FC<ActivityCalibrationModalProps> =
             streams: {
               ...currentStreams,
               time: currentStreams.time || {
+                data: sim.timeStream,
+                series_type: 'time',
+                original_size: sim.timeStream.length,
+                resolution: 'high',
+              },
+              velocity_smooth: {
+                data: sim.speedStream,
+                series_type: 'distance',
+                original_size: sim.speedStream.length,
+                resolution: 'high',
+              },
+              distance: {
+                data: sim.distanceStream,
+                series_type: 'distance',
+                original_size: sim.distanceStream.length,
+                resolution: 'high',
+              },
+            },
+          };
+        });
+      } else if (isSwim && swimLaps.length > 0) {
+        const sim = buildSimulatedSwimStreamsAndLaps();
+        updatedRecord = await updateStravaActivityRecord(targetActivityId, (record) => {
+          const currentStreams = (record.streams || {}) as Record<string, any>;
+          const currentActivity = (record.activity || {}) as Record<string, any>;
+
+          return {
+            ...record,
+            activity: {
+              ...currentActivity,
+              distance: sim.totalDistanceM,
+              moving_time: Math.round(sim.totalMovingSec),
+              elapsed_time: Math.round(sim.totalElapsedSec),
+              laps: sim.newLaps,
+            },
+            streams: {
+              ...currentStreams,
+              time: {
                 data: sim.timeStream,
                 series_type: 'time',
                 original_size: sim.timeStream.length,
@@ -983,114 +1354,278 @@ export const ActivityCalibrationModal: React.FC<ActivityCalibrationModalProps> =
           )}
 
           {/* Swim Lap Calibration */}
-          {classification.category === 'Swim' && swimLaps.length > 0 && (
-            <div className="p-4 rounded-2xl bg-slate-950/60 border border-slate-800 space-y-3">
-              <div className="flex items-center justify-between">
-                <h4 className="text-xs font-bold text-sky-300 uppercase tracking-wider flex items-center gap-1.5">
-                  <Waves className="w-3.5 h-3.5 text-sky-400" />
-                  <span>Swim Lap Accuracy Calibration ({swimLaps.length} Laps)</span>
-                </h4>
+          {isSwim && (
+            <div className="p-4 rounded-2xl bg-slate-950/70 border border-sky-500/30 space-y-3.5">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 pb-2 border-b border-slate-800/80">
+                <div className="flex items-center gap-2">
+                  <div className="p-1.5 rounded-lg bg-sky-500/15 border border-sky-500/30">
+                    <Waves className="w-4 h-4 text-sky-400" />
+                  </div>
+                  <div>
+                    <h4 className="text-xs font-bold text-sky-300 uppercase tracking-wider">
+                      Pool Swim Lap Calibration ({swimLaps.length} Laps)
+                    </h4>
+                    <p className="text-[11px] text-slate-400 leading-relaxed">
+                      Watches frequently miss flip turns or register pauses incorrectly. Edit individual lap meters, lap time, or re-upload the corrected Pool Swim .FIT workout to Strava.
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-1.5 shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => handleAddSwimLap(false)}
+                    className="px-2.5 py-1.5 rounded-xl bg-sky-500 hover:bg-sky-400 text-slate-950 font-bold text-[11px] cursor-pointer transition-all flex items-center gap-1 shadow-sm"
+                  >
+                    <Plus className="w-3.5 h-3.5 stroke-[3]" />
+                    <span>Add Lap</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleAddSwimLap(true)}
+                    className="px-2.5 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold text-[11px] cursor-pointer transition-all flex items-center gap-1 border border-slate-700"
+                  >
+                    <Plus className="w-3 h-3" />
+                    <span>Rest</span>
+                  </button>
+                </div>
               </div>
-              <p className="text-[11px] text-slate-400 leading-relaxed">
-                Watches frequently miss flip turns or register pauses incorrectly. Edit individual lap meters, moving time, or toggle &ldquo;Ignore&rdquo; to remove inaccurate laps from the overall pace.
-              </p>
 
-              <div className="space-y-2 max-h-56 overflow-y-auto pr-1">
-                {swimLaps.map((lap, index) => {
-                  const isRestLap = Boolean(lap.isRest || lap.distanceM <= 0);
-                  return (
-                    <div
-                      key={lap.lapIndex}
-                      className={`p-2.5 rounded-xl border flex items-center justify-between gap-3 text-xs transition-colors ${
-                        lap.isIgnored || isRestLap
-                          ? 'bg-slate-950/40 border-slate-800/40 opacity-55'
-                          : 'bg-slate-900/80 border-slate-800'
-                      }`}
-                    >
-                      <span className={`font-mono font-bold w-14 shrink-0 ${isRestLap ? 'text-slate-500' : 'text-slate-400'}`}>
-                        {isRestLap ? `Rest ${lap.lapIndex}` : `Lap ${lap.lapIndex}`}
-                      </span>
+              {swimLaps.length > 0 && (
+                <div className="space-y-2 max-h-64 overflow-y-auto pr-1">
+                  {swimLaps.map((lap, index) => {
+                    const isRestLap = Boolean(lap.isRest || lap.distanceM <= 0);
+                    return (
+                      <div
+                        key={`${lap.lapIndex}-${index}`}
+                        className={`p-2.5 rounded-xl border flex items-center justify-between gap-2 sm:gap-3 text-xs transition-colors ${
+                          lap.isIgnored || isRestLap
+                            ? 'bg-slate-950/40 border-slate-800/40 opacity-60'
+                            : 'bg-slate-900/80 border-slate-800'
+                        }`}
+                      >
+                        <span className={`font-mono font-bold w-14 shrink-0 ${isRestLap ? 'text-slate-500' : 'text-slate-300'}`}>
+                          {isRestLap ? `Rest ${lap.lapIndex}` : `Lap ${lap.lapIndex}`}
+                        </span>
 
-                      <div className="flex items-center gap-2">
-                        <input
-                          type="number"
-                          min="0"
-                          step="25"
-                          value={lap.distanceM}
-                          disabled={lap.isIgnored}
-                          onChange={(e) => {
-                            const dist = Math.max(0, parseInt(e.target.value, 10) || 0);
-                            const isRest = dist <= 0;
-                            const updated = swimLaps.map((l, i) => {
-                              if (i !== index) return l;
-                              const paceSec = dist > 0 && l.movingTimeSec > 0 ? (l.movingTimeSec / dist) * 100 : 0;
-                              return {
-                                ...l,
-                                distanceM: dist,
-                                isRest,
-                                pacePer100mFormatted: isRest ? '' : formatSecondsToMinSec(paceSec) + '/100m',
-                              };
-                            });
-                            setSwimLaps(updated);
-                            recalculateSwimTotals(updated);
-                          }}
-                          className="w-16 px-2 py-1 bg-slate-950 border border-slate-700 rounded-lg text-white font-mono text-center disabled:opacity-40"
-                        />
-                        <span className="text-slate-500 text-[10px]">m</span>
+                        <div className="flex items-center gap-1.5">
+                          <input
+                            type="number"
+                            min="0"
+                            step="25"
+                            value={lap.distanceM}
+                            disabled={lap.isIgnored}
+                            onChange={(e) => {
+                              const dist = Math.max(0, parseInt(e.target.value, 10) || 0);
+                              const isRest = dist <= 0;
+                              const updated = swimLaps.map((l, i) => {
+                                if (i !== index) return l;
+                                const paceSec = dist > 0 && l.movingTimeSec > 0 ? (l.movingTimeSec / dist) * 100 : 0;
+                                return {
+                                  ...l,
+                                  distanceM: dist,
+                                  isRest,
+                                  pacePer100mFormatted: isRest ? '' : formatSecondsToMinSec(paceSec) + '/100m',
+                                };
+                              });
+                              setSwimLaps(updated);
+                              recalculateSwimTotals(updated);
+                            }}
+                            className="w-16 px-2 py-1 bg-slate-950 border border-slate-700 rounded-lg text-white font-mono text-center disabled:opacity-40"
+                          />
+                          <span className="text-slate-500 text-[10px]">m</span>
+                        </div>
+
+                        <div className="flex items-center gap-1.5">
+                          <LapDurationInput
+                            durationSec={lap.movingTimeSec}
+                            disabled={lap.isIgnored}
+                            onCommit={(timeSec) => {
+                              const updated = swimLaps.map((l, i) => {
+                                if (i !== index) return l;
+                                const dist = l.distanceM || 0;
+                                const isRest = Boolean(l.isRest || dist <= 0);
+                                const paceSec = !isRest && dist > 0 ? (timeSec / dist) * 100 : 0;
+                                return {
+                                  ...l,
+                                  movingTimeSec: timeSec,
+                                  pacePer100mFormatted: isRest ? '' : formatSecondsToMinSec(paceSec) + '/100m',
+                                };
+                              });
+                              setSwimLaps(updated);
+                              recalculateSwimTotals(updated);
+                            }}
+                          />
+                          <span className="text-slate-500 text-[10px]">time</span>
+                        </div>
+
+                        <span className={`font-mono font-bold text-[11px] min-w-16 text-right ${isRestLap ? 'text-slate-500' : 'text-sky-300'}`}>
+                          {lap.isIgnored ? 'Ignored' : isRestLap ? 'Rest' : lap.pacePer100mFormatted}
+                        </span>
+
+                        <div className="flex items-center gap-1 shrink-0">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const updated = swimLaps.map((l, i) => {
+                                if (i !== index) return l;
+                                return { ...l, isIgnored: !l.isIgnored };
+                              });
+                              setSwimLaps(updated);
+                              recalculateSwimTotals(updated);
+                            }}
+                            className={`px-2 py-1 rounded-lg text-[10px] font-bold cursor-pointer transition-colors ${
+                              lap.isIgnored
+                                ? 'bg-slate-800 text-slate-300 hover:bg-slate-700'
+                                : 'bg-rose-500/10 text-rose-300 hover:bg-rose-500/20 border border-rose-500/30'
+                            }`}
+                          >
+                            {lap.isIgnored ? 'Restore' : 'Ignore'}
+                          </button>
+
+                          {swimLaps.length > 1 && (
+                            <button
+                              type="button"
+                              onClick={() => handleRemoveSwimLap(index)}
+                              className="p-1 rounded text-slate-500 hover:text-rose-400 hover:bg-rose-500/10 cursor-pointer transition-colors"
+                              title={`Remove Lap ${lap.lapIndex}`}
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          )}
+                        </div>
                       </div>
+                    );
+                  })}
+                </div>
+              )}
 
-                      <div className="flex items-center gap-2">
-                        <input
-                          type="text"
-                          value={formatSecondsToMinSec(lap.movingTimeSec)}
-                          disabled={lap.isIgnored}
-                          onChange={(e) => {
-                            const timeSec = parseMinSecToSeconds(e.target.value, 60);
-                            const updated = swimLaps.map((l, i) => {
-                              if (i !== index) return l;
-                              const dist = l.distanceM || 0;
-                              const isRest = Boolean(l.isRest || dist <= 0);
-                              const paceSec = !isRest && dist > 0 ? (timeSec / dist) * 100 : 0;
-                              return {
-                                ...l,
-                                movingTimeSec: timeSec,
-                                pacePer100mFormatted: isRest ? '' : formatSecondsToMinSec(paceSec) + '/100m',
-                              };
-                            });
-                            setSwimLaps(updated);
-                            recalculateSwimTotals(updated);
-                          }}
-                          className="w-16 px-2 py-1 bg-slate-950 border border-slate-700 rounded-lg text-white font-mono text-center disabled:opacity-40"
-                        />
-                        <span className="text-slate-500 text-[10px]">time</span>
-                      </div>
+              {/* Calibrated Pool Swim Result & Strava Re-Upload Card */}
+              {swimLaps.length > 0 && (
+                <div className="p-3.5 rounded-2xl bg-gradient-to-br from-sky-950/40 via-slate-900 to-slate-950 border border-sky-500/30 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[10px] font-black uppercase tracking-wider text-sky-400 flex items-center gap-1.5">
+                      <CheckCircle2 className="w-3.5 h-3.5" />
+                      <span>Calibrated Pool Swim Profile Result</span>
+                    </span>
+                    <span className="text-[10px] font-mono text-slate-400">
+                      {activeSwimLaps.length} active swim {activeSwimLaps.length === 1 ? 'lap' : 'laps'} • 25m pool
+                    </span>
+                  </div>
 
-                      <span className={`font-mono font-bold text-[11px] min-w-16 text-right ${isRestLap ? 'text-slate-500' : 'text-sky-300'}`}>
-                        {lap.isIgnored ? 'Ignored' : isRestLap ? 'Rest' : lap.pacePer100mFormatted}
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+                    <div className="p-2.5 rounded-xl bg-slate-950/80 border border-slate-800">
+                      <span className="text-[10px] text-slate-400 block font-medium">Corrected distance</span>
+                      <span className="text-base sm:text-lg font-black font-mono text-sky-400">
+                        {totalSwimDistanceM} m
                       </span>
+                    </div>
+
+                    <div className="p-2.5 rounded-xl bg-slate-950/80 border border-slate-800">
+                      <span className="text-[10px] text-slate-400 block font-medium">Average pace</span>
+                      <span className="text-base sm:text-lg font-black font-mono text-white">
+                        {avgSwimPaceFormatted}
+                      </span>
+                    </div>
+
+                    <div className="p-2.5 rounded-xl bg-slate-950/80 border border-slate-800">
+                      <span className="text-[10px] text-slate-400 block font-medium">Moving swim time</span>
+                      <span className="text-base sm:text-lg font-black font-mono text-white">
+                        {formatSecondsToMinSec(Math.round(totalSwimMovingSec))}
+                      </span>
+                    </div>
+
+                    <div className="p-2.5 rounded-xl bg-slate-950/80 border border-slate-800">
+                      <span className="text-[10px] text-slate-400 block font-medium">Elapsed (inc. rest)</span>
+                      <span className="text-base sm:text-lg font-black font-mono text-amber-400">
+                        {formatSecondsToMinSec(Math.round(totalSwimElapsedSec))}
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* FIT Actions Bar for Pool Swim */}
+                  <div className="pt-2 border-t border-slate-800/80 flex flex-wrap items-center justify-between gap-2">
+                    <div className="text-[11px] text-slate-400">
+                      Rebuilt pool swim .FIT with calibrated lap distances, moving times &amp; rests.
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={handleDownloadSwimFit}
+                        className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-white font-bold text-xs cursor-pointer transition-all flex items-center gap-1.5 border border-slate-700 shadow-xs"
+                      >
+                        <Download className="w-3.5 h-3.5" />
+                        <span>Download Corrected .FIT</span>
+                      </button>
 
                       <button
                         type="button"
-                        onClick={() => {
-                          const updated = swimLaps.map((l, i) => {
-                            if (i !== index) return l;
-                            return { ...l, isIgnored: !l.isIgnored };
-                          });
-                          setSwimLaps(updated);
-                          recalculateSwimTotals(updated);
-                        }}
-                        className={`px-2 py-1 rounded-lg text-[10px] font-bold cursor-pointer transition-colors ${
-                          lap.isIgnored
-                            ? 'bg-slate-800 text-slate-300 hover:bg-slate-700'
-                            : 'bg-rose-500/10 text-rose-300 hover:bg-rose-500/20 border border-rose-500/30'
-                        }`}
+                        onClick={handleUploadSwimToStrava}
+                        disabled={isUploadingToStrava}
+                        className="px-3.5 py-1.5 rounded-xl bg-orange-600 hover:bg-orange-500 text-white font-black text-xs cursor-pointer transition-all flex items-center gap-1.5 shadow-md shadow-orange-600/20 disabled:opacity-50"
                       >
-                        {lap.isIgnored ? 'Restore' : 'Ignore'}
+                        {isUploadingToStrava ? (
+                          <>
+                            <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                            <span>Uploading to Strava...</span>
+                          </>
+                        ) : (
+                          <>
+                            <Upload className="w-3.5 h-3.5" />
+                            <span>Upload to Strava</span>
+                          </>
+                        )}
                       </button>
                     </div>
-                  );
-                })}
-              </div>
+                  </div>
+
+                  {/* Upload Status / Success / Error feedback */}
+                  {uploadStatusMsg && (
+                    <div className="p-2 rounded-xl bg-slate-950/90 border border-slate-800 text-[11px] text-slate-300 flex items-center gap-2">
+                      <Loader2 className="w-3.5 h-3.5 animate-spin text-orange-400 shrink-0" />
+                      <span>{uploadStatusMsg}</span>
+                    </div>
+                  )}
+
+                  {stravaUploadSuccess && (
+                    <div className="p-2.5 rounded-xl bg-emerald-500/15 border border-emerald-500/30 text-xs text-emerald-200 flex items-center justify-between gap-2">
+                      <div className="flex items-start gap-2">
+                        <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
+                        <div className="space-y-0.5">
+                          <div className="font-bold text-emerald-300">
+                            Successfully republished Pool Swim to Strava!
+                            {stravaUploadSuccess.activityId ? ` (New ID #${stravaUploadSuccess.activityId})` : ''}
+                          </div>
+                          {stravaUploadSuccess.activityId && String(stravaUploadSuccess.activityId) !== String(activity.id) && (
+                            <div className="text-[11px] text-emerald-200/80">
+                              Updated app activity to new Strava ID #{stravaUploadSuccess.activityId} and flagged original activity #{activity.id} as deleted/hidden.
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                      {stravaUploadSuccess.activityId && (
+                        <a
+                          href={`https://www.strava.com/activities/${stravaUploadSuccess.activityId}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="px-2 py-1 rounded-lg bg-emerald-500 text-slate-950 font-black text-[10px] flex items-center gap-1 hover:bg-emerald-400 transition-colors shrink-0"
+                        >
+                          <span>Open on Strava</span>
+                          <ExternalLink className="w-3 h-3" />
+                        </a>
+                      )}
+                    </div>
+                  )}
+
+                  {stravaUploadError && (
+                    <div className="p-2.5 rounded-xl bg-rose-500/15 border border-rose-500/30 text-xs text-rose-300 flex items-center gap-2">
+                      <AlertTriangle className="w-4 h-4 text-rose-400 shrink-0" />
+                      <span>{stravaUploadError}</span>
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           )}
 

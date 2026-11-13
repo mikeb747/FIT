@@ -36,6 +36,10 @@ import {
   analyzeActivityStructureAndLaps,
   getStructuredWorkoutsByDayOfWeek,
 } from './coachWorkoutMatcher';
+import {
+  buildWorkoutDriftAndZoneAnalysis,
+  buildCustomZoneUpdateAction,
+} from './zoneCalibrationEngine';
 
 const isGitHubPages =
   typeof window !== 'undefined' &&
@@ -981,6 +985,112 @@ export async function sendCoachChatMessage(
           ],
           description: recon.description,
         },
+      };
+    }
+
+    // 9. Cardiac Drift, Grade Adjusted Pace (GAP), Interval Kinetics & Selective Zone Calibration Skill
+    const isDriftOrZoneAnalysis =
+      lower.includes('cardiac drift') ||
+      lower.includes('decoupling') ||
+      lower.includes('grade adjusted') ||
+      /\bgap\b/i.test(lower) ||
+      lower.includes('outdoor run') ||
+      lower.includes('low confidence') ||
+      lower.includes('leave alone') ||
+      lower.includes('leaving some zones') ||
+      lower.includes('only the zone 2') ||
+      lower.includes('only zone 2') ||
+      lower.includes('custom zone') ||
+      lower.includes('z2 ceiling') ||
+      lower.includes('zone 2 ceiling') ||
+      lower.includes('zone 2 upper') ||
+      lower.includes('z2 upper') ||
+      lower.includes('hr plateau') ||
+      lower.includes('hr lag') ||
+      lower.includes('rest interval length') ||
+      lower.includes('rest length') ||
+      (lower.includes('18.7') && (lower.includes('drift') || lower.includes('stream') || lower.includes('run'))) ||
+      (lower.includes('24 oct') && (lower.includes('drift') || lower.includes('run'))) ||
+      (lower.includes('4x9') || lower.includes('4 x 9')) ||
+      (lower.includes('cadence') && lower.includes('zone'));
+
+    if (isDriftOrZoneAnalysis) {
+      skills.push('Cardiac Drift & Custom Zone Analyzer', 'HR / Pace / Power Zone Calibrator');
+      const rawActivitiesForEngine = (payload.recentActivities || []).map((a) => ({
+        id: a.id,
+        name: a.name,
+        sport_type: a.sport || 'Run',
+        start_date: a.startDate,
+        start_date_local: a.startDate,
+        distance: a.distanceM || Math.round((a.distanceKm || 0) * 1000),
+        moving_time: a.movingTimeSec || Math.round((a.movingTimeMin || 0) * 60),
+        average_heartrate: a.avgHeartrate,
+        max_heartrate: a.maxHeartrate,
+        average_cadence: a.avgCadence,
+        trainer: a.isIndoor,
+      }));
+      const driftAction = buildWorkoutDriftAndZoneAnalysis(
+        payload.athleteProfile,
+        rawActivitiesForEngine as any,
+        {},
+        q
+      );
+      return {
+        skills,
+        action: driftAction,
+      };
+    }
+
+    // 10. Direct HR / Pace / Power Zone Update Skill
+    const isZoneUpdateCmd =
+      (lower.includes('update') ||
+        lower.includes('change') ||
+        lower.includes('raise') ||
+        lower.includes('lower') ||
+        lower.includes('set') ||
+        lower.includes('adjust')) &&
+      (lower.includes('hr zone') ||
+        lower.includes('heart rate zone') ||
+        lower.includes('power zone') ||
+        lower.includes('pace zone') ||
+        lower.includes('zone 2') ||
+        lower.includes('z2'));
+
+    if (isZoneUpdateCmd) {
+      skills.push('HR / Pace / Power Zone Calibrator');
+      const isPower = lower.includes('power') || lower.includes('watt') || lower.includes('ftp');
+      const isPace = lower.includes('pace');
+      const isTreadmill = lower.includes('treadmill');
+      const isSwim = lower.includes('swim');
+      const isBike = lower.includes('bike') || lower.includes('cycling') || isPower;
+
+      const domain = isPower
+        ? 'power_bike'
+        : isPace
+        ? isSwim
+          ? 'pace_swim'
+          : isTreadmill
+          ? 'pace_run_treadmill'
+          : 'pace_run_outdoor'
+        : isBike
+        ? 'hr_bike'
+        : isSwim
+        ? 'hr_swim'
+        : 'hr_run';
+
+      const bpmMatch = q.match(/(\d{3})\s*bpm/i) || q.match(/(?:to|at)\s*(\d{3})\b/i);
+      const z2MaxHr = bpmMatch ? parseInt(bpmMatch[1], 10) : 138;
+      const ftpMatch = q.match(/(\d{3})\s*w(?:atts)?/i);
+
+      const zoneAction = buildCustomZoneUpdateAction(payload.athleteProfile, {
+        zoneDomain: domain,
+        applyImmediately: false,
+        z2MaxHr: domain.startsWith('hr_') ? z2MaxHr : undefined,
+        bikeFtp: ftpMatch ? parseInt(ftpMatch[1], 10) : undefined,
+      });
+      return {
+        skills,
+        action: zoneAction,
       };
     }
 

@@ -189,13 +189,144 @@ export interface CoachProfileUpdateAction {
   description: string;
 }
 
+export interface ZoneDiffRow {
+  zone: number;
+  name: string;
+  beforeMin: number;
+  beforeMax: number;
+  afterMin: number;
+  afterMax: number;
+  beforeRange: string;
+  afterRange: string;
+  changed: boolean;
+  deltaSummary?: string; // e.g. "+3 bpm ceiling" or "-2s/km faster"
+  confidence: 'high' | 'medium' | 'low';
+  confidenceLabel: string; // e.g. "High (6 Steady Runs <5% Drift)" or "Low (Leave Unchanged)"
+  confidenceReason?: string;
+  recommendedSelect: boolean; // True when evidence is high enough to recommend applying this zone's upper bound
+}
+
+export interface CoachUpdateZonesAction {
+  type: 'update_training_zones';
+  status?: 'proposed' | 'applied' | 'rejected';
+  zoneDomain: 'hr_run' | 'hr_bike' | 'hr_swim' | 'pace_run_outdoor' | 'pace_run_treadmill' | 'pace_swim' | 'power_bike';
+  domainLabel: string; // e.g. "Running Heart Rate Zones (Z1–Z5)"
+  evidenceSummary: string; // e.g. "Based on 6 steady runs (≥40 min, GAP-adjusted) and 4 structured interval workouts"
+  confidenceLabel: string; // e.g. "High Confidence on Z2 Ceiling · Selective Per-Zone Controls Enabled"
+  monthlyGuardrailNote: string; // e.g. "+3 bpm Z2 ceiling adjustment (within ±5 bpm/month cap; never altered on a single run)"
+  selectedZonesToApply?: number[]; // e.g. [2] when raising only Zone 2 upper bound and leaving Z3-Z5 ceilings alone
+  appliedSelectionSummary?: string; // e.g. "Applied Z2 upper bound only (135 -> 138 bpm); left Z1, Z3, Z4, Z5 ceilings untouched"
+  anchorUpdates?: {
+    thresholdHeartRateRun?: number;
+    thresholdHeartRateBike?: number;
+    thresholdHeartRateSwim?: number;
+    maxHeartRate?: number;
+    restingHeartRate?: number;
+    thresholdPaceRunOutdoorSec?: number;
+    thresholdPaceRunTreadmillSec?: number;
+    swimPoolPace100mSec?: number;
+    bikeFtp?: number;
+  };
+  customHrZones?: Record<number, { minHr: number; maxHr: number; rangeFormatted?: string }>;
+  customPaceZones?: Record<number, { minPaceSec: number; maxPaceSec: number; rangeFormatted?: string }>;
+  customPowerZones?: Record<number, { minWatts: number; maxWatts: number; rangeFormatted?: string }>;
+  zoneDiffs: ZoneDiffRow[];
+  description: string;
+}
+
+export interface SteadyRunDriftAuditRow {
+  activityId: string | number;
+  date: string;
+  name: string;
+  durationMin: number;
+  distanceKm: number;
+  settledPaceFormatted: string; // Raw settled pace (excludes first 10 min warmup)
+  gapPaceFormatted: string; // Grade Adjusted Pace (GAP) using Minetti / Strava slope cost model
+  elevationGainM: number;
+  avgGradePct: number;
+  usesGapForDrift: boolean; // True for outdoor undulating runs and inclined treadmill runs
+  avgHrFirstHalf: number;
+  avgHrSecondHalf: number;
+  overallSteadyHr: number;
+  efFirstHalf: number; // GAP Speed (m/min) / HR
+  efSecondHalf: number;
+  rawPaHrDecouplingPct: number; // Unadjusted raw Pace:HR drift
+  paHrDecouplingPct: number; // GAP:HR decoupling (< 5.0% is aerobically coupled)
+  cadenceFirstHalfSpm: number;
+  cadenceSecondHalfSpm: number;
+  strideLengthM: number;
+  isIndoorTreadmill: boolean;
+  dataQualityFlag?: string; // e.g. "Outdoor GAP applied (+112m elev: 5:03/km raw -> 4:56/km GAP)"
+  z2Verdict: 'coupled_below_5pct' | 'borderline_5pct' | 'drifting_above_5pct';
+}
+
+export interface RepDriftTelemetryRow {
+  repIndex: number;
+  durationSec: number;
+  settledWorkPace: string; // Excludes first 20-30s ramp-up
+  gapWorkPace?: string; // Grade Adjusted Pace (e.g. 3:39/km GAP at 0.5% gradient)
+  repStartHr: number;
+  lateRepPlateauHr: number; // Last 30-60s plateau HR
+  actualRestSec: number; // Stream-measured rest vs planned rest
+  plannedRestSec?: number;
+  hrr30Bpm?: number; // HR drop 30s into rest
+  hrr60Bpm?: number; // HR drop 60s into rest
+  cadenceSpm: number;
+  strideLengthM: number;
+}
+
+export interface IntervalSessionAuditRow {
+  activityId: string | number;
+  date: string;
+  name: string;
+  formatSummary: string; // e.g. "4 x 9 min @ 3:42/km (0.5% gradient)"
+  repDurationSec: number;
+  settledWorkPace: string;
+  gapWorkPace?: string; // e.g. "3:39/km GAP (0.5% incline)"
+  gradientPct?: number;
+  wholeRepAvgHr: number; // Shown to contrast how HR lag underreads short reps
+  lateRepPlateauHrRange: string; // e.g. "151 -> 155 bpm (last 45s)"
+  hrSlopeBpmPerRep: number; // e.g. +0.8 bpm/rep (flat/sustainable) vs +1.8 bpm/rep (rising)
+  hrLagSec: number; // 60-90s kinetics lag
+  isRepLongEnoughForHr: boolean; // >= 4 min (240s) reliable; <= 3 min underreads due to lag
+  plannedRestSec: number;
+  actualStreamRestSec: number;
+  workToRestRatio: string;
+  meanCadenceSpm: number;
+  cadenceDropSpm: number; // First rep to last rep
+  strideLengthM: number;
+  p99SmoothedMaxHr: number;
+  rawMaxHrSpike?: number;
+  zoneInformed: 'Z4_Threshold' | 'Z5_VO2max' | 'Z3_Tempo';
+  sustainabilityVerdict: string;
+  repsBreakdown?: RepDriftTelemetryRow[];
+}
+
+export interface CoachDriftAndZoneAnalysisAction {
+  type: 'analyze_workout_drift_and_zones';
+  targetSessionTitle?: string;
+  targetSessionDate?: string;
+  currentZ2CeilingBpm: number;
+  recommendedZ2CeilingBpm: number;
+  z2RuleVerdict: string; // e.g. "Raise Z2 ceiling by +3 bpm (135 -> 138 bpm): 6 steady runs ≥40m show <5% GAP:HR decoupling"
+  sustainableThresholdBoundary: string; // e.g. "3:38–3:42/km (3:39/km GAP) | Plateau HR 151–155 bpm"
+  p99MaxHrEstimate: number;
+  steadyRunAudits: SteadyRunDriftAuditRow[];
+  intervalSessionAudits: IntervalSessionAuditRow[];
+  controlsAndCautions: string[];
+  proposedZoneAction?: CoachUpdateZonesAction;
+  description: string;
+}
+
 export type CoachAction =
   | CoachGoalAction
   | CoachWorkoutCalibrationAction
   | CoachWorkoutCommentAction
   | CoachPrescribeWorkoutAction
   | CoachTrainingEvaluationAction
-  | CoachProfileUpdateAction;
+  | CoachProfileUpdateAction
+  | CoachUpdateZonesAction
+  | CoachDriftAndZoneAnalysisAction;
 
 export interface CoachChatMessage {
   id: string;
