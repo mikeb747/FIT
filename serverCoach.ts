@@ -11,11 +11,12 @@ import {
   buildWorkoutDriftAndZoneAnalysis,
   buildCustomZoneUpdateAction,
 } from './src/utils/zoneCalibrationEngine.ts';
+import { buildEnrichedGoalFromQuery } from './src/utils/racePaceEngine.ts';
 import { DEFAULT_ATHLETE_PROFILE } from './src/types/athlete.ts';
 
 // Initialize Gemini Client safely on the server using the current @google/genai SDK
 const geminiApiKey = process.env.GEMINI_API_KEY || process.env.API_KEY || '';
-const GEMINI_MODEL = 'gemini-4-hydrogen';
+const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-3-flash-preview';
 
 const geminiAi = geminiApiKey
   ? new GoogleGenAI({
@@ -789,9 +790,9 @@ function convertToolCallToCoachAction(
       const op = String(args.operation || 'propose_goal');
       const raceName = String(args.raceName || 'Goal Race').trim();
       const priority = args.priority ? (String(args.priority).toUpperCase() as 'A' | 'B' | 'C') : undefined;
-      const distKm = Number(args.distanceKm) || 16.09;
+      const distKm = args.distanceKm ? Number(args.distanceKm) : undefined;
       const targetTimeSec = args.targetTimeSec ? Number(args.targetTimeSec) : undefined;
-      const eventDate = String(args.eventDate || '2027-03-07');
+      const eventDate = args.eventDate ? String(args.eventDate) : undefined;
       const eventType = (args.eventType as any) || 'run';
 
       if (op === 'delete_goal') {
@@ -842,23 +843,18 @@ function convertToolCallToCoachAction(
         }
       }
 
-      const goalObj: Record<string, any> = {
-        id: `goal-${raceName.toLowerCase().replace(/[^a-z0-9]+/g, '-')}-${eventDate.slice(0, 4)}`,
-        name: raceName,
-        priority: priority || 'B',
+      const enriched = buildEnrichedGoalFromQuery(raceName, priority, athleteProfile, {
         eventType,
-        status: 'upcoming',
-        targetType: targetTimeSec ? 'time' : 'finish',
         eventDate,
-        distancePreset: args.distancePreset || `${distKm} km`,
-        totalDistanceKm: distKm,
-        totalTargetTimeSec: targetTimeSec,
-        runCourseType: args.courseType || 'road',
-        runElevationGainMeters: args.elevationGainM ? Number(args.elevationGainM) : undefined,
-        runTargetPaceSec: targetTimeSec && distKm > 0 ? Math.round(targetTimeSec / distKm) : undefined,
-        location: args.location || '',
-        notes: args.notes || '',
-      };
+        distanceKm: distKm,
+        distancePreset: args.distancePreset ? String(args.distancePreset) : undefined,
+        targetTimeSec,
+        elevationGainM: args.elevationGainM ? Number(args.elevationGainM) : undefined,
+        courseType: args.courseType as any,
+        location: args.location ? String(args.location) : undefined,
+        notes: args.notes ? String(args.notes) : undefined,
+        todayDate: curDate,
+      });
 
       if (op === 'propose_goal' || !priority) {
         return {
@@ -866,15 +862,18 @@ function convertToolCallToCoachAction(
           action: {
             type: 'propose_goal',
             status: 'pending_priority',
-            goal: goalObj,
+            goal: enriched.goal,
             missingFields: ['priority'],
             suggestedPriorities: ['A', 'B', 'C'],
+            paceSuggestions: enriched.prioritySuggestions,
+            recommendedPaceSuggestion: enriched.recommendedSuggestion,
             searchResult: {
-              eventName: raceName,
-              foundDate: eventDate,
-              sourceTitle: `${raceName} (${eventDate})`,
+              eventName: enriched.resolvedMeta.name,
+              foundDate: enriched.resolvedMeta.eventDate,
+              sourceTitle: enriched.resolvedMeta.sourceTitle || `${enriched.resolvedMeta.name} (${enriched.resolvedMeta.eventDate})`,
+              sourceUri: enriched.resolvedMeta.sourceUri,
             },
-            description: `Found ${raceName} on ${eventDate} (${distKm} km). Select Priority A, B, or C to save to your Goals.`,
+            description: `Found ${enriched.resolvedMeta.name} on ${enriched.resolvedMeta.eventDate} (${enriched.resolvedMeta.distancePreset}, +${enriched.resolvedMeta.runElevationGainMeters}m elev). Select Priority A, B, or C to save to your Goals.`,
           },
         };
       }
@@ -884,8 +883,10 @@ function convertToolCallToCoachAction(
         action: {
           type: 'add_goal',
           status: 'confirmed',
-          goal: goalObj,
-          description: `Added "${raceName}" (${eventDate}) as a Priority ${priority} Goal.`,
+          goal: enriched.goal,
+          paceSuggestions: enriched.prioritySuggestions,
+          recommendedPaceSuggestion: enriched.recommendedSuggestion,
+          description: `Added "${enriched.resolvedMeta.name}" (${enriched.resolvedMeta.eventDate}, ${enriched.resolvedMeta.distancePreset}, +${enriched.resolvedMeta.runElevationGainMeters}m elev) as a Priority ${priority} Goal with suggested target ${enriched.recommendedSuggestion.targetTimeFormatted} (${enriched.recommendedSuggestion.targetPaceKmFormatted}).`,
         },
       };
     }
@@ -1273,7 +1274,14 @@ CRITICAL ANTI-SCRIPTING & CONVERSATIONAL RULES:
    - When the user asks about "the last 2 Thursdays" (or any multi-day comparison), compare the PRIMARY STRUCTURED WORKOUTS from the two distinct Thursdays (e.g. Thursday Nov 12 "8 x 1km @ 3:32/km 70s rest" vs Thursday Nov 5 "8 x 3min treadmill 17kph 3:32/km 70sec rest"). Ignore or briefly set aside easy secondary sessions done on the same day (such as the "Cooldown" 6.05 km run on Nov 12 or the "Recovery" 5.26 km run on Nov 5).
 
 3. USE YOUR COACHING SKILLS (TOOLS) PROACTIVELY:
-   - Skill 1 (Search Online & Add Goal Races): When the athlete asks to add a race (e.g., "Can you add Seven Sins to my Goals", "Add Chippenham 10 mile", etc.), use Google Search to find the real race details (e.g., Seven Sins Trail Run in the Forest of Dean, Gloucestershire — 7 miles / 11.3 km with 7 steep hills in late December) AND invoke \`manage_goal_race\`.
+   - Skill 1 (Search Online & Add Goal Races — Standard Presets & Priority-Aware Target Pace): When the athlete asks to add a race (e.g., "add Boddington 10 mile to my goals as a B race", "Can you add Seven Sins to my Goals", "Add Chippenham 10 mile", etc.), use Google Search to find the real race details (official date, venue/location, elevation gain in meters, and road/trail terrain) AND invoke \`manage_goal_race\`:
+     * ALWAYS use standard distance presets: \`"10 Mile"\` (16.093 km) for 10-mile races (NEVER \`"Custom"\`), \`"5km"\`, \`"10km"\`, \`"Half Marathon"\`, \`"Marathon"\`, \`"Sprint"\`, \`"Olympic"\`, \`"70.3"\`, or \`"IRONMAN"\`.
+     * For **Boddington 10 Mile**: Date is **2027-01-31** (Sunday, 31 January 2027), distancePreset is \`"10 Mile"\` (16.093 km), elevationGainM is \`35\` (~35m across 4 pan-flat rural laps), courseType is \`"road"\`, location is \`"The Gloucester Old Spot, Boddington / Piffs Elm, Cheltenham, Gloucestershire, UK"\`.
+     * Always suggest an **achievable race pace & target time calibrated to the Race Priority (A, B, or C)** and the athlete's thresholds (Outdoor Run LTP ${outdoorPace}, Run LTHR ${lthr} bpm, and recent 8x1km @ 3:32/km & 4x9min @ 3:42/km interval fitness):
+       - **Priority A (Peak Tapered Effort)**: Full 7–10 day taper breakthrough pace (e.g., ~59:30 / 3:42/km for a flat 10-mile road race).
+       - **Priority B (Supported Tune-Up / Prep Race)**: Strong controlled threshold effort on a 2–3 day mini-taper (e.g., ~1:00:30 / 3:45/km or 59:55 / 3:43/km for a flat 10-mile road race).
+       - **Priority C (Training / Progression Run)**: Controlled high-Zone 3 / marathon-to-tempo effort run through normal weekly volume (e.g., ~1:03:00 / 3:55/km).
+     * Point out that the athlete can click any of the **Suggested Target Pace** options on the interactive Goal Card above (or enter a custom time) to adjust their target!
    - Skill 2 (Deduce Workout Type & Calibrate Laps): Use the lap/interval breakdown provided in the activity log to identify whether a session was VO2max/Threshold Intervals, Tempo, Long Endurance, or Easy/Cooldown. If the athlete asks to fix/recalibrate treadmill speeds or laps, invoke \`analyze_or_recalibrate_workout_laps\`.
    - Skill 3 (Add Comments or Descriptions to Workouts): When the athlete asks to add a comment, note, description, or RPE to a workout, invoke \`update_workout_comment_or_metadata\`.
    - Skill 4 (Plan / Prescribe Upcoming Workouts): When the athlete asks what workout to do next, how to progress a workout (including progressing their Thursday runs), or to plan an upcoming session, invoke \`prescribe_upcoming_workout\` so an interactive workout prescription card is rendered in chat.
@@ -1334,20 +1342,33 @@ ${activitiesLog}`;
         parts: [{ text: String(question) }],
       });
 
-      const response = await geminiAi.models.generateContent({
-        model: GEMINI_MODEL,
-        contents,
-        config: {
-          systemInstruction,
-          tools: [
-            { googleSearch: {} },
-            { functionDeclarations: COACH_FUNCTION_DECLARATIONS },
-          ],
-          toolConfig: {
-            includeServerSideToolInvocations: true,
-          } as any,
-        },
-      });
+      let response: any;
+      try {
+        response = await geminiAi.models.generateContent({
+          model: GEMINI_MODEL,
+          contents,
+          config: {
+            systemInstruction,
+            tools: [
+              { googleSearch: {} },
+              { functionDeclarations: COACH_FUNCTION_DECLARATIONS },
+            ],
+            toolConfig: {
+              includeServerSideToolInvocations: true,
+            } as any,
+          },
+        });
+      } catch {
+        // Fallback if endpoint does not support combining googleSearch + functionDeclarations in a single request
+        response = await geminiAi.models.generateContent({
+          model: GEMINI_MODEL,
+          contents,
+          config: {
+            systemInstruction,
+            tools: [{ functionDeclarations: COACH_FUNCTION_DECLARATIONS }],
+          },
+        });
+      }
 
       const executedActions: any[] = [];
       const skillsUsed: string[] = [];

@@ -71,6 +71,7 @@ export interface PeriodizedPlan {
 }
 
 import type { TrainingGoal } from './goals';
+import type { PriorityPaceSuggestion } from '../utils/racePaceEngine';
 
 export interface CoachGoalAction {
   type: 'add_goal' | 'update_goal' | 'delete_goal' | 'propose_goal' | 'update_benchmark';
@@ -81,6 +82,8 @@ export interface CoachGoalAction {
   updates?: Partial<TrainingGoal>;
   missingFields?: string[];
   suggestedPriorities?: ('A' | 'B' | 'C')[];
+  paceSuggestions?: PriorityPaceSuggestion[];
+  recommendedPaceSuggestion?: PriorityPaceSuggestion;
   searchResult?: {
     eventName?: string;
     foundDate?: string;

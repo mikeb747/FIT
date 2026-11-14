@@ -77,6 +77,14 @@ import {
   requestWorkoutReviews,
 } from '../utils/coachApi';
 
+import {
+  computePriorityAwareRacePacing,
+  formatFinishTimeHms,
+  formatPaceMinSecPerKm,
+  formatPaceMinSecPerMile,
+  type PriorityPaceSuggestion,
+} from '../utils/racePaceEngine';
+
 function formatPaceSec(seconds?: number): string {
   if (!seconds || seconds <= 0 || !isFinite(seconds)) return '';
   const mins = Math.floor(seconds / 60);
@@ -660,6 +668,26 @@ export const CoachTab: React.FC<CoachTabProps> = ({
     if (!action.goal) return;
     const rawGoal = action.goal;
     const goalName = rawGoal.name || 'Chippenham Spring 10 Mile';
+    const distKm = rawGoal.totalDistanceKm ?? 16.093;
+    const elevM = rawGoal.runElevationGainMeters ?? 35;
+
+    // Pick the suggested pace corresponding to the selected priority (A, B, or C)
+    const computedPacing = computePriorityAwareRacePacing(
+      athleteProfile,
+      distKm,
+      elevM,
+      rawGoal.runCourseType || 'road',
+      rawGoal.eventDate
+    );
+    const matchingSug =
+      action.paceSuggestions?.find((s) => s.priority === selectedPriority) ||
+      computedPacing.byPriority[selectedPriority];
+
+    const targetTimeSec = matchingSug?.targetTimeSec ?? rawGoal.totalTargetTimeSec ?? 3600;
+    const targetPaceSec =
+      matchingSug?.targetPaceSecPerKm ||
+      rawGoal.runTargetPaceSec ||
+      (distKm > 0 ? Math.round(targetTimeSec / distKm) : undefined);
 
     const completeGoal: TrainingGoal = {
       id: rawGoal.id || `goal_${Date.now()}`,
@@ -667,29 +695,31 @@ export const CoachTab: React.FC<CoachTabProps> = ({
       priority: selectedPriority,
       eventType: rawGoal.eventType || 'run',
       status: rawGoal.status || 'upcoming',
-      targetType: rawGoal.targetType || (rawGoal.totalTargetTimeSec ? 'time' : 'finish'),
+      targetType: 'time',
       eventDate: rawGoal.eventDate || '2027-03-07',
       distancePreset: rawGoal.distancePreset || '10 Mile',
-      totalDistanceKm: rawGoal.totalDistanceKm ?? 16.093,
-      totalTargetTimeSec: rawGoal.totalTargetTimeSec ?? 3600,
+      totalDistanceKm: distKm,
+      totalTargetTimeSec: targetTimeSec,
       runCourseType: rawGoal.runCourseType || 'road',
-      runElevationGainMeters: rawGoal.runElevationGainMeters || 45,
-      runTargetPaceSec:
-        rawGoal.runTargetPaceSec ||
-        (rawGoal.totalTargetTimeSec && rawGoal.totalDistanceKm
-          ? Math.round(rawGoal.totalTargetTimeSec / rawGoal.totalDistanceKm)
-          : undefined),
-      location: rawGoal.location || 'Chippenham, Wiltshire, UK',
-      notes: rawGoal.notes || `Target: sub-1 hour (5:59/mile or 3:43/km threshold pace). Priority ${selectedPriority}-Race.`,
+      runElevationGainMeters: elevM,
+      runTargetPaceSec: targetPaceSec,
+      location: rawGoal.location || 'Gloucestershire / South West UK',
+      notes:
+        rawGoal.notes ||
+        `Target: ${formatFinishTimeHms(targetTimeSec)} (${formatPaceMinSecPerKm(targetPaceSec || 225)} · ${formatPaceMinSecPerMile(targetPaceSec || 225)}). Priority ${selectedPriority}-Race.`,
       milestones: rawGoal.milestones || [],
       createdAt: new Date().toISOString(),
     };
 
-    const updatedGoals = [...athleteGoals.filter((g) => g.id !== completeGoal.id && g.name.toLowerCase() !== completeGoal.name.toLowerCase()), completeGoal];
+    const updatedGoals = [
+      ...athleteGoals.filter(
+        (g) => g.id !== completeGoal.id && g.name.toLowerCase() !== completeGoal.name.toLowerCase()
+      ),
+      completeGoal,
+    ];
     saveAthleteGoals(updatedGoals);
     onGoalsUpdated?.(updatedGoals);
 
-    // Update message action state to confirmed
     const updatedMessages = chatMessages.map((m) => {
       if (m.id === msgId && m.executedAction) {
         return {
@@ -699,7 +729,69 @@ export const CoachTab: React.FC<CoachTabProps> = ({
             type: 'add_goal' as const,
             status: 'confirmed' as const,
             goal: completeGoal,
-            description: `${completeGoal.name} confirmed as Priority ${selectedPriority} Goal for ${completeGoal.eventDate}.`,
+            paceSuggestions: action.paceSuggestions || [
+              computedPacing.byPriority.A,
+              computedPacing.byPriority.B,
+              computedPacing.byPriority.C,
+            ],
+            recommendedPaceSuggestion: matchingSug,
+            description: `${completeGoal.name} confirmed as Priority ${selectedPriority} Goal for ${completeGoal.eventDate} with target ${formatFinishTimeHms(targetTimeSec)} (${formatPaceMinSecPerKm(targetPaceSec || 225)}).`,
+          },
+        };
+      }
+      return m;
+    });
+
+    setChatMessages(updatedMessages);
+    saveCoachChatHistory(updatedMessages);
+  };
+
+  const handleSelectGoalTargetPace = (
+    msgId: string,
+    action: CoachGoalAction,
+    targetTimeSec: number,
+    newPriority?: 'A' | 'B' | 'C'
+  ) => {
+    if (!action.goal) return;
+    const rawGoal = action.goal;
+    const distKm = rawGoal.totalDistanceKm || 16.093;
+    const paceSec = Math.round(targetTimeSec / distKm);
+    const updatedPriority = newPriority || (rawGoal.priority as 'A' | 'B' | 'C') || 'B';
+
+    const updatedGoal: Partial<TrainingGoal> = {
+      ...rawGoal,
+      priority: updatedPriority,
+      targetType: 'time',
+      totalTargetTimeSec: targetTimeSec,
+      runTargetPaceSec: paceSec,
+    };
+
+    // Update in athleteGoals if already saved
+    const matchIdx = athleteGoals.findIndex(
+      (g) =>
+        (rawGoal.id && g.id === rawGoal.id) ||
+        (rawGoal.name && g.name.toLowerCase() === rawGoal.name.toLowerCase())
+    );
+    if (matchIdx >= 0) {
+      const nextGoals = [...athleteGoals];
+      nextGoals[matchIdx] = {
+        ...nextGoals[matchIdx],
+        priority: updatedPriority,
+        targetType: 'time',
+        totalTargetTimeSec: targetTimeSec,
+        runTargetPaceSec: paceSec,
+      };
+      saveAthleteGoals(nextGoals);
+      onGoalsUpdated?.(nextGoals);
+    }
+
+    const updatedMessages = chatMessages.map((m) => {
+      if (m.id === msgId && m.executedAction && (m.executedAction.type === 'add_goal' || m.executedAction.type === 'propose_goal')) {
+        return {
+          ...m,
+          executedAction: {
+            ...m.executedAction,
+            goal: updatedGoal,
           },
         };
       }
@@ -2545,7 +2637,7 @@ ${todayWorkout.structure.map((s) => `• [${s.phase}] (${s.duration}): ${s.descr
                                 </span>
                                 <div>
                                   <span className="font-bold text-amber-300">Goal Race Found via Web Search</span>
-                                  <div className={`text-[10px] ${theme === 'light' ? 'text-slate-600' : 'text-zinc-400'}`}>Action Required: Select Race Priority</div>
+                                  <div className={`text-[10px] ${theme === 'light' ? 'text-slate-600' : 'text-zinc-400'}`}>Action Required: Select Race Priority &amp; Target Pace</div>
                                 </div>
                               </div>
                               <span className="px-2 py-0.5 rounded text-[10px] font-black uppercase tracking-wider bg-amber-400/20 text-amber-300 border border-amber-400/40 animate-pulse">
@@ -2560,15 +2652,26 @@ ${todayWorkout.structure.map((s) => `• [${s.phase}] (${s.duration}): ${s.descr
                               <div className={`text-[11px] mt-1.5 flex flex-wrap gap-x-4 gap-y-1 ${theme === 'light' ? 'text-slate-700' : 'text-zinc-300'}`}>
                                 <span className="flex items-center gap-1 text-emerald-400 font-semibold">
                                   <Calendar className="w-3.5 h-3.5" />
-                                  {msg.executedAction.goal.eventDate || 'March 2027'}
+                                  {msg.executedAction.goal.eventDate || '2027-01-31'}
                                 </span>
-                                <span className={`flex items-center gap-1 ${theme === 'light' ? 'text-slate-700' : 'text-zinc-300'}`}>
+                                <span className={`flex items-center gap-1 font-semibold ${theme === 'light' ? 'text-slate-700' : 'text-zinc-200'}`}>
                                   <Clock className={`w-3.5 h-3.5 ${theme === 'light' ? 'text-slate-500' : 'text-zinc-400'}`} />
-                                  {msg.executedAction.goal.distancePreset || `${msg.executedAction.goal.totalDistanceKm} km`}
+                                  {msg.executedAction.goal.distancePreset && msg.executedAction.goal.distancePreset !== 'Custom'
+                                    ? `${msg.executedAction.goal.distancePreset} (${msg.executedAction.goal.totalDistanceKm} km)`
+                                    : `${msg.executedAction.goal.totalDistanceKm} km`}
                                 </span>
+                                {msg.executedAction.goal.runElevationGainMeters !== undefined && (
+                                  <span className="flex items-center gap-1 text-sky-400 font-semibold">
+                                    <TrendingUp className="w-3.5 h-3.5" />
+                                    +{msg.executedAction.goal.runElevationGainMeters}m elev ({msg.executedAction.goal.runCourseType || 'road'})
+                                  </span>
+                                )}
                                 <span className="flex items-center gap-1 text-amber-400 font-bold">
                                   <Flame className="w-3.5 h-3.5 text-orange-400" />
-                                  Target: {msg.executedAction.goal.totalTargetTimeSec ? `${Math.floor(msg.executedAction.goal.totalTargetTimeSec / 3600)}h ${Math.floor((msg.executedAction.goal.totalTargetTimeSec % 3600) / 60).toString().padStart(2, '0')}m (${formatPaceSec(msg.executedAction.goal.runTargetPaceSec)})` : 'Finish'}
+                                  Suggested Target:{' '}
+                                  {msg.executedAction.goal.totalTargetTimeSec
+                                    ? `${formatFinishTimeHms(msg.executedAction.goal.totalTargetTimeSec)} (${formatPaceMinSecPerKm(msg.executedAction.goal.runTargetPaceSec || Math.round(msg.executedAction.goal.totalTargetTimeSec / (msg.executedAction.goal.totalDistanceKm || 16.093)))} · ${formatPaceMinSecPerMile(msg.executedAction.goal.runTargetPaceSec || Math.round(msg.executedAction.goal.totalTargetTimeSec / (msg.executedAction.goal.totalDistanceKm || 16.093)))})`
+                                    : 'Finish'}
                                 </span>
                               </div>
                               {msg.executedAction.goal.location && (
@@ -2579,98 +2682,247 @@ ${todayWorkout.structure.map((s) => `• [${s.phase}] (${s.duration}): ${s.descr
                               )}
                             </div>
 
-                            {/* Priority Selection Buttons */}
+                            {/* Priority Selection Buttons with Priority-Calibrated Suggested Target Pace */}
                             <div className="pt-2 border-t border-amber-500/20 space-y-1.5">
                               <span className={`text-[11px] font-bold block ${theme === 'light' ? 'text-slate-700' : 'text-zinc-300'}`}>
-                                What priority would you like to set for this race?
+                                Choose Race Priority (automatically sets achievable target pace for that priority):
                               </span>
-                              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-                                <button
-                                  type="button"
-                                  onClick={() => handleConfirmGoalProposal(msg.id, msg.executedAction as CoachGoalAction, 'A')}
-                                  className="px-3 py-2 rounded-lg bg-emerald-500/20 hover:bg-emerald-500 text-emerald-300 hover:text-slate-950 border border-emerald-500/40 text-left font-bold transition-all cursor-pointer flex flex-col group"
-                                >
-                                  <span className="text-xs flex items-center gap-1 font-extrabold">
-                                    ★ Priority A-Race
-                                  </span>
-                                  <span className="text-[10px] opacity-75 group-hover:opacity-95 font-normal">
-                                    Primary Peak Goal
-                                  </span>
-                                </button>
+                              {(() => {
+                                const ga = msg.executedAction as CoachGoalAction;
+                                const fallbackPacing = computePriorityAwareRacePacing(
+                                  athleteProfile,
+                                  ga.goal?.totalDistanceKm || 16.093,
+                                  ga.goal?.runElevationGainMeters ?? 35,
+                                  ga.goal?.runCourseType || 'road',
+                                  ga.goal?.eventDate
+                                );
+                                const sugA = ga.paceSuggestions?.find((s) => s.priority === 'A') || fallbackPacing.byPriority.A;
+                                const sugB = ga.paceSuggestions?.find((s) => s.priority === 'B') || fallbackPacing.byPriority.B;
+                                const sugC = ga.paceSuggestions?.find((s) => s.priority === 'C') || fallbackPacing.byPriority.C;
 
-                                <button
-                                  type="button"
-                                  onClick={() => handleConfirmGoalProposal(msg.id, msg.executedAction as CoachGoalAction, 'B')}
-                                  className="px-3 py-2 rounded-lg bg-indigo-500/20 hover:bg-indigo-500 text-indigo-300 hover:text-white border border-indigo-500/40 text-left font-bold transition-all cursor-pointer flex flex-col group"
-                                >
-                                  <span className="text-xs flex items-center gap-1 font-extrabold">
-                                    ✦ Priority B-Race
-                                  </span>
-                                  <span className="text-[10px] opacity-75 group-hover:opacity-95 font-normal">
-                                    Major Tune-Up
-                                  </span>
-                                </button>
+                                return (
+                                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                                    <button
+                                      type="button"
+                                      onClick={() => handleConfirmGoalProposal(msg.id, ga, 'A')}
+                                      className="px-3 py-2 rounded-lg bg-emerald-500/20 hover:bg-emerald-500 text-emerald-300 hover:text-slate-950 border border-emerald-500/40 text-left font-bold transition-all cursor-pointer flex flex-col group"
+                                    >
+                                      <span className="text-xs flex items-center justify-between gap-1 font-extrabold">
+                                        <span>★ Priority A-Race</span>
+                                        <span className="font-mono">{sugA.targetTimeFormatted}</span>
+                                      </span>
+                                      <span className="text-[10px] opacity-85 group-hover:opacity-95 font-semibold mt-0.5">
+                                        {sugA.targetPaceKmFormatted} ({sugA.targetPaceMileFormatted})
+                                      </span>
+                                      <span className="text-[9px] opacity-70 group-hover:opacity-90 font-normal">
+                                        Peak Taper · {sugA.targetHrRange}
+                                      </span>
+                                    </button>
 
-                                <button
-                                  type="button"
-                                  onClick={() => handleConfirmGoalProposal(msg.id, msg.executedAction as CoachGoalAction, 'C')}
-                                  className={`px-3 py-2 rounded-lg border text-left font-bold transition-all cursor-pointer flex flex-col group ${
-                                    theme === 'light'
-                                      ? 'bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-300'
-                                      : 'bg-zinc-800 hover:bg-zinc-700 text-zinc-300 hover:text-white border-zinc-700'
-                                  }`}
-                                >
-                                  <span className="text-xs flex items-center gap-1 font-extrabold">
-                                    ○ Priority C-Race
-                                  </span>
-                                  <span className="text-[10px] opacity-75 group-hover:opacity-95 font-normal">
-                                    Training Effort
-                                  </span>
-                                </button>
-                              </div>
+                                    <button
+                                      type="button"
+                                      onClick={() => handleConfirmGoalProposal(msg.id, ga, 'B')}
+                                      className="px-3 py-2 rounded-lg bg-indigo-500/20 hover:bg-indigo-500 text-indigo-300 hover:text-white border border-indigo-500/40 text-left font-bold transition-all cursor-pointer flex flex-col group"
+                                    >
+                                      <span className="text-xs flex items-center justify-between gap-1 font-extrabold">
+                                        <span>✦ Priority B-Race</span>
+                                        <span className="font-mono">{sugB.targetTimeFormatted}</span>
+                                      </span>
+                                      <span className="text-[10px] opacity-85 group-hover:opacity-95 font-semibold mt-0.5">
+                                        {sugB.targetPaceKmFormatted} ({sugB.targetPaceMileFormatted})
+                                      </span>
+                                      <span className="text-[9px] opacity-70 group-hover:opacity-90 font-normal">
+                                        Tune-Up · {sugB.targetHrRange}
+                                      </span>
+                                    </button>
+
+                                    <button
+                                      type="button"
+                                      onClick={() => handleConfirmGoalProposal(msg.id, ga, 'C')}
+                                      className={`px-3 py-2 rounded-lg border text-left font-bold transition-all cursor-pointer flex flex-col group ${
+                                        theme === 'light'
+                                          ? 'bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-300'
+                                          : 'bg-zinc-800 hover:bg-zinc-700 text-zinc-300 hover:text-white border-zinc-700'
+                                      }`}
+                                    >
+                                      <span className="text-xs flex items-center justify-between gap-1 font-extrabold">
+                                        <span>○ Priority C-Race</span>
+                                        <span className="font-mono">{sugC.targetTimeFormatted}</span>
+                                      </span>
+                                      <span className="text-[10px] opacity-85 group-hover:opacity-95 font-semibold mt-0.5">
+                                        {sugC.targetPaceKmFormatted} ({sugC.targetPaceMileFormatted})
+                                      </span>
+                                      <span className="text-[9px] opacity-70 group-hover:opacity-90 font-normal">
+                                        Tempo Run · {sugC.targetHrRange}
+                                      </span>
+                                    </button>
+                                  </div>
+                                );
+                              })()}
                             </div>
                           </div>
                         )}
 
                         {/* Executed Action Card: Goal Added */}
                         {msg.executedAction?.type === 'add_goal' && (
-                          <div className="p-3.5 rounded-xl border border-emerald-500/30 bg-emerald-500/10 text-xs space-y-2 animate-in fade-in duration-200">
+                          <div className="p-3.5 rounded-xl border border-emerald-500/30 bg-emerald-500/10 text-xs space-y-2.5 animate-in fade-in duration-200">
                             <div className="flex items-center justify-between gap-2 pb-1.5 border-b border-emerald-500/20">
                               <div className="flex items-center gap-2">
                                 <span className="w-5 h-5 rounded-full bg-emerald-500/20 text-emerald-400 flex items-center justify-center text-xs font-bold">
                                   ✓
                                 </span>
-                                <span className="font-bold text-emerald-300">Goal Race Saved to Profile</span>
+                                <span className="font-bold text-emerald-400">Goal Race Saved to Profile</span>
                               </div>
-                              <span className="px-2 py-0.5 rounded text-[10px] font-black uppercase tracking-wider bg-emerald-500/20 text-emerald-300 border border-emerald-500/40">
-                                Priority {msg.executedAction.goal?.priority || 'A'}
+                              <span className="px-2 py-0.5 rounded text-[10px] font-black uppercase tracking-wider bg-emerald-500/20 text-emerald-400 border border-emerald-500/40">
+                                Priority {msg.executedAction.goal?.priority || 'B'}
                               </span>
                             </div>
 
-                            <div className={`font-black text-sm ${theme === 'light' ? 'text-slate-900' : 'text-zinc-100'}`}>
+                            <div className={`font-black text-sm sm:text-base ${theme === 'light' ? 'text-slate-900' : 'text-zinc-100'}`}>
                               {msg.executedAction.goal?.name}
                             </div>
 
-                            <div className={`text-[11px] flex flex-wrap gap-x-4 gap-y-0.5 ${theme === 'light' ? 'text-slate-700' : 'text-zinc-300'}`}>
-                              <span>📅 Date: {msg.executedAction.goal?.eventDate}</span>
+                            <div className={`text-[11px] flex flex-wrap gap-x-4 gap-y-1 ${theme === 'light' ? 'text-slate-700' : 'text-zinc-300'}`}>
+                              <span>📅 Date: <strong>{msg.executedAction.goal?.eventDate}</strong></span>
+                              <span>
+                                📏 Distance:{' '}
+                                <strong>
+                                  {msg.executedAction.goal?.distancePreset && msg.executedAction.goal.distancePreset !== 'Custom'
+                                    ? `${msg.executedAction.goal.distancePreset} (${msg.executedAction.goal.totalDistanceKm} km)`
+                                    : `${msg.executedAction.goal?.totalDistanceKm ?? 16.093} km`}
+                                </strong>
+                              </span>
+                              {msg.executedAction.goal?.runElevationGainMeters !== undefined && (
+                                <span>
+                                  ⛰️ Elevation: <strong>+{msg.executedAction.goal.runElevationGainMeters}m</strong> ({msg.executedAction.goal.runCourseType || 'road'})
+                                </span>
+                              )}
                               <span>
                                 🎯 Target:{' '}
-                                {msg.executedAction.goal?.totalTargetTimeSec
-                                  ? `${Math.floor(msg.executedAction.goal.totalTargetTimeSec / 3600)}h ${Math.floor((msg.executedAction.goal.totalTargetTimeSec % 3600) / 60).toString().padStart(2, '0')}m`
-                                  : msg.executedAction.goal?.eventType === 'triathlon'
-                                  ? '3.8k Swim · 180k Bike · 42.2k Run'
-                                  : 'Finish'}
+                                <strong className={theme === 'light' ? 'text-emerald-700' : 'text-emerald-300'}>
+                                  {msg.executedAction.goal?.totalTargetTimeSec
+                                    ? formatFinishTimeHms(msg.executedAction.goal.totalTargetTimeSec)
+                                    : msg.executedAction.goal?.eventType === 'triathlon'
+                                      ? '3.8k Swim · 180k Bike · 42.2k Run'
+                                      : 'Finish'}
+                                </strong>
                               </span>
                               {msg.executedAction.goal?.runTargetPaceSec && (
-                                <span className="text-amber-400 font-bold">
-                                  Pace: {formatPaceSec(msg.executedAction.goal.runTargetPaceSec)}
+                                <span className={theme === 'light' ? 'text-amber-700 font-bold' : 'text-amber-400 font-bold'}>
+                                  ⚡ Pace: {formatPaceMinSecPerKm(msg.executedAction.goal.runTargetPaceSec)} ({formatPaceMinSecPerMile(msg.executedAction.goal.runTargetPaceSec)})
                                 </span>
                               )}
                             </div>
 
+                            {msg.executedAction.goal?.location && (
+                              <div className={`text-[11px] flex items-center gap-1 ${theme === 'light' ? 'text-slate-600' : 'text-zinc-400'}`}>
+                                <Compass className="w-3.5 h-3.5 shrink-0" />
+                                <span>{msg.executedAction.goal.location}</span>
+                              </div>
+                            )}
+
+                            {/* Interactive Priority-Based Achievable Pace Selector */}
+                            {msg.executedAction.goal?.eventType !== 'triathlon' && (
+                              <div className={`p-2.5 rounded-lg border space-y-1.5 ${
+                                theme === 'light'
+                                  ? 'bg-white/90 border-emerald-200'
+                                  : 'bg-black/40 border-emerald-500/20'
+                              }`}>
+                                <div className="flex items-center justify-between gap-2">
+                                  <span className={`text-[10px] font-extrabold uppercase tracking-wider ${theme === 'light' ? 'text-slate-600' : 'text-zinc-400'}`}>
+                                    Suggested Achievable Race Pace (By Priority &amp; Threshold)
+                                  </span>
+                                  <span className={`text-[10px] ${theme === 'light' ? 'text-slate-500' : 'text-zinc-400'}`}>
+                                    Click to switch target
+                                  </span>
+                                </div>
+                                {(() => {
+                                  const ga = msg.executedAction as CoachGoalAction;
+                                  const distKm = ga.goal?.totalDistanceKm || 16.093;
+                                  const elevM = ga.goal?.runElevationGainMeters ?? 35;
+                                  const fallbackPacing = computePriorityAwareRacePacing(
+                                    athleteProfile,
+                                    distKm,
+                                    elevM,
+                                    ga.goal?.runCourseType || 'road',
+                                    ga.goal?.eventDate
+                                  );
+                                  const suggestions: PriorityPaceSuggestion[] = ga.paceSuggestions || [
+                                    fallbackPacing.byPriority.A,
+                                    fallbackPacing.byPriority.B,
+                                    fallbackPacing.byPriority.C,
+                                  ];
+                                  const currentSec = ga.goal?.totalTargetTimeSec || 3600;
+                                  const is10Mile = Math.abs(distKm - 16.093) < 0.25;
+
+                                  return (
+                                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-1.5">
+                                      {suggestions.map((sug) => {
+                                        const isSelected = Math.abs(currentSec - sug.targetTimeSec) <= 5;
+                                        const isGoalPriority = (ga.goal?.priority || 'B') === sug.priority;
+                                        return (
+                                          <button
+                                            key={sug.priority}
+                                            type="button"
+                                            onClick={() => handleSelectGoalTargetPace(msg.id, ga, sug.targetTimeSec, sug.priority)}
+                                            className={`px-2.5 py-1.5 rounded-lg border text-left transition-all cursor-pointer flex flex-col ${
+                                              isSelected
+                                                ? theme === 'light'
+                                                  ? 'bg-emerald-600 text-white border-emerald-700 shadow-xs'
+                                                  : 'bg-emerald-500/25 text-emerald-200 border-emerald-400/60 shadow-xs'
+                                                : theme === 'light'
+                                                  ? 'bg-slate-50 hover:bg-slate-100 text-slate-700 border-slate-200'
+                                                  : 'bg-zinc-900/80 hover:bg-zinc-800 text-zinc-300 border-zinc-800'
+                                            }`}
+                                          >
+                                            <div className="flex items-center justify-between gap-1">
+                                              <span className="text-[10px] font-extrabold">
+                                                {sug.priority === 'A'
+                                                  ? '★ A-Race Peak'
+                                                  : sug.priority === 'B'
+                                                    ? '✦ B-Race Tune-Up'
+                                                    : '○ C-Race Tempo'}
+                                                {isGoalPriority ? ' (Rec)' : ''}
+                                              </span>
+                                              <span className="text-[11px] font-black font-mono">
+                                                {sug.targetTimeFormatted}
+                                              </span>
+                                            </div>
+                                            <div className="text-[10px] font-semibold opacity-90">
+                                              {sug.targetPaceKmFormatted} · {sug.targetPaceMileFormatted}
+                                            </div>
+                                            <div className="text-[9px] opacity-75 truncate">
+                                              {sug.targetHrRange}
+                                            </div>
+                                          </button>
+                                        );
+                                      })}
+                                      {is10Mile && !suggestions.some((s) => Math.abs(s.targetTimeSec - 3600) <= 10) && (
+                                        <button
+                                          type="button"
+                                          onClick={() => handleSelectGoalTargetPace(msg.id, ga, 3600)}
+                                          className={`sm:col-span-3 px-2.5 py-1 rounded-lg border text-center text-[10px] font-bold transition-all cursor-pointer ${
+                                            Math.abs(currentSec - 3600) <= 5
+                                              ? theme === 'light'
+                                                ? 'bg-emerald-600 text-white border-emerald-700'
+                                                : 'bg-emerald-500/25 text-emerald-200 border-emerald-400/60'
+                                              : theme === 'light'
+                                                ? 'bg-amber-50 hover:bg-amber-100 text-amber-800 border-amber-200'
+                                                : 'bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 border-amber-500/30'
+                                          }`}
+                                        >
+                                          ⚡ Set Exact 1:00:00 Sub-Hour Benchmark (3:44/km · 6:00/mi)
+                                        </button>
+                                      )}
+                                    </div>
+                                  );
+                                })()}
+                              </div>
+                            )}
+
                             <div className="mt-2 pt-2 border-t border-emerald-500/20 flex items-center justify-between gap-2">
-                              <span className="text-[10px] text-emerald-400 font-medium">
-                                ✓ Synced with Athlete Goals & Periodization
+                              <span className="text-[10px] text-emerald-500 font-medium">
+                                ✓ Synced with Athlete Goals &amp; Periodization
                               </span>
                               <div className="flex items-center gap-2">
                                 <button
@@ -2682,7 +2934,7 @@ ${todayWorkout.structure.map((s) => `• [${s.phase}] (${s.duration}): ${s.descr
                                       : 'bg-zinc-800 hover:bg-zinc-700 text-zinc-200 border-zinc-700'
                                   }`}
                                 >
-                                  View in Goals
+                                  View / Edit in Goals
                                 </button>
                                 <button
                                   type="button"
@@ -2694,7 +2946,7 @@ ${todayWorkout.structure.map((s) => `• [${s.phase}] (${s.duration}): ${s.descr
                                       ga?.goal?.name
                                     );
                                   }}
-                                  className="text-[10px] font-bold px-2 py-1 rounded bg-rose-500/10 hover:bg-rose-500/20 text-rose-300 border border-rose-500/30 cursor-pointer transition-colors"
+                                  className="text-[10px] font-bold px-2 py-1 rounded bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/30 cursor-pointer transition-colors"
                                   title="Remove this goal"
                                 >
                                   Remove

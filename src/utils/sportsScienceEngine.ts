@@ -14,6 +14,7 @@ import {
   analyzeActivityStructureAndLaps,
   getStructuredWorkoutsByDayOfWeek,
 } from './coachWorkoutMatcher';
+import { buildEnrichedGoalFromQuery } from './racePaceEngine';
 
 function formatPaceSec(seconds?: number): string {
   if (!seconds || seconds <= 0) return 'N/A';
@@ -536,36 +537,36 @@ export function generateSportsScienceChat(
   }
 
   // -------------------------------------------------------------
-  // 1. ONLINE RACE SEARCH & GOAL ADDITION: Seven Sins Trail Run or General "Add <Race> to Goals"
+  // 1. ONLINE RACE SEARCH & GOAL ADDITION: Seven Sins Trail Run, Boddington 10 Mile, or General "Add <Race> to Goals"
   // -------------------------------------------------------------
   if (
     q.includes('seven sins') ||
     q.includes('7 sins') ||
+    q.includes('boddington') ||
     ((q.includes('add') || q.includes('create') || q.includes('put') || q.includes('include')) &&
       (q.includes('goal') || q.includes('race') || q.includes('event')) &&
       !q.includes('chippenham') &&
       !q.includes('ironman'))
   ) {
-    const hasPriorityA = /\b(priority\s*a|a-race|a\s+race|make\s+it\s+a)\b/i.test(q);
-    const hasPriorityB = /\b(priority\s*b|b-race|b\s+race|make\s+it\s+b)\b/i.test(q);
-    const hasPriorityC = /\b(priority\s*c|c-race|c\s+race|make\s+it\s+c)\b/i.test(q);
-    const chosenPriority = hasPriorityA ? 'A' : hasPriorityB ? 'B' : hasPriorityC ? 'C' : null;
+    const hasPriorityA = /\b(priority\s*a|a-race|a\s+race|make\s+it\s+a|as\s+(?:an?\s+)?a\s+race)\b/i.test(q);
+    const hasPriorityB = /\b(priority\s*b|b-race|b\s+race|make\s+it\s+b|as\s+(?:a\s+)?b\s+race)\b/i.test(q);
+    const hasPriorityC = /\b(priority\s*c|c-race|c\s+race|make\s+it\s+c|as\s+(?:a\s+)?c\s+race)\b/i.test(q);
+    const chosenPriority: 'A' | 'B' | 'C' | undefined = hasPriorityA ? 'A' : hasPriorityB ? 'B' : hasPriorityC ? 'C' : undefined;
 
     if (q.includes('seven sins') || q.includes('7 sins')) {
-      const weeksOut = Math.max(1, Math.round((new Date('2026-12-28').getTime() - new Date(todayDate).getTime()) / (7 * 24 * 3600 * 1000)));
+      const enriched = buildEnrichedGoalFromQuery('Seven Sins Trail Run', chosenPriority, profile, { todayDate });
+      const weeksOut = enriched.pacing.weeksToRace;
       if (!chosenPriority) {
         return `### 🌲 Seven Sins Trail Run — Event Details & Goal Staging
 
-I looked up the **Seven Sins Trail Run** (organized by Immortal Sport in the **Forest of Dean, Gloucestershire, UK**, starting near Speech House):
+I looked up the **Seven Sins Trail Run** (**Forest of Dean, Gloucestershire, UK**):
 
-• **Event Date:** **Monday, December 28, 2026** (~**${weeksOut} weeks** away)
-• **Distance & Terrain:** **7 Miles (11.3 km)** off-road forest trail featuring **7 steep climbs ("Seven Deadly Sins")**, ~**395m elevation gain**, mud, water splash, and disused railway tunnel sections.
-• **Physiological Demand & Pacing:** Unlike flat road racing at your **${outdoorPace}** threshold, Seven Sins demands high VO2max hill repeatability, eccentric quad resilience on steep muddy descents, and ankle stability. Based on your current **8 x 1km @ 3:32/km** aerobic engine, a strong target is **~52–56 minutes (~4:40–4:55/km grade-adjusted trail effort)**.
-
-### Select Your Race Priority to Confirm:
-• **⭐ Priority B-Race (Recommended):** Great winter VO2max & strength tune-up with a 3-day mini-taper while keeping your spring marathon / 10-mile build on track.
-• **Priority A-Race:** Full peak focus with specific off-road hill reps and a 7-day taper.
-• **Priority C-Race:** Hard training run embedded directly into your holiday volume block.
+• **Event Date:** **${enriched.resolvedMeta.eventDate}** (~**${weeksOut} weeks** away)
+• **Distance & Terrain:** **7.2 Miles (11.6 km)** off-road forest trail featuring **7 steep climbs ("Seven Deadly Sins")** and ~**${enriched.resolvedMeta.runElevationGainMeters}m elevation gain**.
+• **Suggested Target Pacing by Priority:**
+  - **Priority A (Peak Taper):** **${enriched.pacing.byPriority.A.targetTimeFormatted}** (**${enriched.pacing.byPriority.A.targetPaceKmFormatted}** · ${enriched.pacing.byPriority.A.targetHrRange})
+  - **⭐ Priority B (Recommended Tune-Up):** **${enriched.pacing.byPriority.B.targetTimeFormatted}** (**${enriched.pacing.byPriority.B.targetPaceKmFormatted}** · ${enriched.pacing.byPriority.B.targetHrRange})
+  - **Priority C (Training Effort):** **${enriched.pacing.byPriority.C.targetTimeFormatted}** (**${enriched.pacing.byPriority.C.targetPaceKmFormatted}** · ${enriched.pacing.byPriority.C.targetHrRange})
 
 *Click **Priority A**, **B**, or **C** on the Goal Card above to save **Seven Sins Trail Run** to your Goals!*`;
       }
@@ -573,19 +574,58 @@ I looked up the **Seven Sins Trail Run** (organized by Immortal Sport in the **F
       return `### ✓ Goal Race Added: Seven Sins Trail Run (Priority ${chosenPriority})
 
 I have added the **Seven Sins Trail Run (Forest of Dean)** to your Goals as a **Priority ${chosenPriority} Race**:
-• **Date:** December 28, 2026 (~${weeksOut} weeks out)
-• **Course:** 7 Miles (11.3 km)Trail | ~395m elevation gain across 7 steep climbs
+• **Date:** ${enriched.resolvedMeta.eventDate} (~${weeksOut} weeks out)
+• **Course:** 11.6 km Trail | ~${enriched.resolvedMeta.runElevationGainMeters}m elevation gain across 7 steep climbs
+• **Priority ${chosenPriority} Target Pace:** **${enriched.recommendedSuggestion.targetTimeFormatted}** (**${enriched.recommendedSuggestion.targetPaceKmFormatted}** / **${enriched.recommendedSuggestion.targetPaceMileFormatted}**, ${enriched.recommendedSuggestion.targetHrRange})
 • **Training Integration:** I will factor off-road hill surges and eccentric quad durability into your upcoming weeks while keeping your CTL ramp rate (**${ctlRamp7d >= 0 ? `+${ctlRamp7d}` : ctlRamp7d} CTL/wk**) in the safe zone!`;
     }
 
     const nameMatch = qTrim.match(/(?:add|include|put|set)\s+(.+?)\s+(?:to|in|into|as)\s+(?:my\s+)?(?:goals?|races?|events?)/i);
-    if (nameMatch && nameMatch[1]) {
-      const eventTitle = nameMatch[1].replace(/^["']|["']$/g, '').trim();
-      return `### 🏁 Goal Race Staged: ${eventTitle}
+    const rawExtracted = q.includes('boddington')
+      ? 'Boddington 10 Mile'
+      : nameMatch && nameMatch[1]
+        ? nameMatch[1]
+            .replace(/\b(?:as\s+(?:an?\s+)?[abc][-\s]*race|priority\s*[abc])\b/gi, '')
+            .replace(/^["']|["']$/g, '')
+            .trim()
+        : '';
 
-I have prepared **${eventTitle}** for your race calendar.
-• **Current Fitness Context:** CTL **${ctl}** (7-day ramp rate: **${ctlRamp7d >= 0 ? `+${ctlRamp7d}` : ctlRamp7d} CTL/wk**).
-• Select **Priority A, B, or C** on the interactive card above to confirm and save **${eventTitle}** to your Goals!`;
+    if (rawExtracted) {
+      const enriched = buildEnrichedGoalFromQuery(rawExtracted, chosenPriority, profile, { todayDate });
+      const meta = enriched.resolvedMeta;
+      const rec = enriched.recommendedSuggestion;
+      const aSug = enriched.pacing.byPriority.A;
+      const bSug = enriched.pacing.byPriority.B;
+      const cSug = enriched.pacing.byPriority.C;
+
+      if (chosenPriority) {
+        return `### ✓ Goal Race Saved: ${meta.name} (Priority ${chosenPriority}-Race)
+
+I have added **${meta.name}** to your Goals using the standard **${meta.distancePreset}** preset (**${meta.totalDistanceKm} km**):
+
+• **Event Date & Venue:** **${meta.eventDate}** (~**${enriched.pacing.weeksToRace} weeks** away) at **${meta.location}**
+• **Course & Elevation:** **${meta.distancePreset} (${meta.totalDistanceKm} km)** ${meta.runCourseType} course with **~${meta.runElevationGainMeters}m elevation gain**
+• **Suggested Achievable Race Pace (Calibrated for Priority ${chosenPriority} & Your ${outdoorPace} Threshold / ${lthr} bpm LTHR):**
+  - **⭐ Priority ${chosenPriority} Target (${rec.targetTimeFormatted} · ${rec.targetPaceKmFormatted} / ${rec.targetPaceMileFormatted}):** ${rec.taperAndStrategyNote} Target HR: **${rec.targetHrRange}**.
+  - **Priority A Peak Taper Option (${aSug.targetTimeFormatted} · ${aSug.targetPaceKmFormatted} / ${aSug.targetPaceMileFormatted}):** Full 7–10 day taper breakthrough effort (${aSug.targetHrRange}).
+  - **Priority B Tune-Up Option (${bSug.targetTimeFormatted} · ${bSug.targetPaceKmFormatted} / ${bSug.targetPaceMileFormatted}):** Controlled threshold effort on a 2–3 day mini-taper (${bSug.targetHrRange}).
+  - **Priority C Training Option (${cSug.targetTimeFormatted} · ${cSug.targetPaceKmFormatted} / ${cSug.targetPaceMileFormatted}):** High-Zone 3 progression effort (${cSug.targetHrRange}).
+
+*You can click any of the **Suggested Target Pace** buttons on the card above (or enter a custom time) to adjust your exact target!*`;
+      }
+
+      return `### 🏁 Goal Race Staged: ${meta.name}
+
+I found the event details for **${meta.name}** and staged it with the **${meta.distancePreset}** distance preset (**${meta.totalDistanceKm} km**):
+
+• **Date & Location:** **${meta.eventDate}** (~**${enriched.pacing.weeksToRace} weeks** out) · **${meta.location}**
+• **Course Profile:** **${meta.distancePreset} (${meta.totalDistanceKm} km)** ${meta.runCourseType} · **~${meta.runElevationGainMeters}m elevation gain**
+• **Achievable Target Pace by Race Priority:**
+  - **Priority A (Peak Taper):** **${aSug.targetTimeFormatted}** (**${aSug.targetPaceKmFormatted}** / **${aSug.targetPaceMileFormatted}** · ${aSug.targetHrRange})
+  - **⭐ Priority B (Supported Tune-Up):** **${bSug.targetTimeFormatted}** (**${bSug.targetPaceKmFormatted}** / **${bSug.targetPaceMileFormatted}** · ${bSug.targetHrRange})
+  - **Priority C (Training Progression):** **${cSug.targetTimeFormatted}** (**${cSug.targetPaceKmFormatted}** / **${cSug.targetPaceMileFormatted}** · ${cSug.targetHrRange})
+
+*Select **Priority A, B, or C** on the card above to confirm and lock in your target pace!*`;
     }
   }
 

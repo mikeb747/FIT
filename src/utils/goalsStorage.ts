@@ -1,4 +1,5 @@
 import { TrainingGoal } from '../types/goals';
+import { buildEnrichedGoalFromQuery, normalizeDistancePresetAndKm } from './racePaceEngine';
 
 export const GOALS_STORAGE_KEY = 'gymfit_training_goals_v2';
 export const LEGACY_GOALS_STORAGE_KEY = 'gymfit_training_goals_v1';
@@ -163,19 +164,79 @@ export function loadAthleteGoals(): TrainingGoal[] {
     const reconcileGoalDates = (list: TrainingGoal[]): TrainingGoal[] => {
       let changed = false;
       const updated = list.map((g) => {
+        let next = { ...g };
+
         if (
-          g.eventDate &&
-          g.eventDate.startsWith('2028-') &&
-          (g.id.includes('2027') || /Cotswold|Oldbury|Seven Sins/i.test(g.name || ''))
+          next.eventDate &&
+          next.eventDate.startsWith('2028-') &&
+          (next.id.includes('2027') || /Cotswold|Oldbury|Seven Sins/i.test(next.name || ''))
         ) {
           changed = true;
-          return {
-            ...g,
-            eventDate: g.eventDate.replace(/^2028-/, '2027-'),
-            name: (g.name || '').replace(/2028/g, '2027'),
+          next = {
+            ...next,
+            eventDate: next.eventDate.replace(/^2028-/, '2027-'),
+            name: (next.name || '').replace(/2028/g, '2027'),
           };
         }
-        return g;
+
+        // Repair any Boddington 10 Mile goal that was previously saved with placeholder date/location/Custom preset
+        if (/boddington/i.test(next.name || '')) {
+          const needsRepair =
+            next.distancePreset === 'Custom' ||
+            next.eventDate === '2027-04-18' ||
+            next.location === 'UK Race Circuit' ||
+            !next.runElevationGainMeters ||
+            !next.runTargetPaceSec;
+
+          if (needsRepair) {
+            changed = true;
+            const enriched = buildEnrichedGoalFromQuery(
+              'Boddington 10 Mile',
+              next.priority || 'B'
+            );
+            next = {
+              ...next,
+              name: 'Boddington 10 Mile',
+              eventDate: next.eventDate === '2027-04-18' || !next.eventDate ? '2027-01-31' : next.eventDate,
+              distancePreset: '10 Mile',
+              totalDistanceKm: 16.093,
+              targetType: 'time',
+              totalTargetTimeSec:
+                next.totalTargetTimeSec && next.totalTargetTimeSec !== 3600
+                  ? next.totalTargetTimeSec
+                  : enriched.recommendedSuggestion.targetTimeSec,
+              runCourseType: 'road',
+              runElevationGainMeters: next.runElevationGainMeters || 35,
+              runTargetPaceSec:
+                next.runTargetPaceSec || enriched.recommendedSuggestion.targetPaceSecPerKm,
+              location:
+                !next.location || next.location === 'UK Race Circuit'
+                  ? enriched.resolvedMeta.location
+                  : next.location,
+              notes:
+                !next.notes || next.notes.includes('Added via AI Coach')
+                  ? (enriched.goal.notes as string)
+                  : next.notes,
+            };
+          }
+        } else if (next.eventType === 'run') {
+          // Ensure any 10 Mile / 10km / 5km / Half Marathon / Marathon uses the exact RUN_DISTANCE_PRESETS label
+          const norm = normalizeDistancePresetAndKm(next.name || '', next.distancePreset, next.totalDistanceKm, 'run');
+          if (
+            (next.distancePreset === 'Custom' || next.distancePreset === '10K' || next.distancePreset === '5K') &&
+            norm.distancePreset !== 'Custom' &&
+            next.distancePreset !== norm.distancePreset
+          ) {
+            changed = true;
+            next = {
+              ...next,
+              distancePreset: norm.distancePreset,
+              totalDistanceKm: norm.totalDistanceKm,
+            };
+          }
+        }
+
+        return next;
       });
       if (changed) {
         saveAthleteGoals(updated);

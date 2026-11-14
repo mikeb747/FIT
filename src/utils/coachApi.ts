@@ -40,6 +40,7 @@ import {
   buildWorkoutDriftAndZoneAnalysis,
   buildCustomZoneUpdateAction,
 } from './zoneCalibrationEngine';
+import { buildEnrichedGoalFromQuery } from './racePaceEngine';
 
 const isGitHubPages =
   typeof window !== 'undefined' &&
@@ -523,55 +524,47 @@ export async function sendCoachChatMessage(
     const lower = q.toLowerCase();
     const skills: string[] = [];
 
-    // 1. Seven Sins Trail Run or general "add ... to my goals"
+    // 1. Seven Sins Trail Run, Boddington 10 Mile, or general "add ... to my goals"
     if (
       lower.includes('seven sins') ||
       lower.includes('7 sins') ||
+      lower.includes('boddington') ||
       ((lower.includes('add') || lower.includes('create') || lower.includes('put') || lower.includes('include')) &&
         (lower.includes('goal') || lower.includes('race') || lower.includes('event')) &&
         !lower.includes('chippenham') &&
         !lower.includes('ironman'))
     ) {
-      const hasPriorityA = /\b(priority\s*a|a-race|a\s+race|make\s+it\s+a)\b/i.test(lower);
-      const hasPriorityB = /\b(priority\s*b|b-race|b\s+race|make\s+it\s+b)\b/i.test(lower);
-      const hasPriorityC = /\b(priority\s*c|c-race|c\s+race|make\s+it\s+c)\b/i.test(lower);
+      const hasPriorityA = /\b(priority\s*a|a-race|a\s+race|make\s+it\s+a|as\s+(?:an?\s+)?a\s+race)\b/i.test(lower);
+      const hasPriorityB = /\b(priority\s*b|b-race|b\s+race|make\s+it\s+b|as\s+(?:a\s+)?b\s+race)\b/i.test(lower);
+      const hasPriorityC = /\b(priority\s*c|c-race|c\s+race|make\s+it\s+c|as\s+(?:a\s+)?c\s+race)\b/i.test(lower);
 
       if (lower.includes('seven sins') || lower.includes('7 sins')) {
         skills.push('Online Race Search', 'Goal Race Manager');
         const priority: 'A' | 'B' | 'C' | undefined = hasPriorityA ? 'A' : hasPriorityB ? 'B' : hasPriorityC ? 'C' : undefined;
-        const goalObj: Partial<TrainingGoal> = {
-          id: 'goal-seven-sins-trail-2026',
-          name: 'Seven Sins Trail Run (7 Hills of Forest of Dean)',
-          priority: priority || 'B',
-          eventType: 'run',
-          status: 'upcoming',
-          targetType: 'time',
-          eventDate: '2026-12-28',
-          distancePreset: '7 Miles (11.3 km)',
-          totalDistanceKm: 11.3,
-          totalTargetTimeSec: 3300, // 55:00 target on steep off-road hills
-          runCourseType: 'trail',
-          runElevationGainMeters: 395,
-          runTargetPaceSec: 292, // ~4:52/km trail pace
-          location: ' Speech House / Forest of Dean, Gloucestershire, UK',
-          notes: '7 steep climbs ("Seven Deadly Sins"), mud, water splash & tunnel sections across 7 miles in the Forest of Dean.',
-        };
+        const enriched = buildEnrichedGoalFromQuery(
+          'Seven Sins Trail Run',
+          priority,
+          payload.athleteProfile,
+          { todayDate: payload.todayDate }
+        );
         if (!priority) {
           return {
             skills,
             action: {
               type: 'propose_goal',
               status: 'pending_priority',
-              goal: goalObj,
+              goal: enriched.goal,
               missingFields: ['priority'],
               suggestedPriorities: ['A', 'B', 'C'],
+              paceSuggestions: enriched.prioritySuggestions,
+              recommendedPaceSuggestion: enriched.recommendedSuggestion,
               searchResult: {
-                eventName: 'Seven Sins Trail Run (Forest of Dean)',
-                foundDate: '2026-12-28',
-                sourceTitle: 'Seven Sins Immortal Run — Forest of Dean, Gloucestershire (7 Miles / 7 Hills)',
-                sourceUri: 'https://www.immortalrun.co.uk',
+                eventName: enriched.resolvedMeta.name,
+                foundDate: enriched.resolvedMeta.eventDate,
+                sourceTitle: enriched.resolvedMeta.sourceTitle || 'The Seven Sins Run — Forest of Dean',
+                sourceUri: enriched.resolvedMeta.sourceUri,
               },
-              description: 'Found Seven Sins Trail Run (7 miles / 11.3 km, ~395m elevation in the Forest of Dean on Dec 28, 2026). Select race priority (A, B, or C) to confirm.',
+              description: `Found ${enriched.resolvedMeta.name} (${enriched.resolvedMeta.totalDistanceKm} km, ~${enriched.resolvedMeta.runElevationGainMeters}m elevation on ${enriched.resolvedMeta.eventDate}). Select race priority (A, B, or C) to confirm.`,
             },
           };
         }
@@ -580,64 +573,69 @@ export async function sendCoachChatMessage(
           action: {
             type: 'add_goal',
             status: 'confirmed',
-            goal: goalObj,
-            description: `Added Seven Sins Trail Run (Dec 28, 2026) as a Priority ${priority} goal.`,
+            goal: enriched.goal,
+            paceSuggestions: enriched.prioritySuggestions,
+            recommendedPaceSuggestion: enriched.recommendedSuggestion,
+            description: `Added ${enriched.resolvedMeta.name} (${enriched.resolvedMeta.eventDate}) as a Priority ${priority} goal with suggested target ${enriched.recommendedSuggestion.targetTimeFormatted} (${enriched.recommendedSuggestion.targetPaceKmFormatted}).`,
           },
         };
       }
 
-      // Generic named event extraction: e.g. "Can you add Bath Half Marathon to my goals"
+      // Named event extraction: e.g. "add Boddington 10 mile to my goals as a B race"
       const nameMatch = q.match(/(?:add|include|put|set)\s+(.+?)\s+(?:to|in|into|as)\s+(?:my\s+)?(?:goals?|races?|events?)/i);
-      if (nameMatch && nameMatch[1]) {
-        const extractedName = nameMatch[1].replace(/^["']|["']$/g, '').trim();
-        if (extractedName.length >= 3 && !/^(a|an|the|some|new)$/i.test(extractedName)) {
-          skills.push('Online Race Search', 'Goal Race Manager');
-          const isTri = /triathlon|70\.3|ironman|duathlon/i.test(extractedName);
-          const isHalf = /half\s*marathon|13\.1/i.test(extractedName);
-          const is10k = /10\s*k/i.test(extractedName);
-          const distKm = isTri ? 113.0 : isHalf ? 21.1 : is10k ? 10.0 : 16.09;
-          const priority: 'A' | 'B' | 'C' | undefined = hasPriorityA ? 'A' : hasPriorityB ? 'B' : hasPriorityC ? 'C' : undefined;
-          const goalObj: Partial<TrainingGoal> = {
-            id: `goal-${extractedName.toLowerCase().replace(/[^a-z0-9]+/g, '-')}-${Date.now().toString().slice(-4)}`,
-            name: extractedName,
-            priority: priority || 'B',
-            eventType: isTri ? 'triathlon' : 'run',
-            status: 'upcoming',
-            targetType: 'finish',
-            eventDate: '2027-04-18',
-            distancePreset: isTri ? '70.3' : isHalf ? 'Half Marathon' : is10k ? '10K' : 'Custom',
-            totalDistanceKm: distKm,
-            location: 'UK Race Circuit',
-            notes: `Added via AI Coach Goal Skill.`,
-          };
-          if (!priority) {
-            return {
-              skills,
-              action: {
-                type: 'propose_goal',
-                status: 'pending_priority',
-                goal: goalObj,
-                missingFields: ['priority'],
-                suggestedPriorities: ['A', 'B', 'C'],
-                searchResult: {
-                  eventName: extractedName,
-                  foundDate: '2027-04-18',
-                  sourceTitle: `${extractedName} Official Event Details`,
-                },
-                description: `Prepared "${extractedName}" (${distKm} km) for your race calendar. Choose Priority A, B, or C to save.`,
-              },
-            };
-          }
+      const rawExtracted =
+        lower.includes('boddington')
+          ? 'Boddington 10 Mile'
+          : nameMatch && nameMatch[1]
+            ? nameMatch[1]
+                .replace(/\b(?:as\s+(?:an?\s+)?[abc][-\s]*race|priority\s*[abc])\b/gi, '')
+                .replace(/^["']|["']$/g, '')
+                .trim()
+            : '';
+
+      if (rawExtracted.length >= 3 && !/^(a|an|the|some|new)$/i.test(rawExtracted)) {
+        skills.push('Online Race Search', 'Goal Race Manager');
+        const priority: 'A' | 'B' | 'C' | undefined = hasPriorityA ? 'A' : hasPriorityB ? 'B' : hasPriorityC ? 'C' : undefined;
+        const enriched = buildEnrichedGoalFromQuery(
+          rawExtracted,
+          priority,
+          payload.athleteProfile,
+          { todayDate: payload.todayDate }
+        );
+
+        if (!priority) {
           return {
             skills,
             action: {
-              type: 'add_goal',
-              status: 'confirmed',
-              goal: goalObj,
-              description: `Added "${extractedName}" as Priority ${priority} goal.`,
+              type: 'propose_goal',
+              status: 'pending_priority',
+              goal: enriched.goal,
+              missingFields: ['priority'],
+              suggestedPriorities: ['A', 'B', 'C'],
+              paceSuggestions: enriched.prioritySuggestions,
+              recommendedPaceSuggestion: enriched.recommendedSuggestion,
+              searchResult: {
+                eventName: enriched.resolvedMeta.name,
+                foundDate: enriched.resolvedMeta.eventDate,
+                sourceTitle: enriched.resolvedMeta.sourceTitle || `${enriched.resolvedMeta.name} Official Event Details`,
+                sourceUri: enriched.resolvedMeta.sourceUri,
+              },
+              description: `Found "${enriched.resolvedMeta.name}" (${enriched.resolvedMeta.distancePreset}, +${enriched.resolvedMeta.runElevationGainMeters}m elev on ${enriched.resolvedMeta.eventDate}). Choose Priority A, B, or C to lock in your target pace.`,
             },
           };
         }
+
+        return {
+          skills,
+          action: {
+            type: 'add_goal',
+            status: 'confirmed',
+            goal: enriched.goal,
+            paceSuggestions: enriched.prioritySuggestions,
+            recommendedPaceSuggestion: enriched.recommendedSuggestion,
+            description: `Added "${enriched.resolvedMeta.name}" (${enriched.resolvedMeta.eventDate}, ${enriched.resolvedMeta.distancePreset}, +${enriched.resolvedMeta.runElevationGainMeters}m) as Priority ${priority} goal with suggested pace ${enriched.recommendedSuggestion.targetPaceKmFormatted} (${enriched.recommendedSuggestion.targetTimeFormatted}).`,
+          },
+        };
       }
     }
 

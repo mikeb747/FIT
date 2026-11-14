@@ -37,6 +37,7 @@ import {
 } from '../types/goals';
 import { AthleteProfile } from '../types/athlete';
 import { resetAthleteGoalsToDefaults } from '../utils/goalsStorage';
+import { computePriorityAwareRacePacing } from '../utils/racePaceEngine';
 
 interface GoalsTabProps {
   goals: TrainingGoal[];
@@ -1646,6 +1647,7 @@ const GoalEditorModal: React.FC<GoalEditorModalProps> = ({ goal, onClose, onSave
                     Target Finish Time (hh:mm:ss)
                   </label>
                   <input
+                    key={`time-${draft.totalTargetTimeSec}`}
                     type="text"
                     defaultValue={formatDurationHms(draft.totalTargetTimeSec)}
                     onBlur={(e) => {
@@ -1653,6 +1655,7 @@ const GoalEditorModal: React.FC<GoalEditorModalProps> = ({ goal, onClose, onSave
                       const km = draft.totalDistanceKm || 1;
                       setDraft({
                         ...draft,
+                        targetType: 'time',
                         totalTargetTimeSec: sec,
                         runTargetPaceSec: Math.round(sec / km),
                       });
@@ -1666,6 +1669,7 @@ const GoalEditorModal: React.FC<GoalEditorModalProps> = ({ goal, onClose, onSave
                     Target Pace (mm:ss/km)
                   </label>
                   <input
+                    key={`pace-${draft.runTargetPaceSec}-${draft.totalTargetTimeSec}`}
                     type="text"
                     defaultValue={formatPaceMinSec(
                       draft.runTargetPaceSec ||
@@ -1678,6 +1682,7 @@ const GoalEditorModal: React.FC<GoalEditorModalProps> = ({ goal, onClose, onSave
                       const km = draft.totalDistanceKm || 1;
                       setDraft({
                         ...draft,
+                        targetType: 'time',
                         runTargetPaceSec: paceSec,
                         totalTargetTimeSec: Math.round(km * paceSec),
                       });
@@ -1686,6 +1691,76 @@ const GoalEditorModal: React.FC<GoalEditorModalProps> = ({ goal, onClose, onSave
                   />
                 </div>
               </div>
+
+              {/* Priority-Aware Achievable Race Pace Suggestions */}
+              {(() => {
+                const pacing = computePriorityAwareRacePacing(
+                  profile,
+                  draft.totalDistanceKm || 16.093,
+                  draft.runElevationGainMeters ?? 35,
+                  draft.runCourseType || 'road',
+                  draft.eventDate
+                );
+                const sugs = [pacing.byPriority.A, pacing.byPriority.B, pacing.byPriority.C];
+                return (
+                  <div className={`p-2.5 rounded-xl border space-y-1.5 ${
+                    isLight ? 'bg-white border-slate-200' : 'bg-slate-900/70 border-slate-800'
+                  }`}>
+                    <div className="flex items-center justify-between gap-2">
+                      <span className={`text-[10px] font-extrabold uppercase tracking-wider ${isLight ? 'text-slate-600' : 'text-slate-400'}`}>
+                        Suggested Achievable Pace (Priority {draft.priority} Recommended)
+                      </span>
+                      <span className={`text-[10px] ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>
+                        Click to apply
+                      </span>
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-1.5">
+                      {sugs.map((sug) => {
+                        const isCurrent = Math.abs((draft.totalTargetTimeSec || 0) - sug.targetTimeSec) <= 5;
+                        const isPriorityMatch = draft.priority === sug.priority;
+                        return (
+                          <button
+                            key={sug.priority}
+                            type="button"
+                            onClick={() =>
+                              setDraft({
+                                ...draft,
+                                targetType: 'time',
+                                totalTargetTimeSec: sug.targetTimeSec,
+                                runTargetPaceSec: sug.targetPaceSecPerKm,
+                              })
+                            }
+                            className={`px-2.5 py-1.5 rounded-lg border text-left transition-all cursor-pointer flex flex-col ${
+                              isCurrent
+                                ? isLight
+                                  ? 'bg-emerald-600 text-white border-emerald-700'
+                                  : 'bg-emerald-500/25 text-emerald-200 border-emerald-400/60'
+                                : isPriorityMatch
+                                  ? isLight
+                                    ? 'bg-indigo-50 hover:bg-indigo-100 text-indigo-900 border-indigo-300'
+                                    : 'bg-indigo-500/15 hover:bg-indigo-500/25 text-indigo-200 border-indigo-500/40'
+                                  : isLight
+                                    ? 'bg-slate-50 hover:bg-slate-100 text-slate-700 border-slate-200'
+                                    : 'bg-slate-950 hover:bg-slate-800 text-slate-300 border-slate-800'
+                            }`}
+                          >
+                            <div className="flex items-center justify-between gap-1 text-[10px] font-extrabold">
+                              <span>
+                                Priority {sug.priority} {isPriorityMatch ? '★' : ''}
+                              </span>
+                              <span className="font-mono">{sug.targetTimeFormatted}</span>
+                            </div>
+                            <div className="text-[10px] font-semibold opacity-90">
+                              {sug.targetPaceKmFormatted} · {sug.targetPaceMileFormatted}
+                            </div>
+                            <div className="text-[9px] opacity-75 truncate">{sug.targetHrRange}</div>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                );
+              })()}
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div className="space-y-1">
@@ -1716,7 +1791,7 @@ const GoalEditorModal: React.FC<GoalEditorModalProps> = ({ goal, onClose, onSave
                         runElevationGainMeters: Number(e.target.value) || undefined,
                       })
                     }
-                    placeholder="e.g. 150"
+                    placeholder="e.g. 35"
                     className={inputClass}
                   />
                 </div>
