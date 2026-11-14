@@ -2391,6 +2391,29 @@ export function saveStravaActivityDetails(
     Object.keys(details.streams).length > 0
   );
 
+  // Sync mute status (hide_from_home / muted) from DetailedActivity back to the summary cache
+  const detAct = details.activity as Record<string, any> | undefined;
+  if (detAct && (typeof detAct.hide_from_home === 'boolean' || typeof detAct.muted === 'boolean')) {
+    const isMuted = Boolean(detAct.hide_from_home || detAct.muted);
+    const idStr = String(activityId);
+    const snap = getCachedStravaActivitiesSnapshot();
+    if (snap && snap.some((a) => String(a.id) === idStr && (Boolean(a.hide_from_home) !== isMuted || Boolean(a.muted) !== isMuted))) {
+      const updatedList = snap.map((a) =>
+        String(a.id) === idStr
+          ? { ...a, hide_from_home: isMuted, muted: isMuted }
+          : a
+      );
+      saveCachedStravaActivities(updatedList);
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(
+          new CustomEvent('fit_track_activities_updated', {
+            detail: { activities: getCachedStravaActivities() },
+          })
+        );
+      }
+    }
+  }
+
   return updateStravaActivityRecord(activityId, (record) => ({
     ...record,
     activity: details.activity,
@@ -3169,13 +3192,19 @@ export function mergeStravaActivities(existing: StravaActivity[], incoming: Stra
   for (const act of incoming) {
     const prev = map.get(String(act.id));
     const isDel = deletedIds.has(String(act.id)) || Boolean(prev?.isDeleted);
+    const hasExplicitIncomingMute =
+      typeof act.hide_from_home === 'boolean' || typeof act.muted === 'boolean';
+    const resolvedMuted = hasExplicitIncomingMute
+      ? Boolean(act.hide_from_home || act.muted)
+      : Boolean(prev?.hide_from_home || prev?.muted);
+
     map.set(String(act.id), {
       ...prev,
       ...act,
       isDeleted: isDel,
       gear_id: act.gear_id ?? (act as any).gear?.id ?? prev?.gear_id ?? null,
-      hide_from_home: act.hide_from_home ?? (act as any).muted ?? prev?.hide_from_home ?? false,
-      muted: act.muted ?? act.hide_from_home ?? prev?.muted ?? false,
+      hide_from_home: resolvedMuted,
+      muted: resolvedMuted,
     });
   }
   // Sort descending by date
@@ -3186,12 +3215,133 @@ export function mergeStravaActivities(existing: StravaActivity[], incoming: Stra
   });
 }
 
+let isRecheckingMuteStatus = false;
+
+/**
+ * Background check for `hide_from_home` (Muted) & deleted status on recent activities.
+ * Strava's `GET /athlete/activities` (SummaryActivity) often omits `hide_from_home` and only
+ * includes `hide_from_home: boolean` on `GET /activities/{id}` (DetailedActivity).
+ * When re-syncing, this checks recent activities via `GET /activities/{id}` (1 read call each,
+ * respecting rate limits) so activities muted on Strava after being imported are updated.
+ */
+export async function recheckRecentActivitiesMuteStatus(
+  accessToken: string,
+  activities: StravaActivity[],
+  maxCheck = 20
+): Promise<void> {
+  if (isRecheckingMuteStatus || !accessToken) return;
+  isRecheckingMuteStatus = true;
+
+  try {
+    const candidates = activities
+      .filter((a) => {
+        if (!a || a.isDeleted) return false;
+        const idStr = String(a.id);
+        return !idStr.startsWith('demo-') && !idStr.startsWith('local-');
+      })
+      .slice(0, maxCheck);
+
+    let anyChanged = false;
+
+    for (const act of candidates) {
+      const limits = getCachedStravaRateLimits();
+      if (limits && limits.read15MinLimit > 0 && limits.read15MinUsage >= limits.read15MinLimit - 35) {
+        break;
+      }
+
+      const idStr = String(act.id);
+      try {
+        const detailed = (await fetchStravaApiJson(
+          accessToken,
+          `/api/strava/activities/${encodeURIComponent(idStr)}`,
+          `/activities/${encodeURIComponent(idStr)}`,
+          'Strava activity mute check'
+        )) as Record<string, any>;
+
+        if (detailed && typeof detailed === 'object' && !Array.isArray(detailed)) {
+          const isMuted = Boolean(detailed.hide_from_home || detailed.muted);
+          const newKudos =
+            typeof detailed.kudos_count === 'number' ? detailed.kudos_count : act.kudos_count;
+
+          // Update IndexedDB details record if present
+          const existingRec = await getCachedStravaActivityRecord(idStr);
+          if (existingRec) {
+            const prevRecMuted = Boolean(
+              (existingRec.activity as any)?.hide_from_home ||
+                (existingRec.activity as any)?.muted
+            );
+            if (prevRecMuted !== isMuted) {
+              await updateStravaActivityRecord(idStr, (rec) => ({
+                ...rec,
+                activity: {
+                  ...(rec.activity || {}),
+                  ...detailed,
+                  hide_from_home: isMuted,
+                  muted: isMuted,
+                  laps: (rec.activity as any)?.laps || detailed.laps,
+                },
+              }));
+            }
+          }
+
+          if (Boolean(act.hide_from_home || act.muted) !== isMuted || act.kudos_count !== newKudos) {
+            anyChanged = true;
+            const currentSnap = getCachedStravaActivitiesSnapshot() || [];
+            const updatedSnap = currentSnap.map((item) =>
+              String(item.id) === idStr
+                ? {
+                    ...item,
+                    hide_from_home: isMuted,
+                    muted: isMuted,
+                    kudos_count: newKudos,
+                  }
+                : item
+            );
+            saveCachedStravaActivities(updatedSnap);
+          }
+        }
+      } catch (err: any) {
+        const msg = String(err?.message || err);
+        if (/\b404\b|not found/i.test(msg)) {
+          markActivityAsDeleted(idStr);
+          anyChanged = true;
+        } else if (/\b429\b|rate limit|401/i.test(msg)) {
+          break;
+        }
+      }
+
+      await new Promise((r) => setTimeout(r, 650));
+    }
+
+    if (anyChanged && typeof window !== 'undefined') {
+      window.dispatchEvent(
+        new CustomEvent('fit_track_activities_updated', {
+          detail: { activities: getCachedStravaActivities() },
+        })
+      );
+    }
+  } finally {
+    isRecheckingMuteStatus = false;
+  }
+}
+
+function mapSummaryActivityItem(item: any): StravaActivity {
+  const hasExplicitMute =
+    typeof item?.hide_from_home === 'boolean' || typeof item?.muted === 'boolean';
+  const isMuted = hasExplicitMute ? Boolean(item.hide_from_home || item.muted) : undefined;
+  return {
+    ...item,
+    gear_id: item.gear_id || item.gear?.id || null,
+    ...(isMuted !== undefined ? { hide_from_home: isMuted, muted: isMuted } : {}),
+  };
+}
+
 /**
  * Smart Delta Sync:
- * - Uses `GET /athlete/activities?after=<mostRecentActivityStartEpoch>` when cached activities exist,
- *   so we only request activities since the start time of our most recent activity.
- * - For the first time (if no cached activities exist), requests 200 activities.
- * - Prepend and merge into existing cache; never lose previously fetched historical items!
+ * - When `options.useAfterMostRecent` is true (automatic 1-hour reopen check), uses
+ *   `GET /athlete/activities?after=<mostRecentActivityStartEpoch>` to only check for new activities.
+ * - When `options.useAfterMostRecent` is false/omitted (manual Sync button), fetches the latest 200
+ *   activities so muted status, kudos, renames, and deleted activities are refreshed across existing items.
  */
 export async function syncStravaActivitiesDelta(
   accessToken: string,
@@ -3199,7 +3349,7 @@ export async function syncStravaActivitiesDelta(
   options?: { useAfterMostRecent?: boolean }
 ): Promise<StravaActivity[]> {
   const existingActivities = getCachedStravaActivities();
-  const useAfter = options?.useAfterMostRecent !== false;
+  const useAfter = Boolean(options?.useAfterMostRecent);
   const afterEpochSec = useAfter
     ? getMostRecentStravaActivityStartEpoch(existingActivities)
     : null;
@@ -3207,11 +3357,7 @@ export async function syncStravaActivitiesDelta(
   const perPage =
     customPerPage !== undefined
       ? customPerPage
-      : afterEpochSec
-      ? 200
-      : existingActivities.length < 200
-      ? 200
-      : 30;
+      : 200;
 
   const queryParams = new URLSearchParams({
     page: '1',
@@ -3249,12 +3395,7 @@ export async function syncStravaActivitiesDelta(
         const data = await res.json();
         if (Array.isArray(data)) {
           fetchedSuccessfully = true;
-          incoming = data.map((item: any) => ({
-            ...item,
-            gear_id: item.gear_id || item.gear?.id || null,
-            hide_from_home: Boolean(item.hide_from_home || item.muted),
-            muted: Boolean(item.muted || item.hide_from_home),
-          }));
+          incoming = data.map(mapSummaryActivityItem);
         }
       }
     } catch (err) {
@@ -3289,12 +3430,7 @@ export async function syncStravaActivitiesDelta(
     }
     if (Array.isArray(data)) {
       fetchedSuccessfully = true;
-      incoming = data.map((item: any) => ({
-        ...item,
-        gear_id: item.gear_id || item.gear?.id || null,
-        hide_from_home: Boolean(item.hide_from_home || item.muted),
-        muted: Boolean(item.muted || item.hide_from_home),
-      }));
+      incoming = data.map(mapSummaryActivityItem);
     }
   }
 
@@ -3362,6 +3498,13 @@ export async function syncStravaActivitiesDelta(
   const finalCleaned = applyRenameRulesToActivities(merged);
   saveCachedStravaActivities(finalCleaned);
   setLastStravaRefreshTime(Date.now());
+
+  // On manual re-sync (or when re-checking recent activities), inspect recent activities'
+  // DetailedActivity endpoint in background so any activity muted on Strava after import is updated
+  if (!useAfter && finalCleaned.length > 0) {
+    void recheckRecentActivitiesMuteStatus(accessToken, finalCleaned, 20);
+  }
+
   return finalCleaned;
 }
 
@@ -3402,12 +3545,7 @@ export async function fetchOlderStravaActivities(
       if (res.ok) {
         const data = await res.json();
         if (Array.isArray(data)) {
-          olderData = data.map((item: any) => ({
-            ...item,
-            gear_id: item.gear_id || item.gear?.id || null,
-            hide_from_home: Boolean(item.hide_from_home || item.muted),
-            muted: Boolean(item.muted || item.hide_from_home),
-          }));
+          olderData = data.map(mapSummaryActivityItem);
         }
       }
     } catch (err) {
@@ -3439,12 +3577,7 @@ export async function fetchOlderStravaActivities(
       throw new Error(data.message || data.error || `Failed to fetch older activities (${stravaRes.status})`);
     }
     if (Array.isArray(data)) {
-      olderData = data.map((item: any) => ({
-        ...item,
-        gear_id: item.gear_id || item.gear?.id || null,
-        hide_from_home: Boolean(item.hide_from_home || item.muted),
-        muted: Boolean(item.muted || item.hide_from_home),
-      }));
+      olderData = data.map(mapSummaryActivityItem);
     }
   }
 

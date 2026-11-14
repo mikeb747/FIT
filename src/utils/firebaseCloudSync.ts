@@ -793,6 +793,59 @@ export async function pullOrSeedCloudVault(user: User): Promise<CloudHydratedSna
   }
 }
 
+/**
+ * Explicitly restores all 5 vault domains from Firestore into local storage and React state.
+ */
+export async function restoreAllSettingsFromCloud(): Promise<CloudHydratedSnapshot> {
+  const user = auth.currentUser;
+  const combinedSnapshot: CloudHydratedSnapshot = {};
+  if (!user || !user.emailVerified) return combinedSnapshot;
+
+  updateStatus({ isSyncing: true, error: null });
+
+  try {
+    for (const domain of ALL_VAULT_DOMAINS) {
+      const vaultPath = `users/${user.uid}/vault/${domain}`;
+      const vaultRef = doc(db, 'users', user.uid, 'vault', domain);
+      const docKey = `${user.uid}:${domain}`;
+
+      try {
+        const snap = await getDocFromServer(vaultRef).catch(() => getDoc(vaultRef));
+        if (snap.exists()) {
+          knownExistingVaultDocs.add(docKey);
+          const data = snap.data();
+          if (data?.payload && typeof data.payload === 'object') {
+            isApplyingRemoteSnapshot = true;
+            try {
+              const part = applyCloudDomainPayloadToLocal(
+                domain,
+                data.payload as Record<string, any>
+              );
+              Object.assign(combinedSnapshot, part);
+            } finally {
+              isApplyingRemoteSnapshot = false;
+            }
+          }
+        }
+      } catch (err) {
+        handleFirestoreError(err, OperationType.GET, vaultPath);
+      }
+    }
+
+    updateStatus({ isSyncing: false, lastSyncedAt: Date.now(), error: null });
+    if (Object.keys(combinedSnapshot).length > 0) {
+      notifyHydrated(combinedSnapshot);
+    }
+    return combinedSnapshot;
+  } catch (err) {
+    updateStatus({
+      isSyncing: false,
+      error: err instanceof Error ? err.message : String(err),
+    });
+    throw err;
+  }
+}
+
 let activeSnapshotUnsubscribers: Unsubscribe[] = [];
 
 function clearSnapshotListeners() {

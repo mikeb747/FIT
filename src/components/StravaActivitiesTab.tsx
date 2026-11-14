@@ -1104,6 +1104,7 @@ export const StravaActivitiesTab: React.FC<StravaActivitiesTabProps> = ({
             const isNew = isActivityNew(act);
             const showNew = isNew && !isIgnored;
             const hasCalibration = Boolean(details?.calibration);
+            const showCalibrated = hasCalibration && !isIgnored;
             const duration = details?.calibration?.calibratedMovingTimeSec ?? act.moving_time ?? act.elapsed_time ?? 0;
             const tssResult = calculateActivityTSS(act, details, athleteProfile);
             const tssValue = tssResult ? tssResult.tss : null;
@@ -1138,11 +1139,38 @@ export const StravaActivitiesTab: React.FC<StravaActivitiesTabProps> = ({
                   {getCategoryIcon(classification.category, 'w-5 h-5', isLight)}
                 </div>
 
-                {/* 4.b: "New" badge flush in top-right corner (omitted if Ignored) */}
-                {showNew && (
-                  <div className="absolute top-0 right-0 px-2.5 py-1 rounded-tr-2xl rounded-bl-xl bg-emerald-500/15 border-l border-b border-emerald-500/30 text-emerald-400 text-[10px] font-black uppercase tracking-wider flex items-center gap-1 z-10 shadow-xs">
-                    <Sparkles className="w-2.5 h-2.5" />
-                    <span>New</span>
+                {/* 4.b: Top-right badges: Calibrated & New flush in top-right corner */}
+                {(showCalibrated || showNew) && (
+                  <div className="absolute top-0 right-0 flex items-center z-10 pointer-events-none">
+                    {showCalibrated && (
+                      <div
+                        className={`px-2.5 py-1 flex items-center gap-1 border-l border-b text-[10px] font-black uppercase tracking-wider shadow-xs ${
+                          showNew ? 'rounded-bl-xl' : 'rounded-tr-2xl rounded-bl-xl'
+                        } ${
+                          isLight
+                            ? 'bg-amber-100/90 border-amber-300 text-amber-800'
+                            : 'bg-amber-500/15 border-amber-500/30 text-amber-300'
+                        }`}
+                      >
+                        <span>Calibrated</span>
+                      </div>
+                    )}
+                    {showNew && (
+                      <div
+                        className={`px-2.5 py-1 rounded-tr-2xl ${
+                          showCalibrated
+                            ? 'border-l border-b'
+                            : 'rounded-bl-xl border-l border-b'
+                        } text-[10px] font-black uppercase tracking-wider flex items-center gap-1 shadow-xs ${
+                          isLight
+                            ? 'bg-emerald-100/90 border-emerald-300 text-emerald-800'
+                            : 'bg-emerald-500/15 border-emerald-500/30 text-emerald-400'
+                        }`}
+                      >
+                        <Sparkles className="w-2.5 h-2.5" />
+                        <span>New</span>
+                      </div>
+                    )}
                   </div>
                 )}
 
@@ -1211,7 +1239,15 @@ export const StravaActivitiesTab: React.FC<StravaActivitiesTabProps> = ({
                 <div className="pt-2.5 pb-8 pl-13 pr-3.5 flex flex-col gap-1.5">
                   {/* Title & Subtype Row */}
                   <div className="flex items-start justify-between gap-2">
-                    <div className="min-w-0 pr-12">
+                    <div
+                      className={`min-w-0 ${
+                        showCalibrated && showNew
+                          ? 'pr-28'
+                          : showCalibrated || showNew
+                          ? 'pr-16'
+                          : 'pr-2'
+                      }`}
+                    >
                       <h4
                         className={`text-sm sm:text-base font-extrabold transition-colors truncate ${
                           isLight
@@ -1234,24 +1270,13 @@ export const StravaActivitiesTab: React.FC<StravaActivitiesTabProps> = ({
                       </div>
                     </div>
 
-                    <div className="flex items-center gap-1.5 shrink-0 pt-0.5">
-                      {/* Ignored or Calibrated Badge */}
-                      {isIgnored ? (
+                    {isIgnored && (
+                      <div className="flex items-center gap-1.5 shrink-0 pt-0.5">
                         <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-rose-500/10 border border-rose-500/25 text-rose-500 text-[10px] font-bold">
                           <span>Ignored</span>
                         </span>
-                      ) : hasCalibration ? (
-                        <span
-                          className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-lg border text-[10px] font-bold ${
-                            isLight
-                              ? 'bg-amber-50 border-amber-300 text-amber-800'
-                              : 'bg-amber-500/10 border-amber-500/25 text-amber-300'
-                          }`}
-                        >
-                          <span>Calibrated</span>
-                        </span>
-                      ) : null}
-                    </div>
+                      </div>
+                    )}
                   </div>
 
                   {/* Primary Metrics Row Tailored to Sport */}

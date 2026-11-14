@@ -2,7 +2,8 @@ import React, { useState, useEffect } from 'react';
 import {
   Cloud,
   CheckCircle2,
-  RefreshCw,
+  Save,
+  RotateCcw,
   LogOut,
   ShieldCheck,
   Loader2,
@@ -14,6 +15,7 @@ import {
   signInToCloudVault,
   signOutFromCloudVault,
   syncAllSettingsToCloud,
+  restoreAllSettingsFromCloud,
   CloudSyncStatus,
 } from '../utils/firebaseCloudSync';
 
@@ -23,7 +25,7 @@ interface CloudVaultSectionProps {
 
 export const CloudVaultSection: React.FC<CloudVaultSectionProps> = ({ theme = 'dark' }) => {
   const [status, setStatus] = useState<CloudSyncStatus | null>(null);
-  const [actionBusy, setActionBusy] = useState(false);
+  const [actionBusy, setActionBusy] = useState<'signin' | 'save' | 'restore' | 'signout' | null>(null);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
 
   useEffect(() => {
@@ -35,39 +37,52 @@ export const CloudVaultSection: React.FC<CloudVaultSectionProps> = ({ theme = 'd
   const isLight = theme === 'light';
 
   const handleSignIn = async () => {
-    setActionBusy(true);
+    setActionBusy('signin');
     setStatusMessage(null);
     try {
       await signInToCloudVault();
       await syncAllSettingsToCloud();
-      setStatusMessage('All settings, zones, integrations, goals, and Garmin health data synced to cloud!');
+      setStatusMessage('All settings, zones, integrations, goals, and Garmin health data saved to cloud!');
     } catch (err: any) {
       console.warn('[CloudVault] Sign-in canceled or failed:', err);
     } finally {
-      setActionBusy(false);
+      setActionBusy(null);
     }
   };
 
-  const handleManualSync = async () => {
-    setActionBusy(true);
+  const handleSaveToCloud = async () => {
+    setActionBusy('save');
     setStatusMessage(null);
     try {
       await syncAllSettingsToCloud();
-      setStatusMessage('Cloud vault updated with all current settings & logs.');
+      setStatusMessage('All current settings & logs saved to cloud.');
     } catch (err: any) {
-      console.warn('[CloudVault] Manual sync error:', err);
+      console.warn('[CloudVault] Save error:', err);
     } finally {
-      setActionBusy(false);
+      setActionBusy(null);
+    }
+  };
+
+  const handleRestoreFromCloud = async () => {
+    setActionBusy('restore');
+    setStatusMessage(null);
+    try {
+      await restoreAllSettingsFromCloud();
+      setStatusMessage('All settings, zones, integrations, goals & health logs restored from cloud.');
+    } catch (err: any) {
+      console.warn('[CloudVault] Restore error:', err);
+    } finally {
+      setActionBusy(null);
     }
   };
 
   const handleSignOut = async () => {
-    setActionBusy(true);
+    setActionBusy('signout');
     setStatusMessage(null);
     try {
       await signOutFromCloudVault();
     } finally {
-      setActionBusy(false);
+      setActionBusy(null);
     }
   };
 
@@ -82,7 +97,7 @@ export const CloudVaultSection: React.FC<CloudVaultSectionProps> = ({ theme = 'd
   };
 
   const isConnected = Boolean(status?.isAuthenticated);
-  const isBusy = Boolean(status?.isSyncing || actionBusy);
+  const isBusy = Boolean(status?.isSyncing || actionBusy !== null);
 
   return (
     <div
@@ -116,7 +131,7 @@ export const CloudVaultSection: React.FC<CloudVaultSectionProps> = ({ theme = 'd
           <div className="space-y-1">
             <div className="flex items-center gap-2 flex-wrap">
               <h4 className="text-sm font-bold tracking-tight">
-                Firebase Cloud Vault (Auto-Preserve All Settings)
+                Save Settings
               </h4>
               {isConnected ? (
                 <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold bg-emerald-500/15 text-emerald-500 border border-emerald-500/30">
@@ -146,17 +161,38 @@ export const CloudVaultSection: React.FC<CloudVaultSectionProps> = ({ theme = 'd
           </div>
         </div>
 
-        <div className="flex items-center gap-2 shrink-0">
+        <div className="flex items-center gap-2 flex-wrap shrink-0">
           {isConnected ? (
             <>
               <button
                 type="button"
-                onClick={handleManualSync}
+                onClick={handleSaveToCloud}
                 disabled={isBusy}
                 className="px-3 py-1.5 rounded-xl text-xs font-bold bg-emerald-500 hover:bg-emerald-400 text-slate-950 transition-all flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
               >
-                <RefreshCw className={`w-3.5 h-3.5 ${isBusy ? 'animate-spin' : ''}`} />
-                <span>{isBusy ? 'Syncing...' : 'Sync Now'}</span>
+                {actionBusy === 'save' ? (
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                ) : (
+                  <Save className="w-3.5 h-3.5" />
+                )}
+                <span>{actionBusy === 'save' ? 'Saving...' : 'Save'}</span>
+              </button>
+              <button
+                type="button"
+                onClick={handleRestoreFromCloud}
+                disabled={isBusy}
+                className={`px-3 py-1.5 rounded-xl text-xs font-bold border transition-all flex items-center gap-1.5 cursor-pointer disabled:opacity-50 ${
+                  isLight
+                    ? 'bg-white border-emerald-300 text-emerald-700 hover:bg-emerald-50'
+                    : 'bg-slate-900 border-emerald-500/40 text-emerald-300 hover:bg-emerald-950/40'
+                }`}
+              >
+                {actionBusy === 'restore' ? (
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                ) : (
+                  <RotateCcw className="w-3.5 h-3.5" />
+                )}
+                <span>{actionBusy === 'restore' ? 'Restoring...' : 'Restore'}</span>
               </button>
               <button
                 type="button"
