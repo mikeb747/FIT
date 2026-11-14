@@ -28,6 +28,8 @@ export interface StreamDownloaderProgress {
 let activeAbortController: AbortController | null = null;
 let isRunning = false;
 let isPaused = false;
+let activeQueue: StravaActivity[] = [];
+let currentQueueIndex = 0;
 let currentProgress: StreamDownloaderProgress = {
   isDownloading: false,
   total: 0,
@@ -186,10 +188,6 @@ export async function startBackgroundStreamDownload({
   onActivityDownloaded?: (record: StravaActivityDetailsRecord) => void;
   throttleDelayMs?: number;
 }): Promise<void> {
-  if (isRunning) {
-    return;
-  }
-
   // Filter out deleted and sandbox demo activities (demo streams are generated locally)
   const validActivities = activities.filter(
     (a) => !a.isDeleted && !isDemoActivityId(a.id) && !isLegacyDemoActivityId(a.id)
@@ -204,6 +202,46 @@ export async function startBackgroundStreamDownload({
     const timeB = new Date(b.start_date).getTime();
     return timeB - timeA;
   });
+
+  // If already running, check if any newly refreshed activities need streams and prepend them right after current item
+  if (isRunning) {
+    const queuedIds = new Set(activeQueue.map((a) => String(a.id)));
+    const newlyDiscoveredForQueue: StravaActivity[] = [];
+    for (const act of sorted) {
+      const actId = String(act.id);
+      if (queuedIds.has(actId)) continue;
+      const existing = cachedDetails[actId];
+      const hasStreams =
+        existing?.streams &&
+        typeof existing.streams === 'object' &&
+        !existing.streamsError &&
+        Object.keys(existing.streams).length > 0;
+      const existingNoStreams =
+        Boolean(existing?.noStreamsAvailable) ||
+        (Boolean(existing?.fetchedAt) && (Boolean(existing?.streamsError) || !existing?.streams));
+      if (!hasStreams && !existingNoStreams) {
+        const dbRecord = await getCachedStravaActivityRecord(actId);
+        const dbHasStreams =
+          dbRecord?.streams &&
+          typeof dbRecord.streams === 'object' &&
+          !dbRecord.streamsError &&
+          Object.keys(dbRecord.streams).length > 0;
+        const dbNoStreams =
+          Boolean(dbRecord?.noStreamsAvailable) ||
+          (Boolean(dbRecord?.fetchedAt) && (Boolean(dbRecord?.streamsError) || !dbRecord?.streams));
+        if (!dbHasStreams && !dbNoStreams) {
+          newlyDiscoveredForQueue.push(act);
+          queuedIds.add(actId);
+        }
+      }
+    }
+    if (newlyDiscoveredForQueue.length > 0) {
+      activeQueue.splice(currentQueueIndex + 1, 0, ...newlyDiscoveredForQueue);
+      currentProgress.total = activeQueue.length;
+      notifyListeners();
+    }
+    return;
+  }
 
   // Pre-check Google Sheets for existing activity data to conserve Strava API rate limits
   if (getGoogleAccessToken()) {
@@ -278,21 +316,24 @@ export async function startBackgroundStreamDownload({
 
   isRunning = true;
   isPaused = false;
+  activeQueue = queue;
+  currentQueueIndex = 0;
   activeAbortController = new AbortController();
   const signal = activeAbortController.signal;
 
   currentProgress = {
     isDownloading: true,
-    total: queue.length,
+    total: activeQueue.length,
     completed: 0,
-    currentActivityName: queue[0]?.name,
+    currentActivityName: activeQueue[0]?.name,
     isPaused: false,
     isRateLimited: false,
     rateLimits: getCachedStravaRateLimits(),
   };
   notifyListeners();
 
-  for (let i = 0; i < queue.length; i++) {
+  for (let i = 0; i < activeQueue.length; i++) {
+    currentQueueIndex = i;
     if (signal.aborted) break;
 
     // 1. Handle user manual pause
@@ -330,7 +371,7 @@ export async function startBackgroundStreamDownload({
 
     if (signal.aborted) break;
 
-    const activity = queue[i];
+    const activity = activeQueue[i];
     currentProgress.currentActivityName = activity.name;
     currentProgress.rateLimits = getCachedStravaRateLimits();
     notifyListeners();
@@ -356,11 +397,12 @@ export async function startBackgroundStreamDownload({
       }
 
       currentProgress.completed = i + 1;
+      currentProgress.total = activeQueue.length;
       currentProgress.rateLimits = getCachedStravaRateLimits();
       notifyListeners();
 
       // Respectful adaptive pacing between activities
-      if (i < queue.length - 1) {
+      if (i < activeQueue.length - 1) {
         const adaptiveDelay = getAdaptiveThrottleDelay(throttleDelayMs);
         await new Promise((r) => setTimeout(r, adaptiveDelay));
       }
@@ -401,6 +443,7 @@ export async function startBackgroundStreamDownload({
           });
         } catch {}
         currentProgress.completed = i + 1;
+        currentProgress.total = activeQueue.length;
         notifyListeners();
         await new Promise((r) => setTimeout(r, 1500));
       }
@@ -408,6 +451,8 @@ export async function startBackgroundStreamDownload({
   }
 
   isRunning = false;
+  activeQueue = [];
+  currentQueueIndex = 0;
   activeAbortController = null;
   currentProgress.isDownloading = false;
   currentProgress.currentActivityName = undefined;

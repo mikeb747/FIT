@@ -840,7 +840,11 @@ export const StravaActivityModal: React.FC<StravaActivityModalProps> = ({
                   ? `${outdoorAvgSpeedKph || (activity.average_speed ? (activity.average_speed * 3.6).toFixed(1) : '--')} kph`
                   : (activity.total_elevation_gain ? `↑ ${Math.round(activity.total_elevation_gain)}m` : 'Flat / Indoor')}
               </span>
-              {isBikeOrTurbo && (outdoorMaxSpeedKph || activity.max_speed) ? (
+              {classification.category === 'Swim' && swimPace?.avgStrokeRateSpm ? (
+                <span className="text-[10px] text-sky-400 font-mono">
+                  {swimPace.avgStrokeRateSpm} spm{swimPace.totalStrokes ? ` · ${swimPace.totalStrokes} strokes` : ''}
+                </span>
+              ) : isBikeOrTurbo && (outdoorMaxSpeedKph || activity.max_speed) ? (
                 <span className="text-[10px] text-slate-400 font-mono">
                   max {outdoorMaxSpeedKph || (activity.max_speed ? (activity.max_speed * 3.6).toFixed(1) : '')} kph
                 </span>
@@ -1366,14 +1370,24 @@ export const StravaActivityModal: React.FC<StravaActivityModalProps> = ({
           {/* Swim Moving Laps Breakdown if Swim activity and laps are present */}
           {classification.category === 'Swim' && swimPace?.laps && swimPace.laps.length > 0 && (
             <div className="p-3.5 rounded-2xl bg-slate-950/70 border border-slate-800 space-y-2">
-              <div className="flex items-center justify-between">
+              <div className="flex items-center justify-between flex-wrap gap-2">
                 <h4 className="text-xs font-bold text-sky-300 uppercase tracking-wider flex items-center gap-1.5">
                   <Waves className="w-3.5 h-3.5 text-sky-400" />
                   <span>Moving Laps ({swimPace.laps.length} Laps)</span>
                 </h4>
-                <span className="text-xs font-mono font-bold text-sky-400">
-                  Avg {swimPace.pacePer100mFormatted}
-                </span>
+                <div className="flex items-center gap-2 text-xs font-mono font-bold">
+                  <span className="text-sky-400">Avg {swimPace.pacePer100mFormatted}</span>
+                  {swimPace.avgStrokeRateSpm ? (
+                    <span className="text-slate-300 bg-slate-900 border border-slate-800 px-1.5 py-0.5 rounded text-[10px]">
+                      {swimPace.avgStrokeRateSpm} spm
+                    </span>
+                  ) : null}
+                  {swimPace.avgSwolf ? (
+                    <span className="text-emerald-300 bg-emerald-950/40 border border-emerald-500/20 px-1.5 py-0.5 rounded text-[10px]">
+                      SWOLF {swimPace.avgSwolf}
+                    </span>
+                  ) : null}
+                </div>
               </div>
               <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 max-h-48 overflow-y-auto pt-1">
                 {swimPace.laps.map((lap) => {
@@ -1399,6 +1413,25 @@ export const StravaActivityModal: React.FC<StravaActivityModalProps> = ({
                           <span className="text-sky-300">{lap.pacePer100mFormatted}</span>
                         )}
                       </div>
+                      {(lap.strokeRateSpm || lap.avgHr || lap.swolf) ? (
+                        <div className="flex items-center justify-between text-[10px] font-mono text-slate-400 mt-1 pt-1 border-t border-slate-800/60">
+                          <span>
+                            {!isRestLap && lap.strokeRateSpm
+                              ? `${lap.strokeRateSpm} spm${lap.totalStrokes ? ` (${lap.totalStrokes} str)` : ''}`
+                              : isRestLap
+                              ? 'Rest'
+                              : ''}
+                          </span>
+                          <span className="flex items-center gap-1.5">
+                            {!isRestLap && lap.swolf ? (
+                              <span className="text-emerald-400/90">SW {lap.swolf}</span>
+                            ) : null}
+                            {lap.avgHr ? (
+                              <span className="text-rose-400">{lap.avgHr} bpm</span>
+                            ) : null}
+                          </span>
+                        </div>
+                      ) : null}
                     </div>
                   );
                 })}

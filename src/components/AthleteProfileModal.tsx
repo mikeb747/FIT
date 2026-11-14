@@ -108,6 +108,8 @@ import {
   GarminTriangleIcon,
 } from '../utils/garminConfig';
 
+import { CloudVaultSection } from './CloudVaultSection';
+
 export type AppTheme = 'dark' | 'light';
 export type DisplayDensity = number | 'standard' | 'compact' | 'comfortable';
 
@@ -1992,6 +1994,9 @@ export const AthleteProfileModal: React.FC<AthleteProfileModalProps> = ({
           {/* TAB 0: APP (STRAVA, DARK/LIGHT, DENSITY, TITLE) */}
           {activeTab === 'settings' && (
             <div className="space-y-3.5">
+              {/* 0. Firebase Cloud Vault — Save & Restore All Settings Across Sessions */}
+              <CloudVaultSection theme={theme} />
+
               {/* 1. Connected Services & Integrations (Strava & Garmin in the SAME box) */}
               <div
                 className={`p-3.5 rounded-2xl border space-y-3.5 ${

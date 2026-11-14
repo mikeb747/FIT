@@ -513,33 +513,46 @@ export function generateSwimFitFile(params: SwimFitParams): Uint8Array {
   }
 
   // -------------------------------------------------------------
-  // 4. Lap Messages (Global 19, Local 3) — Pool Swim & Rest Laps
+  // 4. Length Messages (Global 101, Local 3) — 25m Pool Lengths & Idle Rests
   // -------------------------------------------------------------
   records.writeUint8(0x40 | 3);
   records.writeUint8(0);
   records.writeUint8(0);
-  records.writeUint16LE(19);   // Global Message Number: 19 (lap)
-  records.writeUint8(17);      // 17 fields
+  records.writeUint16LE(101);  // Global Message Number: 101 (length)
+  records.writeUint8(12);      // 12 fields
 
   records.writeUint8(254); records.writeUint8(2); records.writeUint8(0x84); // message_index (uint16)
   records.writeUint8(253); records.writeUint8(4); records.writeUint8(0x86); // timestamp (uint32)
+  records.writeUint8(0);   records.writeUint8(1); records.writeUint8(0x00); // event (28 = length)
+  records.writeUint8(1);   records.writeUint8(1); records.writeUint8(0x00); // event_type (1 = stop)
   records.writeUint8(2);   records.writeUint8(4); records.writeUint8(0x86); // start_time (uint32)
-  records.writeUint8(7);   records.writeUint8(4); records.writeUint8(0x86); // total_elapsed_time (uint32 ms)
-  records.writeUint8(8);   records.writeUint8(4); records.writeUint8(0x86); // total_timer_time (uint32 ms)
-  records.writeUint8(9);   records.writeUint8(4); records.writeUint8(0x86); // total_distance (uint32 cm)
-  records.writeUint8(13);  records.writeUint8(2); records.writeUint8(0x84); // avg_speed (uint16 mm/s)
-  records.writeUint8(14);  records.writeUint8(2); records.writeUint8(0x84); // max_speed (uint16 mm/s)
-  records.writeUint8(15);  records.writeUint8(1); records.writeUint8(0x02); // avg_heart_rate (uint8)
-  records.writeUint8(16);  records.writeUint8(1); records.writeUint8(0x02); // max_heart_rate (uint8)
-  records.writeUint8(17);  records.writeUint8(1); records.writeUint8(0x02); // avg_cadence (uint8)
-  records.writeUint8(18);  records.writeUint8(1); records.writeUint8(0x02); // max_cadence (uint8)
-  records.writeUint8(25);  records.writeUint8(1); records.writeUint8(0x00); // sport (5 = swimming)
-  records.writeUint8(26);  records.writeUint8(1); records.writeUint8(0x00); // sub_sport (17 = lap_swimming)
-  records.writeUint8(32);  records.writeUint8(2); records.writeUint8(0x84); // num_lengths (uint16)
-  records.writeUint8(40);  records.writeUint8(2); records.writeUint8(0x84); // num_active_lengths (uint16)
-  records.writeUint8(38);  records.writeUint8(1); records.writeUint8(0x00); // swim_stroke (0 = freestyle)
+  records.writeUint8(3);   records.writeUint8(4); records.writeUint8(0x86); // total_elapsed_time (uint32 ms)
+  records.writeUint8(4);   records.writeUint8(4); records.writeUint8(0x86); // total_timer_time (uint32 ms)
+  records.writeUint8(5);   records.writeUint8(2); records.writeUint8(0x84); // total_strokes (uint16)
+  records.writeUint8(6);   records.writeUint8(2); records.writeUint8(0x84); // avg_speed (uint16 mm/s)
+  records.writeUint8(7);   records.writeUint8(1); records.writeUint8(0x00); // swim_stroke (0 = freestyle, 0xFF = rest)
+  records.writeUint8(9);   records.writeUint8(1); records.writeUint8(0x02); // avg_swimming_cadence (uint8 strokes/min)
+  records.writeUint8(12);  records.writeUint8(1); records.writeUint8(0x00); // length_type (1 = active, 0 = idle)
 
+  interface LapComputedMeta {
+    firstLengthIndex: number;
+    numActiveLengths: number;
+    totalStrokes: number;
+    avgCadence: number;
+    maxCadence: number;
+    avgHr: number;
+    maxHr: number;
+    lapStartSec: number;
+    lapEndSec: number;
+    durSec: number;
+    distM: number;
+    isRest: boolean;
+  }
+
+  const lapMetaList: LapComputedMeta[] = [];
+  let lengthMsgIndex = 0;
   let cumulativeSec = 0;
+
   for (let sIdx = 0; sIdx < activeLaps.length; sIdx++) {
     const lap = activeLaps[sIdx];
     const durSec = Math.max(1, lap.movingTimeSec || 0);
@@ -550,19 +563,13 @@ export function generateSwimFitFile(params: SwimFitParams): Uint8Array {
     const lapEndSec = cumulativeSec + durSec;
     cumulativeSec = lapEndSec;
 
-    const lapStartGarmin = startGarminTime + Math.round(lapStartSec);
-    const lapEndGarmin = startGarminTime + Math.round(lapEndSec);
-    const lapDurationMs = Math.round(durSec * 1000);
-    const lapDistCm = Math.round(distM * 100);
-    const lapSpeedMms = !isRest && durSec > 0 ? Math.round((distM / durSec) * 1000) : 0;
-    const numLengths = !isRest && distM > 0 ? Math.max(1, Math.round(distM / poolLengthM)) : 0;
-
+    // Extract HR & Cadence from the stitched streams for this lap's time window
     let sumHr = 0, countHr = 0, maxHr = 0;
     let sumCad = 0, countCad = 0, maxCad = 0;
     if (heartrateStream && timeStream) {
       for (let i = 0; i < timeStream.length; i++) {
         const t = timeStream[i];
-        if (t >= lapStartSec && t <= lapEndSec) {
+        if (t >= lapStartSec && t < lapEndSec) {
           const val = heartrateStream[i];
           if (val > 30) {
             sumHr += val;
@@ -572,10 +579,10 @@ export function generateSwimFitFile(params: SwimFitParams): Uint8Array {
         }
       }
     }
-    if (cadenceStream && timeStream) {
+    if (!isRest && cadenceStream && timeStream) {
       for (let i = 0; i < timeStream.length; i++) {
         const t = timeStream[i];
-        if (t >= lapStartSec && t <= lapEndSec) {
+        if (t >= lapStartSec && t < lapEndSec) {
           const val = cadenceStream[i];
           if (val > 0) {
             sumCad += val;
@@ -586,37 +593,187 @@ export function generateSwimFitFile(params: SwimFitParams): Uint8Array {
       }
     }
 
-    const avgHr = countHr > 0 ? Math.round(sumHr / countHr) : 0xFF;
-    const avgCad = countCad > 0 ? Math.round(sumCad / countCad) : 0xFF;
+    const avgHr =
+      countHr > 0
+        ? Math.round(sumHr / countHr)
+        : lap.avgHr && lap.avgHr > 30
+          ? Math.round(lap.avgHr)
+          : 0xFF;
+    const peakLapHr = maxHr > 0 ? maxHr : lap.maxHr && lap.maxHr > 30 ? Math.round(lap.maxHr) : avgHr;
 
-    records.writeUint8(0x00 | 3);
-    records.writeUint16LE(sIdx);
-    records.writeUint32LE(lapEndGarmin);
-    records.writeUint32LE(lapStartGarmin);
-    records.writeUint32LE(lapDurationMs);
-    records.writeUint32LE(lapDurationMs);
-    records.writeUint32LE(lapDistCm);
-    records.writeUint16LE(lapSpeedMms);
-    records.writeUint16LE(lapSpeedMms);
-    records.writeUint8(avgHr);
-    records.writeUint8(maxHr || avgHr);
-    records.writeUint8(avgCad);
-    records.writeUint8(maxCad || avgCad);
-    records.writeUint8(5);  // Sport: Swimming (5)
-    records.writeUint8(17); // SubSport: Lap Swimming (17)
-    records.writeUint16LE(numLengths);
-    records.writeUint16LE(numLengths);
-    records.writeUint8(isRest ? 0xFF : 0); // 0 = freestyle, 0xFF = rest
+    const avgCad = isRest
+      ? 0
+      : lap.strokeRateSpm && lap.strokeRateSpm > 0
+        ? Math.round(lap.strokeRateSpm)
+        : countCad > 0
+          ? Math.round(sumCad / countCad)
+          : 0xFF;
+    const peakLapCad = isRest ? 0 : Math.max(maxCad, avgCad !== 0xFF ? avgCad : 0) || avgCad;
+
+    const firstLengthIndex = lengthMsgIndex;
+
+    if (isRest || distM <= 0) {
+      // Write 1 idle length message for the rest interval (matches Garmin Forerunner pool swim format)
+      const lenStartGarmin = startGarminTime + Math.round(lapStartSec);
+      const lenEndGarmin = startGarminTime + Math.round(lapEndSec);
+      const lenDurMs = Math.round(durSec * 1000);
+
+      records.writeUint8(0x00 | 3);
+      records.writeUint16LE(lengthMsgIndex);
+      records.writeUint32LE(lenEndGarmin);
+      records.writeUint8(28); // event = length
+      records.writeUint8(1);  // event_type = stop
+      records.writeUint32LE(lenStartGarmin);
+      records.writeUint32LE(lenDurMs);
+      records.writeUint32LE(lenDurMs);
+      records.writeUint16LE(0xFFFF); // invalid/0 strokes on rest
+      records.writeUint16LE(0);      // 0 speed
+      records.writeUint8(0xFF);      // no stroke
+      records.writeUint8(0);         // 0 cadence
+      records.writeUint8(0);         // length_type = 0 (idle)
+
+      lengthMsgIndex++;
+
+      lapMetaList.push({
+        firstLengthIndex,
+        numActiveLengths: 0,
+        totalStrokes: 0,
+        avgCadence: 0,
+        maxCadence: 0,
+        avgHr,
+        maxHr: peakLapHr,
+        lapStartSec,
+        lapEndSec,
+        durSec,
+        distM: 0,
+        isRest: true,
+      });
+    } else {
+      const numLengths = Math.max(1, Math.round(distM / poolLengthM));
+      const lenDurSec = durSec / numLengths;
+      const lenDurMs = Math.round(lenDurSec * 1000);
+      const lenSpeedMms = lenDurSec > 0 ? Math.round((poolLengthM / lenDurSec) * 1000) : 0;
+      const cadForStrokes = avgCad !== 0xFF && avgCad > 0 ? avgCad : 27;
+      const strokesPerLength = Math.max(1, Math.round((cadForStrokes * lenDurSec) / 60));
+      let lapStrokesSum = 0;
+
+      for (let lIdx = 0; lIdx < numLengths; lIdx++) {
+        const lStart = lapStartSec + lIdx * lenDurSec;
+        const lEnd = lapStartSec + (lIdx + 1) * lenDurSec;
+        const lenStartGarmin = startGarminTime + Math.round(lStart);
+        const lenEndGarmin = startGarminTime + Math.round(lEnd);
+
+        records.writeUint8(0x00 | 3);
+        records.writeUint16LE(lengthMsgIndex);
+        records.writeUint32LE(lenEndGarmin);
+        records.writeUint8(28); // event = length
+        records.writeUint8(1);  // event_type = stop
+        records.writeUint32LE(lenStartGarmin);
+        records.writeUint32LE(lenDurMs);
+        records.writeUint32LE(lenDurMs);
+        records.writeUint16LE(strokesPerLength);
+        records.writeUint16LE(lenSpeedMms);
+        records.writeUint8(0); // freestyle
+        records.writeUint8(avgCad !== 0xFF ? avgCad : cadForStrokes);
+        records.writeUint8(1); // length_type = 1 (active)
+
+        lengthMsgIndex++;
+        lapStrokesSum += strokesPerLength;
+      }
+
+      const finalLapStrokes =
+        lap.totalStrokes && lap.totalStrokes > 0 ? Math.round(lap.totalStrokes) : lapStrokesSum;
+
+      lapMetaList.push({
+        firstLengthIndex,
+        numActiveLengths: numLengths,
+        totalStrokes: finalLapStrokes,
+        avgCadence: avgCad,
+        maxCadence: peakLapCad,
+        avgHr,
+        maxHr: peakLapHr,
+        lapStartSec,
+        lapEndSec,
+        durSec,
+        distM,
+        isRest: false,
+      });
+    }
   }
 
   // -------------------------------------------------------------
-  // 5. Session Message (Global 18, Local 4) — Pool Swim Session
+  // 5. Lap Messages (Global 19, Local 4) — Pool Swim & Rest Laps
   // -------------------------------------------------------------
   records.writeUint8(0x40 | 4);
   records.writeUint8(0);
   records.writeUint8(0);
+  records.writeUint16LE(19);   // Global Message Number: 19 (lap)
+  records.writeUint8(22);      // 22 fields
+
+  records.writeUint8(254); records.writeUint8(2); records.writeUint8(0x84); // message_index (uint16)
+  records.writeUint8(253); records.writeUint8(4); records.writeUint8(0x86); // timestamp (uint32)
+  records.writeUint8(0);   records.writeUint8(1); records.writeUint8(0x00); // event (9 = lap)
+  records.writeUint8(1);   records.writeUint8(1); records.writeUint8(0x00); // event_type (1 = stop)
+  records.writeUint8(2);   records.writeUint8(4); records.writeUint8(0x86); // start_time (uint32)
+  records.writeUint8(7);   records.writeUint8(4); records.writeUint8(0x86); // total_elapsed_time (uint32 ms)
+  records.writeUint8(8);   records.writeUint8(4); records.writeUint8(0x86); // total_timer_time (uint32 ms)
+  records.writeUint8(9);   records.writeUint8(4); records.writeUint8(0x86); // total_distance (uint32 cm)
+  records.writeUint8(10);  records.writeUint8(4); records.writeUint8(0x86); // total_cycles / strokes (uint32)
+  records.writeUint8(13);  records.writeUint8(2); records.writeUint8(0x84); // avg_speed (uint16 mm/s)
+  records.writeUint8(14);  records.writeUint8(2); records.writeUint8(0x84); // max_speed (uint16 mm/s)
+  records.writeUint8(15);  records.writeUint8(1); records.writeUint8(0x02); // avg_heart_rate (uint8)
+  records.writeUint8(16);  records.writeUint8(1); records.writeUint8(0x02); // max_heart_rate (uint8)
+  records.writeUint8(17);  records.writeUint8(1); records.writeUint8(0x02); // avg_cadence (uint8 strokes/min)
+  records.writeUint8(18);  records.writeUint8(1); records.writeUint8(0x02); // max_cadence (uint8 strokes/min)
+  records.writeUint8(24);  records.writeUint8(1); records.writeUint8(0x00); // lap_trigger (0 = manual)
+  records.writeUint8(25);  records.writeUint8(1); records.writeUint8(0x00); // sport (5 = swimming)
+  records.writeUint8(26);  records.writeUint8(1); records.writeUint8(0x00); // sub_sport (17 = lap_swimming)
+  records.writeUint8(32);  records.writeUint8(2); records.writeUint8(0x84); // num_lengths (uint16)
+  records.writeUint8(35);  records.writeUint8(2); records.writeUint8(0x84); // first_length_index (uint16)
+  records.writeUint8(40);  records.writeUint8(2); records.writeUint8(0x84); // num_active_lengths (uint16)
+  records.writeUint8(38);  records.writeUint8(1); records.writeUint8(0x00); // swim_stroke (0 = freestyle)
+
+  for (let sIdx = 0; sIdx < lapMetaList.length; sIdx++) {
+    const meta = lapMetaList[sIdx];
+    const lapStartGarmin = startGarminTime + Math.round(meta.lapStartSec);
+    const lapEndGarmin = startGarminTime + Math.round(meta.lapEndSec);
+    const lapDurationMs = Math.round(meta.durSec * 1000);
+    const lapDistCm = Math.round(meta.distM * 100);
+    const lapSpeedMms = !meta.isRest && meta.durSec > 0 ? Math.round((meta.distM / meta.durSec) * 1000) : 0;
+
+    records.writeUint8(0x00 | 4);
+    records.writeUint16LE(sIdx);
+    records.writeUint32LE(lapEndGarmin);
+    records.writeUint8(9);  // event = lap (9)
+    records.writeUint8(1);  // event_type = stop (1)
+    records.writeUint32LE(lapStartGarmin);
+    records.writeUint32LE(lapDurationMs);
+    records.writeUint32LE(lapDurationMs);
+    records.writeUint32LE(lapDistCm);
+    records.writeUint32LE(meta.totalStrokes);
+    records.writeUint16LE(lapSpeedMms);
+    records.writeUint16LE(lapSpeedMms);
+    records.writeUint8(meta.avgHr);
+    records.writeUint8(meta.maxHr);
+    records.writeUint8(meta.avgCadence);
+    records.writeUint8(meta.maxCadence);
+    records.writeUint8(0);  // lap_trigger = manual (0)
+    records.writeUint8(5);  // Sport: Swimming (5)
+    records.writeUint8(17); // SubSport: Lap Swimming (17)
+    records.writeUint16LE(meta.numActiveLengths);
+    records.writeUint16LE(meta.firstLengthIndex);
+    records.writeUint16LE(meta.numActiveLengths);
+    records.writeUint8(meta.isRest ? 0xFF : 0);
+  }
+
+  // -------------------------------------------------------------
+  // 6. Session Message (Global 18, Local 5) — Pool Swim Session
+  // -------------------------------------------------------------
+  records.writeUint8(0x40 | 5);
+  records.writeUint8(0);
+  records.writeUint8(0);
   records.writeUint16LE(18);   // Global Message Number: 18 (session)
-  records.writeUint8(19);      // 19 fields
+  records.writeUint8(20);      // 20 fields
 
   records.writeUint8(254); records.writeUint8(2); records.writeUint8(0x84); // message_index (uint16)
   records.writeUint8(253); records.writeUint8(4); records.writeUint8(0x86); // timestamp (uint32)
@@ -624,6 +781,7 @@ export function generateSwimFitFile(params: SwimFitParams): Uint8Array {
   records.writeUint8(7);   records.writeUint8(4); records.writeUint8(0x86); // total_elapsed_time (uint32 ms)
   records.writeUint8(8);   records.writeUint8(4); records.writeUint8(0x86); // total_timer_time (uint32 ms)
   records.writeUint8(9);   records.writeUint8(4); records.writeUint8(0x86); // total_distance (uint32 cm)
+  records.writeUint8(10);  records.writeUint8(4); records.writeUint8(0x86); // total_cycles / strokes (uint32)
   records.writeUint8(14);  records.writeUint8(2); records.writeUint8(0x84); // avg_speed (uint16 mm/s)
   records.writeUint8(15);  records.writeUint8(2); records.writeUint8(0x84); // max_speed (uint16 mm/s)
   records.writeUint8(16);  records.writeUint8(1); records.writeUint8(0x02); // avg_heart_rate (uint8)
@@ -671,15 +829,17 @@ export function generateSwimFitFile(params: SwimFitParams): Uint8Array {
 
   const sessionAvgHr = countTotalHr > 0 ? Math.round(totalHr / countTotalHr) : 0xFF;
   const sessionAvgCad = countTotalCad > 0 ? Math.round(totalCad / countTotalCad) : 0xFF;
-  const totalActiveLengths = Math.max(1, Math.round(totalDistanceM / poolLengthM));
+  const totalActiveLengths = lapMetaList.reduce((acc, m) => acc + m.numActiveLengths, 0) || Math.max(1, Math.round(totalDistanceM / poolLengthM));
+  const totalSessionStrokes = lapMetaList.reduce((acc, m) => acc + m.totalStrokes, 0);
 
-  records.writeUint8(0x00 | 4);
+  records.writeUint8(0x00 | 5);
   records.writeUint16LE(0);
   records.writeUint32LE(endGarminTime);
   records.writeUint32LE(startGarminTime);
   records.writeUint32LE(elapsedMs);
   records.writeUint32LE(movingMs);
   records.writeUint32LE(Math.round(totalDistanceM * 100));
+  records.writeUint32LE(totalSessionStrokes);
   records.writeUint16LE(overallAvgSpeedMms);
   records.writeUint16LE(overallMaxSpeedMms);
   records.writeUint8(sessionAvgHr);
@@ -695,9 +855,9 @@ export function generateSwimFitFile(params: SwimFitParams): Uint8Array {
   records.writeString('Pool Swim', 32);
 
   // -------------------------------------------------------------
-  // 6. Activity Message (Global 34, Local 5)
+  // 7. Activity Message (Global 34, Local 6)
   // -------------------------------------------------------------
-  records.writeUint8(0x40 | 5);
+  records.writeUint8(0x40 | 6);
   records.writeUint8(0);
   records.writeUint8(0);
   records.writeUint16LE(34);
@@ -709,7 +869,7 @@ export function generateSwimFitFile(params: SwimFitParams): Uint8Array {
   records.writeUint8(2);   records.writeUint8(1); records.writeUint8(0x00);
   records.writeUint8(3);   records.writeUint8(1); records.writeUint8(0x00);
 
-  records.writeUint8(0x00 | 5);
+  records.writeUint8(0x00 | 6);
   records.writeUint32LE(endGarminTime);
   records.writeUint32LE(movingMs);
   records.writeUint16LE(1);

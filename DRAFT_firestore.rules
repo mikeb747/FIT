@@ -1,0 +1,151 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Global Safety Net: Default-deny catch-all
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Reusable Hardened Global Helpers
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isSignedIn() {
+      return request.auth != null && request.auth.token.email_verified == true;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    // Validation Blueprint: UserAccount (/users/{userId})
+    function isValidUserAccount(data, userId) {
+      return data.keys().hasAll(['ownerUid', 'displayName', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['ownerUid', 'displayName', 'createdAt', 'updatedAt'])
+        && data.ownerUid is string
+        && data.ownerUid.size() >= 1
+        && data.ownerUid.size() <= 128
+        && data.ownerUid.matches('^[a-zA-Z0-9_\\-]+$')
+        && data.ownerUid == request.auth.uid
+        && data.ownerUid == userId
+        && data.displayName is string
+        && data.displayName.size() >= 0
+        && data.displayName.size() <= 120
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    // Validation Blueprint: VaultDocument (/users/{userId}/vault/{docId})
+    function isValidVaultDomain(docId) {
+      return docId in ['profile', 'integrations', 'goals', 'recovery', 'coach'];
+    }
+
+    function isValidVaultDocument(data, userId, docId) {
+      return data.keys().hasAll(['ownerUid', 'domain', 'schemaVersion', 'payload', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['ownerUid', 'domain', 'schemaVersion', 'payload', 'createdAt', 'updatedAt'])
+        && data.ownerUid is string
+        && data.ownerUid.size() >= 1
+        && data.ownerUid.size() <= 128
+        && data.ownerUid.matches('^[a-zA-Z0-9_\\-]+$')
+        && data.ownerUid == request.auth.uid
+        && data.ownerUid == userId
+        && data.domain is string
+        && data.domain.size() >= 4
+        && data.domain.size() <= 32
+        && data.domain == docId
+        && isValidVaultDomain(data.domain)
+        && data.schemaVersion is int
+        && data.schemaVersion >= 1
+        && data.schemaVersion <= 100
+        && data.payload is map
+        && data.payload.keys().size() <= 50
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    // Master Gate Check: Verify parent UserAccount exists or is being created atomically in the same batch
+    function hasValidParentAccount(userId) {
+      return (
+        exists(/databases/$(database)/documents/users/$(userId))
+        && get(/databases/$(database)/documents/users/$(userId)).data.ownerUid == request.auth.uid
+      ) || (
+        existsAfter(/databases/$(database)/documents/users/$(userId))
+        && getAfter(/databases/$(database)/documents/users/$(userId)).data.ownerUid == request.auth.uid
+      );
+    }
+
+    // Root UserAccount Document (/users/{userId})
+    match /users/{userId} {
+      allow get: if isOwner(userId) && isValidId(userId);
+
+      allow create: if isOwner(userId)
+        && isValidId(userId)
+        && isValidUserAccount(incoming(), userId)
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time;
+
+      allow update: if isValidUserAccount(incoming(), userId)
+        && isOwner(userId)
+        && isValidId(userId)
+        && incoming().ownerUid == existing().ownerUid
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && (
+          // Action: Update Display Name or Touch Account Timestamp
+          incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'updatedAt'])
+        );
+
+      allow delete: if false;
+
+      // Subcollection: Cloud Settings Vault (/users/{userId}/vault/{docId})
+      match /vault/{docId} {
+        allow get: if isOwner(userId)
+          && isValidId(userId)
+          && isValidId(docId)
+          && isValidVaultDomain(docId)
+          && hasValidParentAccount(userId);
+
+        allow create: if isOwner(userId)
+          && isValidId(userId)
+          && isValidId(docId)
+          && isValidVaultDomain(docId)
+          && isValidVaultDocument(incoming(), userId, docId)
+          && incoming().createdAt == request.time
+          && incoming().updatedAt == request.time
+          && hasValidParentAccount(userId);
+
+        allow update: if isValidVaultDocument(incoming(), userId, docId)
+          && isOwner(userId)
+          && isValidId(userId)
+          && isValidId(docId)
+          && isValidVaultDomain(docId)
+          && incoming().ownerUid == existing().ownerUid
+          && incoming().domain == existing().domain
+          && incoming().createdAt == existing().createdAt
+          && incoming().updatedAt == request.time
+          && (
+            // Action: Sync Vault Payload
+            incoming().diff(existing()).affectedKeys().hasOnly(['payload', 'schemaVersion', 'updatedAt'])
+          )
+          && hasValidParentAccount(userId);
+
+        allow delete: if isOwner(userId)
+          && isValidId(userId)
+          && isValidId(docId)
+          && isValidVaultDomain(docId)
+          && hasValidParentAccount(userId);
+      }
+    }
+  }
+}

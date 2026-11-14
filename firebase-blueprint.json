@@ -1,0 +1,85 @@
+{
+  "entities": {
+    "UserAccount": {
+      "title": "UserAccount",
+      "description": "Root user account record for Master Gate ownership verification.",
+      "type": "object",
+      "properties": {
+        "ownerUid": {
+          "type": "string",
+          "description": "Immutable Firebase Auth UID of the account owner.",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "displayName": {
+          "type": "string",
+          "description": "Display name of the athlete.",
+          "minLength": 0,
+          "maxLength": 120
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp when the account record was created."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp when the account record was last updated."
+        }
+      },
+      "required": ["ownerUid", "displayName", "createdAt", "updatedAt"]
+    },
+    "VaultDocument": {
+      "title": "VaultDocument",
+      "description": "Per-domain cloud sync document storing Athlete Profile, Zones, Availability, Injuries, Integrations (Strava, Garmin, Google Sheets), Goal Races, or Garmin Health Logs.",
+      "type": "object",
+      "properties": {
+        "ownerUid": {
+          "type": "string",
+          "description": "Immutable Firebase Auth UID of the vault document owner.",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "domain": {
+          "type": "string",
+          "description": "Vault domain category identifier.",
+          "enum": ["profile", "integrations", "goals", "recovery", "coach"],
+          "minLength": 4,
+          "maxLength": 32
+        },
+        "schemaVersion": {
+          "type": "number",
+          "description": "Schema version integer for forward compatibility."
+        },
+        "payload": {
+          "type": "object",
+          "description": "Native Firestore Map containing the domain settings, thresholds, zones, integrations, goals, or recovery logs."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp when this vault document was first created."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp when this vault document was last updated."
+        }
+      },
+      "required": ["ownerUid", "domain", "schemaVersion", "payload", "createdAt", "updatedAt"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "UserAccount",
+      "description": "Root user document anchoring relational ownership for the user's cloud settings vault."
+    },
+    "/users/{userId}/vault/{docId}": {
+      "schema": "VaultDocument",
+      "description": "Subcollection storing isolated domain documents (profile, integrations, goals, recovery, coach) for the authenticated athlete."
+    }
+  }
+}

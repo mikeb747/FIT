@@ -63,6 +63,9 @@ export const saveGoogleUserEmail = (email: string | null): void => {
     } else {
       localStorage.removeItem(GOOGLE_USER_EMAIL_KEY);
     }
+    window.dispatchEvent(
+      new CustomEvent('fittrack_local_storage_updated', { detail: { domains: ['integrations'] } })
+    );
   } catch {}
 };
 
@@ -84,6 +87,9 @@ export const saveGoogleSheetsBridgeUrl = (url: string): void => {
     } else {
       localStorage.removeItem(GOOGLE_BRIDGE_URL_KEY);
     }
+    window.dispatchEvent(
+      new CustomEvent('fittrack_local_storage_updated', { detail: { domains: ['integrations'] } })
+    );
   } catch {}
 };
 
@@ -120,6 +126,9 @@ export const saveGoogleOAuthCredentials = (creds: Partial<GoogleOAuthCredentials
       if (v) localStorage.setItem(GOOGLE_OAUTH_REFRESH_TOKEN_KEY, v);
       else localStorage.removeItem(GOOGLE_OAUTH_REFRESH_TOKEN_KEY);
     }
+    window.dispatchEvent(
+      new CustomEvent('fittrack_local_storage_updated', { detail: { domains: ['integrations'] } })
+    );
   } catch {}
 };
 

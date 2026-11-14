@@ -35,6 +35,8 @@ import {
   saveStravaActivityDetails,
   deleteCachedStravaActivityRecords,
   markActivityAsDeleted,
+  getLastAppOpenTime,
+  setLastAppOpenTime,
   StravaActivity,
   StravaActivityDetailsRecord,
 } from './utils/stravaActivities';
@@ -62,6 +64,11 @@ import {
   StreamDownloaderProgress,
 } from './utils/activityStreamDownloader';
 import { Settings, Activity, Moon, Heart, Zap, Sparkles, TrendingUp, RotateCw, FileSpreadsheet, Loader2, CloudCheck, CheckCircle2 } from 'lucide-react';
+import {
+  initFirebaseCloudVault,
+  onCloudVaultHydrated,
+  notifyLocalSettingsChanged,
+} from './utils/firebaseCloudSync';
 import { RecoveryView } from './components/RecoveryView';
 import { FitnessTab } from './components/FitnessTab';
 import { PerformanceTab } from './components/PerformanceTab';
@@ -120,6 +127,7 @@ export default function App() {
     setTheme(newTheme);
     try {
       localStorage.setItem(STORAGE_KEYS.THEME, newTheme);
+      notifyLocalSettingsChanged(['profile']);
     } catch {}
   };
 
@@ -143,6 +151,7 @@ export default function App() {
     setDisplayDensity(newDensity);
     try {
       localStorage.setItem(STORAGE_KEYS.DISPLAY_DENSITY, String(newDensity));
+      notifyLocalSettingsChanged(['profile']);
     } catch {}
   };
 
@@ -250,6 +259,46 @@ export default function App() {
 
   const [sheetsLastSynced, setSheetsLastSynced] = useState<number | null>(() => getLastGoogleSheetsSyncTime());
   const [isSheetsSyncing, setIsSheetsSyncing] = useState(false);
+
+  // Track if the previous time the app was opened was more than 1 hour ago (> 3,600,000 ms)
+  const shouldAutoSyncOnReopenRef = useRef<boolean>((() => {
+    const now = Date.now();
+    const previousOpenMs = getLastAppOpenTime();
+    setLastAppOpenTime(now);
+    return previousOpenMs > 0 && now - previousOpenMs > 60 * 60 * 1000;
+  })());
+
+  useEffect(() => {
+    const unsubVault = initFirebaseCloudVault();
+    const unsubHydrate = onCloudVaultHydrated((snapshot) => {
+      if (snapshot.athleteProfile) setAthleteProfile(snapshot.athleteProfile);
+      if (snapshot.theme) setTheme(snapshot.theme);
+      if (snapshot.displayDensity !== undefined) setDisplayDensity(snapshot.displayDensity);
+      if (snapshot.brandTitle) setBrandTitle(snapshot.brandTitle);
+      if (snapshot.brandSubtitle) setBrandSubtitle(snapshot.brandSubtitle);
+      if (snapshot.globalTriDistance) setGlobalTriDistance(snapshot.globalTriDistance);
+      if (snapshot.globalBikeCourseProfile) setGlobalBikeCourseProfile(snapshot.globalBikeCourseProfile);
+      if (snapshot.athleteGoals) setAthleteGoals(snapshot.athleteGoals);
+      if (snapshot.recoveryLogs) setRecoveryLogs(snapshot.recoveryLogs);
+      if (snapshot.stravaToken !== undefined) setStravaToken(snapshot.stravaToken);
+      if (snapshot.stravaAthlete !== undefined) setAthleteName(snapshot.stravaAthlete);
+      if (snapshot.stravaAutoRefreshOnOpen !== undefined) setAutoRefreshOnOpen(snapshot.stravaAutoRefreshOnOpen);
+      if (snapshot.garminEmail !== undefined) setGarminEmail(snapshot.garminEmail);
+      if (snapshot.garminConnected !== undefined) setGarminConnected(snapshot.garminConnected);
+      if (snapshot.googleUserEmail) {
+        setGoogleUserEmail(snapshot.googleUserEmail);
+        setIsGoogleConnected(true);
+      }
+      if (snapshot.googleSpreadsheetId) {
+        setGoogleSheetUrl(`https://docs.google.com/spreadsheets/d/${snapshot.googleSpreadsheetId}/edit`);
+      }
+    });
+
+    return () => {
+      unsubVault();
+      unsubHydrate();
+    };
+  }, []);
 
   useEffect(() => {
     const handleSyncUpdate = (e: any) => {
@@ -705,10 +754,16 @@ export default function App() {
   // -------------------------------------------------------------
   // Strava Activities Synchronization
   // -------------------------------------------------------------
-  const refreshStravaActivities = async (accessToken: string | null = stravaToken) => {
+  const refreshStravaActivities = async (
+    accessToken: string | null = stravaToken,
+    options?: { useAfterMostRecent?: boolean }
+  ) => {
     if (!accessToken) return;
     setIsLoadingStravaActivities(true);
     setStravaActivitiesError(null);
+    const existingIdsBeforeSync = new Set(
+      getCachedStravaActivities().map((a) => String(a.id))
+    );
     try {
       let currentToken = accessToken;
       let tokenWasRefreshed = false;
@@ -722,13 +777,13 @@ export default function App() {
 
       let data: StravaActivity[];
       try {
-        data = await syncStravaActivitiesDelta(currentToken);
+        data = await syncStravaActivitiesDelta(currentToken, undefined, options);
       } catch (err) {
         if (tokenWasRefreshed || !isStravaAuthorizationError(err)) throw err;
         currentToken = await refreshStravaAccessToken();
         setStravaToken(currentToken);
         localStorage.setItem(STORAGE_KEYS.STRAVA_TOKEN, currentToken);
-        data = await syncStravaActivitiesDelta(currentToken);
+        data = await syncStravaActivitiesDelta(currentToken, undefined, options);
       }
 
       setStravaActivities(data);
@@ -739,7 +794,25 @@ export default function App() {
       records.forEach((rec) => {
         if (rec) detailMap[rec.id] = rec;
       });
-      setStravaActivityDetails((prev) => ({ ...prev, ...detailMap }));
+      const mergedDetails = { ...stravaActivityDetails, ...detailMap };
+      setStravaActivityDetails(mergedDetails);
+
+      // If we refreshed the Strava activity list and saw new activities (or activities missing streams),
+      // immediately fetch their stream data in the background once the activity list is refreshed
+      const newActivities = data.filter((a) => !existingIdsBeforeSync.has(String(a.id)));
+      if (newActivities.length > 0 || data.length > 0) {
+        void startBackgroundStreamDownload({
+          activities: newActivities.length > 0 ? [...newActivities, ...data] : data,
+          stravaToken: currentToken,
+          cachedDetails: mergedDetails,
+          onActivityDownloaded: (record) => {
+            setStravaActivityDetails((current) => ({
+              ...current,
+              [String(record.id)]: record,
+            }));
+          },
+        });
+      }
 
       // Requirement: Auto-backup to Google Sheets as soon as activity data arrives
       if (getGoogleAccessToken()) {
@@ -820,12 +893,44 @@ export default function App() {
     }
   };
 
-  // Auto-fetch Strava activities if connected and empty
+  // Auto-fetch Strava activities if connected and empty, OR if app was reopened > 1 hour since last open
   useEffect(() => {
-    if (stravaToken && stravaActivities.length === 0) {
-      refreshStravaActivities();
+    if (!stravaToken) return;
+    if (stravaActivities.length === 0) {
+      shouldAutoSyncOnReopenRef.current = false;
+      void refreshStravaActivities(stravaToken, { useAfterMostRecent: true });
+    } else if (shouldAutoSyncOnReopenRef.current && !isLoadingStravaActivities) {
+      shouldAutoSyncOnReopenRef.current = false;
+      lastAutoSyncTimeRef.current = Date.now();
+      void refreshStravaActivities(stravaToken, { useAfterMostRecent: true });
     }
   }, [stravaToken]);
+
+  // Also check when reopening / returning to the app tab if the last logged app open was > 1 hour ago
+  useEffect(() => {
+    const checkReopenInterval = () => {
+      if (typeof document !== 'undefined' && document.visibilityState !== 'visible') return;
+      const now = Date.now();
+      const previousOpenMs = getLastAppOpenTime();
+      setLastAppOpenTime(now);
+      if (
+        previousOpenMs > 0 &&
+        now - previousOpenMs > 60 * 60 * 1000 &&
+        stravaToken &&
+        !isLoadingStravaActivities
+      ) {
+        lastAutoSyncTimeRef.current = now;
+        void refreshStravaActivities(stravaToken, { useAfterMostRecent: true });
+      }
+    };
+
+    document.addEventListener('visibilitychange', checkReopenInterval);
+    window.addEventListener('focus', checkReopenInterval);
+    return () => {
+      document.removeEventListener('visibilitychange', checkReopenInterval);
+      window.removeEventListener('focus', checkReopenInterval);
+    };
+  }, [stravaToken, isLoadingStravaActivities]);
 
   // Auto-refresh on open: trigger delta sync whenever navigating to the Activities tab
   const prevActiveTabRef = useRef<string | null>(null);
@@ -839,7 +944,7 @@ export default function App() {
       const now = Date.now();
       if (now - lastAutoSyncTimeRef.current > 5000 && !isLoadingStravaActivities) {
         lastAutoSyncTimeRef.current = now;
-        void refreshStravaActivities();
+        void refreshStravaActivities(stravaToken, { useAfterMostRecent: true });
       }
     }
   }, [activeMainTab, autoRefreshOnOpen, stravaToken, isLoadingStravaActivities]);
@@ -933,6 +1038,7 @@ export default function App() {
         setAthleteName(name);
         localStorage.setItem(STORAGE_KEYS.STRAVA_ATHLETE, name);
       }
+      notifyLocalSettingsChanged(['integrations']);
       void refreshStravaActivities(token);
     } else {
       localStorage.removeItem(STORAGE_KEYS.STRAVA_TOKEN);
@@ -944,6 +1050,7 @@ export default function App() {
       setStravaActivities([]);
       setStravaActivityDetails({});
       setAthleteName(null);
+      notifyLocalSettingsChanged(['integrations']);
     }
   };
 

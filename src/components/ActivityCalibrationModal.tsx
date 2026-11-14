@@ -32,6 +32,8 @@ import type {
 import {
   classifyActivity,
   mapStravaRunLapsToSections,
+  extractOriginalLapStreamSlices,
+  stitchLapSeriesForDuration,
   saveActivityCalibration,
   clearActivityCalibration,
   updateStravaActivityRecord,
@@ -286,7 +288,7 @@ export const ActivityCalibrationModal: React.FC<ActivityCalibrationModalProps> =
       : ''
   );
 
-  // Swim Laps
+  // Swim Laps & Per-Lap Original HR/Stroke Rate Slices
   const detailedSwimLaps = detailsRecord?.activity?.laps;
   const rawLaps = useMemo(() => {
     if (Array.isArray(detailedSwimLaps) && detailedSwimLaps.length > 0) {
@@ -298,28 +300,81 @@ export const ActivityCalibrationModal: React.FC<ActivityCalibrationModalProps> =
     return [];
   }, [detailedSwimLaps, activity.laps]);
 
+  const origSwimSlices = useMemo(
+    () =>
+      extractOriginalLapStreamSlices(
+        rawLaps,
+        detailsRecord?.streams as Record<string, { data?: any[] }> | undefined,
+        activity.average_cadence
+      ),
+    [rawLaps, detailsRecord?.streams, activity.average_cadence]
+  );
+
   const mapRawSwimLaps = (lapsArr: any[]): CalibratedSwimLap[] =>
     lapsArr.map((lap, idx) => {
       const dist = Math.round(lap.distance || 0);
       const time = Math.round(lap.moving_time || lap.elapsed_time || 0);
       const isRest = dist <= 0;
       const paceSec = dist > 0 && time > 0 ? (time / dist) * 100 : 0;
+      const slice = origSwimSlices[idx];
+      const strokeRateSpm = isRest
+        ? 0
+        : slice?.avgCadence ??
+          (Number(lap.average_cadence) > 0
+            ? Math.round(Number(lap.average_cadence))
+            : activity.average_cadence
+              ? Math.round(activity.average_cadence)
+              : undefined);
+      const totalStrokes = isRest
+        ? 0
+        : slice?.totalCycles ??
+          (strokeRateSpm && strokeRateSpm > 0 && time > 0
+            ? Math.round((strokeRateSpm * time) / 60)
+            : undefined);
+
       return {
         lapIndex: idx + 1,
+        originalLapIndex: idx + 1,
         distanceM: dist,
         movingTimeSec: time,
         pacePer100mFormatted: isRest ? '' : formatSecondsToMinSec(paceSec) + '/100m',
+        strokeRateSpm,
+        totalStrokes,
+        avgHr: slice?.avgHr ?? (Number(lap.average_heartrate) > 30 ? Math.round(Number(lap.average_heartrate)) : undefined),
+        maxHr: slice?.maxHr ?? (Number(lap.max_heartrate) > 30 ? Math.round(Number(lap.max_heartrate)) : undefined),
         isIgnored: false,
         isRest,
       };
     });
 
+  const enrichCalibratedSwimLap = (lap: CalibratedSwimLap, idx: number): CalibratedSwimLap => {
+    const isRest = Boolean(lap.isRest || lap.distanceM <= 0);
+    const origIdx = (lap.originalLapIndex ?? idx + 1) - 1;
+    const slice = origSwimSlices[origIdx];
+    const strokeRateSpm = isRest
+      ? 0
+      : lap.strokeRateSpm ??
+        slice?.avgCadence ??
+        (activity.average_cadence ? Math.round(activity.average_cadence) : undefined);
+    const totalStrokes = isRest
+      ? 0
+      : strokeRateSpm && strokeRateSpm > 0 && lap.movingTimeSec > 0
+        ? Math.round((strokeRateSpm * lap.movingTimeSec) / 60)
+        : lap.totalStrokes;
+    return {
+      ...lap,
+      originalLapIndex: lap.originalLapIndex ?? idx + 1,
+      isRest,
+      strokeRateSpm,
+      totalStrokes,
+      avgHr: lap.avgHr ?? slice?.avgHr,
+      maxHr: lap.maxHr ?? slice?.maxHr,
+    };
+  };
+
   const [swimLaps, setSwimLaps] = useState<CalibratedSwimLap[]>(() => {
     if (existingCalib?.calibratedLaps && existingCalib.calibratedLaps.length > 0) {
-      return existingCalib.calibratedLaps.map((lap) => ({
-        ...lap,
-        isRest: Boolean(lap.isRest || lap.distanceM <= 0),
-      }));
+      return existingCalib.calibratedLaps.map((lap, idx) => enrichCalibratedSwimLap(lap, idx));
     }
     if (rawLaps.length > 0) {
       return mapRawSwimLaps(rawLaps);
@@ -328,12 +383,18 @@ export const ActivityCalibrationModal: React.FC<ActivityCalibrationModalProps> =
       const dist = Math.round(originalDistanceM);
       const time = Math.round(originalMovingSec || 1200);
       const paceSec = dist > 0 && time > 0 ? (time / dist) * 100 : 0;
+      const defaultCad = activity.average_cadence ? Math.round(activity.average_cadence) : 28;
       return [
         {
           lapIndex: 1,
+          originalLapIndex: 1,
           distanceM: dist,
           movingTimeSec: time,
           pacePer100mFormatted: formatSecondsToMinSec(paceSec) + '/100m',
+          strokeRateSpm: defaultCad,
+          totalStrokes: Math.round((defaultCad * time) / 60),
+          avgHr: activity.average_heartrate ? Math.round(activity.average_heartrate) : undefined,
+          maxHr: activity.max_heartrate ? Math.round(activity.max_heartrate) : undefined,
           isIgnored: false,
           isRest: false,
         },
@@ -347,20 +408,27 @@ export const ActivityCalibrationModal: React.FC<ActivityCalibrationModalProps> =
   );
 
   useEffect(() => {
-    if (!isSwim || swimLapsInitialized.current) return;
-    if (existingCalib?.calibratedLaps && existingCalib.calibratedLaps.length > 0) {
-      setSwimLaps(
-        existingCalib.calibratedLaps.map((lap) => ({
-          ...lap,
-          isRest: Boolean(lap.isRest || lap.distanceM <= 0),
-        }))
+    if (!isSwim) return;
+    if (!swimLapsInitialized.current) {
+      if (existingCalib?.calibratedLaps && existingCalib.calibratedLaps.length > 0) {
+        setSwimLaps(
+          existingCalib.calibratedLaps.map((lap, idx) => enrichCalibratedSwimLap(lap, idx))
+        );
+        swimLapsInitialized.current = true;
+      } else if (rawLaps.length > 0) {
+        setSwimLaps(mapRawSwimLaps(rawLaps));
+        swimLapsInitialized.current = true;
+      }
+    } else if (origSwimSlices.length > 0) {
+      // Backfill strokeRateSpm or avgHr if streams arrived after initial modal open
+      setSwimLaps((prev) =>
+        prev.map((lap, idx) => {
+          if (lap.strokeRateSpm !== undefined && lap.avgHr !== undefined) return lap;
+          return enrichCalibratedSwimLap(lap, idx);
+        })
       );
-      swimLapsInitialized.current = true;
-    } else if (rawLaps.length > 0) {
-      setSwimLaps(mapRawSwimLaps(rawLaps));
-      swimLapsInitialized.current = true;
     }
-  }, [isSwim, existingCalib?.calibratedLaps, rawLaps]);
+  }, [isSwim, existingCalib?.calibratedLaps, rawLaps, origSwimSlices]);
 
   // Indoor Run Simulated Laps / Sections
   const isRun = classification.category === 'Run';
@@ -369,6 +437,15 @@ export const ActivityCalibrationModal: React.FC<ActivityCalibrationModalProps> =
     Array.isArray(detailedRunLaps) && detailedRunLaps.length > 0
       ? detailedRunLaps
       : activity.laps;
+  const origRunSlices = useMemo(
+    () =>
+      extractOriginalLapStreamSlices(
+        rawRunLaps,
+        detailsRecord?.streams as Record<string, { data?: any[] }> | undefined,
+        activity.average_cadence
+      ),
+    [rawRunLaps, detailsRecord?.streams, activity.average_cadence]
+  );
   const sectionsFromStravaLaps = useMemo(() => mapStravaRunLapsToSections(rawRunLaps), [rawRunLaps]);
   const [runSections, setRunSections] = useState<CalibratedRunSection[]>(() => {
     if (existingCalib?.calibratedRunSections && existingCalib.calibratedRunSections.length > 0) {
@@ -461,6 +538,25 @@ export const ActivityCalibrationModal: React.FC<ActivityCalibrationModalProps> =
   const avgSwimPaceFormatted =
     avgSwimPaceSecPer100m > 0 ? formatSecondsToMinSec(avgSwimPaceSecPer100m) + '/100m' : '-';
 
+  const swimLapsWithCad = activeSwimLaps.filter((l) => (l.strokeRateSpm || 0) > 0);
+  const avgSwimStrokeRateSpm =
+    swimLapsWithCad.length > 0
+      ? Math.round(
+          swimLapsWithCad.reduce((acc, l) => acc + (l.strokeRateSpm || 0) * l.movingTimeSec, 0) /
+            Math.max(1, swimLapsWithCad.reduce((acc, l) => acc + l.movingTimeSec, 0))
+        )
+      : activity.average_cadence
+        ? Math.round(activity.average_cadence)
+        : 0;
+  const totalSwimStrokes = activeSwimLaps.reduce(
+    (acc, l) =>
+      acc +
+      (l.strokeRateSpm && l.strokeRateSpm > 0
+        ? Math.round((l.strokeRateSpm * l.movingTimeSec) / 60)
+        : l.totalStrokes || 0),
+    0
+  );
+
   const recalculateSwimTotals = (updatedLaps: CalibratedSwimLap[]) => {
     if (classification.category !== 'Swim') return;
     const active = updatedLaps.filter((l) => !l.isIgnored && !l.isRest && l.distanceM > 0);
@@ -476,13 +572,21 @@ export const ActivityCalibrationModal: React.FC<ActivityCalibrationModalProps> =
     const lastActive = [...swimLaps].reverse().find((l) => !l.isRest && l.distanceM > 0);
     const defaultDist = isRestLap ? 0 : lastActive?.distanceM || 100;
     const defaultTime = isRestLap ? 20 : lastActive?.movingTimeSec || 95;
+    const defaultCad = isRestLap
+      ? 0
+      : lastActive?.strokeRateSpm || (activity.average_cadence ? Math.round(activity.average_cadence) : 28);
+    const defaultHr = lastActive?.avgHr || (activity.average_heartrate ? Math.round(activity.average_heartrate) : undefined);
     const paceSec = !isRestLap && defaultDist > 0 ? (defaultTime / defaultDist) * 100 : 0;
 
     const newLap: CalibratedSwimLap = {
       lapIndex: nextIdx,
+      originalLapIndex: lastActive?.originalLapIndex,
       distanceM: defaultDist,
       movingTimeSec: defaultTime,
       pacePer100mFormatted: isRestLap ? '' : formatSecondsToMinSec(paceSec) + '/100m',
+      strokeRateSpm: defaultCad,
+      totalStrokes: isRestLap ? 0 : Math.round((defaultCad * defaultTime) / 60),
+      avgHr: defaultHr,
       isIgnored: false,
       isRest: isRestLap,
     };
@@ -523,12 +627,13 @@ export const ActivityCalibrationModal: React.FC<ActivityCalibrationModalProps> =
 
   const handleAddRunSection = () => {
     const nextIdx = runSections.length + 1;
-    const lastSpeed = runSections.length > 0 ? runSections[runSections.length - 1].speedKph : 11.0;
+    const lastSec = runSections.length > 0 ? runSections[runSections.length - 1] : undefined;
     const newSection: CalibratedRunSection = {
       id: String(Date.now()),
       name: `Lap ${nextIdx}`,
+      originalLapIndex: lastSec?.originalLapIndex,
       durationSec: 180, // 3 min
-      speedKph: lastSpeed || 11.0,
+      speedKph: lastSec?.speedKph || 11.0,
     };
     const updated = [...runSections, newSection];
     setRunSections(updated);
@@ -551,194 +656,240 @@ export const ActivityCalibrationModal: React.FC<ActivityCalibrationModalProps> =
     setRunSections(updated);
   };
 
-  // Helper: Build the simulated speed & distance streams and new laps array for Run
+  // Helper: Build the simulated speed, distance, per-lap stitched HR & cadence streams and new laps array for Run
   const buildSimulatedStreamsAndLaps = () => {
     const rawStreams = detailsRecord?.streams as Record<string, { data?: any[] }> | undefined;
-    const originalTimeStream = rawStreams?.time?.data as number[] | undefined;
+    const originalHrStream = rawStreams?.heartrate?.data as number[] | undefined;
+    const originalCadenceStream = rawStreams?.cadence?.data as number[] | undefined;
 
-    // Use original timestamps, or synthesize 1-second intervals
-    const timeStream = originalTimeStream && originalTimeStream.length > 0
-      ? [...originalTimeStream]
-      : Array.from({ length: Math.ceil(totalSimulatedDurationSec) + 1 }, (_, i) => i);
-
+    const totalDur = Math.max(1, Math.round(totalSimulatedDurationSec));
+    const timeStream: number[] = [];
     const speedStream: number[] = [];
     const distanceStream: number[] = [];
+    const heartrateStream: number[] = [];
+    const cadenceStream: number[] = [];
+
     let cumDist = 0;
+    let currentSec = 0;
 
-    // Cumulative boundaries for sections
-    const boundaries: { endTime: number; speedMps: number; section: CalibratedRunSection }[] = [];
-    let currentEnd = 0;
-    computedRunSections.forEach((s) => {
-      currentEnd += s.effectiveDurationSec;
-      boundaries.push({
-        endTime: currentEnd,
-        speedMps: (s.speedKph || 0) / 3.6,
-        section: s,
-      });
-    });
-
-    for (let i = 0; i < timeStream.length; i++) {
-      const t = timeStream[i];
-      let activeSpeedMps = boundaries.length > 0 ? boundaries[0].speedMps : 0;
-      for (const b of boundaries) {
-        if (t <= b.endTime) {
-          activeSpeedMps = b.speedMps;
-          break;
-        }
-        activeSpeedMps = b.speedMps;
-      }
-
-      if (i > 0) {
-        const dt = Math.max(0, timeStream[i] - timeStream[i - 1]);
-        cumDist += activeSpeedMps * dt;
-      }
-
-      // Strava velocity_smooth is in m/s (e.g. 4.47 for 16.1 km/h)
-      speedStream.push(Number(activeSpeedMps.toFixed(3)));
-      distanceStream.push(Number(cumDist.toFixed(1)));
-    }
-
-    // Overwrite laps matching the calibrated sections
-    let lapStartSec = 0;
     const newLaps = computedRunSections.map((s, idx) => {
-      const lapEndSec = lapStartSec + s.effectiveDurationSec;
-      const startIdx = timeStream.findIndex((t) => t >= lapStartSec);
-      let endIdx = timeStream.findIndex((t) => t >= lapEndSec);
-      if (endIdx === -1) endIdx = timeStream.length - 1;
+      const durSec = Math.max(1, Math.round(s.effectiveDurationSec || 1));
+      const spdMps = Number(((s.speedKph || 0) / 3.6).toFixed(3));
+      const origIdx = (s.originalLapIndex ?? idx + 1) - 1;
+      const origSlice = origRunSlices[origIdx] ?? origRunSlices[Math.min(idx, Math.max(0, origRunSlices.length - 1))];
 
-      const lapObj = {
+      // Stitch HR and Cadence for this specific lap:
+      // Unchanged laps keep their exact original HR; extended laps repeat HR from the start of the lap
+      const lapHr = stitchLapSeriesForDuration(
+        origSlice?.hrSeries || [],
+        durSec,
+        origSlice?.avgHr ?? (activity.average_heartrate ? Math.round(activity.average_heartrate) : undefined)
+      );
+      const lapCad = stitchLapSeriesForDuration(
+        origSlice?.cadenceSeries || [],
+        durSec,
+        origSlice?.avgCadence ?? (activity.average_cadence ? Math.round(activity.average_cadence) : undefined)
+      );
+
+      const startIdx = timeStream.length;
+      for (let t = 0; t < durSec; t++) {
+        if (timeStream.length > 0) {
+          cumDist += spdMps;
+        }
+        timeStream.push(currentSec);
+        speedStream.push(spdMps);
+        distanceStream.push(Number(cumDist.toFixed(1)));
+        if (lapHr[t] !== undefined && lapHr[t] > 30) {
+          heartrateStream.push(lapHr[t]);
+        } else if (originalHrStream?.[currentSec] !== undefined) {
+          heartrateStream.push(originalHrStream[currentSec]);
+        }
+        if (lapCad[t] !== undefined && lapCad[t] > 0) {
+          cadenceStream.push(lapCad[t]);
+        } else if (originalCadenceStream?.[currentSec] !== undefined) {
+          cadenceStream.push(originalCadenceStream[currentSec]);
+        }
+        currentSec++;
+      }
+      const endIdx = Math.max(startIdx, timeStream.length - 1);
+
+      const lapAvgHr =
+        lapHr.length > 0
+          ? Math.round(lapHr.reduce((a, b) => a + b, 0) / lapHr.length)
+          : origSlice?.avgHr;
+      const lapMaxHr =
+        lapHr.length > 0 ? Math.max(...lapHr, origSlice?.maxHr || 0) : origSlice?.maxHr;
+      const lapAvgCad =
+        lapCad.length > 0
+          ? Math.round(lapCad.reduce((a, b) => a + b, 0) / lapCad.length)
+          : origSlice?.avgCadence;
+
+      return {
         id: Number(activity.id) * 100 + (idx + 1),
         resource_state: 2,
         name: s.name || `Lap ${idx + 1}`,
         activity: { id: activity.id },
         athlete: (activity as any).athlete || { id: 0 },
-        elapsed_time: Math.round(s.effectiveDurationSec),
-        moving_time: Math.round(s.effectiveDurationSec),
+        elapsed_time: durSec,
+        moving_time: durSec,
         start_date: activity.start_date,
         start_date_local: activity.start_date_local,
         distance: Math.round(s.distanceM * 10) / 10,
-        start_index: Math.max(0, startIdx),
-        end_index: Math.max(startIdx, endIdx),
+        start_index: startIdx,
+        end_index: endIdx,
         total_elevation_gain: 0,
-        average_speed: Number(((s.speedKph || 0) / 3.6).toFixed(2)),
-        max_speed: Number(((s.speedKph || 0) / 3.6).toFixed(2)),
+        average_speed: Number(spdMps.toFixed(2)),
+        max_speed: Number(spdMps.toFixed(2)),
+        average_heartrate: lapAvgHr,
+        max_heartrate: lapMaxHr,
+        average_cadence: lapAvgCad,
         lap_index: idx + 1,
         split: idx + 1,
       };
-      lapStartSec = lapEndSec;
-      return lapObj;
     });
 
     return {
       timeStream,
       speedStream,
       distanceStream,
+      heartrateStream: heartrateStream.length > 0 ? heartrateStream : originalHrStream,
+      cadenceStream: cadenceStream.length > 0 ? cadenceStream : originalCadenceStream,
       newLaps,
       totalDistanceM: totalSimulatedDistanceM > 0 ? totalSimulatedDistanceM : cumDist,
+      totalDurationSec: totalDur,
     };
   };
 
-  // Helper: Build the simulated speed & distance streams and new laps array for Pool Swim
+  // Helper: Build the simulated speed, distance, per-lap stitched HR & stroke rate streams and new laps array for Pool Swim
   const buildSimulatedSwimStreamsAndLaps = () => {
     const validLaps = swimLaps.filter((l) => !l.isIgnored);
     const totalElapsed = Math.max(
       1,
-      validLaps.reduce((acc, l) => acc + Math.max(1, l.movingTimeSec || 0), 0)
+      validLaps.reduce((acc, l) => acc + Math.max(1, Math.round(l.movingTimeSec || 0)), 0)
     );
     const totalMoving = Math.max(
       1,
       validLaps
         .filter((l) => !l.isRest && l.distanceM > 0)
-        .reduce((acc, l) => acc + Math.max(1, l.movingTimeSec || 0), 0)
+        .reduce((acc, l) => acc + Math.max(1, Math.round(l.movingTimeSec || 0)), 0)
     );
     const totalDist = validLaps
       .filter((l) => !l.isRest && l.distanceM > 0)
       .reduce((acc, l) => acc + Math.max(0, l.distanceM || 0), 0);
 
-    // Synthesize 1-second time stream covering the exact total elapsed swim duration
-    const timeStream = Array.from({ length: Math.ceil(totalElapsed) + 1 }, (_, i) => i);
+    const timeStream: number[] = [];
     const speedStream: number[] = [];
     const distanceStream: number[] = [];
+    const heartrateStream: number[] = [];
+    const cadenceStream: number[] = [];
+
     let cumDist = 0;
-
-    const boundaries: { endTime: number; speedMps: number; isRest: boolean; lap: CalibratedSwimLap }[] = [];
-    let currentEnd = 0;
-    validLaps.forEach((lap) => {
-      const durSec = Math.max(1, lap.movingTimeSec || 0);
-      const isRest = Boolean(lap.isRest || lap.distanceM <= 0);
-      const distM = isRest ? 0 : Math.max(0, lap.distanceM || 0);
-      currentEnd += durSec;
-      boundaries.push({
-        endTime: currentEnd,
-        speedMps: !isRest && durSec > 0 ? distM / durSec : 0,
-        isRest,
-        lap,
-      });
-    });
-
+    let currentSec = 0;
     let maxSpeedMps = 0;
-    for (let i = 0; i < timeStream.length; i++) {
-      const t = timeStream[i];
-      let activeSpeedMps = boundaries.length > 0 ? boundaries[0].speedMps : 0;
-      for (const b of boundaries) {
-        if (t <= b.endTime) {
-          activeSpeedMps = b.speedMps;
-          break;
-        }
-        activeSpeedMps = b.speedMps;
-      }
 
-      if (activeSpeedMps > maxSpeedMps) {
-        maxSpeedMps = activeSpeedMps;
-      }
-
-      if (i > 0) {
-        const dt = Math.max(0, timeStream[i] - timeStream[i - 1]);
-        cumDist += activeSpeedMps * dt;
-      }
-
-      speedStream.push(Number(activeSpeedMps.toFixed(3)));
-      distanceStream.push(Number(cumDist.toFixed(1)));
-    }
-
-    let lapStartSec = 0;
     const newLaps = validLaps.map((lap, idx) => {
-      const durSec = Math.max(1, lap.movingTimeSec || 0);
+      const durSec = Math.max(1, Math.round(lap.movingTimeSec || 1));
       const isRest = Boolean(lap.isRest || lap.distanceM <= 0);
       const distM = isRest ? 0 : Math.max(0, lap.distanceM || 0);
-      const lapEndSec = lapStartSec + durSec;
-      const startIdx = timeStream.findIndex((t) => t >= lapStartSec);
-      let endIdx = timeStream.findIndex((t) => t >= lapEndSec);
-      if (endIdx === -1) endIdx = timeStream.length - 1;
       const spdMps = !isRest && durSec > 0 ? Number((distM / durSec).toFixed(3)) : 0;
+      if (spdMps > maxSpeedMps) maxSpeedMps = spdMps;
 
-      const lapObj = {
+      // Locate this lap's original HR & Cadence slice so other laps keep their exact original HR
+      // and extended laps repeat HR from the start of the lap
+      const origIdx = (lap.originalLapIndex ?? idx + 1) - 1;
+      const origSlice =
+        origSwimSlices[origIdx] ??
+        origSwimSlices.find((s) => s.lapIndex === lap.lapIndex);
+
+      const fallbackHr =
+        lap.avgHr ??
+        origSlice?.avgHr ??
+        (activity.average_heartrate ? Math.round(activity.average_heartrate) : undefined);
+
+      const lapHrSeries = stitchLapSeriesForDuration(
+        origSlice?.hrSeries || [],
+        durSec,
+        fallbackHr
+      );
+
+      // For stroke rate (cadence): if user set or Strava provided strokeRateSpm, stitch or fill
+      const targetSpm = isRest
+        ? 0
+        : lap.strokeRateSpm ??
+          origSlice?.avgCadence ??
+          (activity.average_cadence ? Math.round(activity.average_cadence) : 28);
+
+      const userOverrodeSpm =
+        !isRest &&
+        lap.strokeRateSpm !== undefined &&
+        origSlice?.avgCadence !== undefined &&
+        lap.strokeRateSpm !== origSlice.avgCadence;
+
+      const lapCadSeries = isRest
+        ? Array(durSec).fill(0)
+        : userOverrodeSpm
+          ? Array(durSec).fill(Math.round(targetSpm))
+          : stitchLapSeriesForDuration(origSlice?.cadenceSeries || [], durSec, targetSpm);
+
+      const startIdx = timeStream.length;
+      for (let t = 0; t < durSec; t++) {
+        if (timeStream.length > 0) {
+          cumDist += spdMps;
+        }
+        timeStream.push(currentSec);
+        speedStream.push(spdMps);
+        distanceStream.push(Number(cumDist.toFixed(1)));
+        heartrateStream.push(lapHrSeries[t] ?? fallbackHr ?? 0);
+        cadenceStream.push(isRest ? 0 : lapCadSeries[t] ?? targetSpm ?? 0);
+        currentSec++;
+      }
+      const endIdx = Math.max(startIdx, timeStream.length - 1);
+
+      const validLapHr = lapHrSeries.filter((h) => h > 30);
+      const lapAvgHr =
+        validLapHr.length > 0
+          ? Math.round(validLapHr.reduce((a, b) => a + b, 0) / validLapHr.length)
+          : fallbackHr;
+      const lapMaxHr =
+        validLapHr.length > 0
+          ? Math.max(...validLapHr, lap.maxHr || origSlice?.maxHr || 0)
+          : lap.maxHr ?? origSlice?.maxHr ?? lapAvgHr;
+      const totalStrokes = isRest ? 0 : Math.round(((targetSpm || 0) * durSec) / 60);
+
+      return {
         id: Number(activity.id) * 100 + (idx + 1),
         resource_state: 2,
         name: isRest ? `Rest ${idx + 1}` : `Lap ${idx + 1}`,
         activity: { id: activity.id },
         athlete: (activity as any).athlete || { id: 0 },
-        elapsed_time: Math.round(durSec),
-        moving_time: Math.round(durSec),
+        elapsed_time: durSec,
+        moving_time: durSec,
         start_date: activity.start_date,
         start_date_local: activity.start_date_local,
         distance: distM,
-        start_index: Math.max(0, startIdx),
-        end_index: Math.max(startIdx, endIdx),
+        start_index: startIdx,
+        end_index: endIdx,
         total_elevation_gain: 0,
         average_speed: spdMps,
         max_speed: spdMps,
+        average_heartrate: lapAvgHr,
+        max_heartrate: lapMaxHr,
+        average_cadence: isRest ? 0 : targetSpm,
+        total_cycles: totalStrokes,
         lap_index: idx + 1,
         split: idx + 1,
       };
-      lapStartSec = lapEndSec;
-      return lapObj;
     });
+
+    const hasValidHr = heartrateStream.some((h) => h > 30);
+    const hasValidCad = cadenceStream.some((c) => c > 0);
 
     return {
       timeStream,
       speedStream,
       distanceStream,
+      heartrateStream: hasValidHr ? heartrateStream : undefined,
+      cadenceStream: hasValidCad ? cadenceStream : undefined,
       newLaps,
       totalDistanceM: totalDist > 0 ? totalDist : Math.round(cumDist),
       totalMovingSec: totalMoving,
@@ -750,9 +901,6 @@ export const ActivityCalibrationModal: React.FC<ActivityCalibrationModalProps> =
   // Download Corrected Swim FIT File
   const handleDownloadSwimFit = () => {
     const sim = buildSimulatedSwimStreamsAndLaps();
-    const rawStreams = detailsRecord?.streams as Record<string, { data?: any[] }> | undefined;
-    const hrData = rawStreams?.heartrate?.data as number[] | undefined;
-    const cadenceData = rawStreams?.cadence?.data as number[] | undefined;
 
     const startTimestampMs = activity.start_date
       ? new Date(activity.start_date).getTime()
@@ -769,8 +917,8 @@ export const ActivityCalibrationModal: React.FC<ActivityCalibrationModalProps> =
       timeStream: sim.timeStream,
       speedStream: sim.speedStream,
       distanceStream: sim.distanceStream,
-      heartrateStream: hrData,
-      cadenceStream: cadenceData,
+      heartrateStream: sim.heartrateStream,
+      cadenceStream: sim.cadenceStream,
       laps: swimLaps,
     });
 
@@ -792,9 +940,6 @@ export const ActivityCalibrationModal: React.FC<ActivityCalibrationModalProps> =
 
     try {
       const sim = buildSimulatedSwimStreamsAndLaps();
-      const rawStreams = detailsRecord?.streams as Record<string, { data?: any[] }> | undefined;
-      const hrData = rawStreams?.heartrate?.data as number[] | undefined;
-      const cadenceData = rawStreams?.cadence?.data as number[] | undefined;
 
       const startTimestampMs = activity.start_date
         ? new Date(activity.start_date).getTime()
@@ -811,8 +956,8 @@ export const ActivityCalibrationModal: React.FC<ActivityCalibrationModalProps> =
         timeStream: sim.timeStream,
         speedStream: sim.speedStream,
         distanceStream: sim.distanceStream,
-        heartrateStream: hrData,
-        cadenceStream: cadenceData,
+        heartrateStream: sim.heartrateStream,
+        cadenceStream: sim.cadenceStream,
         laps: swimLaps,
       });
 
@@ -820,7 +965,7 @@ export const ActivityCalibrationModal: React.FC<ActivityCalibrationModalProps> =
         fitBytes,
         `${activity.name} (Calibrated Pool Swim)`,
         stravaToken,
-        `Calibrated pool swim with ${activeSwimLaps.length} active laps (${Math.round(sim.totalDistanceM)}m in ${formatSecondsToMinSec(sim.totalMovingSec)}).`,
+        `Calibrated pool swim with ${activeSwimLaps.length} active laps (${Math.round(sim.totalDistanceM)}m in ${formatSecondsToMinSec(sim.totalMovingSec)}). Per-lap HR & stroke rate preserved.`,
         (status: string) => setUploadStatusMsg(status),
         'Swim'
       );
@@ -852,6 +997,8 @@ export const ActivityCalibrationModal: React.FC<ActivityCalibrationModalProps> =
               timeStream: sim.timeStream,
               speedStream: sim.speedStream,
               distanceStream: sim.distanceStream,
+              heartrateStream: sim.heartrateStream,
+              cadenceStream: sim.cadenceStream,
             },
             existingDetails: detailsRecord,
           });
@@ -877,25 +1024,22 @@ export const ActivityCalibrationModal: React.FC<ActivityCalibrationModalProps> =
   // Download Corrected FIT File
   const handleDownloadFit = () => {
     const sim = buildSimulatedStreamsAndLaps();
-    const rawStreams = detailsRecord?.streams as Record<string, { data?: any[] }> | undefined;
-    const hrData = rawStreams?.heartrate?.data as number[] | undefined;
-    const cadenceData = rawStreams?.cadence?.data as number[] | undefined;
 
     const startTimestampMs = activity.start_date
       ? new Date(activity.start_date).getTime()
-      : Date.now() - Math.round(recordedDurationSec) * 1000;
+      : Date.now() - Math.round(sim.totalDurationSec) * 1000;
 
     const fitBytes = generateRunFitFile({
       activity,
       workoutName: `${activity.name} (Treadmill Calibrated)`,
       startTimestampMs,
-      totalDurationSec: Math.round(recordedDurationSec),
+      totalDurationSec: Math.round(sim.totalDurationSec),
       totalDistanceM: Math.round(sim.totalDistanceM),
       timeStream: sim.timeStream,
       speedStream: sim.speedStream,
       distanceStream: sim.distanceStream,
-      heartrateStream: hrData,
-      cadenceStream: cadenceData,
+      heartrateStream: sim.heartrateStream,
+      cadenceStream: sim.cadenceStream,
       sections: computedRunSections,
     });
 
@@ -917,25 +1061,22 @@ export const ActivityCalibrationModal: React.FC<ActivityCalibrationModalProps> =
 
     try {
       const sim = buildSimulatedStreamsAndLaps();
-      const rawStreams = detailsRecord?.streams as Record<string, { data?: any[] }> | undefined;
-      const hrData = rawStreams?.heartrate?.data as number[] | undefined;
-      const cadenceData = rawStreams?.cadence?.data as number[] | undefined;
 
       const startTimestampMs = activity.start_date
         ? new Date(activity.start_date).getTime()
-        : Date.now() - Math.round(recordedDurationSec) * 1000;
+        : Date.now() - Math.round(sim.totalDurationSec) * 1000;
 
       const fitBytes = generateRunFitFile({
         activity,
         workoutName: `${activity.name} (Calibrated Treadmill)`,
         startTimestampMs,
-        totalDurationSec: Math.round(recordedDurationSec),
+        totalDurationSec: Math.round(sim.totalDurationSec),
         totalDistanceM: Math.round(sim.totalDistanceM),
         timeStream: sim.timeStream,
         speedStream: sim.speedStream,
         distanceStream: sim.distanceStream,
-        heartrateStream: hrData,
-        cadenceStream: cadenceData,
+        heartrateStream: sim.heartrateStream,
+        cadenceStream: sim.cadenceStream,
         sections: computedRunSections,
       });
 
@@ -943,7 +1084,7 @@ export const ActivityCalibrationModal: React.FC<ActivityCalibrationModalProps> =
         fitBytes,
         `${activity.name} (Calibrated Treadmill)`,
         stravaToken,
-        `Calibrated treadmill run with ${computedRunSections.length} structured laps. Speed/distance simulated; HR & cadence preserved.`,
+        `Calibrated treadmill run with ${computedRunSections.length} structured laps. Speed/distance simulated; per-lap HR & cadence preserved.`,
         (status: string) => setUploadStatusMsg(status)
       );
 
@@ -974,6 +1115,8 @@ export const ActivityCalibrationModal: React.FC<ActivityCalibrationModalProps> =
               timeStream: sim.timeStream,
               speedStream: sim.speedStream,
               distanceStream: sim.distanceStream,
+              heartrateStream: sim.heartrateStream,
+              cadenceStream: sim.cadenceStream,
             },
             existingDetails: detailsRecord,
           });
@@ -1050,7 +1193,7 @@ export const ActivityCalibrationModal: React.FC<ActivityCalibrationModalProps> =
             },
             streams: {
               ...currentStreams,
-              time: currentStreams.time || {
+              time: {
                 data: sim.timeStream,
                 series_type: 'time',
                 original_size: sim.timeStream.length,
@@ -1068,6 +1211,26 @@ export const ActivityCalibrationModal: React.FC<ActivityCalibrationModalProps> =
                 original_size: sim.distanceStream.length,
                 resolution: 'high',
               },
+              ...(sim.heartrateStream && sim.heartrateStream.length > 0
+                ? {
+                    heartrate: {
+                      data: sim.heartrateStream,
+                      series_type: 'distance',
+                      original_size: sim.heartrateStream.length,
+                      resolution: 'high',
+                    },
+                  }
+                : {}),
+              ...(sim.cadenceStream && sim.cadenceStream.length > 0
+                ? {
+                    cadence: {
+                      data: sim.cadenceStream,
+                      series_type: 'distance',
+                      original_size: sim.cadenceStream.length,
+                      resolution: 'high',
+                    },
+                  }
+                : {}),
             },
           };
         });
@@ -1084,6 +1247,7 @@ export const ActivityCalibrationModal: React.FC<ActivityCalibrationModalProps> =
               distance: sim.totalDistanceM,
               moving_time: Math.round(sim.totalMovingSec),
               elapsed_time: Math.round(sim.totalElapsedSec),
+              average_cadence: avgSwimStrokeRateSpm > 0 ? avgSwimStrokeRateSpm : currentActivity.average_cadence,
               laps: sim.newLaps,
             },
             streams: {
@@ -1106,6 +1270,26 @@ export const ActivityCalibrationModal: React.FC<ActivityCalibrationModalProps> =
                 original_size: sim.distanceStream.length,
                 resolution: 'high',
               },
+              ...(sim.heartrateStream && sim.heartrateStream.length > 0
+                ? {
+                    heartrate: {
+                      data: sim.heartrateStream,
+                      series_type: 'distance',
+                      original_size: sim.heartrateStream.length,
+                      resolution: 'high',
+                    },
+                  }
+                : {}),
+              ...(sim.cadenceStream && sim.cadenceStream.length > 0
+                ? {
+                    cadence: {
+                      data: sim.cadenceStream,
+                      series_type: 'distance',
+                      original_size: sim.cadenceStream.length,
+                      resolution: 'high',
+                    },
+                  }
+                : {}),
             },
           };
         });
@@ -1366,7 +1550,7 @@ export const ActivityCalibrationModal: React.FC<ActivityCalibrationModalProps> =
                       Pool Swim Lap Calibration ({swimLaps.length} Laps)
                     </h4>
                     <p className="text-[11px] text-slate-400 leading-relaxed">
-                      Watches frequently miss flip turns or register pauses incorrectly. Edit individual lap meters, lap time, or re-upload the corrected Pool Swim .FIT workout to Strava.
+                      Edit lap distance, time, or stroke rate. Extending a lap keeps original HR for all other laps and repeats HR from the start of the extended lap.
                     </p>
                   </div>
                 </div>
@@ -1392,23 +1576,52 @@ export const ActivityCalibrationModal: React.FC<ActivityCalibrationModalProps> =
               </div>
 
               {swimLaps.length > 0 && (
-                <div className="space-y-2 max-h-64 overflow-y-auto pr-1">
+                <div className="space-y-2 max-h-72 overflow-y-auto pr-1">
                   {swimLaps.map((lap, index) => {
                     const isRestLap = Boolean(lap.isRest || lap.distanceM <= 0);
+                    const origIdx = (lap.originalLapIndex ?? index + 1) - 1;
+                    const origSlice = origSwimSlices[origIdx];
+                    const origDurSec = origSlice?.origDurationSec || 0;
+                    const extendedHrSec =
+                      origDurSec > 0 && lap.movingTimeSec > origDurSec
+                        ? Math.round(lap.movingTimeSec - origDurSec)
+                        : 0;
+                    const displayHr = lap.avgHr ?? origSlice?.avgHr;
+
                     return (
                       <div
                         key={`${lap.lapIndex}-${index}`}
-                        className={`p-2.5 rounded-xl border flex items-center justify-between gap-2 sm:gap-3 text-xs transition-colors ${
+                        className={`p-2.5 rounded-xl border flex flex-wrap items-center justify-between gap-2 text-xs transition-colors ${
                           lap.isIgnored || isRestLap
                             ? 'bg-slate-950/40 border-slate-800/40 opacity-60'
                             : 'bg-slate-900/80 border-slate-800'
                         }`}
                       >
-                        <span className={`font-mono font-bold w-14 shrink-0 ${isRestLap ? 'text-slate-500' : 'text-slate-300'}`}>
-                          {isRestLap ? `Rest ${lap.lapIndex}` : `Lap ${lap.lapIndex}`}
-                        </span>
+                        <div className="w-16 shrink-0 flex flex-col">
+                          <span className={`font-mono font-bold ${isRestLap ? 'text-slate-500' : 'text-slate-200'}`}>
+                            {isRestLap ? `Rest ${lap.lapIndex}` : `Lap ${lap.lapIndex}`}
+                          </span>
+                          {displayHr && displayHr > 30 ? (
+                            <span
+                              className="text-[10px] font-mono text-rose-400 flex items-center gap-0.5"
+                              title={
+                                extendedHrSec > 0
+                                  ? `Avg ${displayHr} bpm • Extended by +${extendedHrSec}s (repeats HR from start of Lap ${lap.lapIndex}; other laps untouched)`
+                                  : `Original Lap HR: ${displayHr} bpm avg`
+                              }
+                            >
+                              <Heart className="w-2.5 h-2.5 shrink-0" />
+                              <span>{displayHr}</span>
+                              {extendedHrSec > 0 && (
+                                <span className="text-emerald-400 font-bold" title="Extended lap: repeats HR from lap start">
+                                  +{extendedHrSec}s
+                                </span>
+                              )}
+                            </span>
+                          ) : null}
+                        </div>
 
-                        <div className="flex items-center gap-1.5">
+                        <div className="flex items-center gap-1">
                           <input
                             type="number"
                             min="0"
@@ -1436,7 +1649,7 @@ export const ActivityCalibrationModal: React.FC<ActivityCalibrationModalProps> =
                           <span className="text-slate-500 text-[10px]">m</span>
                         </div>
 
-                        <div className="flex items-center gap-1.5">
+                        <div className="flex items-center gap-1">
                           <LapDurationInput
                             durationSec={lap.movingTimeSec}
                             disabled={lap.isIgnored}
@@ -1446,9 +1659,11 @@ export const ActivityCalibrationModal: React.FC<ActivityCalibrationModalProps> =
                                 const dist = l.distanceM || 0;
                                 const isRest = Boolean(l.isRest || dist <= 0);
                                 const paceSec = !isRest && dist > 0 ? (timeSec / dist) * 100 : 0;
+                                const spm = l.strokeRateSpm || 0;
                                 return {
                                   ...l,
                                   movingTimeSec: timeSec,
+                                  totalStrokes: !isRest && spm > 0 ? Math.round((spm * timeSec) / 60) : l.totalStrokes,
                                   pacePer100mFormatted: isRest ? '' : formatSecondsToMinSec(paceSec) + '/100m',
                                 };
                               });
@@ -1458,6 +1673,39 @@ export const ActivityCalibrationModal: React.FC<ActivityCalibrationModalProps> =
                           />
                           <span className="text-slate-500 text-[10px]">time</span>
                         </div>
+
+                        {/* Stroke Rate (spm) from Strava lap / cadence stream */}
+                        {!isRestLap ? (
+                          <div className="flex items-center gap-1" title="Stroke rate (strokes/min) from Strava">
+                            <input
+                              type="number"
+                              min="0"
+                              max="90"
+                              step="1"
+                              value={lap.strokeRateSpm ?? ''}
+                              placeholder="--"
+                              disabled={lap.isIgnored}
+                              onChange={(e) => {
+                                const spm = Math.max(0, parseInt(e.target.value, 10) || 0);
+                                const updated = swimLaps.map((l, i) => {
+                                  if (i !== index) return l;
+                                  return {
+                                    ...l,
+                                    strokeRateSpm: spm > 0 ? spm : undefined,
+                                    totalStrokes: spm > 0 ? Math.round((spm * l.movingTimeSec) / 60) : undefined,
+                                  };
+                                });
+                                setSwimLaps(updated);
+                              }}
+                              className="w-12 px-1.5 py-1 bg-slate-950 border border-slate-700 rounded-lg text-amber-300 font-mono text-center text-xs disabled:opacity-40"
+                            />
+                            <span className="text-slate-500 text-[10px]">spm</span>
+                          </div>
+                        ) : (
+                          <div className="w-16 text-center text-[10px] font-mono text-slate-600">
+                            0 spm
+                          </div>
+                        )}
 
                         <span className={`font-mono font-bold text-[11px] min-w-16 text-right ${isRestLap ? 'text-slate-500' : 'text-sky-300'}`}>
                           {lap.isIgnored ? 'Ignored' : isRestLap ? 'Rest' : lap.pacePer100mFormatted}
@@ -1503,13 +1751,14 @@ export const ActivityCalibrationModal: React.FC<ActivityCalibrationModalProps> =
               {/* Calibrated Pool Swim Result & Strava Re-Upload Card */}
               {swimLaps.length > 0 && (
                 <div className="p-3.5 rounded-2xl bg-gradient-to-br from-sky-950/40 via-slate-900 to-slate-950 border border-sky-500/30 space-y-3">
-                  <div className="flex items-center justify-between">
+                  <div className="flex items-center justify-between flex-wrap gap-1">
                     <span className="text-[10px] font-black uppercase tracking-wider text-sky-400 flex items-center gap-1.5">
                       <CheckCircle2 className="w-3.5 h-3.5" />
                       <span>Calibrated Pool Swim Profile Result</span>
                     </span>
                     <span className="text-[10px] font-mono text-slate-400">
-                      {activeSwimLaps.length} active swim {activeSwimLaps.length === 1 ? 'lap' : 'laps'} • 25m pool
+                      {activeSwimLaps.length} active {activeSwimLaps.length === 1 ? 'lap' : 'laps'} • 25m lengths
+                      {avgSwimStrokeRateSpm > 0 ? ` • ${avgSwimStrokeRateSpm} spm (${totalSwimStrokes} strokes)` : ''}
                     </span>
                   </div>
 
@@ -1536,9 +1785,13 @@ export const ActivityCalibrationModal: React.FC<ActivityCalibrationModalProps> =
                     </div>
 
                     <div className="p-2.5 rounded-xl bg-slate-950/80 border border-slate-800">
-                      <span className="text-[10px] text-slate-400 block font-medium">Elapsed (inc. rest)</span>
+                      <span className="text-[10px] text-slate-400 block font-medium">
+                        {avgSwimStrokeRateSpm > 0 ? 'Avg stroke rate' : 'Elapsed (inc. rest)'}
+                      </span>
                       <span className="text-base sm:text-lg font-black font-mono text-amber-400">
-                        {formatSecondsToMinSec(Math.round(totalSwimElapsedSec))}
+                        {avgSwimStrokeRateSpm > 0
+                          ? `${avgSwimStrokeRateSpm} spm`
+                          : formatSecondsToMinSec(Math.round(totalSwimElapsedSec))}
                       </span>
                     </div>
                   </div>
@@ -1546,7 +1799,7 @@ export const ActivityCalibrationModal: React.FC<ActivityCalibrationModalProps> =
                   {/* FIT Actions Bar for Pool Swim */}
                   <div className="pt-2 border-t border-slate-800/80 flex flex-wrap items-center justify-between gap-2">
                     <div className="text-[11px] text-slate-400">
-                      Rebuilt pool swim .FIT with calibrated lap distances, moving times &amp; rests.
+                      Preserves original HR per lap (repeating lap-start HR on extended laps) &amp; encodes 25m FIT lengths + stroke rate.
                     </div>
 
                     <div className="flex items-center gap-2">

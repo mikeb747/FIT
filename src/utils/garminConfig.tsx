@@ -69,6 +69,11 @@ export function saveStoredGarminToken(token: string): void {
     } else {
       localStorage.removeItem(GARMIN_STORAGE_KEYS.TOKEN);
     }
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(
+        new CustomEvent('fittrack_local_storage_updated', { detail: { domains: ['integrations'] } })
+      );
+    }
   } catch {}
 }
 
@@ -90,6 +95,11 @@ export function saveStoredGarminProxyUrl(url: string): void {
       localStorage.setItem(GARMIN_STORAGE_KEYS.PROXY_URL, url.trim());
     } else {
       localStorage.removeItem(GARMIN_STORAGE_KEYS.PROXY_URL);
+    }
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(
+        new CustomEvent('fittrack_local_storage_updated', { detail: { domains: ['integrations'] } })
+      );
     }
   } catch {}
 }
@@ -120,5 +130,10 @@ export function getStoredGarminRequestTypes(): GarminApiRequestTypes {
 export function saveStoredGarminRequestTypes(types: GarminApiRequestTypes): void {
   try {
     localStorage.setItem(GARMIN_STORAGE_KEYS.REQUEST_TYPES, JSON.stringify(types));
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(
+        new CustomEvent('fittrack_local_storage_updated', { detail: { domains: ['integrations'] } })
+      );
+    }
   } catch {}
 }

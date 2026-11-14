@@ -213,6 +213,9 @@ export function saveAthleteGoals(goals: TrainingGoal[]): void {
   if (typeof window === 'undefined') return;
   try {
     localStorage.setItem(GOALS_STORAGE_KEY, JSON.stringify(goals));
+    window.dispatchEvent(
+      new CustomEvent('fittrack_local_storage_updated', { detail: { domains: ['goals'] } })
+    );
   } catch (err) {
     console.error('[Goals Storage] Failed to save goals:', err);
   }

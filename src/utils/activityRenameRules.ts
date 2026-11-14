@@ -69,6 +69,9 @@ export function saveActivityRenameRules(rules: ActivityRenameRule[]): void {
   if (typeof window === 'undefined') return;
   try {
     localStorage.setItem(STORAGE_KEY_RENAME_RULES, JSON.stringify(rules));
+    window.dispatchEvent(
+      new CustomEvent('fittrack_local_storage_updated', { detail: { domains: ['coach'] } })
+    );
   } catch (e) {
     console.error('Failed to save activity rename rules:', e);
   }

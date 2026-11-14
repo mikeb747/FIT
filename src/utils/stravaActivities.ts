@@ -37,9 +37,15 @@ export interface StravaActivity {
 
 export interface CalibratedSwimLap {
   lapIndex: number;
+  originalLapIndex?: number; // 1-based index of the raw Strava lap for per-lap HR/cadence stitching
   distanceM: number;
   movingTimeSec: number;
   pacePer100mFormatted: string;
+  strokeRateSpm?: number; // Average stroke rate (strokes/min) from Strava lap or cadence stream
+  totalStrokes?: number;  // Total strokes (cycles) in the lap
+  avgHr?: number;         // Average heart rate (bpm) for this lap
+  maxHr?: number;         // Max heart rate (bpm) for this lap
+  swolf?: number;         // Average SWOLF per 25m length
   isIgnored?: boolean;
   isRest?: boolean;
 }
@@ -47,10 +53,223 @@ export interface CalibratedSwimLap {
 export interface CalibratedRunSection {
   id: string;
   name: string;
+  originalLapIndex?: number;
   durationSec: number;
   speedKph: number;
   paceMinSec?: string;
   distanceM?: number;
+}
+
+export interface OriginalLapStreamSlice {
+  lapIndex: number; // 1-based
+  origDurationSec: number;
+  hrSeries: number[];      // 1-second HR samples for this lap
+  cadenceSeries: number[]; // 1-second cadence/stroke-rate samples for this lap
+  avgHr?: number;
+  maxHr?: number;
+  avgCadence?: number;
+  maxCadence?: number;
+  totalCycles?: number;
+}
+
+/**
+ * Extracts 1-second resampled Heart Rate and Cadence/Stroke-Rate slices for each original Strava lap.
+ * Ensures each lap owns its exact original physiological data window so editing one lap's duration
+ * never shifts or corrupts the HR/cadence of subsequent laps.
+ */
+export function extractOriginalLapStreamSlices(
+  rawLaps: unknown,
+  streams?: Record<string, { data?: any[] }>,
+  fallbackActivityAvgCadence?: number
+): OriginalLapStreamSlice[] {
+  if (!Array.isArray(rawLaps) || rawLaps.length === 0) return [];
+
+  const timeData = Array.isArray(streams?.time?.data) ? (streams!.time!.data as number[]) : undefined;
+  const hrData = Array.isArray(streams?.heartrate?.data) ? (streams!.heartrate!.data as number[]) : undefined;
+  const cadData = Array.isArray(streams?.cadence?.data) ? (streams!.cadence!.data as number[]) : undefined;
+
+  let cumElapsedSec = 0;
+
+  return rawLaps.map((rawLap, idx) => {
+    const lap = (rawLap && typeof rawLap === 'object' ? rawLap : {}) as Record<string, any>;
+    const origDurSec = Math.max(1, Math.round(Number(lap.elapsed_time) || Number(lap.moving_time) || 1));
+    const distM = Number(lap.distance) || 0;
+    const isRest = distM <= 0;
+
+    const lapStartSec = cumElapsedSec;
+    const lapEndSec = cumElapsedSec + origDurSec;
+    cumElapsedSec = lapEndSec;
+
+    // Determine index window in streams
+    let startIdx = -1;
+    let endIdx = -1;
+    if (
+      timeData &&
+      timeData.length > 0 &&
+      typeof lap.start_index === 'number' &&
+      typeof lap.end_index === 'number'
+    ) {
+      startIdx = Math.max(0, Math.min(timeData.length - 1, lap.start_index));
+      endIdx = Math.max(startIdx, Math.min(timeData.length - 1, lap.end_index));
+    } else if (timeData && timeData.length > 0) {
+      startIdx = timeData.findIndex((t) => t >= lapStartSec);
+      if (startIdx === -1) startIdx = 0;
+      endIdx = timeData.findIndex((t) => t >= lapEndSec);
+      if (endIdx === -1) endIdx = timeData.length - 1;
+    }
+
+    // Build 1-second HR series for this lap
+    const hrSeries: number[] = [];
+    const cadSeries: number[] = [];
+
+    if (timeData && startIdx >= 0 && endIdx >= startIdx) {
+      const t0 = timeData[startIdx];
+      let ptr = startIdx;
+
+      for (let s = 0; s < origDurSec; s++) {
+        const targetT = t0 + s;
+        while (ptr < endIdx && timeData[ptr + 1] !== undefined && timeData[ptr + 1] <= targetT) {
+          ptr++;
+        }
+        const nextPtr = Math.min(endIdx, ptr + 1);
+        const tA = timeData[ptr];
+        const tB = timeData[nextPtr];
+        const ratio = tB > tA ? Math.max(0, Math.min(1, (targetT - tA) / (tB - tA))) : 0;
+
+        if (hrData && hrData[ptr] !== undefined) {
+          const hA = Number(hrData[ptr]) || 0;
+          const hB = Number(hrData[nextPtr] ?? hA) || hA;
+          if (hA > 30 && hB > 30) {
+            hrSeries.push(Math.round(hA + (hB - hA) * ratio));
+          } else if (hA > 30) {
+            hrSeries.push(Math.round(hA));
+          } else if (hB > 30) {
+            hrSeries.push(Math.round(hB));
+          }
+        }
+
+        if (!isRest && cadData && cadData[ptr] !== undefined) {
+          const cA = Number(cadData[ptr]) || 0;
+          const cB = Number(cadData[nextPtr] ?? cA) || cA;
+          if (cA > 0 && cB > 0) {
+            cadSeries.push(Math.round(cA + (cB - cA) * ratio));
+          } else if (cA > 0) {
+            cadSeries.push(Math.round(cA));
+          } else if (cB > 0) {
+            cadSeries.push(Math.round(cB));
+          }
+        }
+      }
+    }
+
+    const rawAvgHr = Number(lap.average_heartrate) > 30 ? Math.round(Number(lap.average_heartrate)) : undefined;
+    const rawMaxHr = Number(lap.max_heartrate) > 30 ? Math.round(Number(lap.max_heartrate)) : undefined;
+
+    if (hrSeries.length === 0 && rawAvgHr) {
+      for (let s = 0; s < origDurSec; s++) {
+        hrSeries.push(rawAvgHr);
+      }
+    }
+
+    const computedAvgHr =
+      hrSeries.length > 0
+        ? Math.round(hrSeries.reduce((a, b) => a + b, 0) / hrSeries.length)
+        : rawAvgHr;
+    const computedMaxHr =
+      hrSeries.length > 0 ? Math.max(...hrSeries, rawMaxHr || 0) : rawMaxHr;
+
+    const rawLapCadence =
+      !isRest && Number(lap.average_cadence) > 0
+        ? Math.round(Number(lap.average_cadence))
+        : undefined;
+    const streamAvgCadence =
+      !isRest && cadSeries.length > 0
+        ? Math.round(cadSeries.reduce((a, b) => a + b, 0) / cadSeries.length)
+        : undefined;
+    const effectiveAvgCadence = isRest
+      ? 0
+      : rawLapCadence ??
+        streamAvgCadence ??
+        (fallbackActivityAvgCadence && fallbackActivityAvgCadence > 0
+          ? Math.round(fallbackActivityAvgCadence)
+          : undefined);
+
+    if (!isRest && cadSeries.length === 0 && effectiveAvgCadence && effectiveAvgCadence > 0) {
+      for (let s = 0; s < origDurSec; s++) {
+        cadSeries.push(effectiveAvgCadence);
+      }
+    } else if (isRest) {
+      for (let s = 0; s < origDurSec; s++) {
+        cadSeries.push(0);
+      }
+    }
+
+    const computedMaxCadence =
+      !isRest && cadSeries.length > 0
+        ? Math.max(...cadSeries, effectiveAvgCadence || 0)
+        : effectiveAvgCadence;
+
+    const rawCycles = Number(lap.total_cycles) > 0 ? Math.round(Number(lap.total_cycles)) : undefined;
+
+    return {
+      lapIndex: idx + 1,
+      origDurationSec: origDurSec,
+      hrSeries,
+      cadenceSeries: cadSeries,
+      avgHr: computedAvgHr,
+      maxHr: computedMaxHr,
+      avgCadence: effectiveAvgCadence,
+      maxCadence: computedMaxCadence,
+      totalCycles: rawCycles,
+    };
+  });
+}
+
+/**
+ * Adjusts a lap's 1-second physiological stream (Heart Rate or Cadence) to match a calibrated duration:
+ * - If unchanged: returns the exact original lap stream untouched.
+ * - If shortened: trims to the calibrated duration without affecting subsequent laps.
+ * - If extended: repeats heart rate / cadence data from the start of the lap (after any initial post-rest ramp)
+ *   so the lap's physiological profile fills the extended duration while all other laps keep their exact original data.
+ */
+export function stitchLapSeriesForDuration(
+  origSeries: number[],
+  targetDurationSec: number,
+  fallbackValue?: number
+): number[] {
+  const targetLen = Math.max(1, Math.round(targetDurationSec));
+  if (!origSeries || origSeries.length === 0) {
+    if (fallbackValue !== undefined && fallbackValue >= 0) {
+      return Array(targetLen).fill(Math.round(fallbackValue));
+    }
+    return [];
+  }
+
+  if (targetLen === origSeries.length) {
+    return [...origSeries];
+  }
+
+  if (targetLen < origSeries.length) {
+    return origSeries.slice(0, targetLen);
+  }
+
+  // Extended lap: repeat data from the start of the lap
+  const extraSec = targetLen - origSeries.length;
+  const checkIdx = Math.min(15, origSeries.length - 1);
+  const hasInitialRamp = origSeries.length > 20 && Math.abs(origSeries[checkIdx] - origSeries[0]) > 6;
+  const repeatStartIdx = hasInitialRamp ? Math.min(15, Math.floor(origSeries.length * 0.2)) : 0;
+
+  const repeatPool = origSeries.slice(repeatStartIdx);
+  const repeatedSegment: number[] = [];
+  for (let i = 0; i < extraSec; i++) {
+    repeatedSegment.push(repeatPool[i % repeatPool.length]);
+  }
+
+  return [
+    ...origSeries.slice(0, repeatStartIdx),
+    ...repeatedSegment,
+    ...origSeries.slice(repeatStartIdx),
+  ];
 }
 
 export function mapStravaRunLapsToSections(rawLaps: unknown): CalibratedRunSection[] {
@@ -75,6 +294,7 @@ export function mapStravaRunLapsToSections(rawLaps: unknown): CalibratedRunSecti
     return [{
       id: String(lap.id ?? `strava-lap-${lapNumber}`),
       name: typeof lap.name === 'string' && lap.name.trim() ? lap.name : `Lap ${lapNumber}`,
+      originalLapIndex: index + 1,
       durationSec,
       speedKph: Number(speedKph.toFixed(2)),
     }];
@@ -229,6 +449,44 @@ export function saveCachedStravaActivities(activities: StravaActivity[]): void {
   } catch (err) {
     console.warn('[Strava Cache] localStorage quota warning:', err);
   }
+}
+
+export const STRAVA_LAST_APP_OPEN_KEY = 'fittrack_last_app_open_ms';
+
+export function getLastAppOpenTime(): number {
+  if (typeof window === 'undefined') return 0;
+  try {
+    const val = localStorage.getItem(STRAVA_LAST_APP_OPEN_KEY);
+    return val ? parseInt(val, 10) : 0;
+  } catch {
+    return 0;
+  }
+}
+
+export function setLastAppOpenTime(timestamp = Date.now()): void {
+  if (typeof window === 'undefined') return;
+  try {
+    localStorage.setItem(STRAVA_LAST_APP_OPEN_KEY, String(timestamp));
+  } catch {}
+}
+
+export function getMostRecentStravaActivityStartEpoch(
+  activities: StravaActivity[] = getCachedStravaActivities()
+): number | null {
+  let maxEpochSec = 0;
+  for (const act of activities) {
+    if (!act || act.isDeleted || !act.start_date) continue;
+    const idStr = String(act.id);
+    if (idStr.startsWith('demo-') || idStr.startsWith('local-')) continue;
+    const ms = new Date(act.start_date).getTime();
+    if (Number.isFinite(ms) && ms > 0) {
+      const sec = Math.floor(ms / 1000);
+      if (sec > maxEpochSec) {
+        maxEpochSec = sec;
+      }
+    }
+  }
+  return maxEpochSec > 0 ? maxEpochSec : null;
 }
 
 export function getLastStravaRefreshTime(): number {
@@ -518,11 +776,20 @@ export interface SwimPaceDetails {
   paceSecondsPer100m: number;
   totalDistanceM: number;
   movingTimeSec: number;
+  avgStrokeRateSpm?: number;
+  totalStrokes?: number;
+  avgSwolf?: number;
   laps?: Array<{
     lapIndex: number;
+    originalLapIndex?: number;
     distanceM: number;
     movingTimeSec: number;
     pacePer100mFormatted: string;
+    strokeRateSpm?: number;
+    totalStrokes?: number;
+    avgHr?: number;
+    maxHr?: number;
+    swolf?: number;
     isIgnored?: boolean;
     isRest?: boolean;
   }>;
@@ -578,7 +845,8 @@ export function calculateNormalizedPower(
 }
 
 /**
- * Calculates Swim pace per 100m using moving laps if available, falling back to overall moving time / distance.
+ * Calculates Swim pace per 100m, stroke rate (spm), total strokes, and SWOLF using moving laps if available,
+ * falling back to overall moving time / distance.
  * Fully supports user-calibrated laps and ignored laps from inaccurate watches.
  */
 export function getSwimPaceDetails(
@@ -588,10 +856,59 @@ export function getSwimPaceDetails(
   const { category } = classifyActivity(activity);
   if (category !== 'Swim') return null;
 
+  const rawLaps =
+    Array.isArray(details?.activity?.laps) && (details!.activity!.laps as any[]).length > 0
+      ? (details!.activity!.laps as any[])
+      : Array.isArray(activity.laps)
+        ? activity.laps
+        : [];
+  const origSlices = extractOriginalLapStreamSlices(
+    rawLaps,
+    details?.streams as Record<string, { data?: any[] }> | undefined,
+    activity.average_cadence
+  );
+
   // 1. If user calibrated laps exist, prioritize them!
   const calibratedLaps = details?.calibration?.calibratedLaps;
   if (calibratedLaps && calibratedLaps.length > 0) {
-    const activeLaps = calibratedLaps.filter(
+    const enrichedCalibratedLaps = calibratedLaps.map((lap, idx) => {
+      const isRest = Boolean(lap.isRest || lap.distanceM <= 0);
+      const origIdx = (lap.originalLapIndex ?? idx + 1) - 1;
+      const origSlice = origSlices[origIdx];
+      const strokeRateSpm = isRest
+        ? 0
+        : lap.strokeRateSpm ?? origSlice?.avgCadence ?? (activity.average_cadence ? Math.round(activity.average_cadence) : undefined);
+      const totalStrokes = isRest
+        ? 0
+        : lap.totalStrokes ??
+          (strokeRateSpm && strokeRateSpm > 0 && lap.movingTimeSec > 0
+            ? Math.round((strokeRateSpm * lap.movingTimeSec) / 60)
+            : undefined);
+      const avgHr = lap.avgHr ?? origSlice?.avgHr;
+      const maxHr = lap.maxHr ?? origSlice?.maxHr;
+      const numLengths = !isRest && lap.distanceM > 0 ? Math.max(1, lap.distanceM / 25) : 0;
+      const swolf =
+        !isRest && numLengths > 0 && totalStrokes && totalStrokes > 0
+          ? Math.round(lap.movingTimeSec / numLengths + totalStrokes / numLengths)
+          : undefined;
+
+      return {
+        lapIndex: lap.lapIndex,
+        originalLapIndex: lap.originalLapIndex ?? idx + 1,
+        distanceM: lap.distanceM,
+        movingTimeSec: lap.movingTimeSec,
+        pacePer100mFormatted: isRest ? '' : lap.pacePer100mFormatted,
+        strokeRateSpm,
+        totalStrokes,
+        avgHr,
+        maxHr,
+        swolf,
+        isIgnored: Boolean(lap.isIgnored),
+        isRest,
+      };
+    });
+
+    const activeLaps = enrichedCalibratedLaps.filter(
       (l) => !l.isIgnored && !l.isRest && l.distanceM > 0
     );
     const sumLapTime = activeLaps.reduce((acc, l) => acc + (l.movingTimeSec || 0), 0);
@@ -607,27 +924,36 @@ export function getSwimPaceDetails(
     const secs = Math.round(secPer100m % 60);
     const paceFormatted = `${mins}:${secs.toString().padStart(2, '0')}/100m`;
 
+    const lapsWithCad = activeLaps.filter((l) => l.strokeRateSpm && l.strokeRateSpm > 0);
+    const weightedCadSum = lapsWithCad.reduce((acc, l) => acc + (l.strokeRateSpm || 0) * l.movingTimeSec, 0);
+    const weightedCadTime = lapsWithCad.reduce((acc, l) => acc + l.movingTimeSec, 0);
+    const avgStrokeRateSpm =
+      weightedCadTime > 0
+        ? Math.round(weightedCadSum / weightedCadTime)
+        : activity.average_cadence
+          ? Math.round(activity.average_cadence)
+          : undefined;
+
+    const sumStrokes = activeLaps.reduce((acc, l) => acc + (l.totalStrokes || 0), 0);
+    const swolfLaps = activeLaps.filter((l) => l.swolf && l.swolf > 0);
+    const avgSwolf =
+      swolfLaps.length > 0
+        ? Math.round(swolfLaps.reduce((acc, l) => acc + (l.swolf || 0), 0) / swolfLaps.length)
+        : undefined;
+
     return {
       pacePer100mFormatted: paceFormatted,
       paceSecondsPer100m: secPer100m,
       totalDistanceM: Math.round(totalDist),
       movingTimeSec: Math.round(totalMovingTime),
-      laps: calibratedLaps.map((lap) => {
-        const isRest = Boolean(lap.isRest || lap.distanceM <= 0);
-        return {
-          lapIndex: lap.lapIndex,
-          distanceM: lap.distanceM,
-          movingTimeSec: lap.movingTimeSec,
-          pacePer100mFormatted: isRest ? '' : lap.pacePer100mFormatted,
-          isIgnored: Boolean(lap.isIgnored),
-          isRest,
-        };
-      }),
+      avgStrokeRateSpm,
+      totalStrokes: sumStrokes > 0 ? sumStrokes : undefined,
+      avgSwolf,
+      laps: enrichedCalibratedLaps,
     };
   }
 
   // 2. Otherwise extract raw laps from Strava activity
-  const rawLaps = (details?.activity?.laps as any[]) || [];
   if (rawLaps.length > 0) {
     const processedLaps = rawLaps.map((lap, idx) => {
       const dist = Math.round(lap.distance || 0);
@@ -640,11 +966,32 @@ export function getSwimPaceDetails(
         const lSecs = Math.round(lapSecPer100m % 60);
         paceFormatted = `${lMins}:${lSecs.toString().padStart(2, '0')}/100m`;
       }
+
+      const slice = origSlices[idx];
+      const strokeRateSpm = isRest ? 0 : slice?.avgCadence;
+      const totalStrokes = isRest
+        ? 0
+        : slice?.totalCycles ??
+          (strokeRateSpm && strokeRateSpm > 0 && time > 0
+            ? Math.round((strokeRateSpm * time) / 60)
+            : undefined);
+      const numLengths = !isRest && dist > 0 ? Math.max(1, dist / 25) : 0;
+      const swolf =
+        !isRest && numLengths > 0 && totalStrokes && totalStrokes > 0
+          ? Math.round(time / numLengths + totalStrokes / numLengths)
+          : undefined;
+
       return {
         lapIndex: idx + 1,
+        originalLapIndex: idx + 1,
         distanceM: dist,
         movingTimeSec: time,
         pacePer100mFormatted: paceFormatted,
+        strokeRateSpm,
+        totalStrokes,
+        avgHr: slice?.avgHr,
+        maxHr: slice?.maxHr,
+        swolf,
         isIgnored: false,
         isRest,
       };
@@ -664,11 +1011,31 @@ export function getSwimPaceDetails(
       const secs = Math.round(secPer100m % 60);
       const paceFormatted = `${mins}:${secs.toString().padStart(2, '0')}/100m`;
 
+      const lapsWithCad = activeLaps.filter((l) => l.strokeRateSpm && l.strokeRateSpm > 0);
+      const weightedCadSum = lapsWithCad.reduce((acc, l) => acc + (l.strokeRateSpm || 0) * l.movingTimeSec, 0);
+      const weightedCadTime = lapsWithCad.reduce((acc, l) => acc + l.movingTimeSec, 0);
+      const avgStrokeRateSpm =
+        weightedCadTime > 0
+          ? Math.round(weightedCadSum / weightedCadTime)
+          : activity.average_cadence
+            ? Math.round(activity.average_cadence)
+            : undefined;
+
+      const sumStrokes = activeLaps.reduce((acc, l) => acc + (l.totalStrokes || 0), 0);
+      const swolfLaps = activeLaps.filter((l) => l.swolf && l.swolf > 0);
+      const avgSwolf =
+        swolfLaps.length > 0
+          ? Math.round(swolfLaps.reduce((acc, l) => acc + (l.swolf || 0), 0) / swolfLaps.length)
+          : undefined;
+
       return {
         pacePer100mFormatted: paceFormatted,
         paceSecondsPer100m: secPer100m,
         totalDistanceM: Math.round(totalDist),
         movingTimeSec: Math.round(totalMovingTime),
+        avgStrokeRateSpm,
+        totalStrokes: sumStrokes > 0 ? sumStrokes : undefined,
+        avgSwolf,
         laps: processedLaps,
       };
     }
@@ -682,11 +1049,13 @@ export function getSwimPaceDetails(
   const secPer100m = (fallbackTime / fallbackDist) * 100;
   const mins = Math.floor(secPer100m / 60);
   const secs = Math.round(secPer100m % 60);
+  const fallbackCad = activity.average_cadence ? Math.round(activity.average_cadence) : undefined;
   return {
     pacePer100mFormatted: `${mins}:${secs.toString().padStart(2, '0')}/100m`,
     paceSecondsPer100m: secPer100m,
     totalDistanceM: Math.round(fallbackDist),
     movingTimeSec: Math.round(fallbackTime),
+    avgStrokeRateSpm: fallbackCad,
   };
 }
 
@@ -1650,6 +2019,8 @@ export interface ReplaceRepublishedActivityParams {
     timeStream: number[];
     speedStream: number[];
     distanceStream: number[];
+    heartrateStream?: number[];
+    cadenceStream?: number[];
   };
   existingDetails?: StravaActivityDetailsRecord | null;
 }
@@ -1745,7 +2116,7 @@ export async function replaceRepublishedStravaActivity(
     streams: simulatedStreams
       ? {
           ...currentStreams,
-          time: currentStreams.time || {
+          time: {
             data: simulatedStreams.timeStream,
             series_type: 'time',
             original_size: simulatedStreams.timeStream.length,
@@ -1763,6 +2134,26 @@ export async function replaceRepublishedStravaActivity(
             original_size: simulatedStreams.distanceStream.length,
             resolution: 'high',
           },
+          ...(simulatedStreams.heartrateStream && simulatedStreams.heartrateStream.length > 0
+            ? {
+                heartrate: {
+                  data: simulatedStreams.heartrateStream,
+                  series_type: 'distance',
+                  original_size: simulatedStreams.heartrateStream.length,
+                  resolution: 'high',
+                },
+              }
+            : {}),
+          ...(simulatedStreams.cadenceStream && simulatedStreams.cadenceStream.length > 0
+            ? {
+                cadence: {
+                  data: simulatedStreams.cadenceStream,
+                  series_type: 'distance',
+                  original_size: simulatedStreams.cadenceStream.length,
+                  resolution: 'high',
+                },
+              }
+            : {}),
         }
       : currentStreams,
   }));
@@ -2363,24 +2754,48 @@ export function mergeStravaActivities(existing: StravaActivity[], incoming: Stra
 
 /**
  * Smart Delta Sync:
- * - When syncing data from Strava, for the first time (if we have less than 200 activities),
- *   request 200 activities. For the next time we sync, just get 30.
+ * - Uses `GET /athlete/activities?after=<mostRecentActivityStartEpoch>` when cached activities exist,
+ *   so we only request activities since the start time of our most recent activity.
+ * - For the first time (if no cached activities exist), requests 200 activities.
  * - Prepend and merge into existing cache; never lose previously fetched historical items!
  */
-export async function syncStravaActivitiesDelta(accessToken: string, customPerPage?: number): Promise<StravaActivity[]> {
+export async function syncStravaActivitiesDelta(
+  accessToken: string,
+  customPerPage?: number,
+  options?: { useAfterMostRecent?: boolean }
+): Promise<StravaActivity[]> {
   const existingActivities = getCachedStravaActivities();
-  // Requirement: First time (if less than 200 activities), request 200 activities; next time we sync, just get 30
-  const perPage = customPerPage !== undefined
-    ? customPerPage
-    : (existingActivities.length < 200 ? 200 : 30);
+  const useAfter = options?.useAfterMostRecent !== false;
+  const afterEpochSec = useAfter
+    ? getMostRecentStravaActivityStartEpoch(existingActivities)
+    : null;
 
-  const isGitHubPages = typeof window !== 'undefined' && window.location.hostname.includes('github.io');
+  const perPage =
+    customPerPage !== undefined
+      ? customPerPage
+      : afterEpochSec
+      ? 200
+      : existingActivities.length < 200
+      ? 200
+      : 30;
+
+  const queryParams = new URLSearchParams({
+    page: '1',
+    per_page: String(perPage),
+  });
+  if (afterEpochSec && afterEpochSec > 0) {
+    queryParams.set('after', String(afterEpochSec));
+  }
+
+  const isGitHubPages =
+    typeof window !== 'undefined' && window.location.hostname.includes('github.io');
 
   let incoming: StravaActivity[] = [];
+  let fetchedSuccessfully = false;
 
   if (!isGitHubPages) {
     try {
-      const res = await fetch(`/api/strava/activities?page=1&per_page=${perPage}`, {
+      const res = await fetch(`/api/strava/activities?${queryParams.toString()}`, {
         method: 'GET',
         headers: {
           Authorization: `Bearer ${accessToken}`,
@@ -2399,6 +2814,7 @@ export async function syncStravaActivitiesDelta(accessToken: string, customPerPa
       if (res.ok) {
         const data = await res.json();
         if (Array.isArray(data)) {
+          fetchedSuccessfully = true;
           incoming = data.map((item: any) => ({
             ...item,
             gear_id: item.gear_id || item.gear?.id || null,
@@ -2411,13 +2827,13 @@ export async function syncStravaActivitiesDelta(accessToken: string, customPerPa
       if (err instanceof Error && /401|authorization|unauthorized/i.test(err.message)) {
         throw err;
       }
-      // Fall through
+      // Fall through to direct Strava call
     }
   }
 
-  if (incoming.length === 0) {
+  if (!fetchedSuccessfully) {
     const stravaRes = await fetch(
-      `https://www.strava.com/api/v3/athlete/activities?page=1&per_page=${perPage}`,
+      `https://www.strava.com/api/v3/athlete/activities?${queryParams.toString()}`,
       {
         method: 'GET',
         headers: {
@@ -2433,9 +2849,12 @@ export async function syncStravaActivitiesDelta(accessToken: string, customPerPa
 
     const data = await stravaRes.json();
     if (!stravaRes.ok) {
-      throw new Error(data.message || data.error || `Strava activities request failed (${stravaRes.status})`);
+      throw new Error(
+        data.message || data.error || `Strava activities request failed (${stravaRes.status})`
+      );
     }
     if (Array.isArray(data)) {
+      fetchedSuccessfully = true;
       incoming = data.map((item: any) => ({
         ...item,
         gear_id: item.gear_id || item.gear?.id || null,
@@ -2445,27 +2864,38 @@ export async function syncStravaActivitiesDelta(accessToken: string, customPerPa
     }
   }
 
+  // Detect brand-new activities that weren't previously in our local cache
+  const existingIdSet = new Set(existingActivities.map((a) => String(a.id)));
+  const newlyDiscovered = incoming.filter((a) => !existingIdSet.has(String(a.id)));
+  if (newlyDiscovered.length > 0) {
+    const existingNewIds = getCachedStravaNewActivityIds();
+    const combinedNewIds = Array.from(
+      new Set([...newlyDiscovered.map((a) => String(a.id)), ...existingNewIds])
+    );
+    saveCachedStravaNewActivityIds(combinedNewIds);
+  }
+
   // Auto-apply configured activity rename rules and sync corrected names to Strava
   if (incoming.length > 0) {
     try {
-      const renameRes = await processActivitiesWithRenameRules(incoming, accessToken, { syncToStrava: true });
+      const renameRes = await processActivitiesWithRenameRules(incoming, accessToken, {
+        syncToStrava: true,
+      });
       incoming = renameRes.updatedActivities;
     } catch (e) {
       console.warn('Could not auto-rename incoming Strava activities:', e);
     }
   }
 
-  // Check if activities within the fetched Strava batch timeframe still exist on Strava.
-  // Since `incoming` is a contiguous reverse-chronological page from Strava down to `oldestIncomingMs`,
-  // any previously cached Strava activity with `start_date >= oldestIncomingMs` that is missing from `incoming`
-  // was deleted on Strava and is automatically flagged as `isDeleted = true`.
-  if (incoming.length > 0) {
+  // Only run contiguous-page missing/deleted detection when `after` was NOT used
+  if (!afterEpochSec && incoming.length > 0) {
     const incomingIdSet = new Set(incoming.map((a) => String(a.id)));
     const twoWeeksAgoMs = Date.now() - 14 * 24 * 60 * 60 * 1000;
     const incomingTimestamps = incoming
       .map((a) => (a.start_date ? new Date(a.start_date).getTime() : NaN))
       .filter((t) => !isNaN(t));
-    const oldestIncomingMs = incomingTimestamps.length > 0 ? Math.min(...incomingTimestamps) : twoWeeksAgoMs;
+    const oldestIncomingMs =
+      incomingTimestamps.length > 0 ? Math.min(...incomingTimestamps) : twoWeeksAgoMs;
 
     const deletedIds = getDeletedActivityIds();
     let foundMissing = false;
@@ -2486,7 +2916,10 @@ export async function syncStravaActivitiesDelta(accessToken: string, customPerPa
 
     if (foundMissing && typeof window !== 'undefined') {
       try {
-        localStorage.setItem(STRAVA_DELETED_ACTIVITY_IDS_KEY, JSON.stringify(Array.from(deletedIds)));
+        localStorage.setItem(
+          STRAVA_DELETED_ACTIVITY_IDS_KEY,
+          JSON.stringify(Array.from(deletedIds))
+        );
       } catch {}
     }
   }

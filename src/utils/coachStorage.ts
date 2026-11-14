@@ -24,6 +24,11 @@ export function saveTodayRecommendedWorkout(workout: RecommendedWorkout | null):
     } else {
       localStorage.removeItem(STORAGE_KEYS.TODAY_WORKOUT);
     }
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(
+        new CustomEvent('fittrack_local_storage_updated', { detail: { domains: ['coach'] } })
+      );
+    }
   } catch {}
 }
 
@@ -44,6 +49,11 @@ export function saveCoachingPlan(plan: PeriodizedPlan | null): void {
     } else {
       localStorage.removeItem(STORAGE_KEYS.SAVED_PLAN);
     }
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(
+        new CustomEvent('fittrack_local_storage_updated', { detail: { domains: ['coach'] } })
+      );
+    }
   } catch {}
 }
 
@@ -60,5 +70,10 @@ export function loadCoachChatHistory(): CoachChatMessage[] {
 export function saveCoachChatHistory(messages: CoachChatMessage[]): void {
   try {
     localStorage.setItem(STORAGE_KEYS.CHAT_HISTORY, JSON.stringify(messages.slice(-30)));
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(
+        new CustomEvent('fittrack_local_storage_updated', { detail: { domains: ['coach'] } })
+      );
+    }
   } catch {}
 }

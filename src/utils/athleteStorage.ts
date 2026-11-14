@@ -93,6 +93,9 @@ export function saveAthleteProfile(profile: AthleteProfile): void {
   if (typeof window === 'undefined') return;
   try {
     localStorage.setItem(ATHLETE_PROFILE_STORAGE_KEY, JSON.stringify(profile));
+    window.dispatchEvent(
+      new CustomEvent('fittrack_local_storage_updated', { detail: { domains: ['profile'] } })
+    );
   } catch (err) {
     console.error('[Athlete Storage] Failed to save profile:', err);
   }
@@ -102,6 +105,9 @@ export function resetAthleteProfile(): AthleteProfile {
   if (typeof window !== 'undefined') {
     try {
       localStorage.removeItem(ATHLETE_PROFILE_STORAGE_KEY);
+      window.dispatchEvent(
+        new CustomEvent('fittrack_local_storage_updated', { detail: { domains: ['profile'] } })
+      );
     } catch {}
   }
   return DEFAULT_ATHLETE_PROFILE;

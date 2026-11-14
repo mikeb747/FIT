@@ -93,6 +93,11 @@ export function saveRecoveryLogs(logs: DailyRecoveryLog[]): void {
   try {
     const sorted = [...logs].sort((a, b) => a.date.localeCompare(b.date));
     localStorage.setItem(RECOVERY_STORAGE_KEY, JSON.stringify(sorted));
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(
+        new CustomEvent('fittrack_local_storage_updated', { detail: { domains: ['recovery'] } })
+      );
+    }
   } catch (err) {
     console.error('Failed to save recovery logs:', err);
   }
