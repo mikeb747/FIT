@@ -12,7 +12,11 @@ import {
   TrendingUp,
 } from 'lucide-react';
 import type { StravaActivity, StravaActivityDetailsRecord } from '../utils/stravaActivities';
-import { classifyActivity } from '../utils/stravaActivities';
+import {
+  classifyActivity,
+  generateAutoSplitsFromStreamsOrActivity,
+  hasSingleOrNoLaps,
+} from '../utils/stravaActivities';
 import type { AthleteProfile } from '../types/athlete';
 
 export type WorkoutAnalysisMetric = 'pace' | 'swim_pace' | 'stroke' | 'power' | 'heartrate' | 'speed';
@@ -133,15 +137,19 @@ export const WorkoutAnalysis: React.FC<WorkoutAnalysisProps> = ({
   const ftp = athleteProfile?.bikeFtp || 250;
   const maxHr = athleteProfile?.maxHeartRate || 185;
 
-  // Extract all available laps
+  const isAutoCreatedSplits = useMemo(
+    () => hasSingleOrNoLaps(activity, details || undefined),
+    [activity, details]
+  );
+
+  // Extract all available laps (or auto-created splits when 0 or 1 lap exists)
   const laps: WorkoutAnalysisLap[] = useMemo(() => {
     const rawLaps = (details?.activity?.laps as any[]) || (activity as any)?.laps;
     const calibratedRun = details?.calibration?.calibratedRunSections;
     const calibratedSwim = details?.calibration?.calibratedLaps;
-    const splits = (details?.activity?.splits_metric as any[]) || (activity as any)?.splits_metric;
 
     // 1. If Calibrated Run Sections exist (indoor treadmill interval recreation):
-    if (category === 'Run' && calibratedRun && calibratedRun.length > 0) {
+    if (category === 'Run' && calibratedRun && calibratedRun.length > 1) {
       return calibratedRun.map((sec, idx) => {
         const durSec = sec.durationSec || 60;
         const spdKph = sec.speedKph || 0;
@@ -170,13 +178,17 @@ export const WorkoutAnalysis: React.FC<WorkoutAnalysisProps> = ({
     }
 
     // 2. If Calibrated Swim Laps exist:
-    if (category === 'Swim' && calibratedSwim && calibratedSwim.length > 0) {
+    if (category === 'Swim' && calibratedSwim && calibratedSwim.length > 1) {
       return calibratedSwim.map((lap, idx) => {
         const isRest = Boolean(lap.isRest || lap.distanceM <= 0);
         const distM = lap.distanceM || 0;
         const durSec = lap.movingTimeSec || 0;
         const paceSec = !isRest && distM > 0 && durSec > 0 ? (durSec / distM) * 100 : 0;
-        const strokeRate = (lap as any).average_cadence || (lap as any).strokeRate || (activity.average_cadence ? Math.round(activity.average_cadence) : undefined);
+        const strokeRate =
+          lap.strokeRateSpm ||
+          (lap as any).average_cadence ||
+          (lap as any).strokeRate ||
+          (activity.average_cadence ? Math.round(activity.average_cadence) : undefined);
 
         return {
           id: `calib-swim-${idx + 1}`,
@@ -190,7 +202,7 @@ export const WorkoutAnalysis: React.FC<WorkoutAnalysisProps> = ({
           avgSpeedKph: distM > 0 && durSec > 0 ? Number(((distM / durSec) * 3.6).toFixed(1)) : 0,
           swimPaceSecPer100m: paceSec,
           swimPaceFormatted: isRest ? 'Rest' : `${formatSwimPaceSec(paceSec)} /100m`,
-          avgHr: activity.average_heartrate ? Math.round(activity.average_heartrate) : undefined,
+          avgHr: lap.avgHr ?? (activity.average_heartrate ? Math.round(activity.average_heartrate) : undefined),
           avgCadence: isRest ? undefined : strokeRate,
           isRest,
           isInterval: !isRest && paceSec > 0 && paceSec <= thresholdSwimPaceSec,
@@ -199,8 +211,8 @@ export const WorkoutAnalysis: React.FC<WorkoutAnalysisProps> = ({
       });
     }
 
-    // 3. Raw Strava Laps (Run, Bike, or Swim):
-    if (Array.isArray(rawLaps) && rawLaps.length > 0) {
+    // 3. Raw Strava Laps when activity has more than 1 lap:
+    if (Array.isArray(rawLaps) && rawLaps.length > 1) {
       return rawLaps.map((lap: any, idx: number) => {
         const distM = Math.round(lap.distance || 0);
         const durSec = Math.round(lap.moving_time || lap.elapsed_time || 0);
@@ -270,37 +282,64 @@ export const WorkoutAnalysis: React.FC<WorkoutAnalysisProps> = ({
       });
     }
 
-    // 4. Fallback to Kilometer Splits if available:
-    if (Array.isArray(splits) && splits.length > 0) {
-      return splits.map((s: any, idx: number) => {
-        const distM = Math.round(s.distance || 1000);
-        const durSec = Math.round(s.moving_time || s.elapsed_time || 0);
-        const paceSec = distM > 0 && durSec > 0 ? durSec / (distM / 1000) : 300;
-        const speedKph = durSec > 0 ? Number(((distM / durSec) * 3.6).toFixed(1)) : 0;
-        const hr = s.average_heartrate ? Math.round(s.average_heartrate) : undefined;
-        const watts = s.average_watts ? Math.round(s.average_watts) : undefined;
+    // 4. Activity has 0 or 1 lap: Auto-create splits (1km Run, 2km Bike, 100m Swim)
+    const splitDistM = category === 'Bike' ? 2000 : category === 'Swim' ? 100 : 1000;
+    const autoChunks = generateAutoSplitsFromStreamsOrActivity(
+      activity,
+      details || undefined,
+      splitDistM
+    );
 
-        return {
-          id: `split-${idx + 1}`,
-          lapIndex: s.split || idx + 1,
-          name: `Km ${idx + 1}`,
-          distanceM: distM,
-          distanceFormatted: `${(distM / 1000).toFixed(2)} km`,
-          movingTimeSec: durSec,
-          durationFormatted: formatLapDuration(durSec),
-          elapsedTimeSec: durSec,
-          avgSpeedKph: speedKph,
-          paceSecPerKm: paceSec,
-          paceFormatted: `${formatPaceSec(paceSec)} /km`,
-          avgWatts: category === 'Run' ? undefined : watts,
-          avgHr: hr,
-          zoneLabel: category === 'Run' ? getRunPaceZone(paceSec, thresholdRunPaceSec) : hr ? getHeartRateZone(hr, maxHr) : '',
-        };
-      });
-    }
+    return autoChunks.map((chunk) => {
+      const distM = chunk.distanceM;
+      const durSec = chunk.movingTimeSec;
+      const paceSec = chunk.paceSecPerKm;
+      const swimPaceSec = chunk.swimPaceSecPer100m;
+      const speedKph = Number(chunk.avgSpeedKph);
+      const watts = chunk.avgWatts;
+      const hr = chunk.avgHr;
 
-    // 5. If no laps or splits: return empty array
-    return [];
+      let zoneLabel = '';
+      let isInterval = false;
+      if (category === 'Run') {
+        zoneLabel = getRunPaceZone(paceSec, thresholdRunPaceSec);
+        isInterval = paceSec <= thresholdRunPaceSec * 1.05;
+      } else if (category === 'Bike') {
+        zoneLabel = watts ? getBikePowerZone(watts, ftp) : hr ? getHeartRateZone(hr, maxHr) : '';
+        isInterval = watts ? watts >= ftp * 0.95 : speedKph >= 25;
+      } else if (category === 'Swim') {
+        zoneLabel = getSwimPaceZone(swimPaceSec, thresholdSwimPaceSec);
+        isInterval = swimPaceSec <= thresholdSwimPaceSec * 1.05;
+      } else {
+        zoneLabel = hr ? getHeartRateZone(hr, maxHr) : '';
+      }
+
+      const distFormatted =
+        category === 'Swim' ? `${distM} m` : `${(distM / 1000).toFixed(2)} km`;
+
+      return {
+        id: `auto-split-${chunk.splitIndex}`,
+        lapIndex: chunk.splitIndex,
+        name: `Split ${chunk.splitIndex}`,
+        distanceM: distM,
+        distanceFormatted: distFormatted,
+        movingTimeSec: durSec,
+        durationFormatted: formatLapDuration(durSec),
+        elapsedTimeSec: durSec,
+        avgSpeedKph: speedKph,
+        paceSecPerKm: paceSec,
+        paceFormatted: `${formatPaceSec(paceSec)} /km`,
+        swimPaceSecPer100m: swimPaceSec,
+        swimPaceFormatted: `${formatSwimPaceSec(swimPaceSec)} /100m`,
+        avgWatts: category === 'Run' ? undefined : watts,
+        avgHr: hr,
+        maxHr: chunk.maxHr,
+        avgCadence: chunk.avgCadence,
+        isRest: false,
+        isInterval,
+        zoneLabel,
+      };
+    });
   }, [activity, details, category, thresholdRunPaceSec, thresholdSwimPaceSec, ftp, maxHr]);
 
   // Determine available metrics for switching
@@ -643,7 +682,9 @@ export const WorkoutAnalysis: React.FC<WorkoutAnalysisProps> = ({
               Workout Analysis
             </h4>
             <p className={`text-[11px] ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>
-              {laps.length} {laps.length === 1 ? 'Lap' : 'Laps'} recorded • Tap bar or row to inspect
+              {isAutoCreatedSplits
+                ? 'Splits (Auto-Created) • Tap bar or row to inspect'
+                : `${laps.length} ${laps.length === 1 ? 'Lap' : 'Laps'} recorded • Tap bar or row to inspect`}
             </p>
           </div>
         </div>
@@ -711,7 +752,7 @@ export const WorkoutAnalysis: React.FC<WorkoutAnalysisProps> = ({
           }`}
         >
           <span className={`font-bold ${isLight ? 'text-slate-900' : 'text-white'}`}>
-            Lap {activeMetricBannerText.lapIndex}
+            {isAutoCreatedSplits ? 'Split' : 'Lap'} {activeMetricBannerText.lapIndex}
           </span>
           <span className="text-slate-400">•</span>
           <span
@@ -949,7 +990,7 @@ export const WorkoutAnalysis: React.FC<WorkoutAnalysisProps> = ({
             isLight ? 'bg-slate-50 text-slate-700 border-slate-200' : 'bg-slate-950/70 text-slate-400 border-slate-800'
           }`}
         >
-          <span>Laps</span>
+          <span>{isAutoCreatedSplits ? 'Splits (Auto-Created)' : 'Laps'}</span>
           <span className="text-[11px] font-normal normal-case opacity-75">
             {chartData?.avgValue ? (
               <span>

@@ -1373,7 +1373,11 @@ export const StravaActivityModal: React.FC<StravaActivityModalProps> = ({
               <div className="flex items-center justify-between flex-wrap gap-2">
                 <h4 className="text-xs font-bold text-sky-300 uppercase tracking-wider flex items-center gap-1.5">
                   <Waves className="w-3.5 h-3.5 text-sky-400" />
-                  <span>Moving Laps ({swimPace.laps.length} Laps)</span>
+                  <span>
+                    {swimPace.isAutoCreatedSplits
+                      ? 'Splits (Auto-Created)'
+                      : `Moving Laps (${swimPace.laps.length} Laps)`}
+                  </span>
                 </h4>
                 <div className="flex items-center gap-2 text-xs font-mono font-bold">
                   <span className="text-sky-400">Avg {swimPace.pacePer100mFormatted}</span>
@@ -1403,7 +1407,11 @@ export const StravaActivityModal: React.FC<StravaActivityModalProps> = ({
                     >
                       <div className="flex items-center justify-between text-slate-400 text-[10px]">
                         <span className={isRestLap ? 'text-slate-500 font-semibold' : ''}>
-                          {isRestLap ? `Rest ${lap.lapIndex}` : `Lap ${lap.lapIndex}`}
+                          {isRestLap
+                            ? `Rest ${lap.lapIndex}`
+                            : swimPace.isAutoCreatedSplits
+                              ? `Split ${lap.lapIndex}`
+                              : `Lap ${lap.lapIndex}`}
                         </span>
                         {!isRestLap && <span>{lap.distanceM}m</span>}
                       </div>
@@ -1458,7 +1466,9 @@ export const StravaActivityModal: React.FC<StravaActivityModalProps> = ({
                     </div>
                     <div>
                       <h4 className="text-xs font-bold text-rose-300 uppercase tracking-wider">
-                        Splits ({runDetails.splits.length} Splits)
+                        {runDetails.isAutoCreatedSplits
+                          ? 'Splits (Auto-Created)'
+                          : `Splits (${runDetails.splits.length} Splits)`}
                       </h4>
                       <span className="text-[10px] text-slate-400">
                         {runDetails.consistencySummary}
@@ -1800,7 +1810,9 @@ export const StravaActivityModal: React.FC<StravaActivityModalProps> = ({
                   </div>
                   <div>
                     <h4 className="text-xs font-bold text-orange-300 uppercase tracking-wider">
-                      Splits ({bikeDetails.laps.length} Laps)
+                      {bikeDetails.isAutoCreatedSplits
+                        ? 'Splits (Auto-Created)'
+                        : `Splits (${bikeDetails.laps.length} Laps)`}
                     </h4>
                     <span className="text-[10px] text-slate-400">
                       {bikeDetails.intensityFactor ? `Intensity Factor: ${bikeDetails.intensityFactor}` : ''}

@@ -779,6 +779,7 @@ export interface SwimPaceDetails {
   avgStrokeRateSpm?: number;
   totalStrokes?: number;
   avgSwolf?: number;
+  isAutoCreatedSplits?: boolean;
   laps?: Array<{
     lapIndex: number;
     originalLapIndex?: number;
@@ -793,6 +794,420 @@ export interface SwimPaceDetails {
     isIgnored?: boolean;
     isRest?: boolean;
   }>;
+}
+
+export interface AutoCreatedSplitChunk {
+  splitIndex: number;
+  distanceM: number;
+  movingTimeSec: number;
+  elapsedTimeSec: number;
+  avgSpeedMps: number;
+  avgSpeedKph: string;
+  paceSecPerKm: number;
+  paceFormatted: string;
+  swimPaceSecPer100m: number;
+  swimPaceFormatted: string;
+  avgHr?: number;
+  maxHr?: number;
+  avgWatts?: number;
+  avgCadence?: number;
+  elevationDiffM?: number;
+  elevationGainM?: number;
+}
+
+/**
+ * Returns true if the activity has no laps or only 1 lap from start to finish
+ * (and no multi-lap user calibration has been applied).
+ */
+export function hasSingleOrNoLaps(
+  activity: StravaActivity,
+  details?: StravaActivityDetailsRecord
+): boolean {
+  const calibratedLaps = details?.calibration?.calibratedLaps;
+  if (Array.isArray(calibratedLaps) && calibratedLaps.length > 1) return false;
+
+  const calibratedRunSections = details?.calibration?.calibratedRunSections;
+  if (Array.isArray(calibratedRunSections) && calibratedRunSections.length > 1) return false;
+
+  const rawLaps =
+    Array.isArray(details?.activity?.laps) && (details!.activity!.laps as any[]).length > 0
+      ? (details!.activity!.laps as any[])
+      : Array.isArray(activity.laps)
+        ? activity.laps
+        : [];
+
+  return rawLaps.length <= 1;
+}
+
+/**
+ * Automatically creates fixed-distance splits (1000m for Run, 2000m for Bike, 100m for Swim)
+ * from activity streams, splits_metric, or total distance/time when an activity has 0 or 1 lap.
+ */
+export function generateAutoSplitsFromStreamsOrActivity(
+  activity: StravaActivity,
+  details: StravaActivityDetailsRecord | undefined,
+  splitDistanceM: number
+): AutoCreatedSplitChunk[] {
+  const safeSplitM = Math.max(25, splitDistanceM);
+  const totalDistM =
+    details?.calibration?.calibratedDistanceM ??
+    activity.distance ??
+    ((details?.activity as any)?.distance as number) ??
+    0;
+  const totalMovingSec =
+    details?.calibration?.calibratedMovingTimeSec ??
+    activity.moving_time ??
+    activity.elapsed_time ??
+    ((details?.activity as any)?.moving_time as number) ??
+    0;
+
+  if (totalDistM <= 0 || totalMovingSec <= 0) return [];
+
+  const minRemainderM = Math.max(10, safeSplitM * 0.05);
+  const streams = details?.streams as Record<string, { data?: any[] }> | undefined;
+  const distStream = Array.isArray(streams?.distance?.data) ? (streams!.distance!.data as number[]) : undefined;
+  const timeStream = Array.isArray(streams?.time?.data) ? (streams!.time!.data as number[]) : undefined;
+  const hrStream = Array.isArray(streams?.heartrate?.data) ? (streams!.heartrate!.data as number[]) : undefined;
+  const wattsStream = Array.isArray(streams?.watts?.data) ? (streams!.watts!.data as number[]) : undefined;
+  const cadStream = Array.isArray(streams?.cadence?.data) ? (streams!.cadence!.data as number[]) : undefined;
+  const altStream = Array.isArray(streams?.altitude?.data) ? (streams!.altitude!.data as number[]) : undefined;
+
+  const formatChunkMetrics = (
+    splitIndex: number,
+    distM: number,
+    movingSec: number,
+    opts?: {
+      avgHr?: number;
+      maxHr?: number;
+      avgWatts?: number;
+      avgCadence?: number;
+      elevationDiffM?: number;
+      elevationGainM?: number;
+    }
+  ): AutoCreatedSplitChunk => {
+    const cleanDistM = Math.max(1, Math.round(distM));
+    const cleanTimeSec = Math.max(1, Math.round(movingSec));
+    const avgSpeedMps = cleanDistM / cleanTimeSec;
+    const avgSpeedKph = (avgSpeedMps * 3.6).toFixed(1);
+
+    const paceSecPerKm = cleanTimeSec / (cleanDistM / 1000);
+    const pMin = Math.floor(paceSecPerKm / 60);
+    const pSec = Math.round(paceSecPerKm % 60);
+    const paceFormatted = `${pMin}:${pSec.toString().padStart(2, '0')}/km`;
+
+    const swimPaceSecPer100m = (cleanTimeSec / cleanDistM) * 100;
+    const sMin = Math.floor(swimPaceSecPer100m / 60);
+    const sSec = Math.round(swimPaceSecPer100m % 60);
+    const swimPaceFormatted = `${sMin}:${sSec.toString().padStart(2, '0')}/100m`;
+
+    return {
+      splitIndex,
+      distanceM: cleanDistM,
+      movingTimeSec: cleanTimeSec,
+      elapsedTimeSec: cleanTimeSec,
+      avgSpeedMps,
+      avgSpeedKph,
+      paceSecPerKm,
+      paceFormatted,
+      swimPaceSecPer100m,
+      swimPaceFormatted,
+      avgHr: opts?.avgHr,
+      maxHr: opts?.maxHr,
+      avgWatts: opts?.avgWatts,
+      avgCadence: opts?.avgCadence,
+      elevationDiffM: opts?.elevationDiffM,
+      elevationGainM: opts?.elevationGainM,
+    };
+  };
+
+  // 1. Slice directly from distance + time streams if present
+  if (
+    distStream &&
+    timeStream &&
+    distStream.length >= 2 &&
+    timeStream.length === distStream.length &&
+    (distStream[distStream.length - 1] || 0) > 20
+  ) {
+    const maxStreamDist = distStream[distStream.length - 1] || totalDistM;
+    const distScale = maxStreamDist > 0 ? totalDistM / maxStreamDist : 1;
+
+    // Build cumulative active moving time array so stops/pauses don't distort split times
+    const cumMovingSec = new Array<number>(distStream.length).fill(0);
+    for (let i = 1; i < distStream.length; i++) {
+      const dt = Math.max(0, (Number(timeStream[i]) || 0) - (Number(timeStream[i - 1]) || 0));
+      const dd = Math.max(0, (Number(distStream[i]) || 0) - (Number(distStream[i - 1]) || 0)) * distScale;
+      // Treat gaps > 15s with < 1m progress as stopped time
+      const activeDt = dt > 15 && dd < 1 ? 0 : dt;
+      cumMovingSec[i] = cumMovingSec[i - 1] + activeDt;
+    }
+    const rawTotalMoving = cumMovingSec[cumMovingSec.length - 1] || 1;
+    const timeScale = rawTotalMoving > 0 ? totalMovingSec / rawTotalMoving : 1;
+
+    const boundaries: Array<{ startDist: number; endDist: number }> = [];
+    if (totalDistM <= safeSplitM) {
+      boundaries.push({ startDist: 0, endDist: totalDistM });
+    } else {
+      let d = 0;
+      while (d + safeSplitM <= totalDistM + 0.01) {
+        boundaries.push({ startDist: d, endDist: d + safeSplitM });
+        d += safeSplitM;
+      }
+      const rem = totalDistM - d;
+      if (rem >= minRemainderM) {
+        boundaries.push({ startDist: d, endDist: totalDistM });
+      }
+    }
+
+    const interpolateTimeAtDist = (targetDistM: number): { timeSec: number; index: number } => {
+      const unscaledTarget = distScale > 0 ? targetDistM / distScale : targetDistM;
+      if (unscaledTarget <= (distStream[0] || 0)) {
+        return { timeSec: 0, index: 0 };
+      }
+      const lastIdx = distStream.length - 1;
+      if (unscaledTarget >= (distStream[lastIdx] || 0)) {
+        return { timeSec: cumMovingSec[lastIdx] * timeScale, index: lastIdx };
+      }
+      let lo = 0;
+      let hi = lastIdx;
+      while (lo < hi) {
+        const mid = (lo + hi) >> 1;
+        if ((distStream[mid] || 0) < unscaledTarget) {
+          lo = mid + 1;
+        } else {
+          hi = mid;
+        }
+      }
+      const prevIdx = Math.max(0, lo - 1);
+      const d0 = distStream[prevIdx] || 0;
+      const d1 = distStream[lo] || d0;
+      const frac = d1 > d0 ? Math.max(0, Math.min(1, (unscaledTarget - d0) / (d1 - d0))) : 0;
+      const t0 = cumMovingSec[prevIdx] * timeScale;
+      const t1 = cumMovingSec[lo] * timeScale;
+      return { timeSec: t0 + (t1 - t0) * frac, index: lo };
+    };
+
+    const { category } = classifyActivity(activity);
+
+    return boundaries.map((b, idx) => {
+      const startPt = interpolateTimeAtDist(b.startDist);
+      const endPt = interpolateTimeAtDist(b.endDist);
+      const iStart = Math.max(0, Math.min(distStream.length - 1, startPt.index));
+      const iEnd = Math.max(iStart, Math.min(distStream.length - 1, endPt.index));
+
+      const chunkDistM = Math.max(1, b.endDist - b.startDist);
+      const chunkTimeSec = Math.max(1, endPt.timeSec - startPt.timeSec);
+
+      let avgHr: number | undefined;
+      let maxHr: number | undefined;
+      if (hrStream && hrStream.length > iStart) {
+        const slice = hrStream
+          .slice(iStart, iEnd + 1)
+          .map(Number)
+          .filter((v) => Number.isFinite(v) && v > 35);
+        if (slice.length > 0) {
+          avgHr = Math.round(slice.reduce((a, c) => a + c, 0) / slice.length);
+          maxHr = Math.round(Math.max(...slice));
+        }
+      }
+      if (!avgHr && activity.average_heartrate && activity.average_heartrate > 35) {
+        avgHr = Math.round(activity.average_heartrate);
+      }
+
+      let avgWatts: number | undefined;
+      if (wattsStream && wattsStream.length > iStart) {
+        const slice = wattsStream
+          .slice(iStart, iEnd + 1)
+          .map(Number)
+          .filter((v) => Number.isFinite(v) && v >= 0);
+        if (slice.length > 0) {
+          avgWatts = Math.round(slice.reduce((a, c) => a + c, 0) / slice.length);
+        }
+      }
+      if (avgWatts === undefined && (details?.calibration?.calibratedAvgWatts || activity.average_watts)) {
+        avgWatts = Math.round((details?.calibration?.calibratedAvgWatts ?? activity.average_watts) || 0);
+      }
+
+      let avgCadence: number | undefined;
+      if (cadStream && cadStream.length > iStart) {
+        const slice = cadStream
+          .slice(iStart, iEnd + 1)
+          .map(Number)
+          .filter((v) => Number.isFinite(v) && v > 0);
+        if (slice.length > 0) {
+          const rawCad = slice.reduce((a, c) => a + c, 0) / slice.length;
+          avgCadence = category === 'Run' && rawCad < 110 ? Math.round(rawCad * 2) : Math.round(rawCad);
+        }
+      }
+      if (!avgCadence && activity.average_cadence && activity.average_cadence > 0) {
+        const rawCad = activity.average_cadence;
+        avgCadence = category === 'Run' && rawCad < 110 ? Math.round(rawCad * 2) : Math.round(rawCad);
+      }
+
+      let elevationDiffM: number | undefined;
+      let elevationGainM: number | undefined;
+      if (altStream && altStream.length > iEnd) {
+        const aStart = Number(altStream[iStart]);
+        const aEnd = Number(altStream[iEnd]);
+        if (Number.isFinite(aStart) && Number.isFinite(aEnd)) {
+          elevationDiffM = Math.round(aEnd - aStart);
+        }
+        let gain = 0;
+        for (let k = iStart + 1; k <= iEnd; k++) {
+          const da = (Number(altStream[k]) || 0) - (Number(altStream[k - 1]) || 0);
+          if (da > 0) gain += da;
+        }
+        elevationGainM = Math.round(gain);
+      }
+
+      return formatChunkMetrics(idx + 1, chunkDistM, chunkTimeSec, {
+        avgHr,
+        maxHr,
+        avgWatts,
+        avgCadence,
+        elevationDiffM,
+        elevationGainM,
+      });
+    });
+  }
+
+  // 2. If streams are not present, check Strava's 1km splits_metric
+  const rawSplitsMetric =
+    Array.isArray((details?.activity as any)?.splits_metric) &&
+    ((details!.activity as any).splits_metric as any[]).length > 0
+      ? ((details!.activity as any).splits_metric as any[])
+      : Array.isArray(activity.splits_metric)
+        ? activity.splits_metric
+        : [];
+
+  if (rawSplitsMetric.length > 1) {
+    if (safeSplitM === 1000) {
+      return rawSplitsMetric.map((s: any, idx: number) => {
+        const sDist = Number(s.distance) || 1000;
+        const sTime = Number(s.moving_time || s.elapsed_time) || Math.round((sDist / totalDistM) * totalMovingSec);
+        const elevDiff = s.elevation_difference !== undefined ? Math.round(Number(s.elevation_difference)) : undefined;
+        return formatChunkMetrics(s.split || idx + 1, sDist, sTime, {
+          avgHr: s.average_heartrate ? Math.round(Number(s.average_heartrate)) : undefined,
+          avgWatts: s.average_watts ? Math.round(Number(s.average_watts)) : undefined,
+          elevationDiffM: elevDiff,
+          elevationGainM: elevDiff !== undefined && elevDiff > 0 ? elevDiff : undefined,
+        });
+      });
+    }
+
+    if (safeSplitM === 2000) {
+      // Group consecutive 1km splits into 2km splits
+      const grouped: AutoCreatedSplitChunk[] = [];
+      let splitIdx = 1;
+      for (let i = 0; i < rawSplitsMetric.length; i += 2) {
+        const s1 = rawSplitsMetric[i];
+        const s2 = rawSplitsMetric[i + 1];
+        const d1 = Number(s1?.distance) || 0;
+        const d2 = s2 ? Number(s2.distance) || 0 : 0;
+        const combDist = d1 + d2;
+        if (!s2 && grouped.length > 0 && combDist < minRemainderM) {
+          break;
+        }
+        const t1 = Number(s1?.moving_time || s1?.elapsed_time) || 0;
+        const t2 = s2 ? Number(s2.moving_time || s2.elapsed_time) || 0 : 0;
+        const combTime = Math.max(1, t1 + t2);
+
+        const hr1 = Number(s1?.average_heartrate) || 0;
+        const hr2 = s2 ? Number(s2.average_heartrate) || 0 : 0;
+        const avgHr =
+          hr1 > 0 && hr2 > 0
+            ? Math.round((hr1 * t1 + hr2 * t2) / Math.max(1, t1 + t2))
+            : hr1 > 0
+              ? Math.round(hr1)
+              : hr2 > 0
+                ? Math.round(hr2)
+                : activity.average_heartrate
+                  ? Math.round(activity.average_heartrate)
+                  : undefined;
+
+        const w1 = Number(s1?.average_watts) || 0;
+        const w2 = s2 ? Number(s2.average_watts) || 0 : 0;
+        const avgWatts =
+          w1 > 0 && w2 > 0
+            ? Math.round((w1 * t1 + w2 * t2) / Math.max(1, t1 + t2))
+            : w1 > 0
+              ? Math.round(w1)
+              : w2 > 0
+                ? Math.round(w2)
+                : details?.calibration?.calibratedAvgWatts ?? activity.average_watts
+                  ? Math.round((details?.calibration?.calibratedAvgWatts ?? activity.average_watts) || 0)
+                  : undefined;
+
+        const e1 = Number(s1?.elevation_difference) || 0;
+        const e2 = s2 ? Number(s2.elevation_difference) || 0 : 0;
+        const elevDiff = Math.round(e1 + e2);
+        const elevGain = Math.round(Math.max(0, e1) + Math.max(0, e2));
+
+        grouped.push(
+          formatChunkMetrics(splitIdx++, combDist, combTime, {
+            avgHr,
+            avgWatts,
+            avgCadence: activity.average_cadence ? Math.round(activity.average_cadence) : undefined,
+            elevationDiffM: elevDiff,
+            elevationGainM: elevGain > 0 ? elevGain : undefined,
+          })
+        );
+      }
+      if (grouped.length > 0) return grouped;
+    }
+  }
+
+  // 3. Fallback: Subdivide total distance and moving time into splitDistanceM chunks
+  const { category } = classifyActivity(activity);
+  const rawCad = (details?.activity?.average_cadence as number) || activity.average_cadence;
+  const fallbackCad =
+    rawCad && rawCad > 0
+      ? category === 'Run' && rawCad < 110
+        ? Math.round(rawCad * 2)
+        : Math.round(rawCad)
+      : undefined;
+  const fallbackHr = activity.average_heartrate ? Math.round(activity.average_heartrate) : undefined;
+  const fallbackWatts =
+    details?.calibration?.calibratedAvgWatts ?? activity.average_watts
+      ? Math.round((details?.calibration?.calibratedAvgWatts ?? activity.average_watts) || 0)
+      : undefined;
+
+  const chunks: AutoCreatedSplitChunk[] = [];
+  if (totalDistM <= safeSplitM) {
+    chunks.push(
+      formatChunkMetrics(1, totalDistM, totalMovingSec, {
+        avgHr: fallbackHr,
+        avgWatts: fallbackWatts,
+        avgCadence: fallbackCad,
+      })
+    );
+    return chunks;
+  }
+
+  const fullCount = Math.floor(totalDistM / safeSplitM);
+  const remainderM = totalDistM - fullCount * safeSplitM;
+  const secPerMeter = totalMovingSec / totalDistM;
+
+  for (let k = 1; k <= fullCount; k++) {
+    chunks.push(
+      formatChunkMetrics(k, safeSplitM, safeSplitM * secPerMeter, {
+        avgHr: fallbackHr,
+        avgWatts: fallbackWatts,
+        avgCadence: fallbackCad,
+      })
+    );
+  }
+
+  if (remainderM >= minRemainderM) {
+    chunks.push(
+      formatChunkMetrics(fullCount + 1, remainderM, remainderM * secPerMeter, {
+        avgHr: fallbackHr,
+        avgWatts: fallbackWatts,
+        avgCadence: fallbackCad,
+      })
+    );
+  }
+
+  return chunks;
 }
 
 export function calculateNormalizedPower(
@@ -846,7 +1261,7 @@ export function calculateNormalizedPower(
 
 /**
  * Calculates Swim pace per 100m, stroke rate (spm), total strokes, and SWOLF using moving laps if available,
- * falling back to overall moving time / distance.
+ * falling back to 100m auto-created splits when an activity has 0 or 1 lap.
  * Fully supports user-calibrated laps and ignored laps from inaccurate watches.
  */
 export function getSwimPaceDetails(
@@ -949,12 +1364,13 @@ export function getSwimPaceDetails(
       avgStrokeRateSpm,
       totalStrokes: sumStrokes > 0 ? sumStrokes : undefined,
       avgSwolf,
+      isAutoCreatedSplits: false,
       laps: enrichedCalibratedLaps,
     };
   }
 
-  // 2. Otherwise extract raw laps from Strava activity
-  if (rawLaps.length > 0) {
+  // 2. If native multi-lap swim data exists (more than 1 lap), use native Strava laps
+  if (rawLaps.length > 1) {
     const processedLaps = rawLaps.map((lap, idx) => {
       const dist = Math.round(lap.distance || 0);
       const time = Math.round(lap.moving_time || lap.elapsed_time || 0);
@@ -1036,26 +1452,67 @@ export function getSwimPaceDetails(
         avgStrokeRateSpm,
         totalStrokes: sumStrokes > 0 ? sumStrokes : undefined,
         avgSwolf,
+        isAutoCreatedSplits: false,
         laps: processedLaps,
       };
     }
   }
 
-  // Fallback to total activity metrics if no lap breakdown
+  // 3. Swim has 0 laps or 1 lap from start to finish -> Auto-create 100m splits!
   const fallbackDist = details?.calibration?.calibratedDistanceM ?? activity.distance ?? 0;
   const fallbackTime = details?.calibration?.calibratedMovingTimeSec ?? activity.moving_time ?? activity.elapsed_time ?? 0;
   if (fallbackDist <= 0 || fallbackTime <= 0) return null;
+
+  const autoChunks = generateAutoSplitsFromStreamsOrActivity(activity, details, 100);
+  const autoSwimLaps = autoChunks.map((chunk) => {
+    const strokeRateSpm = chunk.avgCadence;
+    const totalStrokes =
+      strokeRateSpm && strokeRateSpm > 0 && chunk.movingTimeSec > 0
+        ? Math.round((strokeRateSpm * chunk.movingTimeSec) / 60)
+        : undefined;
+    const numLengths = chunk.distanceM > 0 ? Math.max(1, chunk.distanceM / 25) : 0;
+    const swolf =
+      numLengths > 0 && totalStrokes && totalStrokes > 0
+        ? Math.round(chunk.movingTimeSec / numLengths + totalStrokes / numLengths)
+        : undefined;
+
+    return {
+      lapIndex: chunk.splitIndex,
+      originalLapIndex: 1,
+      distanceM: chunk.distanceM,
+      movingTimeSec: chunk.movingTimeSec,
+      pacePer100mFormatted: chunk.swimPaceFormatted,
+      strokeRateSpm,
+      totalStrokes,
+      avgHr: chunk.avgHr,
+      maxHr: chunk.maxHr,
+      swolf,
+      isIgnored: false,
+      isRest: false,
+    };
+  });
 
   const secPer100m = (fallbackTime / fallbackDist) * 100;
   const mins = Math.floor(secPer100m / 60);
   const secs = Math.round(secPer100m % 60);
   const fallbackCad = activity.average_cadence ? Math.round(activity.average_cadence) : undefined;
+  const sumAutoStrokes = autoSwimLaps.reduce((acc, l) => acc + (l.totalStrokes || 0), 0);
+  const swolfAutoLaps = autoSwimLaps.filter((l) => l.swolf && l.swolf > 0);
+  const avgAutoSwolf =
+    swolfAutoLaps.length > 0
+      ? Math.round(swolfAutoLaps.reduce((acc, l) => acc + (l.swolf || 0), 0) / swolfAutoLaps.length)
+      : undefined;
+
   return {
     pacePer100mFormatted: `${mins}:${secs.toString().padStart(2, '0')}/100m`,
     paceSecondsPer100m: secPer100m,
     totalDistanceM: Math.round(fallbackDist),
     movingTimeSec: Math.round(fallbackTime),
     avgStrokeRateSpm: fallbackCad,
+    totalStrokes: sumAutoStrokes > 0 ? sumAutoStrokes : undefined,
+    avgSwolf: avgAutoSwolf,
+    isAutoCreatedSplits: true,
+    laps: autoSwimLaps.length > 0 ? autoSwimLaps : undefined,
   };
 }
 
@@ -1130,6 +1587,7 @@ export interface ZoneDistributionItem {
 
 export interface RunActivityDetails {
   splits: RunSplitItem[];
+  isAutoCreatedSplits?: boolean;
   avgPaceFormatted: string;
   avgCadence?: number;
   maxHr?: number;
@@ -1155,6 +1613,7 @@ export interface BikeLapItem {
 
 export interface BikeActivityDetails {
   laps: BikeLapItem[];
+  isAutoCreatedSplits?: boolean;
   avgSpeedKph: string;
   maxSpeedKph?: string;
   avgWatts?: number;
@@ -1225,10 +1684,11 @@ export function getRunActivityDetails(
     /treadmill|indoor run/i.test(activity.name || '') ||
     Boolean(details?.calibration?.calibratedRunSections?.length);
 
-  const rawSplits = (details?.activity?.splits_metric as any[]) || [];
+  const isAutoCreatedSplits = hasSingleOrNoLaps(activity, details);
+  const rawSplits = (details?.activity?.splits_metric as any[]) || activity.splits_metric || [];
   const splits: RunSplitItem[] = [];
 
-  if (rawSplits.length > 0) {
+  if (rawSplits.length > 1) {
     for (let i = 0; i < rawSplits.length; i++) {
       const s = rawSplits[i];
       const sDist = s.distance || 1000;
@@ -1254,40 +1714,24 @@ export function getRunActivityDetails(
       });
     }
   } else {
-    const totalKm = distanceM / 1000;
-    const fullKmCount = Math.floor(totalKm);
-    const remainderKm = totalKm - fullKmCount;
-    const avgSecPerSplit = movingTimeSec / totalKm;
-
-    for (let k = 1; k <= fullKmCount; k++) {
-      const sm = Math.floor(avgSecPerSplit / 60);
-      const ss = Math.round(avgSecPerSplit % 60);
+    // Auto-create 1km (1,000m) splits from streams or total distance/time
+    const autoChunks = generateAutoSplitsFromStreamsOrActivity(activity, details, 1000);
+    for (const chunk of autoChunks) {
+      const elevDiff = !isTreadmill ? chunk.elevationDiffM : undefined;
+      const sGapSec = !isTreadmill ? computeSplitGapSec(chunk.paceSecPerKm, chunk.distanceM, elevDiff) : undefined;
+      const gm = sGapSec !== undefined ? Math.floor(sGapSec / 60) : 0;
+      const gs = sGapSec !== undefined ? Math.round(sGapSec % 60) : 0;
       splits.push({
-        splitIndex: k,
-        distanceKm: '1.00',
-        movingTimeSec: Math.round(avgSecPerSplit),
-        paceFormatted: `${sm}:${ss.toString().padStart(2, '0')}/km`,
-        paceSecPerKm: Math.round(avgSecPerSplit),
-        gapSecPerKm: !isTreadmill ? Math.round(avgSecPerSplit) : undefined,
-        gapFormatted: !isTreadmill ? `${sm}:${ss.toString().padStart(2, '0')}/km` : undefined,
-        avgHr: activity.average_heartrate ? Math.round(activity.average_heartrate) : undefined,
-        isFasterThanAvg: false,
-      });
-    }
-    if (remainderKm >= 0.05) {
-      const remTime = Math.round(remainderKm * avgSecPerSplit);
-      const sm = Math.floor(avgSecPerSplit / 60);
-      const ss = Math.round(avgSecPerSplit % 60);
-      splits.push({
-        splitIndex: fullKmCount + 1,
-        distanceKm: remainderKm.toFixed(2),
-        movingTimeSec: remTime,
-        paceFormatted: `${sm}:${ss.toString().padStart(2, '0')}/km`,
-        paceSecPerKm: Math.round(avgSecPerSplit),
-        gapSecPerKm: !isTreadmill ? Math.round(avgSecPerSplit) : undefined,
-        gapFormatted: !isTreadmill ? `${sm}:${ss.toString().padStart(2, '0')}/km` : undefined,
-        avgHr: activity.average_heartrate ? Math.round(activity.average_heartrate) : undefined,
-        isFasterThanAvg: false,
+        splitIndex: chunk.splitIndex,
+        distanceKm: (chunk.distanceM / 1000).toFixed(2),
+        movingTimeSec: chunk.movingTimeSec,
+        paceFormatted: chunk.paceFormatted,
+        paceSecPerKm: Math.round(chunk.paceSecPerKm),
+        gapSecPerKm: sGapSec,
+        gapFormatted: sGapSec !== undefined ? `${gm}:${gs.toString().padStart(2, '0')}/km` : undefined,
+        avgHr: chunk.avgHr,
+        elevationDiffM: elevDiff,
+        isFasterThanAvg: chunk.paceSecPerKm < secPerKm,
       });
     }
   }
@@ -1372,6 +1816,7 @@ export function getRunActivityDetails(
 
   return {
     splits,
+    isAutoCreatedSplits,
     avgPaceFormatted,
     avgCadence: avgCadence || undefined,
     avgHr: activity.average_heartrate ? Math.round(activity.average_heartrate) : undefined,
@@ -1411,11 +1856,16 @@ export function getBikeActivityDetails(
   const avgCadence = (details?.activity?.average_cadence as number) || activity.average_cadence;
   const maxCadence = (details?.activity?.max_cadence as number) || (activity as any).max_cadence;
 
-  const rawLaps = (details?.activity?.laps as any[]) || [];
-  const rawSplits = (details?.activity?.splits_metric as any[]) || [];
+  const rawLaps =
+    Array.isArray(details?.activity?.laps) && (details!.activity!.laps as any[]).length > 0
+      ? (details!.activity!.laps as any[])
+      : Array.isArray(activity.laps)
+        ? activity.laps
+        : [];
   const laps: BikeLapItem[] = [];
+  let isAutoCreatedSplits = false;
 
-  if (rawLaps.length > 0) {
+  if (rawLaps.length > 1) {
     for (let i = 0; i < rawLaps.length; i++) {
       const lap = rawLaps[i];
       const lDistM = lap.distance || 0;
@@ -1433,38 +1883,21 @@ export function getBikeActivityDetails(
         elevationGainM: lap.total_elevation_gain !== undefined ? Math.round(lap.total_elevation_gain) : undefined,
       });
     }
-  } else if (rawSplits.length > 0) {
-    for (let i = 0; i < rawSplits.length; i++) {
-      const s = rawSplits[i];
-      const sDistM = s.distance || 1000;
-      const sTimeS = s.moving_time || s.elapsed_time || 0;
-      const sSpeedKph = (sDistM > 0 && sTimeS > 0) ? ((sDistM / 1000) / (sTimeS / 3600)).toFixed(1) : '0.0';
-      laps.push({
-        lapIndex: s.split || i + 1,
-        name: `Split ${i + 1}`,
-        distanceKm: (sDistM / 1000).toFixed(2),
-        movingTimeSec: sTimeS,
-        avgSpeedKph: sSpeedKph,
-        avgWatts: s.average_watts ? Math.round(s.average_watts) : undefined,
-        avgHr: s.average_heartrate ? Math.round(s.average_heartrate) : undefined,
-        elevationGainM: s.elevation_difference !== undefined && s.elevation_difference > 0 ? Math.round(s.elevation_difference) : undefined,
-      });
-    }
   } else {
-    const totalDistKm = distanceM / 1000;
-    const intervalSize = totalDistKm > 30 ? 10 : totalDistKm > 15 ? 5 : totalDistKm;
-    const lapCount = Math.max(1, Math.floor(totalDistKm / (intervalSize || 1)));
-    const lapTime = Math.round(movingTimeSec / lapCount);
-    for (let k = 1; k <= lapCount; k++) {
+    // Activity has 0 laps or 1 lap from start to finish -> Auto-create 2km (2,000m) splits!
+    isAutoCreatedSplits = true;
+    const autoChunks = generateAutoSplitsFromStreamsOrActivity(activity, details, 2000);
+    for (const chunk of autoChunks) {
       laps.push({
-        lapIndex: k,
-        name: lapCount === 1 ? 'Full Ride' : `Interval ${k}`,
-        distanceKm: (intervalSize).toFixed(2),
-        movingTimeSec: lapTime,
-        avgSpeedKph,
-        avgWatts: avgWatts ? Math.round(avgWatts) : undefined,
-        avgHr: activity.average_heartrate ? Math.round(activity.average_heartrate) : undefined,
-        avgCadence: avgCadence ? Math.round(avgCadence) : undefined,
+        lapIndex: chunk.splitIndex,
+        name: `Split ${chunk.splitIndex}`,
+        distanceKm: (chunk.distanceM / 1000).toFixed(2),
+        movingTimeSec: chunk.movingTimeSec,
+        avgSpeedKph: chunk.avgSpeedKph,
+        avgWatts: chunk.avgWatts,
+        avgHr: chunk.avgHr,
+        avgCadence: chunk.avgCadence,
+        elevationGainM: chunk.elevationGainM,
       });
     }
   }
@@ -1597,6 +2030,7 @@ export function getBikeActivityDetails(
 
   return {
     laps,
+    isAutoCreatedSplits,
     avgSpeedKph,
     maxSpeedKph,
     avgWatts: avgWatts ? Math.round(avgWatts) : undefined,
