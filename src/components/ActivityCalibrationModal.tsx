@@ -83,6 +83,157 @@ function paceStrToSpeedKph(paceStr: string): number {
   return Number((3600 / sec).toFixed(2));
 }
 
+const parseCalibrationDigits = (rawInput: string, maxVal: number, maxLen = 2): string => {
+  const digits = rawInput.replace(/[^0-9]/g, '');
+  if (digits.length <= maxLen) return digits;
+  if (digits.startsWith('0')) {
+    const stripped = digits.slice(1, 1 + maxLen);
+    return parseInt(stripped, 10) > maxVal ? digits.slice(-1) : stripped;
+  }
+  const tail = digits.slice(-maxLen);
+  return parseInt(tail, 10) > maxVal ? digits.slice(-1) : tail;
+};
+
+const MovingTimeBoxInput: React.FC<{
+  valueStr: string;
+  defaultSec?: number;
+  onChange: (newMinSecStr: string) => void;
+}> = ({ valueStr, defaultSec = 0, onChange }) => {
+  const totalSec = Math.max(0, Math.round(parseMinSecToSeconds(valueStr, defaultSec)));
+  const mins = Math.floor(totalSec / 60);
+  const secs = totalSec % 60;
+
+  const [minDraft, setMinDraft] = useState<string | null>(null);
+  const [secDraft, setSecDraft] = useState<string | null>(null);
+  const justFocusedMinRef = useRef(false);
+  const justFocusedSecRef = useRef(false);
+
+  const commitMinSec = (newMin: number, newSec: number) => {
+    const clampedMin = Math.max(0, Math.min(999, Math.round(newMin) || 0));
+    const clampedSec = Math.max(0, Math.min(59, Math.round(newSec) || 0));
+    onChange(`${clampedMin}:${String(clampedSec).padStart(2, '0')}`);
+  };
+
+  const boxClass =
+    'w-16 h-10 bg-slate-900 border border-slate-700 rounded-xl text-white font-mono text-base font-bold text-center focus:border-amber-400 focus:outline-none transition-colors';
+
+  return (
+    <div className="flex items-center gap-2">
+      <div className="flex flex-col items-center gap-0.5">
+        <input
+          type="text"
+          inputMode="numeric"
+          pattern="[0-9]*"
+          aria-label="Moving Time Minutes"
+          value={minDraft !== null ? minDraft : String(mins).padStart(2, '0')}
+          onFocus={(e) => {
+            justFocusedMinRef.current = true;
+            setMinDraft(String(mins).padStart(2, '0'));
+            e.currentTarget.select();
+          }}
+          onMouseUp={(e) => {
+            if (justFocusedMinRef.current) {
+              e.preventDefault();
+              justFocusedMinRef.current = false;
+            }
+          }}
+          onChange={(e) => {
+            const raw = parseCalibrationDigits(e.target.value, 999, 3);
+            setMinDraft(raw);
+            const nextMin = raw === '' ? 0 : parseInt(raw, 10) || 0;
+            commitMinSec(nextMin, secs);
+          }}
+          onBlur={() => {
+            if (minDraft !== null) {
+              const parsedMin = minDraft === '' ? 0 : parseInt(minDraft, 10) || 0;
+              setMinDraft(null);
+              if (parsedMin !== mins) {
+                commitMinSec(parsedMin, secs);
+              }
+            }
+          }}
+          onKeyDown={(e) => {
+            if (e.key === 'ArrowUp') {
+              e.preventDefault();
+              const nextM = Math.min(999, mins + 1);
+              setMinDraft(String(nextM).padStart(2, '0'));
+              commitMinSec(nextM, secs);
+            } else if (e.key === 'ArrowDown') {
+              e.preventDefault();
+              const nextM = Math.max(0, mins - 1);
+              setMinDraft(String(nextM).padStart(2, '0'));
+              commitMinSec(nextM, secs);
+            } else if (e.key === 'Enter') {
+              e.currentTarget.blur();
+            }
+          }}
+          className={boxClass}
+        />
+        <span className="text-[9px] font-medium text-slate-400">Minute</span>
+      </div>
+
+      <span className="text-lg font-black text-slate-300 pb-3.5 select-none">:</span>
+
+      <div className="flex flex-col items-center gap-0.5">
+        <input
+          type="text"
+          inputMode="numeric"
+          pattern="[0-9]*"
+          aria-label="Moving Time Seconds"
+          value={secDraft !== null ? secDraft : String(secs).padStart(2, '0')}
+          onFocus={(e) => {
+            justFocusedSecRef.current = true;
+            setSecDraft(String(secs).padStart(2, '0'));
+            e.currentTarget.select();
+          }}
+          onMouseUp={(e) => {
+            if (justFocusedSecRef.current) {
+              e.preventDefault();
+              justFocusedSecRef.current = false;
+            }
+          }}
+          onChange={(e) => {
+            const raw = parseCalibrationDigits(e.target.value, 59, 2);
+            setSecDraft(raw);
+            const nextSec = raw === '' ? 0 : Math.min(59, parseInt(raw, 10) || 0);
+            commitMinSec(mins, nextSec);
+          }}
+          onBlur={() => {
+            if (secDraft !== null) {
+              const parsedSec = secDraft === '' ? 0 : Math.min(59, parseInt(secDraft, 10) || 0);
+              setSecDraft(null);
+              if (parsedSec !== secs) {
+                commitMinSec(mins, parsedSec);
+              }
+            }
+          }}
+          onKeyDown={(e) => {
+            if (e.key === 'ArrowUp') {
+              e.preventDefault();
+              const nextTotal = Math.min(999 * 60 + 59, totalSec + 1);
+              const nextM = Math.floor(nextTotal / 60);
+              const nextS = nextTotal % 60;
+              setSecDraft(String(nextS).padStart(2, '0'));
+              commitMinSec(nextM, nextS);
+            } else if (e.key === 'ArrowDown') {
+              e.preventDefault();
+              const nextTotal = Math.max(0, totalSec - 1);
+              const nextM = Math.floor(nextTotal / 60);
+              const nextS = nextTotal % 60;
+              setSecDraft(String(nextS).padStart(2, '0'));
+              commitMinSec(nextM, nextS);
+            } else if (e.key === 'Enter') {
+              e.currentTarget.blur();
+            }
+          }}
+          className={boxClass}
+        />
+        <span className="text-[9px] font-medium text-slate-400">Second</span>
+      </div>
+    </div>
+  );
+};
+
 const LapDurationInput: React.FC<{
   durationSec: number;
   isLastAutoExtended?: boolean;
@@ -91,66 +242,136 @@ const LapDurationInput: React.FC<{
   isAlternate?: boolean;
   disabled?: boolean;
 }> = ({ durationSec, isLastAutoExtended, timeDiscrepancySec, onCommit, isAlternate, disabled }) => {
-  const [localVal, setLocalVal] = useState(() => formatSecondsToMinSec(durationSec));
-  const [isFocused, setIsFocused] = useState(false);
+  const safeSec = Math.max(0, Math.round(durationSec || 0));
+  const mins = Math.floor(safeSec / 60);
+  const secs = safeSec % 60;
 
-  useEffect(() => {
-    if (!isFocused) {
-      setLocalVal(formatSecondsToMinSec(durationSec));
-    }
-  }, [durationSec, isFocused]);
+  const [minDraft, setMinDraft] = useState<string | null>(null);
+  const [secDraft, setSecDraft] = useState<string | null>(null);
+  const justFocusedMinRef = useRef(false);
+  const justFocusedSecRef = useRef(false);
 
-  const commitValue = (val: string) => {
-    const trimmed = val.trim();
-    if (!trimmed) {
-      setLocalVal(formatSecondsToMinSec(durationSec));
-      return;
-    }
-    let sec = durationSec;
-    if (trimmed.includes(':')) {
-      sec = parseMinSecToSeconds(trimmed, durationSec);
-    } else {
-      const num = parseFloat(trimmed);
-      if (!isNaN(num) && num > 0) {
-        if (num >= 15 && Number.isInteger(num)) {
-          sec = num;
-        } else {
-          sec = Math.round(num * 60);
-        }
-      }
-    }
-    onCommit(sec);
-    setLocalVal(formatSecondsToMinSec(sec));
+  const commitMinSec = (newMin: number, newSec: number) => {
+    const clampedMin = Math.max(0, Math.min(999, Math.round(newMin) || 0));
+    const clampedSec = Math.max(0, Math.min(59, Math.round(newSec) || 0));
+    onCommit(clampedMin * 60 + clampedSec);
   };
 
+  const boxClass = `w-8 sm:w-9 h-7 rounded-lg font-mono text-xs font-bold text-center focus:outline-none transition-colors disabled:opacity-40 ${
+    isAlternate
+      ? 'bg-white border border-sky-300 text-slate-900 focus:border-sky-500'
+      : 'bg-slate-950 border border-slate-700/80 text-white focus:border-emerald-400'
+  }`;
+
   return (
-    <div className="relative w-16 sm:w-20 shrink-0">
-      <input
-        type="text"
-        inputMode="numeric"
-        value={localVal}
-        disabled={disabled}
-        onFocus={(e) => {
-          setIsFocused(true);
-          e.target.select();
-        }}
-        onChange={(e) => setLocalVal(e.target.value)}
-        onBlur={() => {
-          setIsFocused(false);
-          commitValue(localVal);
-        }}
-        onKeyDown={(e) => {
-          if (e.key === 'Enter') {
-            (e.target as HTMLInputElement).blur();
-          }
-        }}
-        placeholder="m:ss"
-        className={`w-full px-1.5 py-1 rounded-lg font-mono text-xs text-center focus:outline-none transition-colors disabled:opacity-40 ${
-          isAlternate
-            ? 'bg-white border border-sky-300 text-slate-900 focus:border-sky-500 font-semibold'
-            : 'bg-slate-950 border border-slate-700/80 text-white focus:border-emerald-400'
-        }`}
-      />
+    <div className="relative shrink-0 flex flex-col items-center">
+      <div className="inline-flex items-center gap-0.5 font-mono">
+        <input
+          type="text"
+          inputMode="numeric"
+          pattern="[0-9]*"
+          disabled={disabled}
+          aria-label="Lap Duration Minutes"
+          value={minDraft !== null ? minDraft : String(mins).padStart(2, '0')}
+          onFocus={(e) => {
+            justFocusedMinRef.current = true;
+            setMinDraft(String(mins).padStart(2, '0'));
+            e.currentTarget.select();
+          }}
+          onMouseUp={(e) => {
+            if (justFocusedMinRef.current) {
+              e.preventDefault();
+              justFocusedMinRef.current = false;
+            }
+          }}
+          onChange={(e) => {
+            const raw = parseCalibrationDigits(e.target.value, 999, 3);
+            setMinDraft(raw);
+            const nextMin = raw === '' ? 0 : parseInt(raw, 10) || 0;
+            commitMinSec(nextMin, secs);
+          }}
+          onBlur={() => {
+            if (minDraft !== null) {
+              const parsedMin = minDraft === '' ? 0 : parseInt(minDraft, 10) || 0;
+              setMinDraft(null);
+              if (parsedMin !== mins) {
+                commitMinSec(parsedMin, secs);
+              }
+            }
+          }}
+          onKeyDown={(e) => {
+            if (e.key === 'ArrowUp') {
+              e.preventDefault();
+              const nextM = Math.min(999, mins + 1);
+              setMinDraft(String(nextM).padStart(2, '0'));
+              commitMinSec(nextM, secs);
+            } else if (e.key === 'ArrowDown') {
+              e.preventDefault();
+              const nextM = Math.max(0, mins - 1);
+              setMinDraft(String(nextM).padStart(2, '0'));
+              commitMinSec(nextM, secs);
+            } else if (e.key === 'Enter') {
+              e.currentTarget.blur();
+            }
+          }}
+          className={boxClass}
+        />
+        <span className={`text-xs font-black ${isAlternate ? 'text-slate-700' : 'text-slate-400'}`}>:</span>
+        <input
+          type="text"
+          inputMode="numeric"
+          pattern="[0-9]*"
+          disabled={disabled}
+          aria-label="Lap Duration Seconds"
+          value={secDraft !== null ? secDraft : String(secs).padStart(2, '0')}
+          onFocus={(e) => {
+            justFocusedSecRef.current = true;
+            setSecDraft(String(secs).padStart(2, '0'));
+            e.currentTarget.select();
+          }}
+          onMouseUp={(e) => {
+            if (justFocusedSecRef.current) {
+              e.preventDefault();
+              justFocusedSecRef.current = false;
+            }
+          }}
+          onChange={(e) => {
+            const raw = parseCalibrationDigits(e.target.value, 59, 2);
+            setSecDraft(raw);
+            const nextSec = raw === '' ? 0 : Math.min(59, parseInt(raw, 10) || 0);
+            commitMinSec(mins, nextSec);
+          }}
+          onBlur={() => {
+            if (secDraft !== null) {
+              const parsedSec = secDraft === '' ? 0 : Math.min(59, parseInt(secDraft, 10) || 0);
+              setSecDraft(null);
+              if (parsedSec !== secs) {
+                commitMinSec(mins, parsedSec);
+              }
+            }
+          }}
+          onKeyDown={(e) => {
+            if (e.key === 'ArrowUp') {
+              e.preventDefault();
+              const nextTotal = Math.min(999 * 60 + 59, safeSec + 1);
+              const nextM = Math.floor(nextTotal / 60);
+              const nextS = nextTotal % 60;
+              setSecDraft(String(nextS).padStart(2, '0'));
+              commitMinSec(nextM, nextS);
+            } else if (e.key === 'ArrowDown') {
+              e.preventDefault();
+              const nextTotal = Math.max(0, safeSec - 1);
+              const nextM = Math.floor(nextTotal / 60);
+              const nextS = nextTotal % 60;
+              setSecDraft(String(nextS).padStart(2, '0'));
+              commitMinSec(nextM, nextS);
+            } else if (e.key === 'Enter') {
+              e.currentTarget.blur();
+            }
+          }}
+          className={boxClass}
+        />
+      </div>
       {isLastAutoExtended && (timeDiscrepancySec || 0) > 0.05 && (
         <span
           className={`text-[9px] block text-center truncate font-mono mt-0.5 ${
@@ -159,6 +380,162 @@ const LapDurationInput: React.FC<{
           title="Auto-extended to match exact recording duration"
         >
           +{(timeDiscrepancySec || 0).toFixed(0)}s
+        </span>
+      )}
+    </div>
+  );
+};
+
+const LapPaceInput: React.FC<{
+  paceSec: number;
+  onCommitPaceSec: (newPaceSec: number) => void;
+  isAlternate?: boolean;
+  disabled?: boolean;
+  unitSuffix?: string;
+}> = ({ paceSec, onCommitPaceSec, isAlternate, disabled, unitSuffix }) => {
+  const safePaceSec = Math.max(0, Math.round(paceSec || 0));
+  const [localPaceSec, setLocalPaceSec] = useState(safePaceSec);
+  const [minDraft, setMinDraft] = useState<string | null>(null);
+  const [secDraft, setSecDraft] = useState<string | null>(null);
+  const justFocusedMinRef = useRef(false);
+  const justFocusedSecRef = useRef(false);
+
+  const isEditing = minDraft !== null || secDraft !== null;
+
+  useEffect(() => {
+    if (!isEditing) {
+      setLocalPaceSec(safePaceSec);
+    }
+  }, [safePaceSec, isEditing]);
+
+  const activeSec = isEditing ? localPaceSec : safePaceSec;
+  const mins = Math.floor(activeSec / 60);
+  const secs = activeSec % 60;
+
+  const commitMinSec = (newMin: number, newSec: number) => {
+    const clampedMin = Math.max(0, Math.min(99, Math.round(newMin) || 0));
+    const clampedSec = Math.max(0, Math.min(59, Math.round(newSec) || 0));
+    const nextTotal = clampedMin * 60 + clampedSec;
+    setLocalPaceSec(nextTotal);
+    if (nextTotal > 0) {
+      onCommitPaceSec(nextTotal);
+    }
+  };
+
+  const boxClass = `w-8 sm:w-9 h-7 rounded-lg font-mono text-xs font-bold text-center focus:outline-none transition-colors disabled:opacity-40 ${
+    isAlternate
+      ? 'bg-white border border-sky-300 text-sky-950 focus:border-sky-500'
+      : 'bg-slate-950 border border-slate-700/80 text-emerald-300 focus:border-emerald-400'
+  }`;
+
+  return (
+    <div className="inline-flex items-center gap-0.5 font-mono shrink-0">
+      <input
+        type="text"
+        inputMode="numeric"
+        pattern="[0-9]*"
+        disabled={disabled}
+        aria-label="Lap Pace Minutes"
+        value={minDraft !== null ? minDraft : String(mins).padStart(2, '0')}
+        onFocus={(e) => {
+          justFocusedMinRef.current = true;
+          setLocalPaceSec(safePaceSec);
+          setMinDraft(String(mins).padStart(2, '0'));
+          e.currentTarget.select();
+        }}
+        onMouseUp={(e) => {
+          if (justFocusedMinRef.current) {
+            e.preventDefault();
+            justFocusedMinRef.current = false;
+          }
+        }}
+        onChange={(e) => {
+          const raw = parseCalibrationDigits(e.target.value, 99, 2);
+          setMinDraft(raw);
+          const nextMin = raw === '' ? 0 : parseInt(raw, 10) || 0;
+          commitMinSec(nextMin, secs);
+        }}
+        onBlur={() => {
+          if (minDraft !== null) {
+            const parsedMin = minDraft === '' ? 0 : parseInt(minDraft, 10) || 0;
+            setMinDraft(null);
+            commitMinSec(parsedMin, secs);
+          }
+        }}
+        onKeyDown={(e) => {
+          if (e.key === 'ArrowUp') {
+            e.preventDefault();
+            const nextM = Math.min(99, mins + 1);
+            setMinDraft(String(nextM).padStart(2, '0'));
+            commitMinSec(nextM, secs);
+          } else if (e.key === 'ArrowDown') {
+            e.preventDefault();
+            const nextM = Math.max(0, mins - 1);
+            setMinDraft(String(nextM).padStart(2, '0'));
+            commitMinSec(nextM, secs);
+          } else if (e.key === 'Enter') {
+            e.currentTarget.blur();
+          }
+        }}
+        className={boxClass}
+      />
+      <span className={`text-xs font-black ${isAlternate ? 'text-slate-700' : 'text-slate-400'}`}>:</span>
+      <input
+        type="text"
+        inputMode="numeric"
+        pattern="[0-9]*"
+        disabled={disabled}
+        aria-label="Lap Pace Seconds"
+        value={secDraft !== null ? secDraft : String(secs).padStart(2, '0')}
+        onFocus={(e) => {
+          justFocusedSecRef.current = true;
+          setLocalPaceSec(safePaceSec);
+          setSecDraft(String(secs).padStart(2, '0'));
+          e.currentTarget.select();
+        }}
+        onMouseUp={(e) => {
+          if (justFocusedSecRef.current) {
+            e.preventDefault();
+            justFocusedSecRef.current = false;
+          }
+        }}
+        onChange={(e) => {
+          const raw = parseCalibrationDigits(e.target.value, 59, 2);
+          setSecDraft(raw);
+          const nextSec = raw === '' ? 0 : Math.min(59, parseInt(raw, 10) || 0);
+          commitMinSec(mins, nextSec);
+        }}
+        onBlur={() => {
+          if (secDraft !== null) {
+            const parsedSec = secDraft === '' ? 0 : Math.min(59, parseInt(secDraft, 10) || 0);
+            setSecDraft(null);
+            commitMinSec(mins, parsedSec);
+          }
+        }}
+        onKeyDown={(e) => {
+          if (e.key === 'ArrowUp') {
+            e.preventDefault();
+            const nextTotal = Math.min(99 * 60 + 59, activeSec + 1);
+            const nextM = Math.floor(nextTotal / 60);
+            const nextS = nextTotal % 60;
+            setSecDraft(String(nextS).padStart(2, '0'));
+            commitMinSec(nextM, nextS);
+          } else if (e.key === 'ArrowDown') {
+            e.preventDefault();
+            const nextTotal = Math.max(1, activeSec - 1);
+            const nextM = Math.floor(nextTotal / 60);
+            const nextS = nextTotal % 60;
+            setSecDraft(String(nextS).padStart(2, '0'));
+            commitMinSec(nextM, nextS);
+          } else if (e.key === 'Enter') {
+            e.currentTarget.blur();
+          }
+        }}
+        className={boxClass}
+      />
+      {unitSuffix && (
+        <span className={`text-[10px] font-mono pl-0.5 ${isAlternate ? 'text-slate-600' : 'text-slate-500'}`}>
+          {unitSuffix}
         </span>
       )}
     </div>
@@ -1417,14 +1794,12 @@ export const ActivityCalibrationModal: React.FC<ActivityCalibrationModalProps> =
 
               <div>
                 <label className="text-xs text-slate-400 block mb-1">
-                  Moving Time (mm:ss or hh:mm:ss)
+                  Moving Time (mm:ss)
                 </label>
-                <input
-                  type="text"
-                  value={movingTimeInput}
-                  onChange={(e) => setMovingTimeInput(e.target.value)}
-                  placeholder="e.g. 40:13"
-                  className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-xl text-white font-mono text-sm focus:border-amber-400 focus:outline-none"
+                <MovingTimeBoxInput
+                  valueStr={movingTimeInput}
+                  defaultSec={originalMovingSec}
+                  onChange={setMovingTimeInput}
                 />
                 {originalMovingSec > 0 && (
                   <span className="text-[10px] text-slate-500 block mt-1">
@@ -1576,7 +1951,7 @@ export const ActivityCalibrationModal: React.FC<ActivityCalibrationModalProps> =
               </div>
 
               {swimLaps.length > 0 && (
-                <div className="space-y-2 max-h-72 overflow-y-auto pr-1">
+                <div className="space-y-2 max-h-[750px] overflow-y-auto pr-1">
                   {swimLaps.map((lap, index) => {
                     const isRestLap = Boolean(lap.isRest || lap.distanceM <= 0);
                     const origIdx = (lap.originalLapIndex ?? index + 1) - 1;
@@ -1707,9 +2082,32 @@ export const ActivityCalibrationModal: React.FC<ActivityCalibrationModalProps> =
                           </div>
                         )}
 
-                        <span className={`font-mono font-bold text-[11px] min-w-16 text-right ${isRestLap ? 'text-slate-500' : 'text-sky-300'}`}>
-                          {lap.isIgnored ? 'Ignored' : isRestLap ? 'Rest' : lap.pacePer100mFormatted}
-                        </span>
+                        {lap.isIgnored || isRestLap ? (
+                          <span className="font-mono font-bold text-[11px] min-w-16 text-right text-slate-500">
+                            {lap.isIgnored ? 'Ignored' : 'Rest'}
+                          </span>
+                        ) : (
+                          <LapPaceInput
+                            paceSec={lap.distanceM > 0 ? Math.round((lap.movingTimeSec / lap.distanceM) * 100) : 0}
+                            unitSuffix="/100m"
+                            onCommitPaceSec={(newPaceSec) => {
+                              const updated = swimLaps.map((l, i) => {
+                                if (i !== index) return l;
+                                const dist = l.distanceM || 0;
+                                const nextTimeSec = dist > 0 ? Math.max(1, Math.round((newPaceSec * dist) / 100)) : l.movingTimeSec;
+                                const spm = l.strokeRateSpm || 0;
+                                return {
+                                  ...l,
+                                  movingTimeSec: nextTimeSec,
+                                  totalStrokes: spm > 0 ? Math.round((spm * nextTimeSec) / 60) : l.totalStrokes,
+                                  pacePer100mFormatted: formatSecondsToMinSec(newPaceSec) + '/100m',
+                                };
+                              });
+                              setSwimLaps(updated);
+                              recalculateSwimTotals(updated);
+                            }}
+                          />
+                        )}
 
                         <div className="flex items-center gap-1 shrink-0">
                           <button
@@ -1889,11 +2287,11 @@ export const ActivityCalibrationModal: React.FC<ActivityCalibrationModalProps> =
           {isRun && (
             <div className="p-4 rounded-2xl bg-slate-950/70 border border-emerald-500/30 space-y-3.5">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 pb-2 border-b border-slate-800/80">
-                <div className="flex items-center gap-2">
-                  <div className="p-1.5 rounded-lg bg-emerald-500/15 border border-emerald-500/30">
+                <div className="flex items-center gap-2 min-w-0 flex-1">
+                  <div className="p-1.5 rounded-lg bg-emerald-500/15 border border-emerald-500/30 shrink-0">
                     <Layers className="w-4 h-4 text-emerald-400" />
                   </div>
-                  <div>
+                  <div className="min-w-0 flex-1">
                     <h4 className="text-xs font-bold text-emerald-300 uppercase tracking-wider">
                       Laps & Simulated Speed
                     </h4>
@@ -1907,11 +2305,8 @@ export const ActivityCalibrationModal: React.FC<ActivityCalibrationModalProps> =
                   </div>
                 </div>
 
-                {/* +Add Lap and Clear buttons moved right 40px, up 46px */}
-                <div
-                  className="flex items-center gap-2 relative z-10"
-                  style={{ transform: 'translate(40px, -46px)' }}
-                >
+                {/* +Add Lap and Clear buttons aligned directly to the right of the header text */}
+                <div className="flex items-center gap-2 shrink-0 self-end sm:self-center">
                   <button
                     type="button"
                     onClick={handleAddRunSection}
@@ -1934,7 +2329,7 @@ export const ActivityCalibrationModal: React.FC<ActivityCalibrationModalProps> =
                 </div>
               </div>
 
-              {/* Sections Table - 20% taller (max-h-[350px]) */}
+              {/* Sections Table - Displays up to 15 laps before scrollbar appears */}
               {runSections.length === 0 ? (
                 <div className="text-center py-5 px-3 rounded-xl bg-slate-900/60 border border-dashed border-slate-800 space-y-2">
                   <Play className="w-6 h-6 text-slate-600 mx-auto" />
@@ -1943,12 +2338,12 @@ export const ActivityCalibrationModal: React.FC<ActivityCalibrationModalProps> =
                   </p>
                 </div>
               ) : (
-                <div className="space-y-1.5 min-h-[180px] max-h-[350px] overflow-y-auto pr-1">
+                <div className="space-y-1.5 min-h-[180px] max-h-[750px] overflow-y-auto pr-1">
                   <div className="flex items-center gap-1.5 sm:gap-2 text-[10px] font-bold uppercase tracking-wider text-slate-400 px-2 pb-0.5">
-                    <span className="w-12 sm:w-14 shrink-0">Lap</span>
-                    <span className="w-16 sm:w-20 shrink-0 text-center">Duration</span>
+                    <span className="w-11 sm:w-13 shrink-0">Lap</span>
+                    <span className="w-[70px] sm:w-[78px] shrink-0 text-center">Duration</span>
                     <span className="w-20 sm:w-24 shrink-0 text-center">Speed</span>
-                    <span className="w-14 sm:w-16 shrink-0 text-center">Pace</span>
+                    <span className="w-[70px] sm:w-[78px] shrink-0 text-center">Pace</span>
                     <span className="flex-1 text-right">Dist</span>
                     <span className="w-6 shrink-0"></span>
                   </div>
@@ -1971,7 +2366,7 @@ export const ActivityCalibrationModal: React.FC<ActivityCalibrationModalProps> =
                         }`}
                       >
                         {/* Fixed Lap Label */}
-                        <div className="w-12 sm:w-14 shrink-0 flex items-center">
+                        <div className="w-11 sm:w-13 shrink-0 flex items-center">
                           <span
                             className={`font-bold font-mono text-xs ${
                               isAlternate ? 'text-slate-900' : 'text-white'
@@ -1981,14 +2376,16 @@ export const ActivityCalibrationModal: React.FC<ActivityCalibrationModalProps> =
                           </span>
                         </div>
 
-                        {/* Duration: Ergonomic input that doesn't overwrite from left */}
-                        <LapDurationInput
-                          durationSec={sec.durationSec}
-                          isLastAutoExtended={isLast}
-                          timeDiscrepancySec={timeDiscrepancySec}
-                          onCommit={(newSec) => handleUpdateRunSection(idx, 'durationSec', newSec)}
-                          isAlternate={isAlternate}
-                        />
+                        {/* Duration: Dual numeric entry boxes (min : sec) */}
+                        <div className="w-[70px] sm:w-[78px] shrink-0 flex justify-center">
+                          <LapDurationInput
+                            durationSec={sec.durationSec}
+                            isLastAutoExtended={isLast}
+                            timeDiscrepancySec={timeDiscrepancySec}
+                            onCommit={(newSec) => handleUpdateRunSection(idx, 'durationSec', newSec)}
+                            isAlternate={isAlternate}
+                          />
+                        </div>
 
                         {/* Speed: Clean kph numeric input */}
                         <LapSpeedInput
@@ -1997,15 +2394,18 @@ export const ActivityCalibrationModal: React.FC<ActivityCalibrationModalProps> =
                           isAlternate={isAlternate}
                         />
 
-                        {/* Pace: Auto-synced formatted min/km */}
-                        <div
-                          className={`w-14 sm:w-16 shrink-0 text-center font-mono text-[11px] font-bold py-1 px-1 rounded-lg border ${
-                            isAlternate
-                              ? 'text-sky-950 bg-white border-sky-300'
-                              : 'text-emerald-300 bg-slate-950/70 border-slate-800'
-                          }`}
-                        >
-                          {speedKphToPaceStr(sec.speedKph)}
+                        {/* Pace: Dual numeric entry boxes (min : sec) synced with Speed */}
+                        <div className="w-[70px] sm:w-[78px] shrink-0 flex justify-center">
+                          <LapPaceInput
+                            paceSec={sec.speedKph && sec.speedKph > 0 ? Math.round(3600 / sec.speedKph) : 0}
+                            isAlternate={isAlternate}
+                            onCommitPaceSec={(newPaceSec) => {
+                              if (newPaceSec > 0) {
+                                const newSpd = Number((3600 / newPaceSec).toFixed(2));
+                                handleUpdateRunSection(idx, 'speedKph', newSpd);
+                              }
+                            }}
+                          />
                         </div>
 
                         {/* Distance for this segment */}

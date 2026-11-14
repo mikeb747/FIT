@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useRef } from 'react';
 import {
   Trophy,
   Target,
@@ -127,6 +127,8 @@ const GoalMinSecInput: React.FC<{
 
   const [minDraft, setMinDraft] = useState<string | null>(null);
   const [secDraft, setSecDraft] = useState<string | null>(null);
+  const justFocusedMinRef = useRef(false);
+  const justFocusedSecRef = useRef(false);
 
   const commit = (newMin: number, newSec: number) => {
     const clampedMin = Math.max(0, Math.min(999, Math.round(newMin) || 0));
@@ -149,21 +151,36 @@ const GoalMinSecInput: React.FC<{
           pattern="[0-9]*"
           value={minDraft !== null ? minDraft : String(mins).padStart(2, '0')}
           onFocus={(e) => {
+            justFocusedMinRef.current = true;
             setMinDraft(String(mins).padStart(2, '0'));
             e.currentTarget.select();
           }}
-          onChange={(e) => {
-            const raw = e.target.value.replace(/[^0-9]/g, '').slice(0, 3);
-            setMinDraft(raw);
-            if (raw !== '') {
-              commit(parseInt(raw, 10) || 0, secs);
+          onMouseUp={(e) => {
+            if (justFocusedMinRef.current) {
+              e.preventDefault();
+              justFocusedMinRef.current = false;
             }
           }}
+          onChange={(e) => {
+            const digits = e.target.value.replace(/[^0-9]/g, '');
+            const raw =
+              digits.length > 3
+                ? digits.startsWith('0')
+                  ? digits.slice(1, 4)
+                  : digits.slice(-3)
+                : digits;
+            setMinDraft(raw);
+            const nextMin = raw === '' ? 0 : parseInt(raw, 10) || 0;
+            commit(nextMin, secs);
+          }}
           onBlur={() => {
-            const parsedMin =
-              minDraft === null || minDraft === '' ? mins : parseInt(minDraft, 10) || 0;
-            setMinDraft(null);
-            commit(parsedMin, secs);
+            if (minDraft !== null) {
+              const parsedMin = minDraft === '' ? 0 : parseInt(minDraft, 10) || 0;
+              setMinDraft(null);
+              if (parsedMin !== mins) {
+                commit(parsedMin, secs);
+              }
+            }
           }}
           className={boxClass}
         />
@@ -181,21 +198,35 @@ const GoalMinSecInput: React.FC<{
           pattern="[0-9]*"
           value={secDraft !== null ? secDraft : String(secs).padStart(2, '0')}
           onFocus={(e) => {
+            justFocusedSecRef.current = true;
             setSecDraft(String(secs).padStart(2, '0'));
             e.currentTarget.select();
           }}
-          onChange={(e) => {
-            const raw = e.target.value.replace(/[^0-9]/g, '').slice(0, 2);
-            setSecDraft(raw);
-            if (raw !== '') {
-              commit(mins, Math.min(59, parseInt(raw, 10) || 0));
+          onMouseUp={(e) => {
+            if (justFocusedSecRef.current) {
+              e.preventDefault();
+              justFocusedSecRef.current = false;
             }
           }}
+          onChange={(e) => {
+            const digits = e.target.value.replace(/[^0-9]/g, '');
+            let raw = digits;
+            if (digits.length > 2) {
+              const candidate = digits.startsWith('0') ? digits.slice(1, 3) : digits.slice(-2);
+              raw = parseInt(candidate, 10) > 59 ? digits.slice(-1) : candidate;
+            }
+            setSecDraft(raw);
+            const nextSec = raw === '' ? 0 : Math.min(59, parseInt(raw, 10) || 0);
+            commit(mins, nextSec);
+          }}
           onBlur={() => {
-            const parsedSec =
-              secDraft === null || secDraft === '' ? secs : parseInt(secDraft, 10) || 0;
-            setSecDraft(null);
-            commit(mins, parsedSec);
+            if (secDraft !== null) {
+              const parsedSec = secDraft === '' ? 0 : Math.min(59, parseInt(secDraft, 10) || 0);
+              setSecDraft(null);
+              if (parsedSec !== secs) {
+                commit(mins, parsedSec);
+              }
+            }
           }}
           className={boxClass}
         />

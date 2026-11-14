@@ -252,6 +252,17 @@ interface MinSecBoxInputProps {
   ariaLabelPrefix?: string;
 }
 
+const parseTypedDigits = (rawInput: string, maxVal: number): string => {
+  const digits = rawInput.replace(/[^0-9]/g, '');
+  if (digits.length <= 2) return digits;
+  if (digits.startsWith('0')) {
+    const stripped = digits.slice(1, 3);
+    return parseInt(stripped, 10) > maxVal ? digits.slice(-1) : stripped;
+  }
+  const tail2 = digits.slice(-2);
+  return parseInt(tail2, 10) > maxVal ? digits.slice(-1) : tail2;
+};
+
 const MinSecBoxInput: React.FC<MinSecBoxInputProps> = ({
   valueStr,
   defaultSec = 90,
@@ -268,6 +279,8 @@ const MinSecBoxInput: React.FC<MinSecBoxInputProps> = ({
 
   const [minDraft, setMinDraft] = useState<string | null>(null);
   const [secDraft, setSecDraft] = useState<string | null>(null);
+  const justFocusedMinRef = useRef(false);
+  const justFocusedSecRef = useRef(false);
 
   const isLight = theme === 'light';
   const focusBorder =
@@ -298,21 +311,30 @@ const MinSecBoxInput: React.FC<MinSecBoxInputProps> = ({
           aria-label={`${ariaLabelPrefix} Minutes`}
           value={minDraft !== null ? minDraft : String(mins).padStart(2, '0')}
           onFocus={(e) => {
+            justFocusedMinRef.current = true;
             setMinDraft(String(mins).padStart(2, '0'));
             e.currentTarget.select();
           }}
-          onChange={(e) => {
-            const raw = e.target.value.replace(/[^0-9]/g, '').slice(0, 2);
-            setMinDraft(raw);
-            if (raw !== '') {
-              commitMinSec(parseInt(raw, 10) || 0, secs);
+          onMouseUp={(e) => {
+            if (justFocusedMinRef.current) {
+              e.preventDefault();
+              justFocusedMinRef.current = false;
             }
           }}
+          onChange={(e) => {
+            const raw = parseTypedDigits(e.target.value, 99);
+            setMinDraft(raw);
+            const nextMin = raw === '' ? 0 : parseInt(raw, 10) || 0;
+            commitMinSec(nextMin, secs);
+          }}
           onBlur={() => {
-            const parsedMin =
-              minDraft === null || minDraft === '' ? mins : parseInt(minDraft, 10) || 0;
-            setMinDraft(null);
-            commitMinSec(parsedMin, secs);
+            if (minDraft !== null) {
+              const parsedMin = minDraft === '' ? 0 : parseInt(minDraft, 10) || 0;
+              setMinDraft(null);
+              if (parsedMin !== mins) {
+                commitMinSec(parsedMin, secs);
+              }
+            }
           }}
           onKeyDown={(e) => {
             if (e.key === 'ArrowUp') {
@@ -341,21 +363,30 @@ const MinSecBoxInput: React.FC<MinSecBoxInputProps> = ({
           aria-label={`${ariaLabelPrefix} Seconds`}
           value={secDraft !== null ? secDraft : String(secs).padStart(2, '0')}
           onFocus={(e) => {
+            justFocusedSecRef.current = true;
             setSecDraft(String(secs).padStart(2, '0'));
             e.currentTarget.select();
           }}
-          onChange={(e) => {
-            const raw = e.target.value.replace(/[^0-9]/g, '').slice(0, 2);
-            setSecDraft(raw);
-            if (raw !== '') {
-              commitMinSec(mins, Math.min(59, parseInt(raw, 10) || 0));
+          onMouseUp={(e) => {
+            if (justFocusedSecRef.current) {
+              e.preventDefault();
+              justFocusedSecRef.current = false;
             }
           }}
+          onChange={(e) => {
+            const raw = parseTypedDigits(e.target.value, 59);
+            setSecDraft(raw);
+            const nextSec = raw === '' ? 0 : Math.min(59, parseInt(raw, 10) || 0);
+            commitMinSec(mins, nextSec);
+          }}
           onBlur={() => {
-            const parsedSec =
-              secDraft === null || secDraft === '' ? secs : parseInt(secDraft, 10) || 0;
-            setSecDraft(null);
-            commitMinSec(mins, parsedSec);
+            if (secDraft !== null) {
+              const parsedSec = secDraft === '' ? 0 : Math.min(59, parseInt(secDraft, 10) || 0);
+              setSecDraft(null);
+              if (parsedSec !== secs) {
+                commitMinSec(mins, parsedSec);
+              }
+            }
           }}
           onKeyDown={(e) => {
             if (e.key === 'ArrowUp') {
@@ -398,21 +429,30 @@ const MinSecBoxInput: React.FC<MinSecBoxInputProps> = ({
           aria-label={`${ariaLabelPrefix} Minutes`}
           value={minDraft !== null ? minDraft : String(mins).padStart(2, '0')}
           onFocus={(e) => {
+            justFocusedMinRef.current = true;
             setMinDraft(String(mins).padStart(2, '0'));
             e.currentTarget.select();
           }}
-          onChange={(e) => {
-            const raw = e.target.value.replace(/[^0-9]/g, '').slice(0, 2);
-            setMinDraft(raw);
-            if (raw !== '') {
-              commitMinSec(parseInt(raw, 10) || 0, secs);
+          onMouseUp={(e) => {
+            if (justFocusedMinRef.current) {
+              e.preventDefault();
+              justFocusedMinRef.current = false;
             }
           }}
+          onChange={(e) => {
+            const raw = parseTypedDigits(e.target.value, 99);
+            setMinDraft(raw);
+            const nextMin = raw === '' ? 0 : parseInt(raw, 10) || 0;
+            commitMinSec(nextMin, secs);
+          }}
           onBlur={() => {
-            const parsedMin =
-              minDraft === null || minDraft === '' ? mins : parseInt(minDraft, 10) || 0;
-            setMinDraft(null);
-            commitMinSec(parsedMin, secs);
+            if (minDraft !== null) {
+              const parsedMin = minDraft === '' ? 0 : parseInt(minDraft, 10) || 0;
+              setMinDraft(null);
+              if (parsedMin !== mins) {
+                commitMinSec(parsedMin, secs);
+              }
+            }
           }}
           onKeyDown={(e) => {
             if (e.key === 'ArrowUp') {
@@ -452,21 +492,30 @@ const MinSecBoxInput: React.FC<MinSecBoxInputProps> = ({
           aria-label={`${ariaLabelPrefix} Seconds`}
           value={secDraft !== null ? secDraft : String(secs).padStart(2, '0')}
           onFocus={(e) => {
+            justFocusedSecRef.current = true;
             setSecDraft(String(secs).padStart(2, '0'));
             e.currentTarget.select();
           }}
-          onChange={(e) => {
-            const raw = e.target.value.replace(/[^0-9]/g, '').slice(0, 2);
-            setSecDraft(raw);
-            if (raw !== '') {
-              commitMinSec(mins, Math.min(59, parseInt(raw, 10) || 0));
+          onMouseUp={(e) => {
+            if (justFocusedSecRef.current) {
+              e.preventDefault();
+              justFocusedSecRef.current = false;
             }
           }}
+          onChange={(e) => {
+            const raw = parseTypedDigits(e.target.value, 59);
+            setSecDraft(raw);
+            const nextSec = raw === '' ? 0 : Math.min(59, parseInt(raw, 10) || 0);
+            commitMinSec(mins, nextSec);
+          }}
           onBlur={() => {
-            const parsedSec =
-              secDraft === null || secDraft === '' ? secs : parseInt(secDraft, 10) || 0;
-            setSecDraft(null);
-            commitMinSec(mins, parsedSec);
+            if (secDraft !== null) {
+              const parsedSec = secDraft === '' ? 0 : Math.min(59, parseInt(secDraft, 10) || 0);
+              setSecDraft(null);
+              if (parsedSec !== secs) {
+                commitMinSec(mins, parsedSec);
+              }
+            }
           }}
           onKeyDown={(e) => {
             if (e.key === 'ArrowUp') {
@@ -1374,74 +1423,120 @@ export const AthleteProfileModal: React.FC<AthleteProfileModalProps> = ({
     setTimeout(checkTabScroll, 250);
   };
 
-  // Synchronize when opening
+  // Synchronize when opening the modal (do not overwrite unsaved user edits while already open)
   useEffect(() => {
     if (isOpen) {
-      if (!wasOpenRef.current && initialTab) {
-        setActiveTab(initialTab);
+      if (!wasOpenRef.current) {
+        if (initialTab) {
+          setActiveTab(initialTab);
+        }
+        wasOpenRef.current = true;
+        setBirthDate(profile.birthDate || '');
+        const computed = calculateAgeFromBirthDate(profile.birthDate);
+        setAge(computed !== null ? computed : profile.age);
+        setHeightCm(profile.heightCm);
+        setWeightKg(profile.weightKg);
+        setMaxHeartRate(profile.maxHeartRate);
+        setRestingHeartRate(profile.restingHeartRate);
+        setPeriodization(profile.periodization || '4weeks');
+
+        setThresholdHeartRateRun(profile.thresholdHeartRateRun);
+        setPaceOutdoorStr(formatSecondsToMinSec(profile.thresholdPaceRunOutdoorSec));
+        setPaceTreadmillStr(formatSecondsToMinSec(profile.thresholdPaceRunTreadmillSec));
+
+        setThresholdHeartRateBike(profile.thresholdHeartRateBike);
+        setBikeFtp(profile.bikeFtp);
+        setBikeCrankLengthMm(profile.bikeCrankLengthMm || 172.5);
+        setBikeCrankLengths(profile.bikeCrankLengths || {});
+
+        setSwim100mStr(formatSecondsToMinSec(profile.swim100mTimeSec));
+        setSwim400mStr(formatSecondsToMinSec(profile.swim400mTimeSec));
+        setSwimPoolPaceStr(formatSecondsToMinSec(profile.swimPoolPace100mSec));
+        setSwimOpenWaterPaceStr(formatSecondsToMinSec(profile.swimOpenWaterPace100mSec));
+        setSwimTssMode(profile.swimTssMode || 'sTSS');
+        setThresholdHeartRateSwim(
+          profile.thresholdHeartRateSwim ||
+            (profile.thresholdHeartRateRun ? profile.thresholdHeartRateRun - 12 : 156)
+        );
+        setPreferredSwimProtocol(profile.preferredSwimProtocol || 'btf');
+
+        const baseOutside = getAthletePaceZones(profile, false);
+        setPaceZonesOutsideState(
+          baseOutside.map((z) => {
+            const custom = profile.customPaceZones?.[z.zone];
+            return {
+              zone: z.zone,
+              name: z.name,
+              minPaceStr: custom
+                ? formatSecondsToMinSec(custom.minPaceSec)
+                : formatSecondsToMinSec(z.minPaceSec),
+              maxPaceStr: custom
+                ? formatSecondsToMinSec(custom.maxPaceSec)
+                : formatSecondsToMinSec(z.maxPaceSec),
+              color: z.color,
+              description: z.description,
+            };
+          })
+        );
+
+        const baseTreadmill = getAthletePaceZones(profile, true);
+        setPaceZonesTreadmillState(
+          baseTreadmill.map((z) => {
+            const custom = profile.customPaceZonesTreadmill?.[z.zone];
+            return {
+              zone: z.zone,
+              name: z.name,
+              minPaceStr: custom
+                ? formatSecondsToMinSec(custom.minPaceSec)
+                : formatSecondsToMinSec(z.minPaceSec),
+              maxPaceStr: custom
+                ? formatSecondsToMinSec(custom.maxPaceSec)
+                : formatSecondsToMinSec(z.maxPaceSec),
+              color: z.color,
+              description: z.description,
+            };
+          })
+        );
+
+        const baseSwimPaces = getAthleteSwimPaceZones(profile);
+        const swimOffsets = [
+          'CSS +15s & slower',
+          'CSS +8 to +15s',
+          'CSS +2 to +8s',
+          'CSS -2 to +2s',
+          '< CSS -2s (sprint)',
+        ];
+        setPaceZonesSwimState(
+          baseSwimPaces.map((z, i) => {
+            const custom = profile.customPaceZonesSwim?.[z.zone];
+            return {
+              zone: z.zone,
+              name: z.name,
+              offsetFormula: swimOffsets[i] || '',
+              minPaceStr: custom
+                ? formatSecondsToMinSec(custom.minPaceSec)
+                : formatSecondsToMinSec(z.minPaceSec),
+              maxPaceStr: custom
+                ? formatSecondsToMinSec(custom.maxPaceSec)
+                : formatSecondsToMinSec(z.maxPaceSec),
+              color: z.color,
+              description: z.description,
+            };
+          })
+        );
+
+        setInjuries(profile.injuries || DEFAULT_INJURIES);
+        setWeeklyAvailability(profile.weeklyAvailability || DEFAULT_WEEKLY_AVAILABILITY);
+
+        setTempTitle(brandTitle);
+        setTempSubtitle(brandSubtitle);
+
+        const currentG = propGoals || loadAthleteGoals();
+        setGoals(currentG);
+        setInitialGoalsSnapshot(JSON.stringify(currentG));
+
+        setSavedFeedback(false);
       }
-      wasOpenRef.current = true;
-      setBirthDate(profile.birthDate || '');
-      const computed = calculateAgeFromBirthDate(profile.birthDate);
-      setAge(computed !== null ? computed : profile.age);
-      setHeightCm(profile.heightCm);
-      setWeightKg(profile.weightKg);
-      setMaxHeartRate(profile.maxHeartRate);
-      setRestingHeartRate(profile.restingHeartRate);
-      setPeriodization(profile.periodization || '4weeks');
-
-      setThresholdHeartRateRun(profile.thresholdHeartRateRun);
-      setPaceOutdoorStr(formatSecondsToMinSec(profile.thresholdPaceRunOutdoorSec));
-      setPaceTreadmillStr(formatSecondsToMinSec(profile.thresholdPaceRunTreadmillSec));
-
-      setThresholdHeartRateBike(profile.thresholdHeartRateBike);
-      setBikeFtp(profile.bikeFtp);
-      setBikeCrankLengthMm(profile.bikeCrankLengthMm || 172.5);
-      setBikeCrankLengths(profile.bikeCrankLengths || {});
-
-      setSwim100mStr(formatSecondsToMinSec(profile.swim100mTimeSec));
-      setSwim400mStr(formatSecondsToMinSec(profile.swim400mTimeSec));
-      setSwimPoolPaceStr(formatSecondsToMinSec(profile.swimPoolPace100mSec));
-      setSwimOpenWaterPaceStr(formatSecondsToMinSec(profile.swimOpenWaterPace100mSec));
-      setSwimTssMode(profile.swimTssMode || 'sTSS');
-
-      const baseOutside = getAthletePaceZones(profile, false);
-      setPaceZonesOutsideState(baseOutside.map((z) => {
-        const custom = profile.customPaceZones?.[z.zone];
-        return {
-          zone: z.zone,
-          name: z.name,
-          minPaceStr: custom ? formatSecondsToMinSec(custom.minPaceSec) : formatSecondsToMinSec(z.minPaceSec),
-          maxPaceStr: custom ? formatSecondsToMinSec(custom.maxPaceSec) : formatSecondsToMinSec(z.maxPaceSec),
-          color: z.color,
-          description: z.description,
-        };
-      }));
-
-      const baseTreadmill = getAthletePaceZones(profile, true);
-      setPaceZonesTreadmillState(baseTreadmill.map((z) => {
-        const custom = profile.customPaceZonesTreadmill?.[z.zone];
-        return {
-          zone: z.zone,
-          name: z.name,
-          minPaceStr: custom ? formatSecondsToMinSec(custom.minPaceSec) : formatSecondsToMinSec(z.minPaceSec),
-          maxPaceStr: custom ? formatSecondsToMinSec(custom.maxPaceSec) : formatSecondsToMinSec(z.maxPaceSec),
-          color: z.color,
-          description: z.description,
-        };
-      }));
-
-      setInjuries(profile.injuries || DEFAULT_INJURIES);
-      setWeeklyAvailability(profile.weeklyAvailability || DEFAULT_WEEKLY_AVAILABILITY);
-
-      setTempTitle(brandTitle);
-      setTempSubtitle(brandSubtitle);
-
-      const currentG = propGoals || loadAthleteGoals();
-      setGoals(currentG);
-      setInitialGoalsSnapshot(JSON.stringify(currentG));
-
-      setSavedFeedback(false);
     } else {
       wasOpenRef.current = false;
     }
@@ -4091,8 +4186,36 @@ export const AthleteProfileModal: React.FC<AthleteProfileModalProps> = ({
                       setSwim100mStr(val);
                       const new100 = parseMinSecToSeconds(val, 84);
                       const new400 = parseMinSecToSeconds(swim400mStr, 372);
-                      const css = calculateCss(new100, new400);
-                      setSwimPoolPaceStr(formatSecondsToMinSec(css.cssPace100mSec));
+                      if (new400 > new100) {
+                        const css = calculateCss(new100, new400);
+                        const newPoolStr = formatSecondsToMinSec(css.cssPace100mSec);
+                        setSwimPoolPaceStr(newPoolStr);
+                        const updatedZones = getAthleteSwimPaceZones({
+                          ...profile,
+                          swim100mTimeSec: new100,
+                          swim400mTimeSec: new400,
+                          swimPoolPace100mSec: css.cssPace100mSec,
+                          customPaceZonesSwim: undefined,
+                        });
+                        const offsets = [
+                          'CSS +15s & slower',
+                          'CSS +8 to +15s',
+                          'CSS +2 to +8s',
+                          'CSS -2 to +2s',
+                          '< CSS -2s (sprint)',
+                        ];
+                        setPaceZonesSwimState(
+                          updatedZones.map((z, i) => ({
+                            zone: z.zone,
+                            name: z.name,
+                            offsetFormula: offsets[i] || '',
+                            minPaceStr: formatSecondsToMinSec(z.minPaceSec),
+                            maxPaceStr: formatSecondsToMinSec(z.maxPaceSec),
+                            color: z.color,
+                            description: z.description,
+                          }))
+                        );
+                      }
                     }}
                   />
 
@@ -4138,8 +4261,36 @@ export const AthleteProfileModal: React.FC<AthleteProfileModalProps> = ({
                       setSwim400mStr(val);
                       const new100 = parseMinSecToSeconds(swim100mStr, 84);
                       const new400 = parseMinSecToSeconds(val, 372);
-                      const css = calculateCss(new100, new400);
-                      setSwimPoolPaceStr(formatSecondsToMinSec(css.cssPace100mSec));
+                      if (new400 > new100) {
+                        const css = calculateCss(new100, new400);
+                        const newPoolStr = formatSecondsToMinSec(css.cssPace100mSec);
+                        setSwimPoolPaceStr(newPoolStr);
+                        const updatedZones = getAthleteSwimPaceZones({
+                          ...profile,
+                          swim100mTimeSec: new100,
+                          swim400mTimeSec: new400,
+                          swimPoolPace100mSec: css.cssPace100mSec,
+                          customPaceZonesSwim: undefined,
+                        });
+                        const offsets = [
+                          'CSS +15s & slower',
+                          'CSS +8 to +15s',
+                          'CSS +2 to +8s',
+                          'CSS -2 to +2s',
+                          '< CSS -2s (sprint)',
+                        ];
+                        setPaceZonesSwimState(
+                          updatedZones.map((z, i) => ({
+                            zone: z.zone,
+                            name: z.name,
+                            offsetFormula: offsets[i] || '',
+                            minPaceStr: formatSecondsToMinSec(z.minPaceSec),
+                            maxPaceStr: formatSecondsToMinSec(z.maxPaceSec),
+                            color: z.color,
+                            description: z.description,
+                          }))
+                        );
+                      }
                     }}
                   />
 
@@ -4189,7 +4340,7 @@ export const AthleteProfileModal: React.FC<AthleteProfileModalProps> = ({
                         theme === 'light' ? 'text-slate-700' : 'text-slate-400'
                       }`}
                     >
-                      Pool Speed: {liveCss.cssMps} m/s · OW CSS: {swimOpenWaterPaceStr}/100m
+                      Pool Speed: {(100 / Math.max(1, parseMinSecToSeconds(swimPoolPaceStr, liveCss.cssPace100mSec))).toFixed(3)} m/s · OW CSS: {swimOpenWaterPaceStr}/100m
                     </span>
                   </div>
                 </div>
@@ -4200,7 +4351,7 @@ export const AthleteProfileModal: React.FC<AthleteProfileModalProps> = ({
                       theme === 'light' ? 'text-sky-600' : 'text-sky-300'
                     }`}
                   >
-                    {liveCss.cssPaceFormatted}
+                    {swimPoolPaceStr}/100m
                   </span>
                   <span
                     className={`text-[10px] sm:text-[11px] block font-medium ${
@@ -4240,7 +4391,35 @@ export const AthleteProfileModal: React.FC<AthleteProfileModalProps> = ({
                     theme={theme}
                     accentColor="sky"
                     ariaLabelPrefix="Regular CSS Pool"
-                    onChange={(val) => setSwimPoolPaceStr(val)}
+                    onChange={(val) => {
+                      setSwimPoolPaceStr(val);
+                      const poolSec = parseMinSecToSeconds(val, 96);
+                      if (poolSec > 0) {
+                        const updatedZones = getAthleteSwimPaceZones({
+                          ...profile,
+                          swimPoolPace100mSec: poolSec,
+                          customPaceZonesSwim: undefined,
+                        });
+                        const offsets = [
+                          'CSS +15s & slower',
+                          'CSS +8 to +15s',
+                          'CSS +2 to +8s',
+                          'CSS -2 to +2s',
+                          '< CSS -2s (sprint)',
+                        ];
+                        setPaceZonesSwimState(
+                          updatedZones.map((z, i) => ({
+                            zone: z.zone,
+                            name: z.name,
+                            offsetFormula: offsets[i] || '',
+                            minPaceStr: formatSecondsToMinSec(z.minPaceSec),
+                            maxPaceStr: formatSecondsToMinSec(z.maxPaceSec),
+                            color: z.color,
+                            description: z.description,
+                          }))
+                        );
+                      }
+                    }}
                   />
                 </div>
 

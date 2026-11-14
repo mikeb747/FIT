@@ -22,34 +22,27 @@ export function loadAthleteProfile(): AthleteProfile {
       ...DEFAULT_ATHLETE_PROFILE,
       ...parsed,
     };
-    // Migrate legacy defaults if they matched the previous hardcoded values
-    if (profile.bikeFtp === 250 || profile.bikeFtp === 310 || !profile.bikeFtp) {
-      profile.bikeFtp = 315;
+    if (!profile.bikeFtp) {
+      profile.bikeFtp = DEFAULT_ATHLETE_PROFILE.bikeFtp;
     }
-    if (profile.restingHeartRate === 52 || profile.restingHeartRate === 60 || !profile.restingHeartRate) {
-      profile.restingHeartRate = 41;
+    if (!profile.restingHeartRate) {
+      profile.restingHeartRate = DEFAULT_ATHLETE_PROFILE.restingHeartRate;
     }
-    if (profile.heightCm === 178 || profile.heightCm === 180 || !profile.heightCm) {
-      profile.heightCm = 188;
+    if (!profile.heightCm) {
+      profile.heightCm = DEFAULT_ATHLETE_PROFILE.heightCm;
     }
-    if (profile.weightKg === 75 || profile.weightKg === 70 || !profile.weightKg) {
-      profile.weightKg = 77;
+    if (!profile.weightKg) {
+      profile.weightKg = DEFAULT_ATHLETE_PROFILE.weightKg;
     }
-    if (profile.birthDate === '1990-01-01' || !profile.birthDate) {
-      profile.birthDate = '1985-10-30';
-      profile.age = 41;
+    if (!profile.birthDate) {
+      profile.birthDate = DEFAULT_ATHLETE_PROFILE.birthDate;
+      profile.age = DEFAULT_ATHLETE_PROFILE.age;
     }
     if (!profile.swimTssMode) {
       profile.swimTssMode = 'sTSS';
     }
-    if (
-      profile.thresholdPaceRunOutdoorSec === 228 ||
-      profile.thresholdPaceRunOutdoorSec === 252 ||
-      profile.thresholdPaceRunOutdoorSec === 270 ||
-      !profile.thresholdPaceRunOutdoorSec ||
-      profile.thresholdPaceRunOutdoorSec > 236
-    ) {
-      profile.thresholdPaceRunOutdoorSec = 232; // 3:52/km
+    if (!profile.thresholdPaceRunOutdoorSec) {
+      profile.thresholdPaceRunOutdoorSec = DEFAULT_ATHLETE_PROFILE.thresholdPaceRunOutdoorSec;
     }
     if (!profile.injuries) {
       profile.injuries = DEFAULT_ATHLETE_PROFILE.injuries;
@@ -57,27 +50,20 @@ export function loadAthleteProfile(): AthleteProfile {
     if (!profile.weeklyAvailability) {
       profile.weeklyAvailability = DEFAULT_ATHLETE_PROFILE.weeklyAvailability;
     }
-    if (profile.thresholdPaceRunTreadmillSec === 285 || !profile.thresholdPaceRunTreadmillSec || profile.thresholdPaceRunTreadmillSec > 236) {
-      profile.thresholdPaceRunTreadmillSec = 228; // 3:48/km
+    if (!profile.thresholdPaceRunTreadmillSec) {
+      profile.thresholdPaceRunTreadmillSec = DEFAULT_ATHLETE_PROFILE.thresholdPaceRunTreadmillSec;
     }
-    if (profile.swim100mTimeSec === 95 || !profile.swim100mTimeSec) {
-      profile.swim100mTimeSec = 84; // 1:24
+    if (!profile.swim100mTimeSec) {
+      profile.swim100mTimeSec = DEFAULT_ATHLETE_PROFILE.swim100mTimeSec;
     }
-    if (
-      profile.swim400mTimeSec === 415 ||
-      profile.swim400mTimeSec === 355 ||
-      !profile.swim400mTimeSec ||
-      profile.swimPoolPace100mSec === 90
-    ) {
-      profile.swim400mTimeSec = 372; // 6:12
-      profile.swimPoolPace100mSec = 96; // 1:36/100m Regular (Pool) CSS
+    if (!profile.swim400mTimeSec) {
+      profile.swim400mTimeSec = DEFAULT_ATHLETE_PROFILE.swim400mTimeSec;
     }
-    if (
-      !profile.swimOpenWaterPace100mSec ||
-      profile.swimOpenWaterPace100mSec === 98 ||
-      profile.swimOpenWaterPace100mSec === 103
-    ) {
-      profile.swimOpenWaterPace100mSec = 105; // 1:45/100m Open Water CSS (OW CSS)
+    if (!profile.swimPoolPace100mSec) {
+      profile.swimPoolPace100mSec = DEFAULT_ATHLETE_PROFILE.swimPoolPace100mSec;
+    }
+    if (!profile.swimOpenWaterPace100mSec) {
+      profile.swimOpenWaterPace100mSec = DEFAULT_ATHLETE_PROFILE.swimOpenWaterPace100mSec;
     }
     if (!profile.periodization) {
       profile.periodization = '4weeks';

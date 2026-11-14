@@ -221,7 +221,7 @@ export const CloudVaultSection: React.FC<CloudVaultSectionProps> = ({ theme = 'd
               ) : (
                 <UserCheck className="w-4 h-4" />
               )}
-              <span>Sign in with Google to Save All Settings</span>
+              <span>Sign in with Google</span>
             </button>
           )}
         </div>

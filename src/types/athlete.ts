@@ -628,15 +628,15 @@ export function getAthletePaceZones(profile: AthleteProfile, isTreadmill = false
  */
 export function getAthleteSwimPaceZones(profile: AthleteProfile): PaceZone[] {
   let cssSec = 90;
-  if (
+  if (profile.swimPoolPace100mSec && profile.swimPoolPace100mSec > 0) {
+    cssSec = profile.swimPoolPace100mSec;
+  } else if (
     profile.swim100mTimeSec &&
     profile.swim400mTimeSec &&
     profile.swim400mTimeSec > profile.swim100mTimeSec
   ) {
     const cssResult = calculateCss(profile.swim100mTimeSec, profile.swim400mTimeSec);
     cssSec = cssResult.cssPace100mSec;
-  } else if (profile.swimPoolPace100mSec) {
-    cssSec = profile.swimPoolPace100mSec;
   }
 
   // Contiguous pace boundaries anchored on Critical Swim Speed (no gaps, no overlaps):
