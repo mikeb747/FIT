@@ -241,6 +241,272 @@ function updateLinkedPaceZones<T extends { zone: number; minPaceStr: string; max
   return next as T[];
 }
 
+interface MinSecBoxInputProps {
+  valueStr: string;
+  defaultSec?: number;
+  onChange: (newMinSecStr: string) => void;
+  unitSuffix?: string;
+  theme?: AppTheme;
+  accentColor?: 'sky' | 'rose' | 'amber';
+  size?: 'lg' | 'sm';
+  ariaLabelPrefix?: string;
+}
+
+const MinSecBoxInput: React.FC<MinSecBoxInputProps> = ({
+  valueStr,
+  defaultSec = 90,
+  onChange,
+  unitSuffix,
+  theme = 'dark',
+  accentColor = 'sky',
+  size = 'lg',
+  ariaLabelPrefix = 'Time',
+}) => {
+  const totalSec = parseMinSecToSeconds(valueStr, defaultSec);
+  const mins = Math.floor(totalSec / 60);
+  const secs = totalSec % 60;
+
+  const [minDraft, setMinDraft] = useState<string | null>(null);
+  const [secDraft, setSecDraft] = useState<string | null>(null);
+
+  const isLight = theme === 'light';
+  const focusBorder =
+    accentColor === 'rose'
+      ? 'focus:border-rose-400'
+      : accentColor === 'amber'
+      ? 'focus:border-amber-400'
+      : 'focus:border-sky-400';
+
+  const commitMinSec = (newMin: number, newSec: number) => {
+    const clampedMin = Math.max(0, Math.min(99, Math.round(newMin) || 0));
+    const clampedSec = Math.max(0, Math.min(59, Math.round(newSec) || 0));
+    onChange(`${clampedMin}:${String(clampedSec).padStart(2, '0')}`);
+  };
+
+  if (size === 'sm') {
+    const smBoxClass = `w-9 h-7 rounded-lg font-mono text-xs font-bold text-center focus:outline-none border transition-colors ${focusBorder} ${
+      isLight
+        ? 'bg-slate-100 border-slate-300 text-slate-900 focus:bg-white'
+        : 'bg-slate-950 border-slate-700 text-white'
+    }`;
+    return (
+      <div className="inline-flex items-center gap-0.5 font-mono">
+        <input
+          type="text"
+          inputMode="numeric"
+          pattern="[0-9]*"
+          aria-label={`${ariaLabelPrefix} Minutes`}
+          value={minDraft !== null ? minDraft : String(mins).padStart(2, '0')}
+          onFocus={(e) => {
+            setMinDraft(String(mins).padStart(2, '0'));
+            e.currentTarget.select();
+          }}
+          onChange={(e) => {
+            const raw = e.target.value.replace(/[^0-9]/g, '').slice(0, 2);
+            setMinDraft(raw);
+            if (raw !== '') {
+              commitMinSec(parseInt(raw, 10) || 0, secs);
+            }
+          }}
+          onBlur={() => {
+            const parsedMin =
+              minDraft === null || minDraft === '' ? mins : parseInt(minDraft, 10) || 0;
+            setMinDraft(null);
+            commitMinSec(parsedMin, secs);
+          }}
+          onKeyDown={(e) => {
+            if (e.key === 'ArrowUp') {
+              e.preventDefault();
+              const nextM = Math.min(99, mins + 1);
+              setMinDraft(String(nextM).padStart(2, '0'));
+              commitMinSec(nextM, secs);
+            } else if (e.key === 'ArrowDown') {
+              e.preventDefault();
+              const nextM = Math.max(0, mins - 1);
+              setMinDraft(String(nextM).padStart(2, '0'));
+              commitMinSec(nextM, secs);
+            } else if (e.key === 'Enter') {
+              e.currentTarget.blur();
+            }
+          }}
+          className={smBoxClass}
+        />
+        <span className={`text-xs font-black px-0.5 ${isLight ? 'text-slate-700' : 'text-slate-300'}`}>
+          :
+        </span>
+        <input
+          type="text"
+          inputMode="numeric"
+          pattern="[0-9]*"
+          aria-label={`${ariaLabelPrefix} Seconds`}
+          value={secDraft !== null ? secDraft : String(secs).padStart(2, '0')}
+          onFocus={(e) => {
+            setSecDraft(String(secs).padStart(2, '0'));
+            e.currentTarget.select();
+          }}
+          onChange={(e) => {
+            const raw = e.target.value.replace(/[^0-9]/g, '').slice(0, 2);
+            setSecDraft(raw);
+            if (raw !== '') {
+              commitMinSec(mins, Math.min(59, parseInt(raw, 10) || 0));
+            }
+          }}
+          onBlur={() => {
+            const parsedSec =
+              secDraft === null || secDraft === '' ? secs : parseInt(secDraft, 10) || 0;
+            setSecDraft(null);
+            commitMinSec(mins, parsedSec);
+          }}
+          onKeyDown={(e) => {
+            if (e.key === 'ArrowUp') {
+              e.preventDefault();
+              const nextTotal = Math.min(99 * 60 + 59, totalSec + 1);
+              const nextM = Math.floor(nextTotal / 60);
+              const nextS = nextTotal % 60;
+              setSecDraft(String(nextS).padStart(2, '0'));
+              commitMinSec(nextM, nextS);
+            } else if (e.key === 'ArrowDown') {
+              e.preventDefault();
+              const nextTotal = Math.max(1, totalSec - 1);
+              const nextM = Math.floor(nextTotal / 60);
+              const nextS = nextTotal % 60;
+              setSecDraft(String(nextS).padStart(2, '0'));
+              commitMinSec(nextM, nextS);
+            } else if (e.key === 'Enter') {
+              e.currentTarget.blur();
+            }
+          }}
+          className={smBoxClass}
+        />
+      </div>
+    );
+  }
+
+  const lgBoxClass = `w-16 sm:w-[74px] h-13 sm:h-[58px] rounded-2xl font-mono text-xl sm:text-2xl font-bold text-center tracking-tight focus:outline-none border transition-all ${focusBorder} ${
+    isLight
+      ? 'bg-slate-100/90 border-slate-200/90 text-slate-900 focus:bg-white shadow-2xs'
+      : 'bg-slate-900 border-slate-800 text-white focus:bg-slate-900'
+  }`;
+
+  return (
+    <div className="flex items-center gap-2 sm:gap-2.5 pt-0.5">
+      <div className="flex flex-col items-center gap-1">
+        <input
+          type="text"
+          inputMode="numeric"
+          pattern="[0-9]*"
+          aria-label={`${ariaLabelPrefix} Minutes`}
+          value={minDraft !== null ? minDraft : String(mins).padStart(2, '0')}
+          onFocus={(e) => {
+            setMinDraft(String(mins).padStart(2, '0'));
+            e.currentTarget.select();
+          }}
+          onChange={(e) => {
+            const raw = e.target.value.replace(/[^0-9]/g, '').slice(0, 2);
+            setMinDraft(raw);
+            if (raw !== '') {
+              commitMinSec(parseInt(raw, 10) || 0, secs);
+            }
+          }}
+          onBlur={() => {
+            const parsedMin =
+              minDraft === null || minDraft === '' ? mins : parseInt(minDraft, 10) || 0;
+            setMinDraft(null);
+            commitMinSec(parsedMin, secs);
+          }}
+          onKeyDown={(e) => {
+            if (e.key === 'ArrowUp') {
+              e.preventDefault();
+              const nextM = Math.min(99, mins + 1);
+              setMinDraft(String(nextM).padStart(2, '0'));
+              commitMinSec(nextM, secs);
+            } else if (e.key === 'ArrowDown') {
+              e.preventDefault();
+              const nextM = Math.max(0, mins - 1);
+              setMinDraft(String(nextM).padStart(2, '0'));
+              commitMinSec(nextM, secs);
+            } else if (e.key === 'Enter') {
+              e.currentTarget.blur();
+            }
+          }}
+          className={lgBoxClass}
+        />
+        <span className={`text-[10px] sm:text-[11px] font-medium ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>
+          Minute
+        </span>
+      </div>
+
+      <span
+        className={`text-xl sm:text-2xl font-black pb-5 select-none ${
+          isLight ? 'text-slate-800' : 'text-slate-200'
+        }`}
+      >
+        :
+      </span>
+
+      <div className="flex flex-col items-center gap-1">
+        <input
+          type="text"
+          inputMode="numeric"
+          pattern="[0-9]*"
+          aria-label={`${ariaLabelPrefix} Seconds`}
+          value={secDraft !== null ? secDraft : String(secs).padStart(2, '0')}
+          onFocus={(e) => {
+            setSecDraft(String(secs).padStart(2, '0'));
+            e.currentTarget.select();
+          }}
+          onChange={(e) => {
+            const raw = e.target.value.replace(/[^0-9]/g, '').slice(0, 2);
+            setSecDraft(raw);
+            if (raw !== '') {
+              commitMinSec(mins, Math.min(59, parseInt(raw, 10) || 0));
+            }
+          }}
+          onBlur={() => {
+            const parsedSec =
+              secDraft === null || secDraft === '' ? secs : parseInt(secDraft, 10) || 0;
+            setSecDraft(null);
+            commitMinSec(mins, parsedSec);
+          }}
+          onKeyDown={(e) => {
+            if (e.key === 'ArrowUp') {
+              e.preventDefault();
+              const nextTotal = Math.min(99 * 60 + 59, totalSec + 1);
+              const nextM = Math.floor(nextTotal / 60);
+              const nextS = nextTotal % 60;
+              setSecDraft(String(nextS).padStart(2, '0'));
+              commitMinSec(nextM, nextS);
+            } else if (e.key === 'ArrowDown') {
+              e.preventDefault();
+              const nextTotal = Math.max(1, totalSec - 1);
+              const nextM = Math.floor(nextTotal / 60);
+              const nextS = nextTotal % 60;
+              setSecDraft(String(nextS).padStart(2, '0'));
+              commitMinSec(nextM, nextS);
+            } else if (e.key === 'Enter') {
+              e.currentTarget.blur();
+            }
+          }}
+          className={lgBoxClass}
+        />
+        <span className={`text-[10px] sm:text-[11px] font-medium ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>
+          Second
+        </span>
+      </div>
+
+      {unitSuffix && (
+        <span
+          className={`text-xs sm:text-sm font-semibold pb-5 pl-0.5 whitespace-nowrap ${
+            isLight ? 'text-slate-600' : 'text-slate-400'
+          }`}
+        >
+          {unitSuffix}
+        </span>
+      )}
+    </div>
+  );
+};
+
 export const AthleteProfileModal: React.FC<AthleteProfileModalProps> = ({
   isOpen,
   onClose,
@@ -3759,113 +4025,253 @@ export const AthleteProfileModal: React.FC<AthleteProfileModalProps> = ({
                 </p>
               </div>
 
+              {/* CSS Calculator Header */}
+              <div className="flex items-start justify-between gap-3 pt-0.5">
+                <div>
+                  <h4
+                    className={`text-sm sm:text-base font-black tracking-tight ${
+                      theme === 'light' ? 'text-slate-900' : 'text-white'
+                    }`}
+                  >
+                    Critical Swim Speed (CSS) Calculator
+                  </h4>
+                  <p
+                    className={`text-[11px] sm:text-xs mt-0.5 ${
+                      theme === 'light' ? 'text-slate-500' : 'text-slate-400'
+                    }`}
+                  >
+                    Enter your 100m &amp; 400m time trials using the minute and second boxes below
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSwim100mStr('1:24');
+                    setSwim400mStr('6:12');
+                    setSwimPoolPaceStr('1:36');
+                    setSwimOpenWaterPaceStr('1:45');
+                  }}
+                  className={`px-3 py-1.5 rounded-xl text-[11px] font-bold border transition-all cursor-pointer shrink-0 ${
+                    theme === 'light'
+                      ? 'bg-sky-50/70 hover:bg-sky-100/80 text-sky-600 border-sky-200'
+                      : 'bg-sky-950/50 hover:bg-sky-900/60 text-sky-300 border-sky-800/70'
+                  }`}
+                >
+                  Reset Defaults
+                </button>
+              </div>
+
               {/* Time Trial Inputs for CSS */}
-              <div className="grid grid-cols-2 gap-2 sm:gap-3">
-                <div className="p-2.5 sm:p-3.5 rounded-2xl bg-slate-950 border border-slate-800 flex flex-col gap-1.5">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 sm:gap-3.5">
+                <div
+                  className={`p-3.5 sm:p-4 rounded-2xl border flex flex-col justify-between gap-2.5 ${
+                    theme === 'light'
+                      ? 'bg-white border-slate-200 shadow-xs'
+                      : 'bg-slate-950 border-slate-800'
+                  }`}
+                >
                   <div className="flex items-center justify-between">
-                    <label className="text-xs font-semibold text-sky-300">Swim 100m TT</label>
-                    <span className="text-[10px] text-slate-500">mm:ss</span>
+                    <label
+                      className={`text-xs sm:text-sm font-bold ${
+                        theme === 'light' ? 'text-sky-600' : 'text-sky-400'
+                      }`}
+                    >
+                      Swim 100m TT
+                    </label>
+                    <span className="text-[11px] font-mono text-slate-400">mm:ss</span>
                   </div>
-                  <div className="flex items-center gap-1.5">
-                    <input
-                      type="text"
-                      placeholder="1:24"
-                      value={swim100mStr}
-                      onChange={(e) => {
-                        const val = e.target.value;
-                        setSwim100mStr(val);
-                        const new100 = parseMinSecToSeconds(val, 84);
-                        const new400 = parseMinSecToSeconds(swim400mStr, 372);
-                        const css = calculateCss(new100, new400);
-                        setSwimPoolPaceStr(formatSecondsToMinSec(css.cssPace100mSec));
-                      }}
-                      className="w-full bg-slate-900 border border-slate-700 rounded-xl px-2.5 py-1.5 sm:px-3 sm:py-2 text-sm font-bold font-mono text-white focus:outline-none focus:border-sky-400"
-                    />
+
+                  <MinSecBoxInput
+                    valueStr={swim100mStr}
+                    defaultSec={84}
+                    theme={theme}
+                    accentColor="sky"
+                    ariaLabelPrefix="Swim 100m TT"
+                    onChange={(val) => {
+                      setSwim100mStr(val);
+                      const new100 = parseMinSecToSeconds(val, 84);
+                      const new400 = parseMinSecToSeconds(swim400mStr, 372);
+                      const css = calculateCss(new100, new400);
+                      setSwimPoolPaceStr(formatSecondsToMinSec(css.cssPace100mSec));
+                    }}
+                  />
+
+                  <div className="flex items-center justify-between pt-0.5">
+                    <span
+                      className={`text-[11px] font-semibold ${
+                        theme === 'light' ? 'text-slate-700' : 'text-slate-400'
+                      }`}
+                    >
+                      {t100} seconds
+                    </span>
+                    <span className="text-[11px] font-mono text-slate-400">
+                      {formatSecondsToMinSec(t100)} /100m
+                    </span>
                   </div>
-                  <span className="text-[11px] text-slate-500">{t100} seconds</span>
                 </div>
 
-                <div className="p-2.5 sm:p-3.5 rounded-2xl bg-slate-950 border border-slate-800 flex flex-col gap-1.5">
+                <div
+                  className={`p-3.5 sm:p-4 rounded-2xl border flex flex-col justify-between gap-2.5 ${
+                    theme === 'light'
+                      ? 'bg-white border-slate-200 shadow-xs'
+                      : 'bg-slate-950 border-slate-800'
+                  }`}
+                >
                   <div className="flex items-center justify-between">
-                    <label className="text-xs font-semibold text-sky-300">Swim 400m TT</label>
-                    <span className="text-[10px] text-slate-500">mm:ss</span>
+                    <label
+                      className={`text-xs sm:text-sm font-bold ${
+                        theme === 'light' ? 'text-sky-600' : 'text-sky-400'
+                      }`}
+                    >
+                      Swim 400m TT
+                    </label>
+                    <span className="text-[11px] font-mono text-slate-400">mm:ss</span>
                   </div>
-                  <div className="flex items-center gap-1.5">
-                    <input
-                      type="text"
-                      placeholder="6:12"
-                      value={swim400mStr}
-                      onChange={(e) => {
-                        const val = e.target.value;
-                        setSwim400mStr(val);
-                        const new100 = parseMinSecToSeconds(swim100mStr, 84);
-                        const new400 = parseMinSecToSeconds(val, 372);
-                        const css = calculateCss(new100, new400);
-                        setSwimPoolPaceStr(formatSecondsToMinSec(css.cssPace100mSec));
-                      }}
-                      className="w-full bg-slate-900 border border-slate-700 rounded-xl px-2.5 py-1.5 sm:px-3 sm:py-2 text-sm font-bold font-mono text-white focus:outline-none focus:border-sky-400"
-                    />
+
+                  <MinSecBoxInput
+                    valueStr={swim400mStr}
+                    defaultSec={372}
+                    theme={theme}
+                    accentColor="sky"
+                    ariaLabelPrefix="Swim 400m TT"
+                    onChange={(val) => {
+                      setSwim400mStr(val);
+                      const new100 = parseMinSecToSeconds(swim100mStr, 84);
+                      const new400 = parseMinSecToSeconds(val, 372);
+                      const css = calculateCss(new100, new400);
+                      setSwimPoolPaceStr(formatSecondsToMinSec(css.cssPace100mSec));
+                    }}
+                  />
+
+                  <div className="flex items-center justify-between pt-0.5">
+                    <span
+                      className={`text-[11px] font-semibold ${
+                        theme === 'light' ? 'text-slate-700' : 'text-slate-400'
+                      }`}
+                    >
+                      {t400} seconds
+                    </span>
+                    <span className="text-[11px] font-mono text-slate-400">
+                      {formatSecondsToMinSec(Math.round(t400 / 4))} /100m avg
+                    </span>
                   </div>
-                  <span className="text-[11px] text-slate-500">{t400} seconds</span>
                 </div>
               </div>
 
               {/* Live Dual CSS Banner */}
-              <div className="p-3.5 rounded-2xl bg-sky-500/10 border border-sky-500/30 flex items-center justify-between gap-3">
-                <div className="flex items-center gap-2.5">
-                  <div className="w-8 h-8 rounded-xl bg-sky-500/20 text-sky-400 flex items-center justify-center font-black text-xs">
+              <div
+                className={`p-3.5 sm:p-4 rounded-2xl border flex items-center justify-between gap-3 ${
+                  theme === 'light'
+                    ? 'bg-sky-50/80 border-sky-300/80'
+                    : 'bg-sky-500/10 border-sky-500/30'
+                }`}
+              >
+                <div className="flex items-center gap-3">
+                  <div
+                    className={`w-10 h-10 rounded-xl flex items-center justify-center font-black text-xs border ${
+                      theme === 'light'
+                        ? 'bg-sky-200/70 text-sky-800 border-sky-300'
+                        : 'bg-sky-500/20 text-sky-400 border-sky-500/30'
+                    }`}
+                  >
                     CSS
                   </div>
                   <div>
-                    <span className="text-xs font-black text-sky-300 block">Derived Pool CSS &amp; Active OW CSS</span>
-                    <span className="text-[11px] text-slate-400">
+                    <span
+                      className={`text-xs sm:text-sm font-black block ${
+                        theme === 'light' ? 'text-sky-600' : 'text-sky-300'
+                      }`}
+                    >
+                      Derived Pool CSS &amp; Active OW CSS
+                    </span>
+                    <span
+                      className={`text-[11px] sm:text-xs font-medium ${
+                        theme === 'light' ? 'text-slate-700' : 'text-slate-400'
+                      }`}
+                    >
                       Pool Speed: {liveCss.cssMps} m/s · OW CSS: {swimOpenWaterPaceStr}/100m
                     </span>
                   </div>
                 </div>
 
                 <div className="text-right">
-                  <span className="text-base sm:text-lg font-black font-mono text-sky-300">
+                  <span
+                    className={`text-lg sm:text-xl font-black font-mono ${
+                      theme === 'light' ? 'text-sky-600' : 'text-sky-300'
+                    }`}
+                  >
                     {liveCss.cssPaceFormatted}
                   </span>
-                  <span className="text-[10px] text-slate-500 block font-mono">Pool CSS /100m</span>
+                  <span
+                    className={`text-[10px] sm:text-[11px] block font-medium ${
+                      theme === 'light' ? 'text-slate-600' : 'text-slate-500'
+                    }`}
+                  >
+                    Pool CSS /100m
+                  </span>
                 </div>
               </div>
 
               {/* Dual CSS Paces: Regular CSS (Pool) & OW CSS (Open Water) */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 sm:gap-3">
-                <div className="p-2.5 sm:p-3.5 rounded-2xl bg-slate-950 border border-slate-800 flex flex-col gap-1.5">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 sm:gap-3.5">
+                <div
+                  className={`p-3.5 sm:p-4 rounded-2xl border flex flex-col justify-between gap-2.5 ${
+                    theme === 'light'
+                      ? 'bg-white border-slate-200 shadow-xs'
+                      : 'bg-slate-950 border-slate-800'
+                  }`}
+                >
                   <div className="flex items-center justify-between">
-                    <label className="text-xs font-semibold text-sky-300">Regular CSS (Pool)</label>
-                    <span className="text-[10px] text-slate-500">Pool sTSS &amp; Pool Tri</span>
+                    <label
+                      className={`text-xs sm:text-sm font-bold ${
+                        theme === 'light' ? 'text-sky-600' : 'text-sky-400'
+                      }`}
+                    >
+                      Regular CSS (Pool)
+                    </label>
+                    <span className="text-[10px] sm:text-[11px] text-slate-400">
+                      Pool sTSS &amp; Pool Tri
+                    </span>
                   </div>
-                  <div className="flex items-center gap-1.5">
-                    <input
-                      type="text"
-                      placeholder="1:36"
-                      value={swimPoolPaceStr}
-                      onChange={(e) => setSwimPoolPaceStr(e.target.value)}
-                      className="w-full bg-slate-900 border border-slate-700 rounded-xl px-2.5 py-1.5 sm:px-3 sm:py-2 text-sm font-bold font-mono text-white focus:outline-none focus:border-sky-400"
-                    />
-                    <span className="text-xs text-slate-400 font-mono whitespace-nowrap">/100m</span>
-                  </div>
+                  <MinSecBoxInput
+                    valueStr={swimPoolPaceStr}
+                    defaultSec={96}
+                    unitSuffix="/100m"
+                    theme={theme}
+                    accentColor="sky"
+                    ariaLabelPrefix="Regular CSS Pool"
+                    onChange={(val) => setSwimPoolPaceStr(val)}
+                  />
                 </div>
 
-                <div className="p-2.5 sm:p-3.5 rounded-2xl bg-slate-950 border border-slate-800 flex flex-col gap-1.5">
+                <div
+                  className={`p-3.5 sm:p-4 rounded-2xl border flex flex-col justify-between gap-2.5 ${
+                    theme === 'light'
+                      ? 'bg-white border-slate-200 shadow-xs'
+                      : 'bg-slate-950 border-slate-800'
+                  }`}
+                >
                   <div className="flex items-center justify-between">
-                    <label className="text-xs font-semibold text-sky-300">OW CSS (Open Water)</label>
-                    <span className="text-[10px] text-slate-500">OW sTSS &amp; OW Races</span>
+                    <label
+                      className={`text-xs sm:text-sm font-bold ${
+                        theme === 'light' ? 'text-sky-600' : 'text-sky-400'
+                      }`}
+                    >
+                      OW CSS (Open Water)
+                    </label>
+                    <span className="text-[10px] sm:text-[11px] text-slate-400">
+                      OW sTSS &amp; OW Races
+                    </span>
                   </div>
-                  <div className="flex items-center gap-1.5">
-                    <input
-                      type="text"
-                      placeholder="1:45"
-                      value={swimOpenWaterPaceStr}
-                      onChange={(e) => setSwimOpenWaterPaceStr(e.target.value)}
-                      className="w-full bg-slate-900 border border-slate-700 rounded-xl px-2.5 py-1.5 sm:px-3 sm:py-2 text-sm font-bold font-mono text-white focus:outline-none focus:border-sky-400"
-                    />
-                    <span className="text-xs text-slate-400 font-mono whitespace-nowrap">/100m</span>
-                  </div>
+                  <MinSecBoxInput
+                    valueStr={swimOpenWaterPaceStr}
+                    defaultSec={105}
+                    unitSuffix="/100m"
+                    theme={theme}
+                    accentColor="sky"
+                    ariaLabelPrefix="OW CSS Open Water"
+                    onChange={(val) => setSwimOpenWaterPaceStr(val)}
+                  />
                 </div>
               </div>
 
@@ -4088,19 +4494,25 @@ export const AthleteProfileModal: React.FC<AthleteProfileModalProps> = ({
 
                       <div className="flex items-center gap-1.5 shrink-0 self-end sm:self-auto font-mono">
                         <span className="text-[10px] text-slate-500 uppercase">Fast:</span>
-                        <input
-                          type="text"
-                          value={z.minPaceStr}
-                          onChange={(e) => handleUpdatePaceZoneSwim(z.zone, 'minPaceStr', e.target.value)}
-                          className="w-16 bg-slate-950 border border-slate-700 rounded-lg px-1.5 py-1 text-xs font-bold text-white text-center focus:outline-none focus:border-sky-400"
+                        <MinSecBoxInput
+                          valueStr={z.minPaceStr}
+                          defaultSec={90}
+                          size="sm"
+                          theme={theme}
+                          accentColor="sky"
+                          ariaLabelPrefix={`Swim Zone ${z.zone} Fast`}
+                          onChange={(val) => handleUpdatePaceZoneSwim(z.zone, 'minPaceStr', val)}
                         />
                         <span className="text-slate-500 text-xs">to</span>
                         <span className="text-[10px] text-slate-500 uppercase">Slow:</span>
-                        <input
-                          type="text"
-                          value={z.maxPaceStr}
-                          onChange={(e) => handleUpdatePaceZoneSwim(z.zone, 'maxPaceStr', e.target.value)}
-                          className="w-16 bg-slate-950 border border-slate-700 rounded-lg px-1.5 py-1 text-xs font-bold text-white text-center focus:outline-none focus:border-sky-400"
+                        <MinSecBoxInput
+                          valueStr={z.maxPaceStr}
+                          defaultSec={105}
+                          size="sm"
+                          theme={theme}
+                          accentColor="sky"
+                          ariaLabelPrefix={`Swim Zone ${z.zone} Slow`}
+                          onChange={(val) => handleUpdatePaceZoneSwim(z.zone, 'maxPaceStr', val)}
                         />
                         <span className="text-slate-400 text-xs font-mono ml-0.5">/100m</span>
                       </div>
@@ -4764,42 +5176,64 @@ export const AthleteProfileModal: React.FC<AthleteProfileModalProps> = ({
                 </p>
               </div>
 
-              <div className="grid grid-cols-2 gap-2 sm:gap-3">
-                <div className="p-2.5 sm:p-3.5 rounded-2xl bg-slate-950 border border-slate-800 flex flex-col gap-1.5">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 sm:gap-3.5">
+                <div
+                  className={`p-3.5 sm:p-4 rounded-2xl border flex flex-col justify-between gap-2.5 ${
+                    theme === 'light'
+                      ? 'bg-white border-slate-200 shadow-xs'
+                      : 'bg-slate-950 border-slate-800'
+                  }`}
+                >
                   <div className="flex items-center justify-between">
-                    <label className="text-xs font-semibold text-rose-300">Outdoor Pace</label>
-                    <span className="text-[10px] text-slate-500">10k / 1h</span>
+                    <label
+                      className={`text-xs sm:text-sm font-bold ${
+                        theme === 'light' ? 'text-rose-600' : 'text-rose-300'
+                      }`}
+                    >
+                      Outdoor Pace
+                    </label>
+                    <span className="text-[10px] sm:text-[11px] text-slate-500">10k / 1h</span>
                   </div>
-                  <div className="flex items-center gap-1.5">
-                    <input
-                      type="text"
-                      placeholder="3:52"
-                      value={paceOutdoorStr}
-                      onChange={(e) => setPaceOutdoorStr(e.target.value)}
-                      className="w-full bg-slate-900 border border-slate-700 rounded-xl px-2.5 py-1.5 sm:px-3 sm:py-2 text-sm font-bold font-mono text-white focus:outline-none focus:border-rose-400"
-                    />
-                    <span className="text-xs text-slate-400 font-mono whitespace-nowrap">/km</span>
-                  </div>
+                  <MinSecBoxInput
+                    valueStr={paceOutdoorStr}
+                    defaultSec={232}
+                    unitSuffix="/km"
+                    theme={theme}
+                    accentColor="rose"
+                    ariaLabelPrefix="Outdoor Pace"
+                    onChange={(val) => setPaceOutdoorStr(val)}
+                  />
                   <span className="text-[11px] text-slate-500">
                     ~{(3600 / parseMinSecToSeconds(paceOutdoorStr, 232)).toFixed(1)} km/h
                   </span>
                 </div>
 
-                <div className="p-2.5 sm:p-3.5 rounded-2xl bg-slate-950 border border-slate-800 flex flex-col gap-1.5">
+                <div
+                  className={`p-3.5 sm:p-4 rounded-2xl border flex flex-col justify-between gap-2.5 ${
+                    theme === 'light'
+                      ? 'bg-white border-slate-200 shadow-xs'
+                      : 'bg-slate-950 border-slate-800'
+                  }`}
+                >
                   <div className="flex items-center justify-between">
-                    <label className="text-xs font-semibold text-rose-300">Treadmill Pace</label>
-                    <span className="text-[10px] text-slate-500">Indoor</span>
+                    <label
+                      className={`text-xs sm:text-sm font-bold ${
+                        theme === 'light' ? 'text-rose-600' : 'text-rose-300'
+                      }`}
+                    >
+                      Treadmill Pace
+                    </label>
+                    <span className="text-[10px] sm:text-[11px] text-slate-500">Indoor</span>
                   </div>
-                  <div className="flex items-center gap-1.5">
-                    <input
-                      type="text"
-                      placeholder="4:45"
-                      value={paceTreadmillStr}
-                      onChange={(e) => setPaceTreadmillStr(e.target.value)}
-                      className="w-full bg-slate-900 border border-slate-700 rounded-xl px-2.5 py-1.5 sm:px-3 sm:py-2 text-sm font-bold font-mono text-white focus:outline-none focus:border-rose-400"
-                    />
-                    <span className="text-xs text-slate-400 font-mono whitespace-nowrap">/km</span>
-                  </div>
+                  <MinSecBoxInput
+                    valueStr={paceTreadmillStr}
+                    defaultSec={228}
+                    unitSuffix="/km"
+                    theme={theme}
+                    accentColor="rose"
+                    ariaLabelPrefix="Treadmill Pace"
+                    onChange={(val) => setPaceTreadmillStr(val)}
+                  />
                   <span className="text-[11px] text-slate-500">
                     ~{(3600 / parseMinSecToSeconds(paceTreadmillStr, 228)).toFixed(1)} km/h
                   </span>
@@ -4977,21 +5411,25 @@ export const AthleteProfileModal: React.FC<AthleteProfileModalProps> = ({
 
                       <div className="flex items-center gap-1.5 shrink-0 self-end sm:self-auto font-mono">
                         <span className="text-[10px] text-slate-500 uppercase">Fast:</span>
-                        <input
-                          type="text"
-                          value={z.minPaceStr}
-                          onChange={(e) => handleUpdatePaceZone(z.zone, 'minPaceStr', e.target.value)}
-                          placeholder="3:30"
-                          className="w-16 bg-slate-950 border border-slate-700 rounded-lg px-1.5 py-1 text-xs font-bold text-white text-center focus:outline-none focus:border-amber-400"
+                        <MinSecBoxInput
+                          valueStr={z.minPaceStr}
+                          defaultSec={210}
+                          size="sm"
+                          theme={theme}
+                          accentColor="rose"
+                          ariaLabelPrefix={`Run Zone ${z.zone} Fast`}
+                          onChange={(val) => handleUpdatePaceZone(z.zone, 'minPaceStr', val)}
                         />
                         <span className="text-slate-500 text-xs">to</span>
                         <span className="text-[10px] text-slate-500 uppercase">Slow:</span>
-                        <input
-                          type="text"
-                          value={z.maxPaceStr}
-                          onChange={(e) => handleUpdatePaceZone(z.zone, 'maxPaceStr', e.target.value)}
-                          placeholder="4:15"
-                          className="w-16 bg-slate-950 border border-slate-700 rounded-lg px-1.5 py-1 text-xs font-bold text-white text-center focus:outline-none focus:border-amber-400"
+                        <MinSecBoxInput
+                          valueStr={z.maxPaceStr}
+                          defaultSec={240}
+                          size="sm"
+                          theme={theme}
+                          accentColor="rose"
+                          ariaLabelPrefix={`Run Zone ${z.zone} Slow`}
+                          onChange={(val) => handleUpdatePaceZone(z.zone, 'maxPaceStr', val)}
                         />
                         <span className="text-slate-400 text-xs font-mono ml-0.5">/km</span>
                       </div>

@@ -89,6 +89,129 @@ function formatSwimPace100m(secondsPer100m: number): string {
   return `${min}:${sec.toString().padStart(2, '0')}`;
 }
 
+export function getGoalTotalDistanceKm(goal: TrainingGoal): number {
+  if (goal.eventType === 'triathlon' && goal.triathlonSplits) {
+    const swimKm = (goal.triathlonSplits.swimDistanceMeters || 0) / 1000;
+    const bikeKm = goal.triathlonSplits.bikeDistanceKm || 0;
+    const runKm = goal.triathlonSplits.runDistanceKm || 0;
+    const sumKm = Number((swimKm + bikeKm + runKm).toFixed(2));
+    if (sumKm > 0) return sumKm;
+  }
+  if (goal.eventType === 'swim' && goal.swimDistanceMeters && goal.swimDistanceMeters > 0) {
+    return Number((goal.swimDistanceMeters / 1000).toFixed(2));
+  }
+  return Number((goal.totalDistanceKm || 0).toFixed(2));
+}
+
+export function formatGoalDistanceBadge(goal: TrainingGoal): string {
+  const preset = goal.distancePreset?.trim();
+  if (preset && preset.toLowerCase() !== 'custom') {
+    return preset;
+  }
+  const distKm = getGoalTotalDistanceKm(goal);
+  if (distKm > 0) {
+    return `${distKm}km`;
+  }
+  return '';
+}
+
+const GoalMinSecInput: React.FC<{
+  totalSeconds: number;
+  onChangeSeconds: (newTotalSec: number) => void;
+  unitSuffix?: string;
+  isLight?: boolean;
+}> = ({ totalSeconds, onChangeSeconds, unitSuffix, isLight = false }) => {
+  const safeTotal = Math.max(0, Math.round(totalSeconds || 0));
+  const mins = Math.floor(safeTotal / 60);
+  const secs = safeTotal % 60;
+
+  const [minDraft, setMinDraft] = useState<string | null>(null);
+  const [secDraft, setSecDraft] = useState<string | null>(null);
+
+  const commit = (newMin: number, newSec: number) => {
+    const clampedMin = Math.max(0, Math.min(999, Math.round(newMin) || 0));
+    const clampedSec = Math.max(0, Math.min(59, Math.round(newSec) || 0));
+    onChangeSeconds(clampedMin * 60 + clampedSec);
+  };
+
+  const boxClass = `w-14 h-10 rounded-xl font-mono text-sm font-bold text-center focus:outline-none border transition-all focus:border-amber-500 ${
+    isLight
+      ? 'bg-slate-100 border-slate-300 text-slate-900 focus:bg-white'
+      : 'bg-slate-950 border-slate-800 text-white'
+  }`;
+
+  return (
+    <div className="flex items-center gap-1.5">
+      <div className="flex flex-col items-center gap-0.5">
+        <input
+          type="text"
+          inputMode="numeric"
+          pattern="[0-9]*"
+          value={minDraft !== null ? minDraft : String(mins).padStart(2, '0')}
+          onFocus={(e) => {
+            setMinDraft(String(mins).padStart(2, '0'));
+            e.currentTarget.select();
+          }}
+          onChange={(e) => {
+            const raw = e.target.value.replace(/[^0-9]/g, '').slice(0, 3);
+            setMinDraft(raw);
+            if (raw !== '') {
+              commit(parseInt(raw, 10) || 0, secs);
+            }
+          }}
+          onBlur={() => {
+            const parsedMin =
+              minDraft === null || minDraft === '' ? mins : parseInt(minDraft, 10) || 0;
+            setMinDraft(null);
+            commit(parsedMin, secs);
+          }}
+          className={boxClass}
+        />
+        <span className={`text-[9px] font-medium ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>
+          Minute
+        </span>
+      </div>
+      <span className={`text-base font-black pb-3.5 ${isLight ? 'text-slate-700' : 'text-slate-300'}`}>
+        :
+      </span>
+      <div className="flex flex-col items-center gap-0.5">
+        <input
+          type="text"
+          inputMode="numeric"
+          pattern="[0-9]*"
+          value={secDraft !== null ? secDraft : String(secs).padStart(2, '0')}
+          onFocus={(e) => {
+            setSecDraft(String(secs).padStart(2, '0'));
+            e.currentTarget.select();
+          }}
+          onChange={(e) => {
+            const raw = e.target.value.replace(/[^0-9]/g, '').slice(0, 2);
+            setSecDraft(raw);
+            if (raw !== '') {
+              commit(mins, Math.min(59, parseInt(raw, 10) || 0));
+            }
+          }}
+          onBlur={() => {
+            const parsedSec =
+              secDraft === null || secDraft === '' ? secs : parseInt(secDraft, 10) || 0;
+            setSecDraft(null);
+            commit(mins, parsedSec);
+          }}
+          className={boxClass}
+        />
+        <span className={`text-[9px] font-medium ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>
+          Second
+        </span>
+      </div>
+      {unitSuffix && (
+        <span className={`text-xs font-mono pb-3.5 ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>
+          {unitSuffix}
+        </span>
+      )}
+    </div>
+  );
+};
+
 function getCountdownInfo(eventDateStr: string, isLight: boolean): {
   days: number;
   weeks: number;
@@ -478,13 +601,13 @@ export const GoalsTab: React.FC<GoalsTabProps> = ({ goals, onChangeGoals, profil
                         }`}>
                           {goal.name}
                         </span>
-                        <span className={`text-[10px] uppercase font-bold tracking-wider px-2 py-0.5 rounded-full border ${
+                        <span className={`text-[10px] font-bold tracking-wider px-2 py-0.5 rounded-full border ${
                           isLight
                             ? 'bg-slate-100 text-slate-700 border-slate-200'
                             : 'bg-slate-800 text-slate-300 border-slate-700'
                         }`}>
-                          {goal.eventType}
-                          {goal.distancePreset ? ` • ${goal.distancePreset}` : ''}
+                          <span className="capitalize">{goal.eventType}</span>
+                          {formatGoalDistanceBadge(goal) ? ` • ${formatGoalDistanceBadge(goal)}` : ''}
                         </span>
                         {goal.status === 'completed' && (
                           <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded border ${
@@ -529,7 +652,7 @@ export const GoalsTab: React.FC<GoalsTabProps> = ({ goals, onChangeGoals, profil
                         {formatDurationHms(goal.totalTargetTimeSec)}
                       </span>
                       <span className={`text-[10px] font-medium ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>
-                        {goal.totalDistanceKm > 0 ? `${goal.totalDistanceKm}km` : 'Goal'}
+                        {getGoalTotalDistanceKm(goal) > 0 ? `${getGoalTotalDistanceKm(goal)}km` : 'Goal'}
                       </span>
                     </div>
                     <button
@@ -1005,8 +1128,26 @@ const GoalEditorModal: React.FC<GoalEditorModalProps> = ({ goal, onClose, onSave
         ).toFixed(2)
       );
 
+      const isDistanceField =
+        field === 'swimDistanceMeters' ||
+        field === 'bikeDistanceKm' ||
+        field === 'runDistanceKm';
+
+      let nextPreset = prev.distancePreset;
+      if (isDistanceField) {
+        const matchingPreset = TRIATHLON_DISTANCE_PRESETS.find(
+          (p) =>
+            p.label !== 'Custom' &&
+            p.swimMeters === updatedSplits.swimDistanceMeters &&
+            Math.abs(p.bikeKm - updatedSplits.bikeDistanceKm) < 0.05 &&
+            Math.abs(p.runKm - updatedSplits.runDistanceKm) < 0.05
+        );
+        nextPreset = matchingPreset ? matchingPreset.label : 'Custom';
+      }
+
       return {
         ...prev,
+        distancePreset: nextPreset,
         triathlonSplits: updatedSplits,
         totalTargetTimeSec: totalSec,
         totalDistanceKm: totalKm,
@@ -1451,18 +1592,13 @@ const GoalEditorModal: React.FC<GoalEditorModalProps> = ({ goal, onClose, onSave
                   <span className="font-bold text-amber-700 dark:text-amber-300">Transition 1 (T1)</span>
                 </div>
                 <div className="sm:col-span-2">
-                  <label className={`text-[10px] block ${isLight ? 'text-slate-600 font-semibold' : 'text-slate-400'}`}>
-                    T1 Target Time (mm:ss)
+                  <label className={`text-[10px] block mb-1 ${isLight ? 'text-slate-600 font-semibold' : 'text-slate-400'}`}>
+                    T1 Target Time (Minute : Second)
                   </label>
-                  <input
-                    type="text"
-                    defaultValue={formatDurationHms(draft.triathlonSplits.t1TargetTimeSec)}
-                    onBlur={(e) =>
-                      updateTriathlonField('t1TargetTimeSec', parseDurationInput(e.target.value))
-                    }
-                    className={`w-full rounded-lg px-2.5 py-1.5 font-mono text-xs border ${
-                      isLight ? 'bg-slate-50 border-slate-300 text-slate-900' : 'bg-slate-950 border-slate-800 text-white'
-                    }`}
+                  <GoalMinSecInput
+                    totalSeconds={draft.triathlonSplits.t1TargetTimeSec}
+                    onChangeSeconds={(sec) => updateTriathlonField('t1TargetTimeSec', sec)}
+                    isLight={isLight}
                   />
                 </div>
               </div>
@@ -1515,18 +1651,13 @@ const GoalEditorModal: React.FC<GoalEditorModalProps> = ({ goal, onClose, onSave
                   <span className="font-bold text-amber-700 dark:text-amber-300">Transition 2 (T2)</span>
                 </div>
                 <div className="sm:col-span-2">
-                  <label className={`text-[10px] block ${isLight ? 'text-slate-600 font-semibold' : 'text-slate-400'}`}>
-                    T2 Target Time (mm:ss)
+                  <label className={`text-[10px] block mb-1 ${isLight ? 'text-slate-600 font-semibold' : 'text-slate-400'}`}>
+                    T2 Target Time (Minute : Second)
                   </label>
-                  <input
-                    type="text"
-                    defaultValue={formatDurationHms(draft.triathlonSplits.t2TargetTimeSec)}
-                    onBlur={(e) =>
-                      updateTriathlonField('t2TargetTimeSec', parseDurationInput(e.target.value))
-                    }
-                    className={`w-full rounded-lg px-2.5 py-1.5 font-mono text-xs border ${
-                      isLight ? 'bg-slate-50 border-slate-300 text-slate-900' : 'bg-slate-950 border-slate-800 text-white'
-                    }`}
+                  <GoalMinSecInput
+                    totalSeconds={draft.triathlonSplits.t2TargetTimeSec}
+                    onChangeSeconds={(sec) => updateTriathlonField('t2TargetTimeSec', sec)}
+                    isLight={isLight}
                   />
                 </div>
               </div>
@@ -1632,8 +1763,12 @@ const GoalEditorModal: React.FC<GoalEditorModalProps> = ({ goal, onClose, onSave
                     onChange={(e) => {
                       const km = Number(e.target.value) || 0;
                       const pace = draft.runTargetPaceSec || 285;
+                      const matchedPreset = RUN_DISTANCE_PRESETS.find(
+                        (p) => p.label !== 'Custom' && Math.abs(p.distanceKm - km) < 0.01
+                      );
                       setDraft({
                         ...draft,
+                        distancePreset: matchedPreset ? matchedPreset.label : 'Custom',
                         totalDistanceKm: km,
                         totalTargetTimeSec: Math.round(km * pace),
                       });
@@ -1665,20 +1800,19 @@ const GoalEditorModal: React.FC<GoalEditorModalProps> = ({ goal, onClose, onSave
                 </div>
 
                 <div className="space-y-1">
-                  <label className={`text-[11px] font-bold ${isLight ? 'text-slate-700' : 'text-slate-300'}`}>
-                    Target Pace (mm:ss/km)
+                  <label className={`text-[11px] font-bold block ${isLight ? 'text-slate-700' : 'text-slate-300'}`}>
+                    Target Pace (/km)
                   </label>
-                  <input
-                    key={`pace-${draft.runTargetPaceSec}-${draft.totalTargetTimeSec}`}
-                    type="text"
-                    defaultValue={formatPaceMinSec(
+                  <GoalMinSecInput
+                    totalSeconds={
                       draft.runTargetPaceSec ||
-                        (draft.totalDistanceKm > 0
-                          ? draft.totalTargetTimeSec / draft.totalDistanceKm
-                          : 285)
-                    )}
-                    onBlur={(e) => {
-                      const paceSec = parseDurationInput(e.target.value);
+                      (draft.totalDistanceKm > 0
+                        ? Math.round(draft.totalTargetTimeSec / draft.totalDistanceKm)
+                        : 285)
+                    }
+                    unitSuffix="/km"
+                    isLight={isLight}
+                    onChangeSeconds={(paceSec) => {
                       const km = draft.totalDistanceKm || 1;
                       setDraft({
                         ...draft,
@@ -1687,7 +1821,6 @@ const GoalEditorModal: React.FC<GoalEditorModalProps> = ({ goal, onClose, onSave
                         totalTargetTimeSec: Math.round(km * paceSec),
                       });
                     }}
-                    className={inputClass}
                   />
                 </div>
               </div>
@@ -1818,9 +1951,17 @@ const GoalEditorModal: React.FC<GoalEditorModalProps> = ({ goal, onClose, onSave
                     type="number"
                     step="0.1"
                     value={draft.totalDistanceKm}
-                    onChange={(e) =>
-                      setDraft({ ...draft, totalDistanceKm: Number(e.target.value) || 0 })
-                    }
+                    onChange={(e) => {
+                      const km = Number(e.target.value) || 0;
+                      const matchedPreset = BIKE_DISTANCE_PRESETS.find(
+                        (p) => p.label !== 'Custom' && Math.abs(p.distanceKm - km) < 0.05
+                      );
+                      setDraft({
+                        ...draft,
+                        distancePreset: matchedPreset ? matchedPreset.label : 'Custom',
+                        totalDistanceKm: km,
+                      });
+                    }}
                     className={inputClass}
                   />
                 </div>
@@ -1921,8 +2062,12 @@ const GoalEditorModal: React.FC<GoalEditorModalProps> = ({ goal, onClose, onSave
                     value={draft.swimDistanceMeters || draft.totalDistanceKm * 1000}
                     onChange={(e) => {
                       const m = Number(e.target.value) || 0;
+                      const matchedPreset = SWIM_DISTANCE_PRESETS.find(
+                        (p) => p.label !== 'Custom' && p.distanceMeters === m
+                      );
                       setDraft({
                         ...draft,
+                        distancePreset: matchedPreset ? matchedPreset.label : 'Custom',
                         swimDistanceMeters: m,
                         totalDistanceKm: Number((m / 1000).toFixed(3)),
                       });
