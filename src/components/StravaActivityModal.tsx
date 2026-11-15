@@ -55,6 +55,9 @@ import {
   getBikeActivityDetails,
   saveActivityEffortFeedback,
   saveActivityCalibration,
+  STRAVA_STREAM_DEFINITIONS,
+  hasRepeatingStreamArtifact,
+  fetchSpecificStravaActivityStreams,
 } from '../utils/stravaActivities';
 import type { AthleteProfile } from '../types/athlete';
 import { calculateRecoveryEstimate, calculateWorkKj, formatDuration } from '../types/athlete';
@@ -183,6 +186,57 @@ export const StravaActivityModal: React.FC<StravaActivityModalProps> = ({
 
   // Running 1km splits display mode: pace bar chart, GAP bar chart, HR bar chart, cadence bar chart, or cards grid
   const [splitsDisplayMode, setSplitsDisplayMode] = useState<'pace' | 'gap' | 'hr' | 'cadence' | 'cards'>('pace');
+
+  // Specific Strava Stream Re-fetch Box state
+  const [isStreamFetcherOpen, setIsStreamFetcherOpen] = useState(false);
+  const [selectedStreamKeys, setSelectedStreamKeys] = useState<string[]>(['cadence']);
+  const [refetchingStreamKeys, setRefetchingStreamKeys] = useState<string[]>([]);
+  const [streamFetchFeedback, setStreamFetchFeedback] = useState<{
+    type: 'success' | 'error';
+    message: string;
+  } | null>(null);
+
+  const toggleStreamKeySelection = (key: string) => {
+    setSelectedStreamKeys((prev) =>
+      prev.includes(key) ? prev.filter((k) => k !== key) : [...prev, key]
+    );
+  };
+
+  const handleRefetchSpecificStreams = async (keysToFetch: string[]) => {
+    if (!activity || keysToFetch.length === 0) return;
+    setRefetchingStreamKeys(keysToFetch);
+    setStreamFetchFeedback(null);
+    try {
+      const res = await fetchSpecificStravaActivityStreams({
+        accessToken: stravaToken,
+        activity,
+        existingRecord: detailsRecord,
+        streamKeys: keysToFetch,
+      });
+      setDetailsRecord(res.record);
+      if (res.updatedKeys.length > 0) {
+        setStreamFetchFeedback({
+          type: 'success',
+          message:
+            res.source === 'strava'
+              ? `Re-fetched ${res.updatedKeys.join(', ')} from Strava API.`
+              : `Refreshed ${res.updatedKeys.join(', ')} stream.`,
+        });
+      } else {
+        setStreamFetchFeedback({
+          type: 'error',
+          message: `Strava did not return data for: ${keysToFetch.join(', ')}.`,
+        });
+      }
+    } catch (err: any) {
+      setStreamFetchFeedback({
+        type: 'error',
+        message: err?.message || 'Failed to re-fetch selected streams from Strava.',
+      });
+    } finally {
+      setRefetchingStreamKeys([]);
+    }
+  };
 
   const handleRecheckStreams = async () => {
     if (!activity) return;
@@ -326,6 +380,8 @@ export const StravaActivityModal: React.FC<StravaActivityModalProps> = ({
       setIsCalibrationOpen(false);
       setIsEditingTss(false);
       setShowWorkCalc(false);
+      setIsStreamFetcherOpen(false);
+      setStreamFetchFeedback(null);
       return;
     }
 
@@ -346,6 +402,30 @@ export const StravaActivityModal: React.FC<StravaActivityModalProps> = ({
             streams: demoDetails.streams,
           });
           cached = savedDemo;
+        }
+
+        // Automatically detect and repair any cadence stream that has a repeating lap-slice sawtooth artifact
+        // or legacy noisy treadmill demo cadence
+        if (cached?.streams) {
+          const cadData = (cached.streams as any)?.cadence?.data as number[] | undefined;
+          const isTreadmillAct =
+            Boolean(currentAct.trainer) || /treadmill|indoor run/i.test(currentAct.name || '');
+          const hasLegacyDemoJump =
+            isDemoActivityId(activityId) &&
+            isTreadmillAct &&
+            Array.isArray(cadData) &&
+            cadData.length > 10 &&
+            Math.max(...cadData) - Math.min(...cadData) >= 5;
+
+          if (hasRepeatingStreamArtifact(cadData) || hasLegacyDemoJump) {
+            const repairedRes = await fetchSpecificStravaActivityStreams({
+              accessToken: stravaToken,
+              activity: currentAct,
+              existingRecord: cached,
+              streamKeys: ['cadence'],
+            });
+            cached = repairedRes.record;
+          }
         }
 
         if (cached && (cached.activity || cached.streams)) {
@@ -2034,12 +2114,164 @@ export const StravaActivityModal: React.FC<StravaActivityModalProps> = ({
                   <Loader2 className="w-3 h-3 animate-spin" />
                   Fetching streams...
                 </span>
-              ) : availableStreamsList.length > 0 ? (
-                <span className="text-[10px] font-mono text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-full border border-emerald-500/20">
-                  {availableStreamsList.length} streams cached
-                </span>
-              ) : null}
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsStreamFetcherOpen((prev) => !prev);
+                    setStreamFetchFeedback(null);
+                  }}
+                  title="Click to inspect cached streams or re-fetch specific streams (e.g. Cadence) from the Strava API"
+                  className={`text-[10px] font-mono px-2.5 py-1 rounded-full border transition-all cursor-pointer flex items-center gap-1.5 ${
+                    isStreamFetcherOpen
+                      ? 'text-slate-950 bg-emerald-400 border-emerald-300 font-bold shadow-xs'
+                      : 'text-emerald-400 bg-emerald-500/10 hover:bg-emerald-500/20 border-emerald-500/25 hover:border-emerald-400/50'
+                  }`}
+                >
+                  <span>{availableStreamsList.length} streams cached</span>
+                  <ChevronDown
+                    className={`w-3 h-3 transition-transform ${isStreamFetcherOpen ? 'rotate-180' : ''}`}
+                  />
+                </button>
+              )}
             </div>
+
+            {/* Interactive Specific Stream Re-fetch Box */}
+            {isStreamFetcherOpen && (
+              <div className="p-3 rounded-xl bg-slate-900/95 border border-emerald-500/30 space-y-2.5 animate-in fade-in duration-150">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1.5 pb-2 border-b border-slate-800">
+                  <div>
+                    <h5 className="text-xs font-bold text-emerald-300 flex items-center gap-1.5">
+                      <RefreshCw className="w-3.5 h-3.5 text-emerald-400" />
+                      <span>Re-fetch Specific Streams from Strava API</span>
+                    </h5>
+                    <p className="text-[11px] text-slate-400">
+                      Select individual telemetry streams (such as Cadence) to re-fetch from Strava without overwriting your calibrated distance or speed.
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    <button
+                      type="button"
+                      onClick={() => setSelectedStreamKeys(STRAVA_STREAM_DEFINITIONS.map((d) => d.key))}
+                      className="px-2 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-[10px] font-bold cursor-pointer border border-slate-700"
+                    >
+                      Select All
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setSelectedStreamKeys([])}
+                      className="px-2 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-400 text-[10px] font-bold cursor-pointer border border-slate-700"
+                    >
+                      Clear
+                    </button>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5 max-h-60 overflow-y-auto pr-0.5">
+                  {STRAVA_STREAM_DEFINITIONS.map((def) => {
+                    const streamArr = streams?.[def.key]?.data;
+                    const ptsCount = Array.isArray(streamArr) ? streamArr.length : 0;
+                    const isCached = ptsCount > 0;
+                    const isChecked = selectedStreamKeys.includes(def.key);
+                    const isFetchingThis = refetchingStreamKeys.includes(def.key);
+
+                    return (
+                      <div
+                        key={def.key}
+                        className={`px-2.5 py-1.5 rounded-lg border flex items-center justify-between gap-2 text-xs transition-colors ${
+                          isChecked
+                            ? 'bg-emerald-950/30 border-emerald-500/40 text-white'
+                            : 'bg-slate-950/70 border-slate-800/80 text-slate-300'
+                        }`}
+                      >
+                        <label className="flex items-center gap-2 min-w-0 flex-1 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={isChecked}
+                            onChange={() => toggleStreamKeySelection(def.key)}
+                            className="w-3.5 h-3.5 rounded border-slate-700 text-emerald-500 focus:ring-emerald-500 bg-slate-900 cursor-pointer shrink-0"
+                          />
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-center gap-1.5">
+                              <span className="font-bold truncate">{def.label}</span>
+                              <span className="text-[10px] font-mono text-slate-500">({def.unit})</span>
+                            </div>
+                            <span
+                              className={`text-[10px] font-mono block ${
+                                isCached ? 'text-emerald-400' : 'text-slate-500'
+                              }`}
+                            >
+                              {isCached ? `Cached • ${ptsCount.toLocaleString()} pts` : 'Not cached'}
+                            </span>
+                          </div>
+                        </label>
+
+                        <button
+                          type="button"
+                          disabled={refetchingStreamKeys.length > 0}
+                          onClick={() => handleRefetchSpecificStreams([def.key])}
+                          className="px-2 py-1 rounded-lg bg-slate-800 hover:bg-emerald-500 hover:text-slate-950 text-emerald-300 font-bold text-[10px] cursor-pointer transition-colors border border-slate-700 hover:border-emerald-400 flex items-center gap-1 shrink-0 disabled:opacity-50"
+                          title={`Re-fetch only ${def.label} (${def.key}) stream`}
+                        >
+                          <RefreshCw className={`w-2.5 h-2.5 ${isFetchingThis ? 'animate-spin' : ''}`} />
+                          <span>Re-fetch</span>
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                {streamFetchFeedback && (
+                  <div
+                    className={`px-2.5 py-1.5 rounded-lg border text-[11px] flex items-center gap-1.5 ${
+                      streamFetchFeedback.type === 'success'
+                        ? 'bg-emerald-500/15 border-emerald-500/30 text-emerald-300'
+                        : 'bg-rose-500/15 border-rose-500/30 text-rose-300'
+                    }`}
+                  >
+                    {streamFetchFeedback.type === 'success' ? (
+                      <Check className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                    ) : (
+                      <AlertCircle className="w-3.5 h-3.5 text-rose-400 shrink-0" />
+                    )}
+                    <span>{streamFetchFeedback.message}</span>
+                  </div>
+                )}
+
+                <div className="pt-1 flex items-center justify-between gap-2">
+                  <span className="text-[10px] text-slate-400 font-mono">
+                    {selectedStreamKeys.length} stream{selectedStreamKeys.length === 1 ? '' : 's'} selected
+                  </span>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setIsStreamFetcherOpen(false)}
+                      className="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold cursor-pointer"
+                    >
+                      Close
+                    </button>
+                    <button
+                      type="button"
+                      disabled={selectedStreamKeys.length === 0 || refetchingStreamKeys.length > 0}
+                      onClick={() => handleRefetchSpecificStreams(selectedStreamKeys)}
+                      className="px-3 py-1 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-slate-950 text-xs font-black cursor-pointer transition-colors flex items-center gap-1.5 disabled:opacity-50 shadow-xs"
+                    >
+                      {refetchingStreamKeys.length > 0 ? (
+                        <>
+                          <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                          <span>Re-fetching...</span>
+                        </>
+                      ) : (
+                        <>
+                          <RefreshCw className="w-3.5 h-3.5" />
+                          <span>Re-fetch Selected ({selectedStreamKeys.length})</span>
+                        </>
+                      )}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
 
             {/* Interactive Stream Plot Component */}
             {streams ? (

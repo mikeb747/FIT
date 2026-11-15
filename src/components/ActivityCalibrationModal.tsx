@@ -1121,6 +1121,7 @@ export const ActivityCalibrationModal: React.FC<ActivityCalibrationModalProps> =
   // Helper: Build the simulated speed, distance, per-lap stitched HR & cadence streams and new laps array for Run
   const buildSimulatedStreamsAndLaps = () => {
     const rawStreams = detailsRecord?.streams as Record<string, { data?: any[] }> | undefined;
+    const originalTimeStream = rawStreams?.time?.data as number[] | undefined;
     const originalHrStream = rawStreams?.heartrate?.data as number[] | undefined;
     const originalCadenceStream = rawStreams?.cadence?.data as number[] | undefined;
 
@@ -1131,6 +1132,45 @@ export const ActivityCalibrationModal: React.FC<ActivityCalibrationModalProps> =
     const heartrateStream: number[] = [];
     const cadenceStream: number[] = [];
 
+    // Helper to sample a raw stream at 1-second offset `sec` using originalTimeStream
+    const sampleStreamAtSec = (streamArr: number[] | undefined, sec: number): number | undefined => {
+      if (!Array.isArray(streamArr) || streamArr.length === 0) return undefined;
+      if (Array.isArray(originalTimeStream) && originalTimeStream.length === streamArr.length && originalTimeStream.length >= 2) {
+        const t0 = Number(originalTimeStream[0]) || 0;
+        const targetT = t0 + sec;
+        let lo = 0;
+        let hi = originalTimeStream.length - 1;
+        while (lo < hi) {
+          const mid = (lo + hi) >> 1;
+          if ((Number(originalTimeStream[mid]) || 0) < targetT) {
+            lo = mid + 1;
+          } else {
+            hi = mid;
+          }
+        }
+        const prev = Math.max(0, lo - 1);
+        const tA = Number(originalTimeStream[prev]) || 0;
+        const tB = Number(originalTimeStream[lo]) || tA;
+        const vA = Number(streamArr[prev]) || 0;
+        const vB = Number(streamArr[lo]) || vA;
+        const frac = tB > tA ? Math.max(0, Math.min(1, (targetT - tA) / (tB - tA))) : 0;
+        return Math.round(vA + (vB - vA) * frac);
+      }
+      if (sec < streamArr.length) {
+        return Number(streamArr[sec]);
+      }
+      const propIdx = Math.max(
+        0,
+        Math.min(streamArr.length - 1, Math.round((sec / Math.max(1, totalDur - 1)) * (streamArr.length - 1)))
+      );
+      return Number(streamArr[propIdx]);
+    };
+
+    const hasGenuineMultiLapSlices =
+      origRunSlices.length > 1 &&
+      origRunSlices.length === computedRunSections.length &&
+      !computedRunSections.some((s) => String(s.id || '').startsWith('split-1km-'));
+
     let cumDist = 0;
     let currentSec = 0;
 
@@ -1138,22 +1178,30 @@ export const ActivityCalibrationModal: React.FC<ActivityCalibrationModalProps> =
       const durSec = Math.max(1, Math.round(s.effectiveDurationSec || 1));
       const spdMps = Number(((s.speedKph || 0) / 3.6).toFixed(3));
       const origIdx = (s.originalLapIndex ?? idx + 1) - 1;
-      const origSlice = origRunSlices[origIdx] ?? origRunSlices[Math.min(idx, Math.max(0, origRunSlices.length - 1))];
+      const origSlice =
+        hasGenuineMultiLapSlices && origIdx >= 0 && origIdx < origRunSlices.length
+          ? origRunSlices[origIdx]
+          : undefined;
 
-      // Stitch HR and Cadence for this specific lap:
-      // Unchanged laps keep their exact original HR; extended laps repeat HR from the start of the lap
-      const lapHr = stitchLapSeriesForDuration(
-        origSlice?.hrSeries || [],
-        durSec,
-        origSlice?.avgHr ?? (activity.average_heartrate ? Math.round(activity.average_heartrate) : undefined)
-      );
-      const lapCad = stitchLapSeriesForDuration(
-        origSlice?.cadenceSeries || [],
-        durSec,
-        origSlice?.avgCadence ?? (activity.average_cadence ? Math.round(activity.average_cadence) : undefined)
-      );
+      const lapHr = origSlice
+        ? stitchLapSeriesForDuration(
+            origSlice.hrSeries || [],
+            durSec,
+            origSlice.avgHr ?? (activity.average_heartrate ? Math.round(activity.average_heartrate) : undefined)
+          )
+        : [];
+      const lapCad = origSlice
+        ? stitchLapSeriesForDuration(
+            origSlice.cadenceSeries || [],
+            durSec,
+            origSlice.avgCadence ?? (activity.average_cadence ? Math.round(activity.average_cadence) : undefined)
+          )
+        : [];
 
       const startIdx = timeStream.length;
+      const lapActualHrValues: number[] = [];
+      const lapActualCadValues: number[] = [];
+
       for (let t = 0; t < durSec; t++) {
         if (timeStream.length > 0) {
           cumDist += spdMps;
@@ -1161,30 +1209,41 @@ export const ActivityCalibrationModal: React.FC<ActivityCalibrationModalProps> =
         timeStream.push(currentSec);
         speedStream.push(spdMps);
         distanceStream.push(Number(cumDist.toFixed(1)));
-        if (lapHr[t] !== undefined && lapHr[t] > 30) {
-          heartrateStream.push(lapHr[t]);
-        } else if (originalHrStream?.[currentSec] !== undefined) {
-          heartrateStream.push(originalHrStream[currentSec]);
+
+        const sampledHr =
+          lapHr[t] !== undefined && lapHr[t] > 30
+            ? lapHr[t]
+            : sampleStreamAtSec(originalHrStream, currentSec);
+        if (sampledHr !== undefined && sampledHr > 30) {
+          heartrateStream.push(sampledHr);
+          lapActualHrValues.push(sampledHr);
         }
-        if (lapCad[t] !== undefined && lapCad[t] > 0) {
-          cadenceStream.push(lapCad[t]);
-        } else if (originalCadenceStream?.[currentSec] !== undefined) {
-          cadenceStream.push(originalCadenceStream[currentSec]);
+
+        const sampledCad =
+          lapCad[t] !== undefined && lapCad[t] > 0
+            ? lapCad[t]
+            : sampleStreamAtSec(originalCadenceStream, currentSec);
+        if (sampledCad !== undefined && sampledCad > 0) {
+          cadenceStream.push(sampledCad);
+          lapActualCadValues.push(sampledCad);
         }
+
         currentSec++;
       }
       const endIdx = Math.max(startIdx, timeStream.length - 1);
 
       const lapAvgHr =
-        lapHr.length > 0
-          ? Math.round(lapHr.reduce((a, b) => a + b, 0) / lapHr.length)
-          : origSlice?.avgHr;
+        lapActualHrValues.length > 0
+          ? Math.round(lapActualHrValues.reduce((a, b) => a + b, 0) / lapActualHrValues.length)
+          : origSlice?.avgHr ?? (activity.average_heartrate ? Math.round(activity.average_heartrate) : undefined);
       const lapMaxHr =
-        lapHr.length > 0 ? Math.max(...lapHr, origSlice?.maxHr || 0) : origSlice?.maxHr;
+        lapActualHrValues.length > 0
+          ? Math.max(...lapActualHrValues, origSlice?.maxHr || 0)
+          : origSlice?.maxHr;
       const lapAvgCad =
-        lapCad.length > 0
-          ? Math.round(lapCad.reduce((a, b) => a + b, 0) / lapCad.length)
-          : origSlice?.avgCadence;
+        lapActualCadValues.length > 0
+          ? Math.round(lapActualCadValues.reduce((a, b) => a + b, 0) / lapActualCadValues.length)
+          : origSlice?.avgCadence ?? (activity.average_cadence ? Math.round(activity.average_cadence) : undefined);
 
       return {
         id: Number(activity.id) * 100 + (idx + 1),

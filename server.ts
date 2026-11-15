@@ -475,9 +475,13 @@ app.get('/api/strava/activities/:activityId/streams', async (req, res) => {
       return res.status(400).json({ error: 'A valid Strava activity ID is required' });
     }
 
-    const keys = 'time,distance,latlng,altitude,velocity_smooth,heartrate,cadence,watts,temp,moving,grade_smooth';
+    const defaultKeys = 'time,distance,latlng,altitude,velocity_smooth,heartrate,cadence,watts,temp,moving,grade_smooth';
+    const requestedKeys =
+      typeof req.query.keys === 'string' && req.query.keys.trim().length > 0
+        ? req.query.keys.trim()
+        : defaultKeys;
     const stravaRes = await fetch(
-      `https://www.strava.com/api/v3/activities/${activityId}/streams?keys=${keys}&key_by_type=true`,
+      `https://www.strava.com/api/v3/activities/${activityId}/streams?keys=${encodeURIComponent(requestedKeys)}&key_by_type=true`,
       {
         method: 'GET',
         headers: { Authorization: authHeader, Accept: 'application/json' },

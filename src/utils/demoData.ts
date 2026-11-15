@@ -369,7 +369,20 @@ export function generateDemoStreamsForActivity(activity: StravaActivity): DemoSt
         velocityData[i] = Number(Math.max(0.5, avgSpeed - terrainEffect * speedSpread * 0.5 + noise * speedSpread * 0.4).toFixed(2));
       }
       if (cadenceData) {
-        cadenceData[i] = Math.max(45, Math.round(avgCadence + noise * (isRide ? 5 : 2)));
+        const isTreadmillRun = isRun && (Boolean(activity.trainer) || /treadmill|indoor run/i.test(nameLower));
+        if (isTreadmillRun) {
+          // Treadmill cadence is steady: gentle warmup over first 6%, then smooth ±0.5 rpm (±1 spm) stability
+          const baseSpm = avgCadence < 110 ? avgCadence * 2 : avgCadence;
+          const gentleDrift = Math.sin(fraction * Math.PI * 1.5 + phase) * 0.8;
+          const warmupOffset = fraction < 0.06 ? -2 * (1 - fraction / 0.06) : 0;
+          cadenceData[i] = Math.max(120, Math.round(baseSpm + warmupOffset + gentleDrift));
+        } else if (isRun) {
+          const baseSpm = avgCadence < 110 ? avgCadence * 2 : avgCadence;
+          const gentleWave = Math.sin(fraction * Math.PI * 2.5 + phase) * 1.5;
+          cadenceData[i] = Math.max(120, Math.round(baseSpm + gentleWave));
+        } else {
+          cadenceData[i] = Math.max(45, Math.round(avgCadence + noise * 4));
+        }
       }
       if (wattsData) {
         const variability = Math.max(16, (npWatts - avgWatts) * 2.2 + avgWatts * 0.14);

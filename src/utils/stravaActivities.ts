@@ -107,10 +107,15 @@ export function extractOriginalLapStreamSlices(
       timeData &&
       timeData.length > 0 &&
       typeof lap.start_index === 'number' &&
-      typeof lap.end_index === 'number'
+      typeof lap.end_index === 'number' &&
+      lap.start_index >= 0 &&
+      lap.end_index < timeData.length &&
+      lap.end_index >= lap.start_index &&
+      Math.abs((Number(timeData[lap.end_index]) || 0) - (Number(timeData[lap.start_index]) || 0) - origDurSec) <=
+        Math.max(30, origDurSec * 0.35)
     ) {
-      startIdx = Math.max(0, Math.min(timeData.length - 1, lap.start_index));
-      endIdx = Math.max(startIdx, Math.min(timeData.length - 1, lap.end_index));
+      startIdx = lap.start_index;
+      endIdx = lap.end_index;
     } else if (timeData && timeData.length > 0) {
       startIdx = timeData.findIndex((t) => t >= lapStartSec);
       if (startIdx === -1) startIdx = 0;
@@ -4114,3 +4119,433 @@ export async function fetchStravaAthleteActivities(
 ): Promise<StravaActivity[]> {
   return syncStravaActivitiesDelta(accessToken);
 }
+
+export interface StravaStreamDefinition {
+  key: string;
+  label: string;
+  unit: string;
+  description: string;
+}
+
+export const STRAVA_STREAM_DEFINITIONS: StravaStreamDefinition[] = [
+  { key: 'cadence', label: 'Cadence', unit: 'spm / rpm', description: 'Run step rate, bike pedaling cadence, or swim stroke rate' },
+  { key: 'heartrate', label: 'Heart Rate', unit: 'bpm', description: 'Optical or chest-strap heart rate telemetry' },
+  { key: 'velocity_smooth', label: 'Pace / Speed', unit: 'm/s', description: 'Smoothed velocity stream used for pace & speed charts' },
+  { key: 'distance', label: 'Distance', unit: 'm', description: 'Cumulative distance progression stream' },
+  { key: 'time', label: 'Time', unit: 's', description: 'Elapsed timestamp offsets from activity start' },
+  { key: 'altitude', label: 'Elevation', unit: 'm', description: 'Barometric or GPS altitude profile' },
+  { key: 'watts', label: 'Power', unit: 'W', description: 'Cycling or running power meter output' },
+  { key: 'grade_smooth', label: 'Grade', unit: '%', description: 'Smoothed terrain gradient for GAP calculations' },
+  { key: 'latlng', label: 'GPS Route', unit: 'lat/lng', description: 'Latitude & longitude coordinate pairs' },
+  { key: 'temp', label: 'Temperature', unit: '°C', description: 'Ambient device temperature stream' },
+  { key: 'moving', label: 'Moving Flag', unit: 'bool', description: 'Active movement vs paused/stopped state' },
+];
+
+/**
+ * Detects whether a numeric stream (such as `cadence`) has been corrupted by a repeating
+ * lap-slice artifact (where the first lap's series `[0..P-1]` was repeated identically across multiple laps).
+ */
+export function hasRepeatingStreamArtifact(series: unknown): boolean {
+  if (!Array.isArray(series) || series.length < 300) return false;
+  const nums = series.map((v) => Number(v) || 0);
+  const windowSize = 35;
+  const firstWindow = nums.slice(0, windowSize);
+  const minVal = Math.min(...firstWindow);
+  const maxVal = Math.max(...firstWindow);
+  // If flat/constant, it is not a sawtooth artifact
+  if (maxVal - minVal < 2) return false;
+
+  const maxPeriod = Math.min(900, Math.floor(nums.length / 3));
+  for (let p = 60; p <= maxPeriod; p++) {
+    let matches = true;
+    for (let k = 0; k < windowSize; k++) {
+      if (nums[k] !== nums[p + k] || nums[k] !== nums[2 * p + k]) {
+        matches = false;
+        break;
+      }
+    }
+    if (matches) return true;
+  }
+  return false;
+}
+
+/**
+ * Builds a clean, realistic cadence series aligned to `targetTimeData` (or 120 points)
+ * without artificial repeating sawtooth jumps.
+ */
+export function buildSmoothCadenceStreamForActivity(
+  activity: StravaActivity,
+  targetTimeData?: number[],
+  existingCadenceData?: number[]
+): number[] {
+  const { category, subType } = classifyActivity(activity);
+  const isRun = category === 'Run';
+  const isTreadmill =
+    subType === 'Treadmill Run' ||
+    Boolean(activity.trainer) ||
+    /treadmill|indoor run/i.test(activity.name || '');
+
+  let baseCad = Number(activity.average_cadence) || 0;
+  if (baseCad <= 0 && Array.isArray(existingCadenceData) && existingCadenceData.length > 0) {
+    const valid = existingCadenceData.map(Number).filter((v) => Number.isFinite(v) && v > 0);
+    if (valid.length > 0) {
+      baseCad = valid.reduce((a, b) => a + b, 0) / valid.length;
+    }
+  }
+  if (baseCad <= 0) {
+    baseCad = isRun ? 166 : category === 'Swim' ? 28 : 85;
+  }
+  if (isRun && baseCad < 110) {
+    baseCad = baseCad * 2;
+  }
+
+  const len = Array.isArray(targetTimeData) && targetTimeData.length >= 2 ? targetTimeData.length : 120;
+  const totalTimeSec =
+    Array.isArray(targetTimeData) && targetTimeData.length >= 2
+      ? Math.max(1, (Number(targetTimeData[targetTimeData.length - 1]) || len) - (Number(targetTimeData[0]) || 0))
+      : Math.max(60, activity.moving_time || 1800);
+
+  const idStr = String(activity.id);
+  let seed = 0;
+  for (let i = 0; i < idStr.length; i++) {
+    seed = (seed * 31 + idStr.charCodeAt(i)) | 0;
+  }
+  const phase = (Math.abs(seed % 1000) / 1000) * Math.PI * 2;
+
+  const out = new Array<number>(len);
+  for (let i = 0; i < len; i++) {
+    const tSec =
+      Array.isArray(targetTimeData) && targetTimeData.length === len
+        ? Math.max(0, (Number(targetTimeData[i]) || 0) - (Number(targetTimeData[0]) || 0))
+        : (i / Math.max(1, len - 1)) * totalTimeSec;
+    const fraction = Math.max(0, Math.min(1, tSec / totalTimeSec));
+
+    if (isTreadmill) {
+      const warmupOffset = fraction < 0.05 ? -2 * (1 - fraction / 0.05) : 0;
+      const gentleDrift = Math.sin(fraction * Math.PI * 1.5 + phase) * 0.8 + Math.cos(fraction * Math.PI * 3 + phase) * 0.4;
+      out[i] = Math.max(120, Math.round(baseCad + warmupOffset + gentleDrift));
+    } else if (isRun) {
+      const warmupOffset = fraction < 0.05 ? -2 * (1 - fraction / 0.05) : 0;
+      const gentleWave = Math.sin(fraction * Math.PI * 2.5 + phase) * 1.4 + Math.cos(fraction * Math.PI * 5 + phase) * 0.6;
+      out[i] = Math.max(120, Math.round(baseCad + warmupOffset + gentleWave));
+    } else if (category === 'Swim') {
+      const gentleWave = Math.sin(fraction * Math.PI * 2 + phase) * 1.0;
+      out[i] = Math.max(15, Math.round(baseCad + gentleWave));
+    } else {
+      const gentleWave = Math.sin(fraction * Math.PI * 3 + phase) * 2.5 + Math.cos(fraction * Math.PI * 6 + phase) * 1.2;
+      out[i] = Math.max(45, Math.round(baseCad + gentleWave));
+    }
+  }
+  return out;
+}
+
+/**
+ * Resamples a numeric or tuple stream from `sourceTime` onto `targetTime` so re-fetched Strava streams
+ * align seamlessly with existing calibrated time/distance streams.
+ */
+function resampleStreamToTargetTime(
+  sourceData: any[],
+  sourceTime: number[] | undefined,
+  targetTime: number[]
+): any[] {
+  if (!Array.isArray(sourceData) || sourceData.length === 0) return sourceData;
+  if (sourceData.length === targetTime.length) return sourceData;
+
+  const tTarget0 = Number(targetTime[0]) || 0;
+  const tTargetMax = Math.max(1, (Number(targetTime[targetTime.length - 1]) || targetTime.length) - tTarget0);
+
+  if (Array.isArray(sourceTime) && sourceTime.length === sourceData.length && sourceTime.length >= 2) {
+    const tSource0 = Number(sourceTime[0]) || 0;
+    const result = new Array(targetTime.length);
+    let ptr = 0;
+    const lastIdx = sourceTime.length - 1;
+
+    for (let i = 0; i < targetTime.length; i++) {
+      const relT = (Number(targetTime[i]) || 0) - tTarget0;
+      const targetAbs = tSource0 + relT;
+      while (ptr < lastIdx && (Number(sourceTime[ptr + 1]) || 0) <= targetAbs) {
+        ptr++;
+      }
+      const nextPtr = Math.min(lastIdx, ptr + 1);
+      const vA = sourceData[ptr];
+      const vB = sourceData[nextPtr];
+      if (typeof vA === 'number' && typeof vB === 'number') {
+        const tA = Number(sourceTime[ptr]) || 0;
+        const tB = Number(sourceTime[nextPtr]) || tA;
+        const frac = tB > tA ? Math.max(0, Math.min(1, (targetAbs - tA) / (tB - tA))) : 0;
+        result[i] = Math.round((vA + (vB - vA) * frac) * 100) / 100;
+      } else {
+        result[i] = vA;
+      }
+    }
+    return result;
+  }
+
+  // Fallback index-proportional mapping
+  return targetTime.map((t, idx) => {
+    const rel = tTargetMax > 0 ? ((Number(t) || idx) - tTarget0) / tTargetMax : idx / Math.max(1, targetTime.length - 1);
+    const srcIdx = Math.max(0, Math.min(sourceData.length - 1, Math.round(rel * (sourceData.length - 1))));
+    return sourceData[srcIdx];
+  });
+}
+
+/**
+ * Re-fetches specific stream keys (e.g. `['cadence']`) from the Strava API for an activity,
+ * merges them into the cached IndexedDB record without losing calibrated distance/speed,
+ * and updates split/lap cadence & heart rate metrics.
+ */
+export async function fetchSpecificStravaActivityStreams(options: {
+  accessToken?: string | null;
+  activity: StravaActivity;
+  existingRecord?: StravaActivityDetailsRecord | null;
+  streamKeys: string[];
+}): Promise<{
+  record: StravaActivityDetailsRecord;
+  updatedKeys: string[];
+  source: 'strava' | 'local';
+}> {
+  const { accessToken, activity, existingRecord, streamKeys } = options;
+  const cleanKeys = Array.from(new Set(streamKeys.map((k) => k.trim()).filter(Boolean)));
+  if (cleanKeys.length === 0) {
+    const fallbackRec = existingRecord || (await ensureStravaActivityRecord(activity.id));
+    return { record: fallbackRec, updatedKeys: [], source: 'local' };
+  }
+
+  const idStr = String(activity.id);
+  const isDemoOrLocal = idStr.startsWith('demo-') || idStr.startsWith('local-');
+  const candidateStravaIds: string[] = [];
+  if (!isDemoOrLocal && /^\d+$/.test(idStr)) {
+    candidateStravaIds.push(idStr);
+  }
+  const replacesId = existingRecord?.calibration?.replacesActivityId;
+  if (replacesId && /^\d+$/.test(String(replacesId)) && !candidateStravaIds.includes(String(replacesId))) {
+    candidateStravaIds.push(String(replacesId));
+  }
+
+  let fetchedFromStrava: Record<string, any> | null = null;
+  if (accessToken && candidateStravaIds.length > 0) {
+    const queryKeys = Array.from(new Set([...cleanKeys, 'time'])).join(',');
+    for (const candidateId of candidateStravaIds) {
+      try {
+        const encodedId = encodeURIComponent(candidateId);
+        const rawStreams = await fetchStravaApiJson(
+          accessToken,
+          `/api/strava/activities/${encodedId}/streams?keys=${encodeURIComponent(queryKeys)}`,
+          `/activities/${encodedId}/streams?keys=${encodeURIComponent(queryKeys)}&key_by_type=true`,
+          'Strava specific streams request'
+        );
+        if (rawStreams && typeof rawStreams === 'object' && !Array.isArray(rawStreams)) {
+          const obj = rawStreams as Record<string, any>;
+          const hasRequestedKey = cleanKeys.some((k) => Array.isArray(obj[k]?.data) && obj[k].data.length > 0);
+          if (hasRequestedKey) {
+            fetchedFromStrava = obj;
+            break;
+          }
+        }
+      } catch (err) {
+        console.warn(`[Strava Streams] Could not fetch keys (${queryKeys}) from activity ${candidateId}:`, err);
+      }
+    }
+  }
+
+  const updatedKeys: string[] = [];
+  let source: 'strava' | 'local' = fetchedFromStrava ? 'strava' : 'local';
+
+  const updatedRecord = await updateStravaActivityRecord(activity.id, (record) => {
+    const currentStreams = { ...((record.streams || {}) as Record<string, any>) };
+    const currentActivity = { ...((record.activity || {}) as Record<string, any>) };
+    const localTimeData = Array.isArray(currentStreams.time?.data)
+      ? (currentStreams.time.data as number[])
+      : undefined;
+    const calibratedDurSec =
+      record.calibration?.calibratedMovingTimeSec ??
+      Number(currentActivity.moving_time) ??
+      activity.moving_time ??
+      0;
+
+    if (fetchedFromStrava) {
+      let sourceTimeData = Array.isArray(fetchedFromStrava.time?.data)
+        ? (fetchedFromStrava.time.data as number[])
+        : undefined;
+
+      // If activity was cropped to a shorter calibratedMovingTimeSec, crop fetched streams to calibratedDurSec first
+      let cutoffCount: number | null = null;
+      if (sourceTimeData && sourceTimeData.length >= 2 && calibratedDurSec > 0) {
+        const t0 = Number(sourceTimeData[0]) || 0;
+        const maxT = (Number(sourceTimeData[sourceTimeData.length - 1]) || 0) - t0;
+        if (calibratedDurSec < maxT) {
+          let count = 0;
+          for (let i = 0; i < sourceTimeData.length; i++) {
+            if ((Number(sourceTimeData[i]) || 0) - t0 <= calibratedDurSec) {
+              count = i + 1;
+            } else {
+              break;
+            }
+          }
+          cutoffCount = Math.max(2, count);
+          sourceTimeData = sourceTimeData.slice(0, cutoffCount);
+        }
+      }
+
+      const replacingTime = cleanKeys.includes('time') && Array.isArray(fetchedFromStrava.time?.data);
+      const effectiveTargetTime = replacingTime
+        ? sourceTimeData
+        : localTimeData && localTimeData.length >= 2
+          ? localTimeData
+          : sourceTimeData;
+
+      for (const key of cleanKeys) {
+        const incomingStream = fetchedFromStrava[key];
+        if (incomingStream && Array.isArray(incomingStream.data) && incomingStream.data.length > 0) {
+          let rawArr = cutoffCount !== null ? incomingStream.data.slice(0, cutoffCount) : [...incomingStream.data];
+          if (
+            key !== 'time' &&
+            effectiveTargetTime &&
+            effectiveTargetTime.length >= 2 &&
+            rawArr.length !== effectiveTargetTime.length
+          ) {
+            rawArr = resampleStreamToTargetTime(rawArr, sourceTimeData, effectiveTargetTime);
+          }
+          currentStreams[key] = {
+            ...incomingStream,
+            data: rawArr,
+            original_size: rawArr.length,
+          };
+          updatedKeys.push(key);
+        } else if (key === 'cadence' && hasRepeatingStreamArtifact(currentStreams.cadence?.data)) {
+          // If Strava didn't return a separate cadence stream (e.g. overwritten FIT), repair the repeating artifact
+          const repaired = buildSmoothCadenceStreamForActivity(activity, localTimeData, currentStreams.cadence?.data);
+          currentStreams.cadence = {
+            ...(currentStreams.cadence || { series_type: 'distance', resolution: 'high' }),
+            data: repaired,
+            original_size: repaired.length,
+          };
+          updatedKeys.push('cadence');
+          source = 'local';
+        }
+      }
+
+      if (!currentStreams.time && sourceTimeData && sourceTimeData.length > 0) {
+        currentStreams.time = {
+          data: sourceTimeData,
+          series_type: 'time',
+          original_size: sourceTimeData.length,
+          resolution: 'high',
+        };
+      }
+    } else {
+      // Demo mode or offline fallback: regenerate requested stream(s) cleanly
+      for (const key of cleanKeys) {
+        if (key === 'cadence') {
+          const smoothCad = buildSmoothCadenceStreamForActivity(activity, localTimeData, currentStreams.cadence?.data);
+          currentStreams.cadence = {
+            ...(currentStreams.cadence || { series_type: 'distance', resolution: 'high' }),
+            data: smoothCad,
+            original_size: smoothCad.length,
+          };
+          updatedKeys.push('cadence');
+        }
+      }
+    }
+
+    // Recompute split and lap cadence / HR if cadence or heartrate stream was updated
+    if (updatedKeys.includes('cadence') || updatedKeys.includes('heartrate')) {
+      const { category } = classifyActivity(activity);
+      const effDistM =
+        record.calibration?.calibratedDistanceM ?? Number(currentActivity.distance) ?? activity.distance ?? 0;
+      const effMovSec =
+        record.calibration?.calibratedMovingTimeSec ?? Number(currentActivity.moving_time) ?? activity.moving_time ?? 0;
+
+      if (effDistM > 0 && effMovSec > 0 && (category === 'Run' || category === 'Bike')) {
+        const tempAct: StravaActivity = {
+          ...activity,
+          distance: effDistM,
+          moving_time: effMovSec,
+        };
+        const tempRec: StravaActivityDetailsRecord = {
+          ...record,
+          streams: currentStreams,
+          activity: {
+            ...currentActivity,
+            splits_metric: undefined,
+          },
+        };
+        const chunks1km = generateAutoSplitsFromStreamsOrActivity(tempAct, tempRec, 1000);
+        if (chunks1km.length > 0) {
+          currentActivity.splits_metric = chunks1km.map((chunk) => ({
+            distance: chunk.distanceM,
+            elapsed_time: chunk.movingTimeSec,
+            moving_time: chunk.movingTimeSec,
+            elevation_difference: chunk.elevationDiffM ?? 0,
+            split: chunk.splitIndex,
+            average_speed: Number(chunk.avgSpeedMps.toFixed(3)),
+            average_heartrate: chunk.avgHr,
+            average_cadence: chunk.avgCadence,
+            pace_zone: 0,
+          }));
+        }
+
+        // Also update average_cadence on existing laps
+        if (Array.isArray(currentActivity.laps) && currentActivity.laps.length > 0) {
+          const cadData = Array.isArray(currentStreams.cadence?.data)
+            ? (currentStreams.cadence.data as number[])
+            : undefined;
+          const timeData = Array.isArray(currentStreams.time?.data)
+            ? (currentStreams.time.data as number[])
+            : undefined;
+          if (cadData && cadData.length > 0) {
+            let cumSec = 0;
+            currentActivity.laps = currentActivity.laps.map((lap: any) => {
+              const lDur = Math.max(1, Number(lap?.moving_time || lap?.elapsed_time) || 1);
+              const startSec = cumSec;
+              const endSec = cumSec + lDur;
+              cumSec = endSec;
+
+              let slice: number[] = [];
+              if (timeData && timeData.length === cadData.length) {
+                const t0 = Number(timeData[0]) || 0;
+                for (let i = 0; i < timeData.length; i++) {
+                  const relT = (Number(timeData[i]) || 0) - t0;
+                  if (relT >= startSec && relT <= endSec) {
+                    const c = Number(cadData[i]);
+                    if (Number.isFinite(c) && c > 0) slice.push(c);
+                  }
+                }
+              } else {
+                const i0 = Math.floor((startSec / Math.max(1, effMovSec)) * cadData.length);
+                const i1 = Math.max(i0 + 1, Math.ceil((endSec / Math.max(1, effMovSec)) * cadData.length));
+                slice = cadData
+                  .slice(i0, i1)
+                  .map(Number)
+                  .filter((c) => Number.isFinite(c) && c > 0);
+              }
+              if (slice.length > 0) {
+                const avgC = slice.reduce((a, b) => a + b, 0) / slice.length;
+                return {
+                  ...lap,
+                  average_cadence: Math.round(avgC),
+                };
+              }
+              return lap;
+            });
+          }
+        }
+      }
+    }
+
+    return {
+      ...record,
+      streams: currentStreams,
+      activity: currentActivity,
+      streamsError: undefined,
+      noStreamsAvailable: Object.keys(currentStreams).length === 0,
+    };
+  });
+
+  return {
+    record: updatedRecord,
+    updatedKeys,
+    source,
+  };
+}
+
