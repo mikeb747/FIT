@@ -181,8 +181,8 @@ export const StravaActivityModal: React.FC<StravaActivityModalProps> = ({
   const [tssSaveSuccess, setTssSaveSuccess] = useState(false);
   const [showWorkCalc, setShowWorkCalc] = useState(false);
 
-  // Running 1km splits display mode: pace bar chart, GAP bar chart, HR bar chart, or cards grid
-  const [splitsDisplayMode, setSplitsDisplayMode] = useState<'pace' | 'gap' | 'hr' | 'cards'>('pace');
+  // Running 1km splits display mode: pace bar chart, GAP bar chart, HR bar chart, cadence bar chart, or cards grid
+  const [splitsDisplayMode, setSplitsDisplayMode] = useState<'pace' | 'gap' | 'hr' | 'cadence' | 'cards'>('pace');
 
   const handleRecheckStreams = async () => {
     if (!activity) return;
@@ -382,10 +382,29 @@ export const StravaActivityModal: React.FC<StravaActivityModalProps> = ({
   const hasCalibration = Boolean(detailsRecord?.calibration);
   const isIgnored = Boolean(detailsRecord?.calibration?.isIgnoredFromTrainingStatus);
 
-  const durationMoving = detailsRecord?.calibration?.calibratedMovingTimeSec ?? activity.moving_time ?? 0;
-  const durationElapsed = activity.elapsed_time || 0;
-  const effectiveDistanceM = detailsRecord?.calibration?.calibratedDistanceM ?? activity.distance ?? 0;
-  const metrics = formatSportMetrics(activity, detailsRecord || undefined);
+  const durationMoving =
+    detailsRecord?.calibration?.calibratedMovingTimeSec ??
+    (detailsRecord?.activity?.moving_time as number) ??
+    activity.moving_time ??
+    0;
+  const rawElapsed = (detailsRecord?.activity?.elapsed_time as number) ?? activity.elapsed_time ?? 0;
+  const durationElapsed =
+    detailsRecord?.calibration?.calibratedMovingTimeSec &&
+    detailsRecord.calibration.calibratedMovingTimeSec < rawElapsed
+      ? detailsRecord.calibration.calibratedMovingTimeSec
+      : rawElapsed;
+  const effectiveDistanceM =
+    detailsRecord?.calibration?.calibratedDistanceM ??
+    (detailsRecord?.activity?.distance as number) ??
+    activity.distance ??
+    0;
+  const effectiveActivity: StravaActivity = {
+    ...activity,
+    distance: effectiveDistanceM,
+    moving_time: durationMoving,
+    elapsed_time: durationElapsed,
+  };
+  const metrics = formatSportMetrics(effectiveActivity, detailsRecord || undefined);
   const isNew = isActivityNew(activity);
   const isUnpublished = isActivityUnpublished(detailsRecord || undefined);
 
@@ -1544,6 +1563,20 @@ export const StravaActivityModal: React.FC<StravaActivityModalProps> = ({
                     </button>
                     <button
                       type="button"
+                      onClick={() => setSplitsDisplayMode('cadence')}
+                      className={`px-2 sm:px-2.5 py-1 rounded-lg transition-colors cursor-pointer flex items-center gap-1 whitespace-nowrap shrink-0 ${
+                        effectiveSplitsMode === 'cadence'
+                          ? 'bg-sky-500 text-slate-950 font-black'
+                          : 'text-slate-400 hover:text-white'
+                      }`}
+                      title="Display 1km splits as Cadence (spm) bar chart"
+                    >
+                      <Activity className="w-3 h-3 text-sky-400 shrink-0" />
+                      <span className="sm:hidden">Cadence</span>
+                      <span className="hidden sm:inline">Cadence Bar Chart</span>
+                    </button>
+                    <button
+                      type="button"
                       onClick={() => setSplitsDisplayMode('cards')}
                       className={`px-2 sm:px-2.5 py-1 rounded-lg transition-colors cursor-pointer flex items-center gap-1 whitespace-nowrap shrink-0 ${
                         effectiveSplitsMode === 'cards'
@@ -1583,7 +1616,7 @@ export const StravaActivityModal: React.FC<StravaActivityModalProps> = ({
                             <div
                               key={split.splitIndex}
                               className="flex flex-col items-center justify-end h-full min-w-[50px] sm:min-w-[56px] flex-1 group"
-                              title={`Km ${split.splitIndex}: ${split.paceFormatted} • ${split.distanceKm} km in ${formatDuration(split.movingTimeSec)}${split.avgHr ? ` • ${split.avgHr} bpm` : ''}${split.elevationDiffM ? ` • ${split.elevationDiffM > 0 ? '+' : ''}${split.elevationDiffM}m elev` : ''}`}
+                              title={`Km ${split.splitIndex}: ${split.paceFormatted} • ${split.distanceKm} km in ${formatDuration(split.movingTimeSec)}${split.avgHr ? ` • ${split.avgHr} bpm` : ''}${split.avgCadence ? ` • ${split.avgCadence} spm` : ''}${split.elevationDiffM ? ` • ${split.elevationDiffM > 0 ? '+' : ''}${split.elevationDiffM}m elev` : ''}`}
                             >
                               <span className="text-[10px] font-mono font-bold text-amber-300 whitespace-nowrap mb-1">
                                 {split.paceFormatted.replace('/km', '')}
@@ -1604,13 +1637,18 @@ export const StravaActivityModal: React.FC<StravaActivityModalProps> = ({
                                 </span>
                                 {split.avgHr ? (
                                   <span className="text-[9px] font-mono text-rose-400 mt-0.5 leading-none">
-                                    {split.avgHr}
+                                    {split.avgHr} bpm
                                   </span>
                                 ) : (
                                   <span className="text-[9px] font-mono text-slate-500 mt-0.5 leading-none">
                                     {split.distanceKm}k
                                   </span>
                                 )}
+                                {split.avgCadence ? (
+                                  <span className="text-[9px] font-mono text-sky-400 mt-0.5 leading-none">
+                                    {split.avgCadence} spm
+                                  </span>
+                                ) : null}
                               </div>
                             </div>
                           );
@@ -1653,7 +1691,7 @@ export const StravaActivityModal: React.FC<StravaActivityModalProps> = ({
                             <div
                               key={split.splitIndex}
                               className="flex flex-col items-center justify-end h-full min-w-[50px] sm:min-w-[56px] flex-1 group"
-                              title={`Km ${split.splitIndex}: GAP ${split.gapFormatted || split.paceFormatted} (Actual ${split.paceFormatted}) • ${split.distanceKm} km in ${formatDuration(split.movingTimeSec)}${split.elevationDiffM !== undefined ? ` • ${split.elevationDiffM > 0 ? `+${split.elevationDiffM}m climb` : `${split.elevationDiffM}m descent`}` : ''}${split.avgHr ? ` • ${split.avgHr} bpm` : ''}`}
+                              title={`Km ${split.splitIndex}: GAP ${split.gapFormatted || split.paceFormatted} (Actual ${split.paceFormatted}) • ${split.distanceKm} km in ${formatDuration(split.movingTimeSec)}${split.elevationDiffM !== undefined ? ` • ${split.elevationDiffM > 0 ? `+${split.elevationDiffM}m climb` : `${split.elevationDiffM}m descent`}` : ''}${split.avgHr ? ` • ${split.avgHr} bpm` : ''}${split.avgCadence ? ` • ${split.avgCadence} spm` : ''}`}
                             >
                               <span className="text-[10px] font-mono font-bold text-emerald-300 whitespace-nowrap mb-1">
                                 {(split.gapFormatted || split.paceFormatted).replace('/km', '')}
@@ -1681,6 +1719,11 @@ export const StravaActivityModal: React.FC<StravaActivityModalProps> = ({
                                     {split.distanceKm}k
                                   </span>
                                 )}
+                                {split.avgCadence ? (
+                                  <span className="text-[9px] font-mono text-sky-400 mt-0.5 leading-none">
+                                    {split.avgCadence} spm
+                                  </span>
+                                ) : null}
                               </div>
                             </div>
                           );
@@ -1729,7 +1772,7 @@ export const StravaActivityModal: React.FC<StravaActivityModalProps> = ({
                               <div
                                 key={split.splitIndex}
                                 className="flex flex-col items-center justify-end h-full min-w-[50px] sm:min-w-[56px] flex-1 group"
-                                title={`Km ${split.splitIndex}: ${hr ? `${hr} bpm` : 'No HR'} • Pace ${split.paceFormatted} • ${split.distanceKm} km in ${formatDuration(split.movingTimeSec)}`}
+                                title={`Km ${split.splitIndex}: ${hr ? `${hr} bpm` : 'No HR'} • Pace ${split.paceFormatted}${split.avgCadence ? ` • ${split.avgCadence} spm` : ''} • ${split.distanceKm} km in ${formatDuration(split.movingTimeSec)}`}
                               >
                                 <span className="text-[10px] font-mono font-bold text-rose-300 whitespace-nowrap mb-1">
                                   {hr ? `${hr}` : '--'}
@@ -1747,6 +1790,83 @@ export const StravaActivityModal: React.FC<StravaActivityModalProps> = ({
                                   <span className="text-[9px] font-mono text-slate-400 mt-0.5 leading-none">
                                     {split.paceFormatted.replace('/km', '')}
                                   </span>
+                                  {split.avgCadence ? (
+                                    <span className="text-[9px] font-mono text-sky-400 mt-0.5 leading-none">
+                                      {split.avgCadence} spm
+                                    </span>
+                                  ) : null}
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
+
+              {/* Cadence Bar Chart View */}
+              {effectiveSplitsMode === 'cadence' && (() => {
+                const cadValues = runDetails.splits
+                  .map((s) => s.avgCadence)
+                  .filter((c): c is number => typeof c === 'number' && c > 0);
+                const hasCadence = cadValues.length > 0;
+                const minCad = hasCadence ? Math.min(...cadValues) : 150;
+                const maxCad = hasCadence ? Math.max(...cadValues) : 190;
+                const cadRange = Math.max(1, maxCad - minCad);
+
+                return (
+                  <div className="space-y-1.5 pt-1 border-t border-slate-800/60">
+                    <div className="flex items-center justify-between text-[11px] text-slate-400 pb-0.5">
+                      <span className="font-semibold text-slate-300 flex items-center gap-1">
+                        <Activity className="w-3 h-3 text-sky-400" />
+                        Kilometer Average Cadence (spm)
+                      </span>
+                      {hasCadence && (
+                        <span className="font-mono text-sky-400 text-[10px]">
+                          Avg {Math.round(cadValues.reduce((a, b) => a + b, 0) / cadValues.length)} spm
+                        </span>
+                      )}
+                    </div>
+
+                    {!hasCadence ? (
+                      <div className="py-8 text-center text-xs text-slate-400">
+                        No cadence stream recorded for these 1km splits.
+                      </div>
+                    ) : (
+                      <div className="w-full overflow-x-auto pb-1 scrollbar-thin -mx-3.5 px-3.5">
+                        <div className="flex items-end gap-1.5 min-w-fit h-44 pt-4 px-0.5">
+                          {runDetails.splits.map((split) => {
+                            const cad = split.avgCadence || 0;
+                            const heightPct = cadRange === 0 || !cad ? 65 : 30 + ((cad - minCad) / cadRange) * 60;
+                            return (
+                              <div
+                                key={split.splitIndex}
+                                className="flex flex-col items-center justify-end h-full min-w-[50px] sm:min-w-[56px] flex-1 group"
+                                title={`Km ${split.splitIndex}: ${cad ? `${cad} spm` : 'No Cadence'} • Pace ${split.paceFormatted}${split.avgHr ? ` • ${split.avgHr} bpm` : ''} • ${split.distanceKm} km in ${formatDuration(split.movingTimeSec)}`}
+                              >
+                                <span className="text-[10px] font-mono font-bold text-sky-300 whitespace-nowrap mb-1">
+                                  {cad ? `${cad}` : '--'}
+                                </span>
+
+                                <div
+                                  style={{ height: `${Math.max(15, Math.min(100, heightPct))}%` }}
+                                  className="w-full rounded-t-lg transition-all group-hover:brightness-125 bg-gradient-to-t from-sky-600 to-sky-400 border-t border-x border-sky-300/40 shadow-xs shadow-sky-500/20"
+                                />
+
+                                <div className="mt-1.5 flex flex-col items-center text-center">
+                                  <span className="text-[11px] font-bold text-slate-200 font-mono leading-none">
+                                    Km {split.splitIndex}
+                                  </span>
+                                  <span className="text-[9px] font-mono text-slate-400 mt-0.5 leading-none">
+                                    {split.paceFormatted.replace('/km', '')}
+                                  </span>
+                                  {split.avgHr ? (
+                                    <span className="text-[9px] font-mono text-rose-400 mt-0.5 leading-none">
+                                      {split.avgHr} bpm
+                                    </span>
+                                  ) : null}
                                 </div>
                               </div>
                             );
@@ -1784,11 +1904,23 @@ export const StravaActivityModal: React.FC<StravaActivityModalProps> = ({
                           </span>
                         )}
                       </div>
-                      {split.elevationDiffM !== undefined && (
-                        <div className="text-[10px] text-slate-400 mt-1 flex items-center justify-between pt-1 border-t border-slate-800/60">
-                          <span>Elevation:</span>
-                          <span className={split.elevationDiffM > 0 ? 'text-amber-300' : 'text-slate-400'}>
-                            {split.elevationDiffM > 0 ? `+${split.elevationDiffM}m` : `${split.elevationDiffM}m`}
+                      {(split.avgCadence || split.elevationDiffM !== undefined) && (
+                        <div className="text-[10px] font-mono text-slate-400 mt-1 flex items-center justify-between pt-1 border-t border-slate-800/60">
+                          <span>
+                            {split.avgCadence ? (
+                              <span className="text-sky-400 font-semibold">{split.avgCadence} spm</span>
+                            ) : (
+                              <span>{formatDuration(split.movingTimeSec)}</span>
+                            )}
+                          </span>
+                          <span>
+                            {split.elevationDiffM !== undefined ? (
+                              <span className={split.elevationDiffM > 0 ? 'text-amber-300' : 'text-slate-400'}>
+                                {split.elevationDiffM > 0 ? `+${split.elevationDiffM}m` : `${split.elevationDiffM}m`}
+                              </span>
+                            ) : (
+                              <span>{formatDuration(split.movingTimeSec)}</span>
+                            )}
                           </span>
                         </div>
                       )}
@@ -1831,7 +1963,7 @@ export const StravaActivityModal: React.FC<StravaActivityModalProps> = ({
                     </div>
                   )}
                   {bikeDetails.avgCadence && (
-                    <div className="px-2 py-0.5 rounded-md bg-slate-900 border border-slate-800 text-[10px] font-mono text-slate-300">
+                    <div className="px-2 py-0.5 rounded-md bg-slate-900 border border-slate-800 text-[10px] font-mono text-sky-400 font-semibold">
                       {bikeDetails.avgCadence} rpm
                     </div>
                   )}
@@ -1851,17 +1983,23 @@ export const StravaActivityModal: React.FC<StravaActivityModalProps> = ({
                     </div>
                     <div className="flex items-center justify-between font-mono font-bold text-white mt-1">
                       <span className="text-orange-400">{lap.avgSpeedKph} kph</span>
-                      {lap.avgWatts ? (
-                        <span className="text-amber-300 text-[11px]">{lap.avgWatts}W</span>
-                      ) : lap.avgHr ? (
-                        <span className="text-rose-400 text-[11px] flex items-center gap-0.5">
-                          <Heart className="w-2.5 h-2.5 inline" /> {lap.avgHr}
-                        </span>
-                      ) : null}
+                      <span className="flex items-center gap-1.5">
+                        {lap.avgWatts ? (
+                          <span className="text-amber-300 text-[11px]">{lap.avgWatts}W</span>
+                        ) : null}
+                        {lap.avgHr ? (
+                          <span className="text-rose-400 text-[11px] flex items-center gap-0.5">
+                            <Heart className="w-2.5 h-2.5 inline" /> {lap.avgHr}
+                          </span>
+                        ) : null}
+                      </span>
                     </div>
-                    <div className="text-[10px] text-slate-400 mt-1 flex items-center justify-between pt-1 border-t border-slate-800/60">
+                    <div className="text-[10px] font-mono text-slate-400 mt-1 flex items-center justify-between pt-1 border-t border-slate-800/60">
                       <span>{formatDuration(lap.movingTimeSec)}</span>
-                      {lap.avgCadence ? <span>{lap.avgCadence} rpm</span> : lap.elevationGainM ? <span>+{lap.elevationGainM}m</span> : null}
+                      <span className="flex items-center gap-1.5">
+                        {lap.avgCadence ? <span className="text-sky-400 font-semibold">{lap.avgCadence} rpm</span> : null}
+                        {lap.elevationGainM ? <span className="text-amber-300/90">+{lap.elevationGainM}m</span> : null}
+                      </span>
                     </div>
                   </div>
                 ))}
@@ -1873,7 +2011,7 @@ export const StravaActivityModal: React.FC<StravaActivityModalProps> = ({
           {/* WORKOUT ANALYSIS (INTERACTIVE LAPS CHART & SYNCED TABLE) */}
           {/* ======================================================= */}
           <WorkoutAnalysis
-            activity={activity}
+            activity={effectiveActivity}
             details={detailsRecord}
             athleteProfile={athleteProfile}
             theme={theme}
@@ -1907,7 +2045,7 @@ export const StravaActivityModal: React.FC<StravaActivityModalProps> = ({
             {streams ? (
               <StravaStreamPlot
                 streams={streams}
-                activity={activity}
+                activity={effectiveActivity}
                 athleteProfile={athleteProfile}
               />
             ) : loadingDetails ? (
@@ -1948,7 +2086,7 @@ export const StravaActivityModal: React.FC<StravaActivityModalProps> = ({
           {/* Time Spent in Training Zones Graph */}
           {activity && (
             <ActivityZoneChart
-              activity={activity}
+              activity={effectiveActivity}
               streams={streams}
               athleteProfile={athleteProfile}
               theme={theme}

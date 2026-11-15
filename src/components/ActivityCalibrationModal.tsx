@@ -38,6 +38,9 @@ import {
   clearActivityCalibration,
   updateStravaActivityRecord,
   replaceRepublishedStravaActivity,
+  generateAutoSplitsFromStreamsOrActivity,
+  cropStreamsAndScaleDistance,
+  applyCalibratedDistanceAndDurationToRecord,
 } from '../utils/stravaActivities';
 import {
   formatSecondsToMinSec,
@@ -848,6 +851,10 @@ export const ActivityCalibrationModal: React.FC<ActivityCalibrationModalProps> =
   const [notes, setNotes] = useState<string>(existingCalib?.calibrationNotes || '');
   const [isSaving, setIsSaving] = useState(false);
   const [saveSuccessMsg, setSaveSuccessMsg] = useState(false);
+  const [topLevelDistOrTimeEdited, setTopLevelDistOrTimeEdited] = useState(false);
+  const [customRunLapsEdited, setCustomRunLapsEdited] = useState(
+    Boolean(existingCalib?.calibratedRunSections?.length)
+  );
 
   // Strava FIT Upload / Download State
   const [isUploadingToStrava, setIsUploadingToStrava] = useState(false);
@@ -868,11 +875,63 @@ export const ActivityCalibrationModal: React.FC<ActivityCalibrationModalProps> =
 
   // Recorded Duration from stream timestamps or activity moving_time
   const streamTimeData = (detailsRecord?.streams as any)?.time?.data as number[] | undefined;
-  const recordedDurationSec = streamTimeData && streamTimeData.length > 0
+  const rawStreamDurationSec = streamTimeData && streamTimeData.length > 0
     ? streamTimeData[streamTimeData.length - 1] - streamTimeData[0]
     : originalMovingSec > 0
       ? originalMovingSec
       : 2400;
+
+  // Respect shorter or user-edited Moving Time so the final lap is not auto-extended back to the uncropped duration
+  const recordedDurationSec =
+    parsedMovingSec > 0 && (parsedMovingSec < rawStreamDurationSec || topLevelDistOrTimeEdited)
+      ? parsedMovingSec
+      : rawStreamDurationSec;
+
+  // Helper to regenerate 1km Run sections when Calibrated Distance or Moving Time is changed
+  const regenerateRunSectionsForDistanceAndTime = (targetDistM: number, targetMovingSec: number) => {
+    if (!isRun || targetDistM <= 0 || targetMovingSec <= 0) return;
+    const previewStreams = cropStreamsAndScaleDistance(
+      detailsRecord?.streams as Record<string, any> | undefined,
+      targetMovingSec,
+      targetDistM,
+      originalMovingSec,
+      targetMovingSec < rawStreamDurationSec || targetMovingSec < originalMovingSec
+    );
+    const tempAct: StravaActivity = {
+      ...activity,
+      distance: targetDistM,
+      moving_time: Math.round(targetMovingSec),
+      elapsed_time: Math.round(targetMovingSec),
+      splits_metric: undefined,
+    };
+    const tempRec: StravaActivityDetailsRecord = {
+      ...(detailsRecord || { id: String(activity.id) }),
+      id: String(activity.id),
+      streams: previewStreams,
+      calibration: {
+        ...(detailsRecord?.calibration || { isIgnoredFromTrainingStatus: false }),
+        calibratedDistanceM: targetDistM,
+        calibratedMovingTimeSec: Math.round(targetMovingSec),
+      },
+      activity: {
+        ...((detailsRecord?.activity as Record<string, any>) || {}),
+        distance: targetDistM,
+        moving_time: Math.round(targetMovingSec),
+        splits_metric: undefined,
+      },
+    };
+    const chunks = generateAutoSplitsFromStreamsOrActivity(tempAct, tempRec, 1000);
+    if (chunks.length > 0) {
+      const nextSections: CalibratedRunSection[] = chunks.map((chunk, idx) => ({
+        id: `split-1km-${chunk.splitIndex}-${idx}`,
+        name: `Lap ${idx + 1}`,
+        originalLapIndex: idx + 1,
+        durationSec: chunk.movingTimeSec,
+        speedKph: Number(((chunk.distanceM / Math.max(1, chunk.movingTimeSec)) * 3.6).toFixed(2)),
+      }));
+      setRunSections(nextSections);
+    }
+  };
 
   // Run Section Calculations: Auto-extend the final section for time discrepancies
   const sumSectionSec = runSections.reduce((acc, s) => acc + (s.durationSec || 0), 0);
@@ -987,7 +1046,24 @@ export const ActivityCalibrationModal: React.FC<ActivityCalibrationModalProps> =
     : null;
 
   // Run Section Handlers
+  const syncTopInputsFromRunSections = (sections: CalibratedRunSection[]) => {
+    if (sections.length === 0) return;
+    const sumSec = sections.reduce((acc, s) => acc + (s.durationSec || 0), 0);
+    const sumDistM = sections.reduce(
+      (acc, s) => acc + ((s.speedKph || 0) / 3.6) * (s.durationSec || 0),
+      0
+    );
+    if (sumDistM > 0) {
+      setDistanceInput(isKm ? (sumDistM / 1000).toFixed(2) : Math.round(sumDistM).toString());
+    }
+    if (sumSec > 0) {
+      setMovingTimeInput(formatSecondsToMinSec(Math.round(sumSec)));
+    }
+  };
+
   const handleLoad7SectionTemplate = () => {
+    setTopLevelDistOrTimeEdited(false);
+    setCustomRunLapsEdited(true);
     setRunSections(DEFAULT_7_SECTION_TEMPLATE);
     // Calculate total distance for the template with auto-extension
     const tempSum = DEFAULT_7_SECTION_TEMPLATE.reduce((acc, s) => acc + s.durationSec, 0);
@@ -1003,6 +1079,8 @@ export const ActivityCalibrationModal: React.FC<ActivityCalibrationModalProps> =
   };
 
   const handleAddRunSection = () => {
+    setTopLevelDistOrTimeEdited(false);
+    setCustomRunLapsEdited(true);
     const nextIdx = runSections.length + 1;
     const lastSec = runSections.length > 0 ? runSections[runSections.length - 1] : undefined;
     const newSection: CalibratedRunSection = {
@@ -1014,11 +1092,15 @@ export const ActivityCalibrationModal: React.FC<ActivityCalibrationModalProps> =
     };
     const updated = [...runSections, newSection];
     setRunSections(updated);
+    syncTopInputsFromRunSections(updated);
   };
 
   const handleRemoveRunSection = (index: number) => {
+    setTopLevelDistOrTimeEdited(false);
+    setCustomRunLapsEdited(true);
     const updated = runSections.filter((_, i) => i !== index);
     setRunSections(updated);
+    syncTopInputsFromRunSections(updated);
   };
 
   const handleUpdateRunSection = (
@@ -1026,11 +1108,14 @@ export const ActivityCalibrationModal: React.FC<ActivityCalibrationModalProps> =
     field: keyof CalibratedRunSection,
     value: any
   ) => {
+    setTopLevelDistOrTimeEdited(false);
+    setCustomRunLapsEdited(true);
     const updated = runSections.map((sec, i) => {
       if (i !== index) return sec;
       return { ...sec, [field]: value };
     });
     setRunSections(updated);
+    syncTopInputsFromRunSections(updated);
   };
 
   // Helper: Build the simulated speed, distance, per-lap stitched HR & cadence streams and new laps array for Run
@@ -1524,14 +1609,31 @@ export const ActivityCalibrationModal: React.FC<ActivityCalibrationModalProps> =
       let finalDistM = parsedDistM;
       let finalMovingSec = parsedMovingSec;
 
-      // If run sections are active, use simulated totals
-      if (isRun && runSections.length > 0) {
-        finalDistM = totalSimulatedDistanceM;
-        finalMovingSec = Math.round(totalSimulatedDurationSec);
-      } else if (isSwim && swimLaps.length > 0) {
-        finalDistM = totalSwimDistanceM;
-        finalMovingSec = Math.round(totalSwimMovingSec);
+      // If run sections or swim laps were manually edited without overriding top-level Distance/Time, use simulated totals
+      if (!topLevelDistOrTimeEdited) {
+        if (isRun && runSections.length > 0 && customRunLapsEdited) {
+          finalDistM = totalSimulatedDistanceM;
+          finalMovingSec = Math.round(totalSimulatedDurationSec);
+        } else if (isSwim && swimLaps.length > 0) {
+          finalDistM = totalSwimDistanceM;
+          finalMovingSec = Math.round(totalSwimMovingSec);
+        }
       }
+
+      finalDistM = Math.round(finalDistM);
+      finalMovingSec = Math.round(finalMovingSec);
+
+      const origDistM = Number(activity.distance || (detailsRecord?.activity as any)?.distance || 0);
+      const origMovSec = Number(activity.moving_time || (detailsRecord?.activity as any)?.moving_time || 0);
+      const origElapSec = Number(activity.elapsed_time || (detailsRecord?.activity as any)?.elapsed_time || origMovSec);
+      const isDurationShorter =
+        finalMovingSec > 0 &&
+        ((origMovSec > 0 && finalMovingSec < origMovSec) ||
+          (origElapSec > 0 && finalMovingSec < origElapSec) ||
+          (rawStreamDurationSec > 0 && finalMovingSec < rawStreamDurationSec));
+      const isDistanceChanged = finalDistM > 0 && Math.abs(finalDistM - origDistM) >= 1;
+
+      const preserveCustomRunLaps = Boolean(isRun && runSections.length > 0 && customRunLapsEdited && !topLevelDistOrTimeEdited);
 
       const calibrationPayload: ActivityCalibration = {
         isIgnoredFromTrainingStatus: isIgnored,
@@ -1542,7 +1644,12 @@ export const ActivityCalibrationModal: React.FC<ActivityCalibrationModalProps> =
         calibratedAvgWatts: isBikeOrTurbo && avgWattsInput ? parseInt(avgWattsInput, 10) : undefined,
         calibratedNormalizedPower: isBikeOrTurbo && npWattsInput ? parseInt(npWattsInput, 10) : undefined,
         calibratedLaps: isSwim && swimLaps.length > 0 ? swimLaps : undefined,
-        calibratedRunSections: isRun && runSections.length > 0 ? runSections : undefined,
+        calibratedRunSections:
+          isRun && runSections.length > 0
+            ? preserveCustomRunLaps
+              ? runSections
+              : undefined
+            : undefined,
         calibrationNotes: notes.trim() || undefined,
         replacesActivityId:
           stravaUploadSuccess?.activityId && String(stravaUploadSuccess.activityId) !== String(activity.id)
@@ -1553,11 +1660,18 @@ export const ActivityCalibrationModal: React.FC<ActivityCalibrationModalProps> =
       // 1. Save calibration metadata
       let updatedRecord = await saveActivityCalibration(targetActivityId, calibrationPayload);
 
-      // 2. If run sections or swim laps are defined, rebuild the local streams & overwrite laps so the UI & charts update instantly
-      if (isRun && runSections.length > 0) {
+      // 2. If custom run sections or swim laps are defined, rebuild the local streams & overwrite laps so the UI & charts update instantly
+      if (preserveCustomRunLaps) {
         const sim = buildSimulatedStreamsAndLaps();
         updatedRecord = await updateStravaActivityRecord(targetActivityId, (record) => {
-          const currentStreams = (record.streams || {}) as Record<string, any>;
+          const croppedOtherStreams =
+            cropStreamsAndScaleDistance(
+              record.streams as Record<string, any> | undefined,
+              Math.round(totalSimulatedDurationSec),
+              sim.totalDistanceM,
+              origMovSec,
+              isDurationShorter
+            ) || {};
           const currentActivity = (record.activity || {}) as Record<string, any>;
 
           return {
@@ -1566,10 +1680,13 @@ export const ActivityCalibrationModal: React.FC<ActivityCalibrationModalProps> =
               ...currentActivity,
               distance: sim.totalDistanceM,
               moving_time: Math.round(totalSimulatedDurationSec),
+              elapsed_time: isDurationShorter
+                ? Math.round(totalSimulatedDurationSec)
+                : Math.max(Math.round(totalSimulatedDurationSec), Number(currentActivity.elapsed_time) || 0),
               laps: sim.newLaps,
             },
             streams: {
-              ...currentStreams,
+              ...croppedOtherStreams,
               time: {
                 data: sim.timeStream,
                 series_type: 'time',
@@ -1614,7 +1731,14 @@ export const ActivityCalibrationModal: React.FC<ActivityCalibrationModalProps> =
       } else if (isSwim && swimLaps.length > 0) {
         const sim = buildSimulatedSwimStreamsAndLaps();
         updatedRecord = await updateStravaActivityRecord(targetActivityId, (record) => {
-          const currentStreams = (record.streams || {}) as Record<string, any>;
+          const croppedOtherStreams =
+            cropStreamsAndScaleDistance(
+              record.streams as Record<string, any> | undefined,
+              Math.round(sim.totalElapsedSec),
+              sim.totalDistanceM,
+              origMovSec,
+              isDurationShorter
+            ) || {};
           const currentActivity = (record.activity || {}) as Record<string, any>;
 
           return {
@@ -1628,7 +1752,7 @@ export const ActivityCalibrationModal: React.FC<ActivityCalibrationModalProps> =
               laps: sim.newLaps,
             },
             streams: {
-              ...currentStreams,
+              ...croppedOtherStreams,
               time: {
                 data: sim.timeStream,
                 series_type: 'time',
@@ -1669,6 +1793,19 @@ export const ActivityCalibrationModal: React.FC<ActivityCalibrationModalProps> =
                 : {}),
             },
           };
+        });
+      }
+
+      // 3. Always apply stream cropping (when duration is shorter), distance scaling, and 1km (Run) / 2km (Bike) split regeneration
+      if (finalDistM > 0 && finalMovingSec > 0 && (isDistanceChanged || isDurationShorter || topLevelDistOrTimeEdited)) {
+        updatedRecord = await applyCalibratedDistanceAndDurationToRecord({
+          activity,
+          targetActivityId,
+          finalDistM,
+          finalMovingSec,
+          isDurationShorter,
+          isDistanceChanged: isDistanceChanged || topLevelDistOrTimeEdited,
+          preserveCustomRunLaps,
         });
       }
 
@@ -1777,7 +1914,18 @@ export const ActivityCalibrationModal: React.FC<ActivityCalibrationModalProps> =
                     type="number"
                     step={isKm ? '0.01' : '1'}
                     value={distanceInput}
-                    onChange={(e) => setDistanceInput(e.target.value)}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      setDistanceInput(val);
+                      setTopLevelDistOrTimeEdited(true);
+                      setCustomRunLapsEdited(false);
+                      const nextDistM = isKm
+                        ? (parseFloat(val) || 0) * 1000
+                        : parseFloat(val) || 0;
+                      if (isRun && nextDistM > 0 && parsedMovingSec > 0) {
+                        regenerateRunSectionsForDistanceAndTime(nextDistM, parsedMovingSec);
+                      }
+                    }}
                     placeholder={isKm ? 'e.g. 5.25' : 'e.g. 1500'}
                     className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-xl text-white font-mono text-sm focus:border-amber-400 focus:outline-none"
                   />
@@ -1799,7 +1947,51 @@ export const ActivityCalibrationModal: React.FC<ActivityCalibrationModalProps> =
                 <MovingTimeBoxInput
                   valueStr={movingTimeInput}
                   defaultSec={originalMovingSec}
-                  onChange={setMovingTimeInput}
+                  onChange={(newTimeStr) => {
+                    setMovingTimeInput(newTimeStr);
+                    setTopLevelDistOrTimeEdited(true);
+                    setCustomRunLapsEdited(false);
+                    const nextMovingSec = parseMinSecToSeconds(newTimeStr, originalMovingSec);
+                    if (isRun && parsedDistM > 0 && nextMovingSec > 0) {
+                      regenerateRunSectionsForDistanceAndTime(parsedDistM, nextMovingSec);
+                    } else if (isSwim && swimLaps.length > 0 && nextMovingSec > 0 && nextMovingSec < totalSwimMovingSec) {
+                      // Crop swim laps when a shorter moving time is entered
+                      let accSec = 0;
+                      const croppedSwim: CalibratedSwimLap[] = [];
+                      for (let i = 0; i < swimLaps.length; i++) {
+                        const l = swimLaps[i];
+                        if (l.isIgnored) {
+                          croppedSwim.push(l);
+                          continue;
+                        }
+                        if (l.isRest || l.distanceM <= 0) {
+                          if (accSec < nextMovingSec) croppedSwim.push(l);
+                          continue;
+                        }
+                        if (accSec >= nextMovingSec) break;
+                        if (accSec + l.movingTimeSec <= nextMovingSec) {
+                          croppedSwim.push(l);
+                          accSec += l.movingTimeSec;
+                        } else {
+                          const remSec = Math.max(1, Math.round(nextMovingSec - accSec));
+                          const ratio = l.movingTimeSec > 0 ? remSec / l.movingTimeSec : 1;
+                          const remDist = Math.max(25, Math.round((l.distanceM * ratio) / 25) * 25);
+                          const paceSec = (remSec / remDist) * 100;
+                          croppedSwim.push({
+                            ...l,
+                            movingTimeSec: remSec,
+                            distanceM: remDist,
+                            pacePer100mFormatted: formatSecondsToMinSec(paceSec) + '/100m',
+                          });
+                          accSec += remSec;
+                          break;
+                        }
+                      }
+                      if (croppedSwim.length > 0) {
+                        setSwimLaps(croppedSwim.map((l, idx) => ({ ...l, lapIndex: idx + 1 })));
+                      }
+                    }
+                  }}
                 />
                 {originalMovingSec > 0 && (
                   <span className="text-[10px] text-slate-500 block mt-1">

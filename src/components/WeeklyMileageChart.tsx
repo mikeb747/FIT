@@ -1518,14 +1518,14 @@ export const WeeklyMileageChart: React.FC<WeeklyMileageChartProps> = ({
                                       ? '#e2e8f0'
                                       : '#1e293b'
                                     : isSelected
-                                    ? '#ea580c'
+                                    ? '#f59e0b'
                                     : w.isCurrentWeek
-                                    ? '#fb923c'
+                                    ? '#fbbf24'
                                     : isLight
-                                    ? '#fb923c'
-                                    : '#f97316',
-                                opacity: val === 0 ? 0.35 : isSelected ? 1 : 0.88,
-                                boxShadow: isSelected ? '0 0 12px rgba(249, 115, 22, 0.45)' : undefined,
+                                    ? '#38bdf8'
+                                    : '#0284c7',
+                                opacity: val === 0 ? 0.35 : isSelected ? 1 : 0.85,
+                                boxShadow: isSelected ? '0 0 12px rgba(245, 158, 11, 0.45)' : undefined,
                               }}
                             />
                           </div>
@@ -2042,16 +2042,14 @@ export const WeeklyMileageChart: React.FC<WeeklyMileageChartProps> = ({
                               <div
                                 style={{ bottom: `${heightPct}%` }}
                                 className={`absolute left-1/2 -translate-x-1/2 mb-1 z-20 text-[10px] font-mono font-bold transition-all whitespace-nowrap pointer-events-none ${
-                                  isRampBreach
-                                    ? 'text-rose-500 dark:text-rose-400 font-black'
-                                    : isSelected
+                                  isSelected
                                     ? 'text-amber-400 scale-110'
                                     : isLight
                                     ? 'text-slate-700 group-hover:text-amber-600'
                                     : 'text-slate-400 group-hover:text-amber-400'
-                                } ${currentPeriodCount >= 24 && !isSelected && !isRampBreach ? 'hidden sm:block opacity-0 group-hover:opacity-100' : ''}`}
+                                } ${currentPeriodCount >= 24 && !isSelected ? 'hidden sm:block opacity-0 group-hover:opacity-100' : ''}`}
                               >
-                                {val}{isRampBreach ? '!' : ''}
+                                {val}
                               </div>
                             )}
 
@@ -2083,9 +2081,7 @@ export const WeeklyMileageChart: React.FC<WeeklyMileageChartProps> = ({
 
                             {/* Bar */}
                             <div
-                              className={`w-full relative rounded-t-sm transition-all duration-300 box-border ${
-                                isRampBreach ? 'border-2 border-amber-400' : 'border border-black'
-                              }`}
+                              className="w-full relative rounded-t-sm transition-all duration-300 border border-black box-border"
                               style={{
                                 height: `${heightPct}%`,
                                 backgroundColor:
@@ -2093,21 +2089,15 @@ export const WeeklyMileageChart: React.FC<WeeklyMileageChartProps> = ({
                                     ? isLight
                                       ? '#e2e8f0'
                                       : '#1e293b'
-                                    : isRampBreach
-                                    ? '#be123c'
                                     : isSelected
-                                    ? '#e11d48'
+                                    ? '#f59e0b'
                                     : w.isCurrentWeek
-                                    ? '#fb7185'
+                                    ? '#fbbf24'
                                     : isLight
-                                    ? '#f43f5e'
-                                    : '#e11d48',
-                                opacity: val === 0 ? 0.35 : isSelected || isRampBreach ? 0.98 : 0.85,
-                                boxShadow: isSelected
-                                  ? '0 0 12px rgba(244, 63, 94, 0.45)'
-                                  : isRampBreach
-                                  ? '0 0 10px rgba(244, 63, 94, 0.4)'
-                                  : undefined,
+                                    ? '#38bdf8'
+                                    : '#0284c7',
+                                opacity: val === 0 ? 0.35 : isSelected ? 1 : 0.85,
+                                boxShadow: isSelected ? '0 0 12px rgba(245, 158, 11, 0.45)' : undefined,
                               }}
                             />
                           </div>
@@ -2129,9 +2119,9 @@ export const WeeklyMileageChart: React.FC<WeeklyMileageChartProps> = ({
                           <span
                             className={`text-[9px] ${currentPeriodCount >= 24 ? 'text-[8px] sm:text-[9px]' : ''} font-mono block truncate ${
                               isSelected
-                                ? 'text-rose-500 font-bold'
+                                ? 'text-amber-500 font-bold'
                                 : w.isCurrentWeek
-                                ? 'text-rose-400 font-semibold'
+                                ? 'text-amber-400 font-semibold'
                                 : isLight
                                 ? 'text-slate-500'
                                 : 'text-slate-400'

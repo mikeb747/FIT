@@ -239,7 +239,7 @@ export const StravaStreamPlot: React.FC<StravaStreamPlotProps> = ({
 
     for (let i = 0; i < rawValues.length; i += step) {
       let val = typeof rawValues[i] === 'number' ? rawValues[i] : 0;
-      if (activeConfig.key === 'cadence' && isRun) {
+      if (activeConfig.key === 'cadence' && isRun && val > 0 && val < 110) {
         val = val * 2; // Strava reports single-leg revolutions (rpm); double for strides/steps per minute (spm)
       }
       const t = timeData[i] ?? (i > 0 ? (timeData[timeData.length - 1] / rawValues.length) * i : 0);

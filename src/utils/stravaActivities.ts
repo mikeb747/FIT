@@ -1038,9 +1038,9 @@ export function generateAutoSplitsFromStreamsOrActivity(
           avgCadence = category === 'Run' && rawCad < 110 ? Math.round(rawCad * 2) : Math.round(rawCad);
         }
       }
-      if (!avgCadence && activity.average_cadence && activity.average_cadence > 0) {
-        const rawCad = activity.average_cadence;
-        avgCadence = category === 'Run' && rawCad < 110 ? Math.round(rawCad * 2) : Math.round(rawCad);
+      const actRawCad = (details?.activity?.average_cadence as number) || activity.average_cadence;
+      if (!avgCadence && actRawCad && actRawCad > 0) {
+        avgCadence = category === 'Run' && actRawCad < 110 ? Math.round(actRawCad * 2) : Math.round(actRawCad);
       }
 
       let elevationDiffM: number | undefined;
@@ -1079,15 +1079,42 @@ export function generateAutoSplitsFromStreamsOrActivity(
         ? activity.splits_metric
         : [];
 
-  if (rawSplitsMetric.length > 1) {
+  const rawSplitsDistSum = rawSplitsMetric.reduce((acc: number, s: any) => acc + (Number(s?.distance) || 0), 0);
+  const rawSplitsTimeSum = rawSplitsMetric.reduce(
+    (acc: number, s: any) => acc + (Number(s?.moving_time || s?.elapsed_time) || 0),
+    0
+  );
+  const rawSplitsMatchTotals =
+    rawSplitsMetric.length > 1 &&
+    Math.abs(rawSplitsDistSum - totalDistM) <= 25 &&
+    Math.abs(rawSplitsTimeSum - totalMovingSec) <= 10;
+
+  if (rawSplitsMatchTotals) {
+    const { category } = classifyActivity(activity);
+    const actRawCad = (details?.activity?.average_cadence as number) || activity.average_cadence;
+    const defaultActCad =
+      actRawCad && actRawCad > 0
+        ? category === 'Run' && actRawCad < 110
+          ? Math.round(actRawCad * 2)
+          : Math.round(actRawCad)
+        : undefined;
+
     if (safeSplitM === 1000) {
       return rawSplitsMetric.map((s: any, idx: number) => {
         const sDist = Number(s.distance) || 1000;
         const sTime = Number(s.moving_time || s.elapsed_time) || Math.round((sDist / totalDistM) * totalMovingSec);
         const elevDiff = s.elevation_difference !== undefined ? Math.round(Number(s.elevation_difference)) : undefined;
+        const rawSplitCad = Number(s.average_cadence) || 0;
+        const splitCad =
+          rawSplitCad > 0
+            ? category === 'Run' && rawSplitCad < 110
+              ? Math.round(rawSplitCad * 2)
+              : Math.round(rawSplitCad)
+            : defaultActCad;
         return formatChunkMetrics(s.split || idx + 1, sDist, sTime, {
           avgHr: s.average_heartrate ? Math.round(Number(s.average_heartrate)) : undefined,
           avgWatts: s.average_watts ? Math.round(Number(s.average_watts)) : undefined,
+          avgCadence: splitCad,
           elevationDiffM: elevDiff,
           elevationGainM: elevDiff !== undefined && elevDiff > 0 ? elevDiff : undefined,
         });
@@ -1137,6 +1164,17 @@ export function generateAutoSplitsFromStreamsOrActivity(
                   ? Math.round((details?.calibration?.calibratedAvgWatts ?? activity.average_watts) || 0)
                   : undefined;
 
+        const c1 = Number(s1?.average_cadence) || 0;
+        const c2 = s2 ? Number(s2.average_cadence) || 0 : 0;
+        const avgCad =
+          c1 > 0 && c2 > 0
+            ? Math.round((c1 * t1 + c2 * t2) / Math.max(1, t1 + t2))
+            : c1 > 0
+              ? Math.round(c1)
+              : c2 > 0
+                ? Math.round(c2)
+                : defaultActCad;
+
         const e1 = Number(s1?.elevation_difference) || 0;
         const e2 = s2 ? Number(s2.elevation_difference) || 0 : 0;
         const elevDiff = Math.round(e1 + e2);
@@ -1146,7 +1184,7 @@ export function generateAutoSplitsFromStreamsOrActivity(
           formatChunkMetrics(splitIdx++, combDist, combTime, {
             avgHr,
             avgWatts,
-            avgCadence: activity.average_cadence ? Math.round(activity.average_cadence) : undefined,
+            avgCadence: avgCad,
             elevationDiffM: elevDiff,
             elevationGainM: elevGain > 0 ? elevGain : undefined,
           })
@@ -1495,7 +1533,14 @@ export function getSwimPaceDetails(
   const secPer100m = (fallbackTime / fallbackDist) * 100;
   const mins = Math.floor(secPer100m / 60);
   const secs = Math.round(secPer100m % 60);
-  const fallbackCad = activity.average_cadence ? Math.round(activity.average_cadence) : undefined;
+  const autoLapsWithCad = autoSwimLaps.filter((l) => l.strokeRateSpm && l.strokeRateSpm > 0);
+  const fallbackCad = activity.average_cadence
+    ? Math.round(activity.average_cadence)
+    : (details?.activity?.average_cadence as number)
+      ? Math.round(details!.activity!.average_cadence as number)
+      : autoLapsWithCad.length > 0
+        ? Math.round(autoLapsWithCad.reduce((acc, l) => acc + (l.strokeRateSpm || 0), 0) / autoLapsWithCad.length)
+        : undefined;
   const sumAutoStrokes = autoSwimLaps.reduce((acc, l) => acc + (l.totalStrokes || 0), 0);
   const swolfAutoLaps = autoSwimLaps.filter((l) => l.swolf && l.swolf > 0);
   const avgAutoSwolf =
@@ -1573,6 +1618,7 @@ export interface RunSplitItem {
   gapSecPerKm?: number;
   gapFormatted?: string;
   avgHr?: number;
+  avgCadence?: number;
   elevationDiffM?: number;
   isFasterThanAvg?: boolean;
 }
@@ -1670,7 +1716,17 @@ export function getRunActivityDetails(
   const avgSecs = Math.round(secPerKm % 60);
   const avgPaceFormatted = `${avgMins}:${avgSecs.toString().padStart(2, '0')}/km`;
 
+  const streams = details?.streams as Record<string, { data?: any[] }> | undefined;
+  const cadStream = Array.isArray(streams?.cadence?.data) ? (streams!.cadence!.data as number[]) : undefined;
+  const distStream = Array.isArray(streams?.distance?.data) ? (streams!.distance!.data as number[]) : undefined;
+
   let avgCadence = (details?.activity?.average_cadence as number) || activity.average_cadence;
+  if (!avgCadence && cadStream && cadStream.length > 0) {
+    const validCad = cadStream.map(Number).filter((v) => Number.isFinite(v) && v > 0);
+    if (validCad.length > 0) {
+      avgCadence = validCad.reduce((a, b) => a + b, 0) / validCad.length;
+    }
+  }
   if (avgCadence && avgCadence < 110) {
     avgCadence = Math.round(avgCadence * 2);
   } else if (avgCadence) {
@@ -1684,14 +1740,28 @@ export function getRunActivityDetails(
     /treadmill|indoor run/i.test(activity.name || '') ||
     Boolean(details?.calibration?.calibratedRunSections?.length);
 
-  const isAutoCreatedSplits = hasSingleOrNoLaps(activity, details);
+  let isAutoCreatedSplits = hasSingleOrNoLaps(activity, details);
   const rawSplits = (details?.activity?.splits_metric as any[]) || activity.splits_metric || [];
+  const rawSplitsDistSum = rawSplits.reduce((acc: number, s: any) => acc + (Number(s?.distance) || 0), 0);
+  const rawSplitsTimeSum = rawSplits.reduce(
+    (acc: number, s: any) => acc + (Number(s?.moving_time || s?.elapsed_time) || 0),
+    0
+  );
+  const hasCalibratedDistOrTimeMismatch =
+    Boolean(details?.calibration?.calibratedDistanceM || details?.calibration?.calibratedMovingTimeSec) &&
+    (Math.abs(rawSplitsDistSum - distanceM) > 20 || Math.abs(rawSplitsTimeSum - movingTimeSec) > 10);
+
   const splits: RunSplitItem[] = [];
 
-  if (rawSplits.length > 1) {
+  if (rawSplits.length > 1 && !hasCalibratedDistOrTimeMismatch) {
+    let cumDistM = 0;
     for (let i = 0; i < rawSplits.length; i++) {
       const s = rawSplits[i];
       const sDist = s.distance || 1000;
+      const startDistM = cumDistM;
+      const endDistM = cumDistM + sDist;
+      cumDistM = endDistM;
+
       const sTime = s.moving_time || s.elapsed_time || 0;
       const sSecPerKm = sDist > 0 ? sTime / (sDist / 1000) : secPerKm;
       const sm = Math.floor(sSecPerKm / 60);
@@ -1700,6 +1770,32 @@ export function getRunActivityDetails(
       const sGapSec = !isTreadmill ? computeSplitGapSec(sSecPerKm, sDist, elevDiff) : undefined;
       const gm = sGapSec !== undefined ? Math.floor(sGapSec / 60) : 0;
       const gs = sGapSec !== undefined ? Math.round(sGapSec % 60) : 0;
+
+      // Extract per-split cadence from cadence stream or split object or activity fallback
+      let splitCadence: number | undefined;
+      if (s.average_cadence && Number(s.average_cadence) > 0) {
+        const rawC = Number(s.average_cadence);
+        splitCadence = rawC < 110 ? Math.round(rawC * 2) : Math.round(rawC);
+      } else if (cadStream && distStream && cadStream.length === distStream.length && distStream.length > 1) {
+        const slice: number[] = [];
+        for (let k = 0; k < distStream.length; k++) {
+          const d = Number(distStream[k]) || 0;
+          if (d >= startDistM && d <= endDistM) {
+            const c = Number(cadStream[k]);
+            if (Number.isFinite(c) && c > 0) slice.push(c);
+          } else if (d > endDistM) {
+            break;
+          }
+        }
+        if (slice.length > 0) {
+          const avgC = slice.reduce((a, b) => a + b, 0) / slice.length;
+          splitCadence = avgC < 110 ? Math.round(avgC * 2) : Math.round(avgC);
+        }
+      }
+      if (!splitCadence && avgCadence) {
+        splitCadence = avgCadence;
+      }
+
       splits.push({
         splitIndex: s.split || i + 1,
         distanceKm: (sDist / 1000).toFixed(2),
@@ -1709,12 +1805,14 @@ export function getRunActivityDetails(
         gapSecPerKm: sGapSec,
         gapFormatted: sGapSec !== undefined ? `${gm}:${gs.toString().padStart(2, '0')}/km` : undefined,
         avgHr: s.average_heartrate ? Math.round(s.average_heartrate) : undefined,
+        avgCadence: splitCadence,
         elevationDiffM: elevDiff,
         isFasterThanAvg: sSecPerKm < secPerKm,
       });
     }
   } else {
     // Auto-create 1km (1,000m) splits from streams or total distance/time
+    isAutoCreatedSplits = true;
     const autoChunks = generateAutoSplitsFromStreamsOrActivity(activity, details, 1000);
     for (const chunk of autoChunks) {
       const elevDiff = !isTreadmill ? chunk.elevationDiffM : undefined;
@@ -1730,6 +1828,7 @@ export function getRunActivityDetails(
         gapSecPerKm: sGapSec,
         gapFormatted: sGapSec !== undefined ? `${gm}:${gs.toString().padStart(2, '0')}/km` : undefined,
         avgHr: chunk.avgHr,
+        avgCadence: chunk.avgCadence ?? avgCadence,
         elevationDiffM: elevDiff,
         isFasterThanAvg: chunk.paceSecPerKm < secPerKm,
       });
@@ -1752,7 +1851,6 @@ export function getRunActivityDetails(
   }
 
   const hrMax = athleteProfile?.maxHeartRate || (athleteProfile?.restingHeartRate ? 190 : 185);
-  const streams = details?.streams as Record<string, { data?: any[] }> | undefined;
   const hrData = streams?.heartrate?.data as number[] | undefined;
 
   const hrZones: ZoneDistributionItem[] = [
@@ -1853,7 +1951,17 @@ export function getBikeActivityDetails(
   const variabilityIndex = (normalizedPower && avgWatts && avgWatts > 0) ? Number((normalizedPower / avgWatts).toFixed(2)) : undefined;
   const workKj = (avgWatts && movingTimeSec > 0) ? Math.round((avgWatts * movingTimeSec) / 1000) : undefined;
 
-  const avgCadence = (details?.activity?.average_cadence as number) || activity.average_cadence;
+  const streams = details?.streams as Record<string, { data?: any[] }> | undefined;
+  const cadStream = Array.isArray(streams?.cadence?.data) ? (streams!.cadence!.data as number[]) : undefined;
+  let avgCadence = (details?.activity?.average_cadence as number) || activity.average_cadence;
+  if (!avgCadence && cadStream && cadStream.length > 0) {
+    const validCad = cadStream.map(Number).filter((v) => Number.isFinite(v) && v > 0);
+    if (validCad.length > 0) {
+      avgCadence = Math.round(validCad.reduce((a, b) => a + b, 0) / validCad.length);
+    }
+  } else if (avgCadence) {
+    avgCadence = Math.round(avgCadence);
+  }
   const maxCadence = (details?.activity?.max_cadence as number) || (activity as any).max_cadence;
 
   const rawLaps =
@@ -1862,15 +1970,44 @@ export function getBikeActivityDetails(
       : Array.isArray(activity.laps)
         ? activity.laps
         : [];
-  const laps: BikeLapItem[] = [];
-  let isAutoCreatedSplits = false;
+  const rawLapsDistSum = rawLaps.reduce((acc: number, l: any) => acc + (Number(l?.distance) || 0), 0);
+  const rawLapsTimeSum = rawLaps.reduce(
+    (acc: number, l: any) => acc + (Number(l?.moving_time || l?.elapsed_time) || 0),
+    0
+  );
+  const hasCalibratedBikeMismatch =
+    Boolean(details?.calibration?.calibratedDistanceM || details?.calibration?.calibratedMovingTimeSec) &&
+    (Math.abs(rawLapsDistSum - distanceM) > 20 || Math.abs(rawLapsTimeSum - movingTimeSec) > 10);
+  const areLapsAutoGeneratedSplits = rawLaps.some((l: any) => Boolean(l?.isAutoGeneratedSplit));
 
-  if (rawLaps.length > 1) {
+  const laps: BikeLapItem[] = [];
+  let isAutoCreatedSplits = areLapsAutoGeneratedSplits;
+
+  if (rawLaps.length > 1 && !hasCalibratedBikeMismatch) {
     for (let i = 0; i < rawLaps.length; i++) {
       const lap = rawLaps[i];
       const lDistM = lap.distance || 0;
       const lTimeS = lap.moving_time || lap.elapsed_time || 0;
       const lSpeedKph = lap.average_speed ? (lap.average_speed * 3.6).toFixed(1) : (lDistM > 0 && lTimeS > 0 ? ((lDistM / 1000) / (lTimeS / 3600)).toFixed(1) : '0.0');
+      let lapCadence = lap.average_cadence ? Math.round(lap.average_cadence) : undefined;
+      if (
+        !lapCadence &&
+        cadStream &&
+        typeof lap.start_index === 'number' &&
+        typeof lap.end_index === 'number' &&
+        cadStream.length > lap.start_index
+      ) {
+        const slice = cadStream
+          .slice(lap.start_index, lap.end_index + 1)
+          .map(Number)
+          .filter((c) => Number.isFinite(c) && c > 0);
+        if (slice.length > 0) {
+          lapCadence = Math.round(slice.reduce((a, b) => a + b, 0) / slice.length);
+        }
+      }
+      if (!lapCadence && avgCadence) {
+        lapCadence = avgCadence;
+      }
       laps.push({
         lapIndex: lap.lap_index || i + 1,
         name: lap.name || `Lap ${i + 1}`,
@@ -1879,7 +2016,7 @@ export function getBikeActivityDetails(
         avgSpeedKph: lSpeedKph,
         avgWatts: lap.average_watts ? Math.round(lap.average_watts) : undefined,
         avgHr: lap.average_heartrate ? Math.round(lap.average_heartrate) : undefined,
-        avgCadence: lap.average_cadence ? Math.round(lap.average_cadence) : undefined,
+        avgCadence: lapCadence,
         elevationGainM: lap.total_elevation_gain !== undefined ? Math.round(lap.total_elevation_gain) : undefined,
       });
     }
@@ -1896,7 +2033,7 @@ export function getBikeActivityDetails(
         avgSpeedKph: chunk.avgSpeedKph,
         avgWatts: chunk.avgWatts,
         avgHr: chunk.avgHr,
-        avgCadence: chunk.avgCadence,
+        avgCadence: chunk.avgCadence ?? avgCadence,
         elevationGainM: chunk.elevationGainM,
       });
     }
@@ -1906,7 +2043,6 @@ export function getBikeActivityDetails(
   const powerZonesConfig = getAthletePowerZones(prof);
   const hrZonesConfig = getAthleteHeartRateZones(prof, 'bike');
 
-  const streams = details?.streams as Record<string, { data?: any[] }> | undefined;
   const wattsData = streams?.watts?.data as number[] | undefined;
   const hrData = streams?.heartrate?.data as number[] | undefined;
 
@@ -2451,6 +2587,376 @@ export function saveActivityCalibration(
       calibratedAt: new Date().toISOString(),
     },
   }));
+}
+
+/**
+ * Crops all streams in a stream map when `targetDurationSec` is shorter than the existing
+ * stream duration (or original activity duration), and optionally rescales the distance & velocity
+ * streams so that total distance matches `targetDistanceM` over `targetDurationSec`.
+ */
+export function cropStreamsAndScaleDistance(
+  streamsInput: Record<string, any> | undefined,
+  targetDurationSec: number,
+  targetDistanceM: number,
+  originalMovingSec?: number,
+  forceCrop?: boolean
+): Record<string, any> | undefined {
+  if (!streamsInput || typeof streamsInput !== 'object') return streamsInput;
+
+  const nextStreams: Record<string, any> = {};
+  for (const [k, v] of Object.entries(streamsInput)) {
+    if (v && typeof v === 'object') {
+      nextStreams[k] = {
+        ...v,
+        ...(Array.isArray(v.data) ? { data: [...v.data] } : {}),
+      };
+    } else {
+      nextStreams[k] = v;
+    }
+  }
+
+  const timeData = Array.isArray(nextStreams.time?.data) ? (nextStreams.time.data as number[]) : undefined;
+  let cutoffLen: number | null = null;
+
+  if (timeData && timeData.length >= 2 && targetDurationSec > 0) {
+    const t0 = Number(timeData[0]) || 0;
+    const streamDur = (Number(timeData[timeData.length - 1]) || 0) - t0;
+    if (targetDurationSec < streamDur || forceCrop) {
+      let count = 0;
+      for (let i = 0; i < timeData.length; i++) {
+        if ((Number(timeData[i]) || 0) - t0 <= targetDurationSec) {
+          count = i + 1;
+        } else {
+          break;
+        }
+      }
+      cutoffLen = Math.max(2, Math.min(timeData.length, count));
+    }
+  } else if (
+    targetDurationSec > 0 &&
+    originalMovingSec &&
+    originalMovingSec > 0 &&
+    targetDurationSec < originalMovingSec
+  ) {
+    const sampleArr = Object.values(nextStreams).find((v: any) => Array.isArray(v?.data) && v.data.length >= 2) as
+      | { data: any[] }
+      | undefined;
+    if (sampleArr) {
+      cutoffLen = Math.max(
+        2,
+        Math.min(sampleArr.data.length, Math.round(sampleArr.data.length * (targetDurationSec / originalMovingSec)))
+      );
+    }
+  }
+
+  // Crop every stream array to cutoffLen
+  if (cutoffLen !== null) {
+    for (const key of Object.keys(nextStreams)) {
+      const streamObj = nextStreams[key];
+      if (streamObj && Array.isArray(streamObj.data) && streamObj.data.length > cutoffLen) {
+        const sliced = streamObj.data.slice(0, cutoffLen);
+        nextStreams[key] = {
+          ...streamObj,
+          data: sliced,
+          original_size: sliced.length,
+        };
+      }
+    }
+    if (Array.isArray(nextStreams.time?.data) && nextStreams.time.data.length >= 2) {
+      const tArr = nextStreams.time.data as number[];
+      const t0 = Number(tArr[0]) || 0;
+      if ((Number(tArr[tArr.length - 1]) || 0) - t0 > targetDurationSec) {
+        tArr[tArr.length - 1] = t0 + Math.round(targetDurationSec);
+      }
+    }
+  }
+
+  // Scale or rebuild distance and velocity_smooth streams to match targetDistanceM
+  if (targetDistanceM > 0 && targetDurationSec > 0) {
+    const distArr = Array.isArray(nextStreams.distance?.data) ? (nextStreams.distance.data as number[]) : undefined;
+    const tArr = Array.isArray(nextStreams.time?.data) ? (nextStreams.time.data as number[]) : undefined;
+
+    if (distArr && distArr.length >= 2) {
+      const d0 = Number(distArr[0]) || 0;
+      const dSpan = (Number(distArr[distArr.length - 1]) || 0) - d0;
+      let scaledDist: number[];
+      if (dSpan > 1) {
+        const scale = targetDistanceM / dSpan;
+        scaledDist = distArr.map((d) => Number((Math.max(0, (Number(d) || 0) - d0) * scale).toFixed(1)));
+        scaledDist[scaledDist.length - 1] = Number(targetDistanceM.toFixed(1));
+      } else {
+        scaledDist = distArr.map((_, idx) =>
+          Number(((targetDistanceM * idx) / Math.max(1, distArr.length - 1)).toFixed(1))
+        );
+      }
+      nextStreams.distance = {
+        ...(nextStreams.distance || { series_type: 'distance', resolution: 'high' }),
+        data: scaledDist,
+        original_size: scaledDist.length,
+      };
+
+      const speedArr = scaledDist.map((d, idx) => {
+        if (idx === 0) {
+          const dt = tArr && tArr.length >= 2 ? Math.max(1, (Number(tArr[1]) || 1) - (Number(tArr[0]) || 0)) : 1;
+          const dd = Math.max(0, (scaledDist[1] || 0) - d);
+          return Number((dd / dt).toFixed(3));
+        }
+        const dt =
+          tArr && tArr.length > idx
+            ? Math.max(1, (Number(tArr[idx]) || idx) - (Number(tArr[idx - 1]) || idx - 1))
+            : 1;
+        const dd = Math.max(0, d - (scaledDist[idx - 1] || 0));
+        return Number((dd / dt).toFixed(3));
+      });
+      nextStreams.velocity_smooth = {
+        ...(nextStreams.velocity_smooth || { series_type: 'distance', resolution: 'high' }),
+        data: speedArr,
+        original_size: speedArr.length,
+      };
+    }
+  }
+
+  return nextStreams;
+}
+
+/**
+ * Applies calibrated distance and/or cropped duration to an activity's IndexedDB record and summary cache:
+ * - Crops all streams if `finalMovingSec` is shorter than the existing duration.
+ * - Rescales distance & velocity streams to match `finalDistM`.
+ * - Regenerates 1km splits for Run or 2km splits for Bike when distance or duration is calibrated.
+ */
+export async function applyCalibratedDistanceAndDurationToRecord(params: {
+  activity: StravaActivity;
+  targetActivityId: number | string;
+  finalDistM: number;
+  finalMovingSec: number;
+  isDurationShorter: boolean;
+  isDistanceChanged: boolean;
+  preserveCustomRunLaps?: boolean;
+}): Promise<StravaActivityDetailsRecord> {
+  const {
+    activity,
+    targetActivityId,
+    finalDistM,
+    finalMovingSec,
+    isDurationShorter,
+    isDistanceChanged,
+    preserveCustomRunLaps = false,
+  } = params;
+
+  const { category } = classifyActivity(activity);
+  const origMovingSec = Number(activity.moving_time) || 0;
+
+  const updatedRecord = await updateStravaActivityRecord(targetActivityId, (record) => {
+    const currentActivity = (record.activity || {}) as Record<string, any>;
+    const currentStreams = record.streams as Record<string, any> | undefined;
+
+    const processedStreams = cropStreamsAndScaleDistance(
+      currentStreams,
+      finalMovingSec,
+      finalDistM,
+      origMovingSec || Number(currentActivity.moving_time) || 0,
+      isDurationShorter
+    );
+
+    const nextElapsedSec = isDurationShorter
+      ? Math.round(finalMovingSec)
+      : Math.max(
+          Math.round(finalMovingSec),
+          Number(currentActivity.elapsed_time) || Number(activity.elapsed_time) || Math.round(finalMovingSec)
+        );
+    const nextAvgSpeed =
+      finalMovingSec > 0 && finalDistM > 0
+        ? Number((finalDistM / finalMovingSec).toFixed(3))
+        : currentActivity.average_speed ?? activity.average_speed;
+
+    const tempActivity: StravaActivity = {
+      ...activity,
+      distance: finalDistM > 0 ? finalDistM : activity.distance,
+      moving_time: finalMovingSec > 0 ? Math.round(finalMovingSec) : activity.moving_time,
+      elapsed_time: nextElapsedSec,
+      average_speed: nextAvgSpeed,
+    };
+
+    const tempRecord: StravaActivityDetailsRecord = {
+      ...record,
+      streams: processedStreams,
+      calibration: {
+        ...(record.calibration || { isIgnoredFromTrainingStatus: false }),
+        calibratedDistanceM: finalDistM > 0 ? finalDistM : undefined,
+        calibratedMovingTimeSec: finalMovingSec > 0 ? Math.round(finalMovingSec) : undefined,
+      },
+      activity: {
+        ...currentActivity,
+        distance: tempActivity.distance,
+        moving_time: tempActivity.moving_time,
+        elapsed_time: nextElapsedSec,
+        average_speed: nextAvgSpeed,
+        // Clear stale splits_metric before regenerating so generateAutoSplitsFromStreamsOrActivity uses streams/totals
+        splits_metric: undefined,
+      },
+    };
+
+    let nextSplitsMetric = currentActivity.splits_metric;
+    let nextLaps = currentActivity.laps;
+
+    if ((category === 'Run' || category === 'Bike') && (isDistanceChanged || isDurationShorter) && finalDistM > 0 && finalMovingSec > 0) {
+      const chunks1km = generateAutoSplitsFromStreamsOrActivity(tempActivity, tempRecord, 1000);
+      if (chunks1km.length > 0) {
+        nextSplitsMetric = chunks1km.map((chunk) => ({
+          distance: chunk.distanceM,
+          elapsed_time: chunk.movingTimeSec,
+          moving_time: chunk.movingTimeSec,
+          elevation_difference: chunk.elevationDiffM ?? 0,
+          split: chunk.splitIndex,
+          average_speed: Number(chunk.avgSpeedMps.toFixed(3)),
+          average_heartrate: chunk.avgHr,
+          average_cadence: chunk.avgCadence,
+          pace_zone: 0,
+        }));
+      }
+
+      if (category === 'Run' && !preserveCustomRunLaps && chunks1km.length > 0) {
+        let cumIdx = 0;
+        nextLaps = chunks1km.map((chunk, idx) => {
+          const startIdx = cumIdx;
+          const endIdx = cumIdx + Math.max(1, chunk.movingTimeSec) - 1;
+          cumIdx = endIdx + 1;
+          return {
+            id: Number(activity.id) * 100 + (idx + 1),
+            resource_state: 2,
+            name: `Split ${chunk.splitIndex}`,
+            activity: { id: activity.id },
+            athlete: (activity as any).athlete || { id: 0 },
+            elapsed_time: chunk.movingTimeSec,
+            moving_time: chunk.movingTimeSec,
+            start_date: activity.start_date,
+            start_date_local: activity.start_date_local,
+            distance: chunk.distanceM,
+            start_index: startIdx,
+            end_index: endIdx,
+            total_elevation_gain: chunk.elevationGainM ?? 0,
+            average_speed: Number(chunk.avgSpeedMps.toFixed(3)),
+            max_speed: Number(chunk.avgSpeedMps.toFixed(3)),
+            average_heartrate: chunk.avgHr,
+            max_heartrate: chunk.maxHr,
+            average_cadence: chunk.avgCadence,
+            lap_index: chunk.splitIndex,
+            split: chunk.splitIndex,
+            isAutoGeneratedSplit: true,
+          };
+        });
+      } else if (category === 'Bike') {
+        const chunks2km = generateAutoSplitsFromStreamsOrActivity(tempActivity, tempRecord, 2000);
+        if (chunks2km.length > 0) {
+          let cumIdx = 0;
+          nextLaps = chunks2km.map((chunk, idx) => {
+            const startIdx = cumIdx;
+            const endIdx = cumIdx + Math.max(1, chunk.movingTimeSec) - 1;
+            cumIdx = endIdx + 1;
+            return {
+              id: Number(activity.id) * 100 + (idx + 1),
+              resource_state: 2,
+              name: `Split ${chunk.splitIndex}`,
+              activity: { id: activity.id },
+              athlete: (activity as any).athlete || { id: 0 },
+              elapsed_time: chunk.movingTimeSec,
+              moving_time: chunk.movingTimeSec,
+              start_date: activity.start_date,
+              start_date_local: activity.start_date_local,
+              distance: chunk.distanceM,
+              start_index: startIdx,
+              end_index: endIdx,
+              total_elevation_gain: chunk.elevationGainM ?? 0,
+              average_speed: Number(chunk.avgSpeedMps.toFixed(3)),
+              max_speed: Number(chunk.avgSpeedMps.toFixed(3)),
+              average_watts: chunk.avgWatts,
+              average_heartrate: chunk.avgHr,
+              max_heartrate: chunk.maxHr,
+              average_cadence: chunk.avgCadence,
+              lap_index: chunk.splitIndex,
+              split: chunk.splitIndex,
+              isAutoGeneratedSplit: true,
+            };
+          });
+        }
+      }
+    } else if (isDurationShorter && Array.isArray(currentActivity.laps) && currentActivity.laps.length > 0) {
+      // Crop existing laps if duration was shortened
+      const croppedLaps: any[] = [];
+      let accSec = 0;
+      for (let i = 0; i < currentActivity.laps.length; i++) {
+        const lap = currentActivity.laps[i];
+        const lSec = Number(lap?.moving_time || lap?.elapsed_time) || 0;
+        if (accSec >= finalMovingSec) break;
+        if (accSec + lSec <= finalMovingSec) {
+          croppedLaps.push(lap);
+          accSec += lSec;
+        } else {
+          const remSec = Math.max(1, Math.round(finalMovingSec - accSec));
+          const ratio = lSec > 0 ? remSec / lSec : 1;
+          const remDist = Math.round((Number(lap?.distance) || 0) * ratio);
+          croppedLaps.push({
+            ...lap,
+            moving_time: remSec,
+            elapsed_time: remSec,
+            distance: remDist,
+          });
+          accSec += remSec;
+          break;
+        }
+      }
+      if (croppedLaps.length > 0) {
+        nextLaps = croppedLaps;
+      }
+    }
+
+    return {
+      ...record,
+      streams: processedStreams,
+      activity: {
+        ...currentActivity,
+        distance: finalDistM > 0 ? finalDistM : currentActivity.distance,
+        moving_time: finalMovingSec > 0 ? Math.round(finalMovingSec) : currentActivity.moving_time,
+        elapsed_time: nextElapsedSec,
+        average_speed: nextAvgSpeed,
+        ...(nextSplitsMetric !== undefined ? { splits_metric: nextSplitsMetric } : {}),
+        ...(nextLaps !== undefined ? { laps: nextLaps } : {}),
+      },
+    };
+  });
+
+  // Also update the summary StravaActivity in the cached snapshot so header/cards reflect cropped elapsed_time/moving_time/distance
+  const idStr = String(targetActivityId);
+  const snap = getCachedStravaActivitiesSnapshot();
+  if (snap && snap.some((a) => String(a.id) === idStr)) {
+    const updatedList = snap.map((a) => {
+      if (String(a.id) !== idStr) return a;
+      const nextEl = isDurationShorter
+        ? Math.round(finalMovingSec)
+        : Math.max(Math.round(finalMovingSec), Number(a.elapsed_time) || Math.round(finalMovingSec));
+      return {
+        ...a,
+        distance: finalDistM > 0 ? finalDistM : a.distance,
+        moving_time: finalMovingSec > 0 ? Math.round(finalMovingSec) : a.moving_time,
+        elapsed_time: nextEl,
+        average_speed:
+          finalMovingSec > 0 && finalDistM > 0
+            ? Number((finalDistM / finalMovingSec).toFixed(3))
+            : a.average_speed,
+      };
+    });
+    saveCachedStravaActivities(updatedList);
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(
+        new CustomEvent('fit_track_activities_updated', {
+          detail: { activities: getCachedStravaActivities() },
+        })
+      );
+    }
+  }
+
+  return updatedRecord;
 }
 
 export function clearActivityCalibration(
