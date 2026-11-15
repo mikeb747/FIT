@@ -605,11 +605,15 @@ I have added **${meta.name}** to your Goals using the standard **${meta.distance
 
 • **Event Date & Venue:** **${meta.eventDate}** (~**${enriched.pacing.weeksToRace} weeks** away) at **${meta.location}**
 • **Course & Elevation:** **${meta.distancePreset} (${meta.totalDistanceKm} km)** ${meta.runCourseType} course with **~${meta.runElevationGainMeters}m elevation gain**
-• **Suggested Achievable Race Pace (Calibrated for Priority ${chosenPriority} & Your ${outdoorPace} Threshold / ${lthr} bpm LTHR):**
+• **Physiological & Age-Grade Foundation:**
+  - **Current Fitness:** CTL **${enriched.pacing.ctlUsed}** · Outdoor Run LTP **${outdoorPace}** · Run LTHR **${lthr} bpm**
+  - **Cycling FTP Cross-Transfer:** **${ftp}W (${enriched.pacing.ftpWattsPerKg} W/kg)** (~**${enriched.pacing.estimatedVo2MaxFromFtp} ml/kg/min** aerobic ceiling supporting 60-min threshold durability)
+  - **WMA Age-Grade Performance (M${enriched.pacing.ageUsed}):** **${rec.ageGradePct ?? enriched.pacing.ageGradeForB.ageGradePct}% Age-Grade** (**${rec.ageGradeClass ?? enriched.pacing.ageGradeForB.ageGradeClass}**, Open-Equivalent **${rec.ageGradedEquivalentFormatted ?? enriched.pacing.ageGradeForB.ageGradedTimeFormatted}**, WMA Factor **${enriched.pacing.ageGradeForB.wmaFactor}**)
+• **Suggested Achievable Race Pace (Calibrated for Priority ${chosenPriority}):**
   - **⭐ Priority ${chosenPriority} Target (${rec.targetTimeFormatted} · ${rec.targetPaceKmFormatted} / ${rec.targetPaceMileFormatted}):** ${rec.taperAndStrategyNote} Target HR: **${rec.targetHrRange}**.
-  - **Priority A Peak Taper Option (${aSug.targetTimeFormatted} · ${aSug.targetPaceKmFormatted} / ${aSug.targetPaceMileFormatted}):** Full 7–10 day taper breakthrough effort (${aSug.targetHrRange}).
-  - **Priority B Tune-Up Option (${bSug.targetTimeFormatted} · ${bSug.targetPaceKmFormatted} / ${bSug.targetPaceMileFormatted}):** Controlled threshold effort on a 2–3 day mini-taper (${bSug.targetHrRange}).
-  - **Priority C Training Option (${cSug.targetTimeFormatted} · ${cSug.targetPaceKmFormatted} / ${cSug.targetPaceMileFormatted}):** High-Zone 3 progression effort (${cSug.targetHrRange}).
+  - **Priority A Peak Taper Option (${aSug.targetTimeFormatted} · ${aSug.targetPaceKmFormatted} / ${aSug.targetPaceMileFormatted} · ${aSug.ageGradePct}% AG):** Full 7–10 day taper breakthrough effort (${aSug.targetHrRange}).
+  - **Priority B Tune-Up Option (${bSug.targetTimeFormatted} · ${bSug.targetPaceKmFormatted} / ${bSug.targetPaceMileFormatted} · ${bSug.ageGradePct}% AG):** Controlled threshold effort on a 2–3 day mini-taper (${bSug.targetHrRange}).
+  - **Priority C Training Option (${cSug.targetTimeFormatted} · ${cSug.targetPaceKmFormatted} / ${cSug.targetPaceMileFormatted} · ${cSug.ageGradePct}% AG):** High-Zone 3 progression effort (${cSug.targetHrRange}).
 
 *You can click any of the **Suggested Target Pace** buttons on the card above (or enter a custom time) to adjust your exact target!*`;
       }
@@ -620,13 +624,95 @@ I found the event details for **${meta.name}** and staged it with the **${meta.d
 
 • **Date & Location:** **${meta.eventDate}** (~**${enriched.pacing.weeksToRace} weeks** out) · **${meta.location}**
 • **Course Profile:** **${meta.distancePreset} (${meta.totalDistanceKm} km)** ${meta.runCourseType} · **~${meta.runElevationGainMeters}m elevation gain**
-• **Achievable Target Pace by Race Priority:**
-  - **Priority A (Peak Taper):** **${aSug.targetTimeFormatted}** (**${aSug.targetPaceKmFormatted}** / **${aSug.targetPaceMileFormatted}** · ${aSug.targetHrRange})
-  - **⭐ Priority B (Supported Tune-Up):** **${bSug.targetTimeFormatted}** (**${bSug.targetPaceKmFormatted}** / **${bSug.targetPaceMileFormatted}** · ${bSug.targetHrRange})
-  - **Priority C (Training Progression):** **${cSug.targetTimeFormatted}** (**${cSug.targetPaceKmFormatted}** / **${cSug.targetPaceMileFormatted}** · ${cSug.targetHrRange})
+• **Achievable Target Pace by Race Priority (CTL ${enriched.pacing.ctlUsed} · FTP ${enriched.pacing.ftpWattsPerKg} W/kg · M${enriched.pacing.ageUsed} Age-Grade):**
+  - **Priority A (Peak Taper):** **${aSug.targetTimeFormatted}** (**${aSug.targetPaceKmFormatted}** / **${aSug.targetPaceMileFormatted}** · **${aSug.ageGradePct}% AG** · ${aSug.targetHrRange})
+  - **⭐ Priority B (Supported Tune-Up):** **${bSug.targetTimeFormatted}** (**${bSug.targetPaceKmFormatted}** / **${bSug.targetPaceMileFormatted}** · **${bSug.ageGradePct}% AG** · ${bSug.targetHrRange})
+  - **Priority C (Training Progression):** **${cSug.targetTimeFormatted}** (**${cSug.targetPaceKmFormatted}** / **${cSug.targetPaceMileFormatted}** · **${cSug.ageGradePct}% AG** · ${cSug.targetHrRange})
 
 *Select **Priority A, B, or C** on the card above to confirm and lock in your target pace!*`;
     }
+  }
+
+  // -------------------------------------------------------------
+  // 1b. B-PRIORITY 10-MILE RACE PACE & AGE-GRADE PREDICTOR SKILL
+  // -------------------------------------------------------------
+  if (
+    (q.includes('10 mile') || q.includes('10-mile') || q.includes('boddington') || q.includes('10mi')) &&
+    (q.includes('pace') ||
+      q.includes('age-grade') ||
+      q.includes('age grade') ||
+      q.includes('ftp') ||
+      q.includes('b-priority') ||
+      q.includes('b priority') ||
+      q.includes('b-race') ||
+      q.includes('b race') ||
+      q.includes('suggest') ||
+      q.includes('predict') ||
+      q.includes('realistic') ||
+      q.includes('time goal') ||
+      q.includes('target time'))
+  ) {
+    const existing10Mile = (goals || []).find(
+      (g: any) =>
+        g.distancePreset === '10 Mile' ||
+        Math.abs(Number(g.totalDistanceKm || 0) - 16.093) < 0.3 ||
+        String(g.name || '').toLowerCase().includes('10 mile') ||
+        String(g.name || '').toLowerCase().includes('boddington') ||
+        String(g.name || '').toLowerCase().includes('chippenham')
+    );
+    const raceName = q.includes('chippenham')
+      ? 'Chippenham Spring 10 Mile'
+      : q.includes('boddington')
+        ? 'Boddington 10 Mile'
+        : existing10Mile?.name || 'Boddington 10 Mile';
+
+    const enriched = buildEnrichedGoalFromQuery(raceName, 'B', profile, {
+      eventDate: existing10Mile?.eventDate,
+      elevationGainM: existing10Mile?.runElevationGainMeters,
+      location: existing10Mile?.location,
+      todayDate: payload.todayDate,
+      fitnessContext: payload.fitnessStats,
+    });
+    const meta = enriched.resolvedMeta;
+    const bSug = enriched.pacing.byPriority.B;
+    const aSug = enriched.pacing.byPriority.A;
+    const cSug = enriched.pacing.byPriority.C;
+    const ag = enriched.pacing.ageGradeForB;
+
+    return `### 🎯 B-Priority 10-Mile Race Pace & Age-Grade Prediction: ${meta.name}
+
+Based on your **Current Fitness (CTL ${enriched.pacing.ctlUsed})**, **Cycling FTP (${ftp}W / ${enriched.pacing.ftpWattsPerKg} W/kg)**, and **WMA Age-Grade Performance Metrics (M${enriched.pacing.ageUsed})**, here is your realistic B-priority 10-mile race pace and goal finish time for **${meta.name}** (${meta.eventDate}, +${meta.runElevationGainMeters}m road course):
+
+#### 1. Recommended B-Priority 10-Mile Target
+• **Realistic B-Race Finish Time Goal:** **${bSug.targetTimeFormatted}** *(Sub-1-Hour Benchmark)*
+• **Target Race Pace:** **${bSug.targetPaceKmFormatted}** (**${bSug.targetPaceMileFormatted}**)
+• **Target Heart Rate Window:** **${bSug.targetHrRange}** (${bSug.effortPctLthr} of your ${lthr} bpm Run LTHR)
+• **Key Checkpoint Splits:** **5 km:** ${bSug.fiveKmSplitFormatted} · **5 Miles (Halfway):** ${bSug.fiveMileSplitFormatted} · **10 km:** ${bSug.tenKmSplitFormatted} · **10 Miles:** ${bSug.targetTimeFormatted}
+
+#### 2. Physiological & Age-Grade Model Inputs
+1. **Current Running Fitness & CTL (${enriched.pacing.ctlUsed} CTL · +${ctlRamp7d} CTL/wk):**
+   - Your stored Outdoor Run Threshold Pace (**${outdoorPace}**) paired with your recent **8 × 1km @ 3:32/km** (17.0 km/h) and **4 × 9min @ 3:42/km** (late-rep HR plateau **151–155 bpm**, 13–17 bpm below your **168 bpm LTHR**) confirms that **${bSug.targetPaceKmFormatted}** is well inside your 60-minute lactate clearance ceiling on a **2–3 day B-race mini-taper**.
+2. **Cycling FTP Aerobic Cross-Transfer (${ftp}W @ ${profile.weightKg || 77} kg = ${enriched.pacing.ftpWattsPerKg} W/kg):**
+   - A **${enriched.pacing.ftpWattsPerKg} W/kg** cycling FTP corresponds to an estimated central aerobic ceiling of **~${enriched.pacing.estimatedVo2MaxFromFtp} ml/kg/min**. Because central cardiac output is shared across disciplines, your high cycling W/kg provides exceptional glycogen-sparing and lactate-shuttling durability from **Mile 6 to Mile 10**.
+3. **WMA Masters Age-Grade Performance Metrics (Age ${ag.age} · WMA Factor ${ag.wmaFactor}):**
+   - **Recommended B-Race Age-Grade:** **${ag.ageGradePct}%** (**${ag.ageGradeClass} Masters**)
+   - **Open-Equivalent 10-Mile Time:** **${ag.ageGradedTimeFormatted}** (vs M${ag.age} Age-Standard **${ag.ageStandardFormatted}**)
+   - **Class Benchmarks (M${ag.age}):** **75% Regional Class** = **${ag.regionalClass75TargetFormatted}** · **80% National Class** = **${ag.nationalClass80TargetFormatted}**
+
+#### 3. 3-Phase B-Race Execution Plan
+${(bSug.pacingStrategy || [])
+  .map(
+    (s) =>
+      `• **${s.phase}:** Target **${s.targetPaceKm}** (**${s.targetPaceMile}**) @ **${s.targetHr}** — *${s.cue}*`
+  )
+  .join('\n')}
+
+#### 4. Priority Comparison (A vs B vs C)
+• **★ Priority A (Full 7–10d Taper):** **${aSug.targetTimeFormatted}** (**${aSug.targetPaceKmFormatted}** · **${aSug.targetPaceMileFormatted}** · **${aSug.ageGradePct}% Age-Grade**)
+• **✦ Priority B (Recommended 2–3d Mini-Taper):** **${bSug.targetTimeFormatted}** (**${bSug.targetPaceKmFormatted}** · **${bSug.targetPaceMileFormatted}** · **${bSug.ageGradePct}% Age-Grade**)
+• **○ Priority C (No Taper / Tempo Run):** **${cSug.targetTimeFormatted}** (**${cSug.targetPaceKmFormatted}** · **${cSug.targetPaceMileFormatted}** · **${cSug.ageGradePct}% Age-Grade**)
+
+*Click any target option on the interactive card above to lock in your B-priority 10-mile race goal!*`;
   }
 
   // -------------------------------------------------------------

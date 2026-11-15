@@ -71,7 +71,7 @@ export interface PeriodizedPlan {
 }
 
 import type { TrainingGoal } from './goals';
-import type { PriorityPaceSuggestion } from '../utils/racePaceEngine';
+import type { PriorityPaceSuggestion, TenMileAgeGradeMetrics } from '../utils/racePaceEngine';
 
 export interface CoachGoalAction {
   type: 'add_goal' | 'update_goal' | 'delete_goal' | 'propose_goal' | 'update_benchmark';
@@ -84,6 +84,11 @@ export interface CoachGoalAction {
   suggestedPriorities?: ('A' | 'B' | 'C')[];
   paceSuggestions?: PriorityPaceSuggestion[];
   recommendedPaceSuggestion?: PriorityPaceSuggestion;
+  ageGradeMetrics?: TenMileAgeGradeMetrics;
+  ftpWattsPerKg?: number;
+  estimatedVo2MaxFromFtp?: number;
+  ctlUsed?: number;
+  isTenMilePaceSkill?: boolean;
   searchResult?: {
     eventName?: string;
     foundDate?: string;

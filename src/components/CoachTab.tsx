@@ -79,6 +79,7 @@ import {
 
 import {
   computePriorityAwareRacePacing,
+  computeTenMileAgeGrade,
   formatFinishTimeHms,
   formatPaceMinSecPerKm,
   formatPaceMinSecPerMile,
@@ -2529,6 +2530,10 @@ ${todayWorkout.structure.map((s) => `• [${s.phase}] (${s.duration}): ${s.descr
                 query: 'I did todays run at 3:30/km',
               },
               {
+                label: '🎯 B-Race 10-Mile Pace (CTL + FTP + Age-Grade)',
+                query: 'Suggest a realistic race pace and time goal for my B-priority 10-mile race based on my current fitness, FTP, and age-grade performance metrics.',
+              },
+              {
                 label: '🏃 Chippenham 10 Mile Under 1h',
                 query: 'I want to run under 1 hour a Chippenham Spring 10 mile',
               },
@@ -2821,16 +2826,16 @@ ${todayWorkout.structure.map((s) => `• [${s.phase}] (${s.duration}): ${s.descr
                               </div>
                             )}
 
-                            {/* Interactive Priority-Based Achievable Pace Selector */}
+                            {/* Interactive Priority-Based Achievable Pace Selector + CTL / FTP / WMA Age-Grade Telemetry */}
                             {msg.executedAction.goal?.eventType !== 'triathlon' && (
-                              <div className={`p-2.5 rounded-lg border space-y-1.5 ${
+                              <div className={`p-2.5 rounded-lg border space-y-2 ${
                                 theme === 'light'
                                   ? 'bg-white/90 border-emerald-200'
                                   : 'bg-black/40 border-emerald-500/20'
                               }`}>
-                                <div className="flex items-center justify-between gap-2">
+                                <div className="flex flex-wrap items-center justify-between gap-2">
                                   <span className={`text-[10px] font-extrabold uppercase tracking-wider ${theme === 'light' ? 'text-slate-600' : 'text-zinc-400'}`}>
-                                    Suggested Achievable Race Pace (By Priority &amp; Threshold)
+                                    Suggested Achievable Race Pace (CTL Fitness · FTP W/kg · WMA Age-Grade)
                                   </span>
                                   <span className={`text-[10px] ${theme === 'light' ? 'text-slate-500' : 'text-zinc-400'}`}>
                                     Click to switch target
@@ -2845,7 +2850,9 @@ ${todayWorkout.structure.map((s) => `• [${s.phase}] (${s.duration}): ${s.descr
                                     distKm,
                                     elevM,
                                     ga.goal?.runCourseType || 'road',
-                                    ga.goal?.eventDate
+                                    ga.goal?.eventDate,
+                                    undefined,
+                                    { ctl: ga.ctlUsed ?? 91 }
                                   );
                                   const suggestions: PriorityPaceSuggestion[] = ga.paceSuggestions || [
                                     fallbackPacing.byPriority.A,
@@ -2854,65 +2861,148 @@ ${todayWorkout.structure.map((s) => `• [${s.phase}] (${s.duration}): ${s.descr
                                   ];
                                   const currentSec = ga.goal?.totalTargetTimeSec || 3600;
                                   const is10Mile = Math.abs(distKm - 16.093) < 0.25;
+                                  const activeAgeGrade = computeTenMileAgeGrade(
+                                    fallbackPacing.ageUsed,
+                                    currentSec,
+                                    distKm
+                                  );
+                                  const activeSug =
+                                    suggestions.find((s) => Math.abs(currentSec - s.targetTimeSec) <= 5) ||
+                                    fallbackPacing.byPriority[(ga.goal?.priority as 'A' | 'B' | 'C') || 'B'];
 
                                   return (
-                                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-1.5">
-                                      {suggestions.map((sug) => {
-                                        const isSelected = Math.abs(currentSec - sug.targetTimeSec) <= 5;
-                                        const isGoalPriority = (ga.goal?.priority || 'B') === sug.priority;
-                                        return (
+                                    <div className="space-y-2">
+                                      {/* Fitness, FTP & Age-Grade Summary Strip */}
+                                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-1.5 text-[10px]">
+                                        <div className={`px-2 py-1.5 rounded border ${
+                                          theme === 'light' ? 'bg-slate-50 border-slate-200' : 'bg-zinc-900/90 border-zinc-800'
+                                        }`}>
+                                          <span className="opacity-65 block text-[9px] uppercase font-bold">Current Fitness</span>
+                                          <span className="font-bold text-emerald-400">
+                                            CTL {ga.ctlUsed ?? fallbackPacing.ctlUsed} &middot; LTP {formatPaceMinSecPerKm(athleteProfile.thresholdPaceRunOutdoorSec || 232)}
+                                          </span>
+                                          <span className="block text-[9px] opacity-75">
+                                            Run LTHR: {athleteProfile.thresholdHeartRateRun || 168} bpm
+                                          </span>
+                                        </div>
+                                        <div className={`px-2 py-1.5 rounded border ${
+                                          theme === 'light' ? 'bg-slate-50 border-slate-200' : 'bg-zinc-900/90 border-zinc-800'
+                                        }`}>
+                                          <span className="opacity-65 block text-[9px] uppercase font-bold">Cycling FTP Engine</span>
+                                          <span className="font-bold text-cyan-400">
+                                            {athleteProfile.bikeFtp || 315}W ({ga.ftpWattsPerKg ?? fallbackPacing.ftpWattsPerKg} W/kg)
+                                          </span>
+                                          <span className="block text-[9px] opacity-75">
+                                            ~{ga.estimatedVo2MaxFromFtp ?? fallbackPacing.estimatedVo2MaxFromFtp} ml/kg/min aerobic ceiling
+                                          </span>
+                                        </div>
+                                        <div className={`px-2 py-1.5 rounded border ${
+                                          theme === 'light' ? 'bg-slate-50 border-slate-200' : 'bg-zinc-900/90 border-zinc-800'
+                                        }`}>
+                                          <span className="opacity-65 block text-[9px] uppercase font-bold">WMA Age-Grade (M{activeAgeGrade.age})</span>
+                                          <span className="font-bold text-amber-400">
+                                            {activeAgeGrade.ageGradePct}% &middot; {activeAgeGrade.ageGradeClass}
+                                          </span>
+                                          <span className="block text-[9px] opacity-75">
+                                            Open Eq: {activeAgeGrade.ageGradedTimeFormatted} (80% Nat: {activeAgeGrade.nationalClass80TargetFormatted})
+                                          </span>
+                                        </div>
+                                      </div>
+
+                                      {/* Priority A / B / C Target Pace Selector */}
+                                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-1.5">
+                                        {suggestions.map((sug) => {
+                                          const isSelected = Math.abs(currentSec - sug.targetTimeSec) <= 5;
+                                          const isGoalPriority = (ga.goal?.priority || 'B') === sug.priority;
+                                          const sugAg =
+                                            sug.ageGradePct ??
+                                            computeTenMileAgeGrade(fallbackPacing.ageUsed, sug.targetTimeSec, distKm).ageGradePct;
+                                          return (
+                                            <button
+                                              key={sug.priority}
+                                              type="button"
+                                              onClick={() => handleSelectGoalTargetPace(msg.id, ga, sug.targetTimeSec, sug.priority)}
+                                              className={`px-2.5 py-1.5 rounded-lg border text-left transition-all cursor-pointer flex flex-col ${
+                                                isSelected
+                                                  ? theme === 'light'
+                                                    ? 'bg-emerald-600 text-white border-emerald-700 shadow-xs'
+                                                    : 'bg-emerald-500/25 text-emerald-200 border-emerald-400/60 shadow-xs'
+                                                  : theme === 'light'
+                                                    ? 'bg-slate-50 hover:bg-slate-100 text-slate-700 border-slate-200'
+                                                    : 'bg-zinc-900/80 hover:bg-zinc-800 text-zinc-300 border-zinc-800'
+                                              }`}
+                                            >
+                                              <div className="flex items-center justify-between gap-1">
+                                                <span className="text-[10px] font-extrabold">
+                                                  {sug.priority === 'A'
+                                                    ? '★ A-Race Peak'
+                                                    : sug.priority === 'B'
+                                                      ? '✦ B-Race Tune-Up'
+                                                      : '○ C-Race Tempo'}
+                                                  {isGoalPriority ? ' (Rec)' : ''}
+                                                </span>
+                                                <span className="text-[11px] font-black font-mono">
+                                                  {sug.targetTimeFormatted}
+                                                </span>
+                                              </div>
+                                              <div className="flex items-center justify-between text-[10px] font-semibold opacity-90">
+                                                <span>{sug.targetPaceKmFormatted} &middot; {sug.targetPaceMileFormatted}</span>
+                                                <span className="font-mono text-[9px] px-1 rounded bg-black/25">
+                                                  {sugAg}% AG
+                                                </span>
+                                              </div>
+                                              <div className="text-[9px] opacity-75 truncate">
+                                                {sug.targetHrRange}
+                                              </div>
+                                            </button>
+                                          );
+                                        })}
+                                        {is10Mile && !suggestions.some((s) => Math.abs(s.targetTimeSec - 3600) <= 10) && (
                                           <button
-                                            key={sug.priority}
                                             type="button"
-                                            onClick={() => handleSelectGoalTargetPace(msg.id, ga, sug.targetTimeSec, sug.priority)}
-                                            className={`px-2.5 py-1.5 rounded-lg border text-left transition-all cursor-pointer flex flex-col ${
-                                              isSelected
+                                            onClick={() => handleSelectGoalTargetPace(msg.id, ga, 3600)}
+                                            className={`sm:col-span-3 px-2.5 py-1 rounded-lg border text-center text-[10px] font-bold transition-all cursor-pointer ${
+                                              Math.abs(currentSec - 3600) <= 5
                                                 ? theme === 'light'
-                                                  ? 'bg-emerald-600 text-white border-emerald-700 shadow-xs'
-                                                  : 'bg-emerald-500/25 text-emerald-200 border-emerald-400/60 shadow-xs'
+                                                  ? 'bg-emerald-600 text-white border-emerald-700'
+                                                  : 'bg-emerald-500/25 text-emerald-200 border-emerald-400/60'
                                                 : theme === 'light'
-                                                  ? 'bg-slate-50 hover:bg-slate-100 text-slate-700 border-slate-200'
-                                                  : 'bg-zinc-900/80 hover:bg-zinc-800 text-zinc-300 border-zinc-800'
+                                                  ? 'bg-amber-50 hover:bg-amber-100 text-amber-800 border-amber-200'
+                                                  : 'bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 border-amber-500/30'
                                             }`}
                                           >
-                                            <div className="flex items-center justify-between gap-1">
-                                              <span className="text-[10px] font-extrabold">
-                                                {sug.priority === 'A'
-                                                  ? '★ A-Race Peak'
-                                                  : sug.priority === 'B'
-                                                    ? '✦ B-Race Tune-Up'
-                                                    : '○ C-Race Tempo'}
-                                                {isGoalPriority ? ' (Rec)' : ''}
-                                              </span>
-                                              <span className="text-[11px] font-black font-mono">
-                                                {sug.targetTimeFormatted}
-                                              </span>
-                                            </div>
-                                            <div className="text-[10px] font-semibold opacity-90">
-                                              {sug.targetPaceKmFormatted} · {sug.targetPaceMileFormatted}
-                                            </div>
-                                            <div className="text-[9px] opacity-75 truncate">
-                                              {sug.targetHrRange}
-                                            </div>
+                                            ⚡ Set Exact 1:00:00 Sub-Hour Benchmark (3:44/km &middot; 6:00/mi &middot; {computeTenMileAgeGrade(fallbackPacing.ageUsed, 3600, distKm).ageGradePct}% Age-Grade)
                                           </button>
-                                        );
-                                      })}
-                                      {is10Mile && !suggestions.some((s) => Math.abs(s.targetTimeSec - 3600) <= 10) && (
-                                        <button
-                                          type="button"
-                                          onClick={() => handleSelectGoalTargetPace(msg.id, ga, 3600)}
-                                          className={`sm:col-span-3 px-2.5 py-1 rounded-lg border text-center text-[10px] font-bold transition-all cursor-pointer ${
-                                            Math.abs(currentSec - 3600) <= 5
-                                              ? theme === 'light'
-                                                ? 'bg-emerald-600 text-white border-emerald-700'
-                                                : 'bg-emerald-500/25 text-emerald-200 border-emerald-400/60'
-                                              : theme === 'light'
-                                                ? 'bg-amber-50 hover:bg-amber-100 text-amber-800 border-amber-200'
-                                                : 'bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 border-amber-500/30'
-                                          }`}
-                                        >
-                                          ⚡ Set Exact 1:00:00 Sub-Hour Benchmark (3:44/km · 6:00/mi)
-                                        </button>
+                                        )}
+                                      </div>
+
+                                      {/* 10-Mile Checkpoint Splits & 3-Phase Pacing Strategy */}
+                                      {is10Mile && activeSug && (
+                                        <div className={`p-2 rounded-lg border text-[10px] space-y-1.5 ${
+                                          theme === 'light' ? 'bg-slate-50 border-slate-200' : 'bg-zinc-950/70 border-zinc-800/80'
+                                        }`}>
+                                          <div className="flex flex-wrap items-center justify-between gap-2 font-bold">
+                                            <span className="text-amber-400">
+                                              ⏱️ 10-Mile Checkpoint Splits ({activeSug.targetTimeFormatted} Target):
+                                            </span>
+                                            <span className="font-mono">
+                                              5km: {activeSug.fiveKmSplitFormatted || '18:38'} &middot; 5mi: {activeSug.fiveMileSplitFormatted || '29:55'} &middot; 10km: {activeSug.tenKmSplitFormatted || '37:12'} &middot; Finish: {activeSug.targetTimeFormatted}
+                                            </span>
+                                          </div>
+                                          {activeSug.pacingStrategy && activeSug.pacingStrategy.length > 0 && (
+                                            <div className="grid grid-cols-1 sm:grid-cols-3 gap-1.5 pt-1 border-t border-zinc-800/50">
+                                              {activeSug.pacingStrategy.map((ps, pIdx) => (
+                                                <div key={pIdx} className="space-y-0.5">
+                                                  <div className="font-bold text-[9px] text-emerald-400 truncate">{ps.phase}</div>
+                                                  <div className="font-mono font-semibold text-[10px]">
+                                                    {ps.targetPaceKm} ({ps.targetPaceMile}) &middot; {ps.targetHr}
+                                                  </div>
+                                                  <div className="text-[9px] opacity-75 leading-tight">{ps.cue}</div>
+                                                </div>
+                                              ))}
+                                            </div>
+                                          )}
+                                        </div>
                                       )}
                                     </div>
                                   );

@@ -45,6 +45,7 @@ export function handleCoachStatus(_req: Request, res: Response) {
       'profile-injury-schedule-skill',
       'zone-updater-skill',
       'cardiac-drift-kinetics-skill',
+      'b-priority-10-mile-race-pace-skill',
     ],
   });
 }
@@ -417,8 +418,36 @@ const analyzeWorkoutDriftAndZonesDecl: FunctionDeclaration = {
   },
 };
 
+const suggestTenMileRacePaceDecl: FunctionDeclaration = {
+  name: 'suggest_ten_mile_race_pace',
+  description:
+    'Suggest a realistic 10-mile race pace and finish time goal for a B-priority (or A/C-priority) 10-mile race (such as Boddington 10 Mile or Chippenham Spring 10 Mile) based on the athlete current fitness (CTL, Run CTL, 7d ramp rate, recent interval velocity), cycling FTP (W/kg aerobic ceiling cross-transfer), and WMA age-grade performance metrics.',
+  parameters: {
+    type: Type.OBJECT,
+    properties: {
+      raceName: {
+        type: Type.STRING,
+        description: 'Name of the 10-mile race (e.g. "Boddington 10 Mile", "Chippenham Spring 10 Mile", or "B-Priority 10 Mile Race").',
+      },
+      priority: {
+        type: Type.STRING,
+        description: 'Race priority ("B" by default for a B-priority tune-up race, or "A" / "C").',
+      },
+      eventDate: {
+        type: Type.STRING,
+        description: 'Optional race date in YYYY-MM-DD format (e.g. "2027-01-31" for Boddington 10 Mile).',
+      },
+      elevationGainM: {
+        type: Type.NUMBER,
+        description: 'Optional course elevation gain in meters (e.g. 35 for Boddington 10 Mile).',
+      },
+    },
+  },
+};
+
 const COACH_FUNCTION_DECLARATIONS: FunctionDeclaration[] = [
   manageGoalRaceDecl,
+  suggestTenMileRacePaceDecl,
   updateWorkoutCommentDecl,
   analyzeOrCalibrateWorkoutLapsDecl,
   prescribeUpcomingWorkoutDecl,
@@ -854,6 +883,7 @@ function convertToolCallToCoachAction(
         location: args.location ? String(args.location) : undefined,
         notes: args.notes ? String(args.notes) : undefined,
         todayDate: curDate,
+        fitnessContext: fitnessStats,
       });
 
       if (op === 'propose_goal' || !priority) {
@@ -867,6 +897,10 @@ function convertToolCallToCoachAction(
             suggestedPriorities: ['A', 'B', 'C'],
             paceSuggestions: enriched.prioritySuggestions,
             recommendedPaceSuggestion: enriched.recommendedSuggestion,
+            ageGradeMetrics: enriched.pacing.ageGradeForB,
+            ftpWattsPerKg: enriched.pacing.ftpWattsPerKg,
+            estimatedVo2MaxFromFtp: enriched.pacing.estimatedVo2MaxFromFtp,
+            ctlUsed: enriched.pacing.ctlUsed,
             searchResult: {
               eventName: enriched.resolvedMeta.name,
               foundDate: enriched.resolvedMeta.eventDate,
@@ -886,7 +920,55 @@ function convertToolCallToCoachAction(
           goal: enriched.goal,
           paceSuggestions: enriched.prioritySuggestions,
           recommendedPaceSuggestion: enriched.recommendedSuggestion,
+          ageGradeMetrics: enriched.pacing.ageGradeForB,
+          ftpWattsPerKg: enriched.pacing.ftpWattsPerKg,
+          estimatedVo2MaxFromFtp: enriched.pacing.estimatedVo2MaxFromFtp,
+          ctlUsed: enriched.pacing.ctlUsed,
           description: `Added "${enriched.resolvedMeta.name}" (${enriched.resolvedMeta.eventDate}, ${enriched.resolvedMeta.distancePreset}, +${enriched.resolvedMeta.runElevationGainMeters}m elev) as a Priority ${priority} Goal with suggested target ${enriched.recommendedSuggestion.targetTimeFormatted} (${enriched.recommendedSuggestion.targetPaceKmFormatted}).`,
+        },
+      };
+    }
+
+    case 'suggest_ten_mile_race_pace': {
+      // Find existing 10-mile B-priority goal if saved, or default to Boddington 10 Mile
+      const existing10MileGoal = (goals || []).find(
+        (g: any) =>
+          g.distancePreset === '10 Mile' ||
+          Math.abs(Number(g.totalDistanceKm || 0) - 16.093) < 0.3 ||
+          String(g.name || '').toLowerCase().includes('10 mile') ||
+          String(g.name || '').toLowerCase().includes('boddington') ||
+          String(g.name || '').toLowerCase().includes('chippenham')
+      );
+      const raceName = String(args.raceName || existing10MileGoal?.name || 'Boddington 10 Mile').trim();
+      const priority = (args.priority ? String(args.priority).toUpperCase() : existing10MileGoal?.priority || 'B') as 'A' | 'B' | 'C';
+      const enriched = buildEnrichedGoalFromQuery(raceName, priority, athleteProfile, {
+        eventType: 'run',
+        eventDate: args.eventDate ? String(args.eventDate) : existing10MileGoal?.eventDate,
+        distancePreset: '10 Mile',
+        distanceKm: 16.093,
+        elevationGainM: args.elevationGainM ? Number(args.elevationGainM) : existing10MileGoal?.runElevationGainMeters,
+        location: existing10MileGoal?.location,
+        todayDate: curDate,
+        fitnessContext: fitnessStats,
+      });
+      if (existing10MileGoal?.id) {
+        enriched.goal.id = existing10MileGoal.id;
+      }
+
+      return {
+        skillLabel: 'B-Priority 10-Mile Race Pace & Age-Grade Predictor',
+        action: {
+          type: 'add_goal',
+          status: 'confirmed',
+          goal: enriched.goal,
+          paceSuggestions: enriched.prioritySuggestions,
+          recommendedPaceSuggestion: enriched.recommendedSuggestion,
+          ageGradeMetrics: enriched.pacing.ageGradeForB,
+          ftpWattsPerKg: enriched.pacing.ftpWattsPerKg,
+          estimatedVo2MaxFromFtp: enriched.pacing.estimatedVo2MaxFromFtp,
+          ctlUsed: enriched.pacing.ctlUsed,
+          isTenMilePaceSkill: true,
+          description: `B-Priority 10-Mile Pace Prediction for "${enriched.resolvedMeta.name}": ${enriched.recommendedSuggestion.targetTimeFormatted} (${enriched.recommendedSuggestion.targetPaceKmFormatted} · ${enriched.recommendedSuggestion.targetPaceMileFormatted}) — ${enriched.pacing.ageGradeForB.ageGradePct}% Age-Grade (${enriched.pacing.ageGradeForB.ageGradeClass}), backed by CTL ${enriched.pacing.ctlUsed} & ${enriched.pacing.ftpWattsPerKg} W/kg FTP.`,
         },
       };
     }
@@ -1294,6 +1376,11 @@ CRITICAL ANTI-SCRIPTING & CONVERSATIONAL RULES:
      * **Late-Rep HR Plateau (Last 30–60s) & HR Slope Across Reps**: HR lags 60–90 seconds, so 3-min reps (like 8x3 min at 147 bpm avg) underread effort. Use end-of-rep HR (last 30–60s) on >=4–9 min reps (like 4x9 min @ 3:42/km at 0.5% incline = **3:38/km GAP**, where HR plateaued flat at 151–155 bpm).
      * **Actual Stream Rest Length vs Planned Rest & Rep-Start HR**: Measure actual rest from the stream (e.g. "70s" planned rests on 8x3m / 8x1km were closer to 60–61s in the stream). A rep starting at a higher HR after a shortened rest shows incomplete recovery, NOT that the pace is too hard.
      * **Aerobic Ceiling (Z2 Upper Limit) from GAP:HR Cardiac Drift & Selective Zone Confidence**: Take steady runs >= 40 min, drop the first 10 minutes, and compute Efficiency Factor (GAP Speed ÷ HR) for the 1st half vs 2nd half (<5% decoupling is aerobic). When confidence is high for Zone 2 (5 steady runs >=40m with 1.6%–3.1% GAP:HR drift) but lower for other zones (only 1 long-rep threshold session for Z4, no dedicated Z1/Z3/Z5 lab ramp), recommend **raising ONLY the Zone 2 upper bound (135 -> 138 bpm)** and leaving Z1, Z3, Z4, and Z5 ceilings untouched—while letting the user toggle individual zones in the interactive card.
+   - Skill 9 (B-Priority 10-Mile Race Pace & Age-Grade Predictor): Whenever the athlete asks for a race pace suggestion, target finish time, or pacing strategy for a **B-priority 10-mile race** (such as Boddington 10 Mile or Chippenham Spring 10 Mile) or asks what 10-mile time they can run based on their current fitness, FTP, and age-grade metrics, invoke \`suggest_ten_mile_race_pace\` and explain:
+     * **Current Fitness (CTL, Ramp Rate & Threshold Velocity)**: Anchor to current CTL (${fitnessStats?.ctl ?? 91}), Outdoor Run Threshold Pace (${outdoorPace}), Run LTHR (${lthr} bpm), and recent interval execution (8 x 1km @ 3:32/km and 4 x 9min @ 3:42/km at 151–155 bpm).
+     * **Cycling FTP Aerobic Cross-Transfer**: Explain how Bike FTP (${ftp}W at ${athleteProfile?.weightKg ?? 77} kg = **${(ftp / (athleteProfile?.weightKg || 77)).toFixed(2)} W/kg**) provides a massive central cardiovascular engine (~61 ml/kg/min VO2max equivalent) that prevents late-race metabolic fade during a ~60-minute threshold effort.
+     * **WMA Age-Grade Performance Metrics**: State the athlete's WMA Masters Age-Grade % (at age ${athleteProfile?.age ?? 41}, WMA 10-mile factor **0.9585**, age-standard **46:19**), showing how the recommended B-priority target time (~59:40–1:00:00, **~77.2%–77.6% Age-Grade**) places them firmly in **Competitive Regional Class Masters (70–79.9%)** and within striking distance of **National Class (80% = 57:54)**.
+     * **B-Priority Execution & 3-Phase Pacing Strategy**: Detail the 2–3 day mini-taper (94–97% LTHR = 158–163 bpm) and negative-split pacing across Miles 1–2 (settle-in), Miles 3–7 (threshold cruise), and Miles 8–10 (progressive finish push).
 
 4. ALWAYS RESPECT:
    - Weeks until upcoming Goal Races & Race Priority (A/B/C)

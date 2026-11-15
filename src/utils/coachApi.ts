@@ -594,13 +594,21 @@ export async function sendCoachChatMessage(
             : '';
 
       if (rawExtracted.length >= 3 && !/^(a|an|the|some|new)$/i.test(rawExtracted)) {
+        const isTenMileQuery =
+          rawExtracted.toLowerCase().includes('10 mile') ||
+          rawExtracted.toLowerCase().includes('10-mile') ||
+          rawExtracted.toLowerCase().includes('boddington') ||
+          rawExtracted.toLowerCase().includes('chippenham');
         skills.push('Online Race Search', 'Goal Race Manager');
+        if (isTenMileQuery) {
+          skills.push('B-Priority 10-Mile Race Pace & Age-Grade Predictor');
+        }
         const priority: 'A' | 'B' | 'C' | undefined = hasPriorityA ? 'A' : hasPriorityB ? 'B' : hasPriorityC ? 'C' : undefined;
         const enriched = buildEnrichedGoalFromQuery(
           rawExtracted,
           priority,
           payload.athleteProfile,
-          { todayDate: payload.todayDate }
+          { todayDate: payload.todayDate, fitnessContext: payload.fitnessStats }
         );
 
         if (!priority) {
@@ -614,6 +622,11 @@ export async function sendCoachChatMessage(
               suggestedPriorities: ['A', 'B', 'C'],
               paceSuggestions: enriched.prioritySuggestions,
               recommendedPaceSuggestion: enriched.recommendedSuggestion,
+              ageGradeMetrics: enriched.pacing.ageGradeForB,
+              ftpWattsPerKg: enriched.pacing.ftpWattsPerKg,
+              estimatedVo2MaxFromFtp: enriched.pacing.estimatedVo2MaxFromFtp,
+              ctlUsed: enriched.pacing.ctlUsed,
+              isTenMilePaceSkill: isTenMileQuery,
               searchResult: {
                 eventName: enriched.resolvedMeta.name,
                 foundDate: enriched.resolvedMeta.eventDate,
@@ -633,10 +646,83 @@ export async function sendCoachChatMessage(
             goal: enriched.goal,
             paceSuggestions: enriched.prioritySuggestions,
             recommendedPaceSuggestion: enriched.recommendedSuggestion,
+            ageGradeMetrics: enriched.pacing.ageGradeForB,
+            ftpWattsPerKg: enriched.pacing.ftpWattsPerKg,
+            estimatedVo2MaxFromFtp: enriched.pacing.estimatedVo2MaxFromFtp,
+            ctlUsed: enriched.pacing.ctlUsed,
+            isTenMilePaceSkill: isTenMileQuery,
             description: `Added "${enriched.resolvedMeta.name}" (${enriched.resolvedMeta.eventDate}, ${enriched.resolvedMeta.distancePreset}, +${enriched.resolvedMeta.runElevationGainMeters}m) as Priority ${priority} goal with suggested pace ${enriched.recommendedSuggestion.targetPaceKmFormatted} (${enriched.recommendedSuggestion.targetTimeFormatted}).`,
           },
         };
       }
+    }
+
+    // 1b. Dedicated B-Priority 10-Mile Race Pace & Age-Grade Predictor Skill
+    const isTenMilePacePredictorQuery =
+      (lower.includes('10 mile') || lower.includes('10-mile') || lower.includes('boddington') || lower.includes('10mi')) &&
+      (lower.includes('pace') ||
+        lower.includes('age-grade') ||
+        lower.includes('age grade') ||
+        lower.includes('ftp') ||
+        lower.includes('b-priority') ||
+        lower.includes('b priority') ||
+        lower.includes('b-race') ||
+        lower.includes('b race') ||
+        lower.includes('suggest') ||
+        lower.includes('predict') ||
+        lower.includes('realistic') ||
+        lower.includes('time goal') ||
+        lower.includes('target time'));
+
+    if (isTenMilePacePredictorQuery) {
+      skills.push('B-Priority 10-Mile Race Pace & Age-Grade Predictor', 'Goal Race Manager');
+      const existing10Mile = (payload.goals || []).find(
+        (g) =>
+          g.distancePreset === '10 Mile' ||
+          Math.abs(Number(g.totalDistanceKm || 0) - 16.093) < 0.3 ||
+          String(g.name || '').toLowerCase().includes('10 mile') ||
+          String(g.name || '').toLowerCase().includes('boddington') ||
+          String(g.name || '').toLowerCase().includes('chippenham')
+      );
+      const raceName = lower.includes('chippenham')
+        ? 'Chippenham Spring 10 Mile'
+        : lower.includes('boddington')
+          ? 'Boddington 10 Mile'
+          : existing10Mile?.name || 'Boddington 10 Mile';
+      const priority: 'A' | 'B' | 'C' =
+        lower.includes('priority a') || lower.includes('a-race')
+          ? 'A'
+          : lower.includes('priority c') || lower.includes('c-race')
+            ? 'C'
+            : (existing10Mile?.priority as 'A' | 'B' | 'C') || 'B';
+
+      const enriched = buildEnrichedGoalFromQuery(raceName, priority, payload.athleteProfile, {
+        eventDate: existing10Mile?.eventDate,
+        elevationGainM: existing10Mile?.runElevationGainMeters,
+        location: existing10Mile?.location,
+        todayDate: payload.todayDate,
+        fitnessContext: payload.fitnessStats,
+      });
+      if (existing10Mile?.id) {
+        enriched.goal.id = existing10Mile.id;
+      }
+
+      return {
+        skills,
+        action: {
+          type: 'add_goal',
+          status: 'confirmed',
+          goal: enriched.goal,
+          paceSuggestions: enriched.prioritySuggestions,
+          recommendedPaceSuggestion: enriched.recommendedSuggestion,
+          ageGradeMetrics: enriched.pacing.ageGradeForB,
+          ftpWattsPerKg: enriched.pacing.ftpWattsPerKg,
+          estimatedVo2MaxFromFtp: enriched.pacing.estimatedVo2MaxFromFtp,
+          ctlUsed: enriched.pacing.ctlUsed,
+          isTenMilePaceSkill: true,
+          description: `B-Priority 10-Mile Pace Prediction for "${enriched.resolvedMeta.name}": ${enriched.recommendedSuggestion.targetTimeFormatted} (${enriched.recommendedSuggestion.targetPaceKmFormatted} · ${enriched.recommendedSuggestion.targetPaceMileFormatted}) — ${enriched.pacing.ageGradeForB.ageGradePct}% Age-Grade (${enriched.pacing.ageGradeForB.ageGradeClass}), backed by CTL ${enriched.pacing.ctlUsed} & ${enriched.pacing.ftpWattsPerKg} W/kg FTP.`,
+        },
+      };
     }
 
     // 2. Chippenham Spring 10 Mile
@@ -645,7 +731,7 @@ export async function sendCoachChatMessage(
       ((lower.includes('under 1 hour') || lower.includes('under 1hr') || lower.includes('sub 1 hour') || lower.includes('sub 60')) &&
         (lower.includes('10 mile') || lower.includes('10miler') || lower.includes('10m')))
     ) {
-      skills.push('Online Race Search', 'Goal Race Manager');
+      skills.push('Online Race Search', 'Goal Race Manager', 'B-Priority 10-Mile Race Pace & Age-Grade Predictor');
       const hasPriorityA = lower.includes('priority a') || lower.includes('a-race') || lower.includes('a race') || lower.includes('make it a');
       const hasPriorityB = lower.includes('priority b') || lower.includes('b-race') || lower.includes('b race') || lower.includes('make it b');
       const hasPriorityC = lower.includes('priority c') || lower.includes('c-race') || lower.includes('c race') || lower.includes('make it c');

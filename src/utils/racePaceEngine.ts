@@ -13,6 +13,48 @@ export interface PriorityPaceSuggestion {
   targetHrRange: string; // e.g. "162–166 bpm (96–99% LTHR)"
   effortPctLthr: string; // e.g. "96–99% LTHR"
   taperAndStrategyNote: string;
+  // Age-grade, FTP & Fitness enrichments
+  ageGradePct?: number;
+  ageGradeClass?: string;
+  ageGradedEquivalentFormatted?: string;
+  wmaFactor?: number;
+  ftpWattsPerKg?: number;
+  ctlUsed?: number;
+  fiveKmSplitFormatted?: string;
+  fiveMileSplitFormatted?: string;
+  tenKmSplitFormatted?: string;
+  pacingStrategy?: {
+    phase: string;
+    distanceRange: string;
+    targetPaceKm: string;
+    targetPaceMile: string;
+    targetHr: string;
+    cue: string;
+  }[];
+}
+
+export interface TenMileAgeGradeMetrics {
+  age: number;
+  wmaFactor: number;
+  openWorldStandardSec: number;
+  ageStandardSec: number;
+  ageStandardFormatted: string;
+  ageGradedTimeSec: number;
+  ageGradedTimeFormatted: string;
+  ageGradePct: number;
+  ageGradeClass: 'World Class' | 'National Class' | 'Regional Class' | 'Local Class' | 'Fitness Standard';
+  nationalClass80TargetSec: number;
+  nationalClass80TargetFormatted: string;
+  regionalClass75TargetSec: number;
+  regionalClass75TargetFormatted: string;
+}
+
+export interface RacePacingFitnessContext {
+  ctl?: number;
+  runCtl?: number;
+  atl?: number;
+  tsb?: number;
+  ctlRampRate7d?: number;
 }
 
 export interface ResolvedRaceMetadata {
@@ -60,6 +102,66 @@ export function formatFinishTimeHms(totalSec: number): string {
     return `${hrs}:${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
   }
   return `${mins}:${secs.toString().padStart(2, '0')}`;
+}
+
+/**
+ * Computes World Masters Athletics (WMA) road 10-mile age-grading metrics.
+ * Open Men 10-mile road world standard ~ 44:24 (2664s).
+ * Age-grading factor smoothly models the WMA Masters road table (e.g. Age 41 = 0.9585).
+ */
+export function computeTenMileAgeGrade(
+  ageInput: number | undefined,
+  finishTimeSec: number,
+  distanceKm = 16.0934
+): TenMileAgeGradeMetrics {
+  const age = Math.max(18, Math.min(90, Math.round(ageInput || 41)));
+  const distRatio = Math.max(0.2, distanceKm / 16.0934);
+  const openWorldStandardSec = Math.round(2664 * Math.pow(distRatio, 1.06));
+
+  let wmaFactor = 1.0;
+  if (age > 30 && age <= 35) {
+    wmaFactor = 1.0 - (age - 30) * 0.00222;
+  } else if (age > 35 && age <= 40) {
+    wmaFactor = 0.9889 - (age - 35) * 0.00474;
+  } else if (age > 40 && age <= 45) {
+    wmaFactor = 0.9652 - (age - 40) * 0.007;
+  } else if (age > 45 && age <= 50) {
+    wmaFactor = 0.9302 - (age - 45) * 0.00762;
+  } else if (age > 50 && age <= 60) {
+    wmaFactor = 0.8921 - (age - 50) * 0.00796;
+  } else if (age > 60) {
+    wmaFactor = Math.max(0.45, 0.8125 - (age - 60) * 0.0092);
+  }
+  wmaFactor = Number(wmaFactor.toFixed(4));
+
+  const ageStandardSec = Math.round(openWorldStandardSec / wmaFactor);
+  const ageGradedTimeSec = Math.round(finishTimeSec * wmaFactor);
+  const ageGradePct = Number(((ageStandardSec / Math.max(1, finishTimeSec)) * 100).toFixed(1));
+
+  let ageGradeClass: TenMileAgeGradeMetrics['ageGradeClass'] = 'Fitness Standard';
+  if (ageGradePct >= 90) ageGradeClass = 'World Class';
+  else if (ageGradePct >= 80) ageGradeClass = 'National Class';
+  else if (ageGradePct >= 70) ageGradeClass = 'Regional Class';
+  else if (ageGradePct >= 60) ageGradeClass = 'Local Class';
+
+  const nationalClass80TargetSec = Math.round(ageStandardSec / 0.8);
+  const regionalClass75TargetSec = Math.round(ageStandardSec / 0.75);
+
+  return {
+    age,
+    wmaFactor,
+    openWorldStandardSec,
+    ageStandardSec,
+    ageStandardFormatted: formatFinishTimeHms(ageStandardSec),
+    ageGradedTimeSec,
+    ageGradedTimeFormatted: formatFinishTimeHms(ageGradedTimeSec),
+    ageGradePct,
+    ageGradeClass,
+    nationalClass80TargetSec,
+    nationalClass80TargetFormatted: formatFinishTimeHms(nationalClass80TargetSec),
+    regionalClass75TargetSec,
+    regionalClass75TargetFormatted: formatFinishTimeHms(regionalClass75TargetSec),
+  };
 }
 
 /**
@@ -153,6 +255,9 @@ export function normalizeDistancePresetAndKm(
  * - Outdoor Run Threshold Pace (`thresholdPaceRunOutdoorSec`, default 232s = 3:52/km)
  * - Recent Structured Interval Velocity (e.g., 8x1km @ 3:32/km, 4x9min @ 3:42/km)
  * - Running LTHR (`thresholdHeartRateRun`, default 168 bpm)
+ * - Cycling FTP (`bikeFtp`, default 315W at 77kg = 4.09 W/kg aerobic ceiling cross-transfer)
+ * - Current Fitness (`ctl`, default 91, plus 7d ramp rate & TSB)
+ * - WMA Age-Grade Performance Metrics (`age`, default 41, WMA factor 0.9585)
  * - Course Distance (Riegel endurance exponent + weeks of build remaining)
  * - Course Elevation Gain (`runElevationGainMeters`) and Terrain (`road` vs `trail`)
  */
@@ -162,17 +267,37 @@ export function computePriorityAwareRacePacing(
   elevationGainM = 35,
   courseType: RunCourseType = 'road',
   eventDate?: string,
-  todayDate?: string
+  todayDate?: string,
+  fitnessContext?: RacePacingFitnessContext
 ): {
   byPriority: Record<GoalPriority, PriorityPaceSuggestion>;
   weeksToRace: number;
   baselineThresholdPaceSec: number;
+  ftpWattsPerKg: number;
+  estimatedVo2MaxFromFtp: number;
+  ctlUsed: number;
+  ageUsed: number;
+  ageGradeForB: TenMileAgeGradeMetrics;
 } {
   const rawThresholdSec =
     Number(athleteProfile?.thresholdPaceRunOutdoorSec) ||
     Number((athleteProfile as any)?.runThresholdPaceSec) ||
     232; // 3:52/km current outdoor threshold benchmark
   const lthr = Number(athleteProfile?.thresholdHeartRateRun) || 168;
+  const ftpWatts = Number(athleteProfile?.bikeFtp) || 315;
+  const weightKg = Number(athleteProfile?.weightKg) || 77;
+  const ftpWattsPerKg = Number((ftpWatts / Math.max(40, weightKg)).toFixed(2));
+  // Storer / Coggan cycling-to-aerobic-ceiling estimate (MAP ~ FTP / 0.82)
+  const estimatedVo2MaxFromFtp = Number((((10.8 * (ftpWatts / 0.82)) / Math.max(40, weightKg)) + 7).toFixed(1));
+
+  let ageUsed = Number(athleteProfile?.age) || 41;
+  if (!athleteProfile?.age && athleteProfile?.birthDate) {
+    const birthYear = Number(String(athleteProfile.birthDate).slice(0, 4));
+    if (birthYear > 1930 && birthYear < 2020) {
+      ageUsed = 2026 - birthYear;
+    }
+  }
+  const ctlUsed = Math.round(Number(fitnessContext?.ctl ?? 91));
 
   const refToday = todayDate ? new Date(todayDate) : new Date();
   let weeksToRace = 11;
@@ -183,10 +308,13 @@ export function computePriorityAwareRacePacing(
     }
   }
 
+  // Factor in FTP W/kg aerobic ceiling (>=4.0 W/kg provides strong 60-min fatigue resistance) and CTL readiness (>=85 CTL)
+  const ftpDurabilityBonus = ftpWattsPerKg >= 4.0 ? 0.008 : ftpWattsPerKg >= 3.5 ? 0.004 : 0;
+  const ctlDurabilityBonus = ctlUsed >= 85 ? 0.007 : ctlUsed >= 70 ? 0.003 : 0;
+
   // Given the athlete's recent 8x1km @ 3:32/km (17.0 kph) and 4x9min @ 3:42/km (151-155 bpm, well below 168 LTHR),
-  // their effective race-ready 1-hour aerobic threshold with progressive training over 6-16 weeks is ~3:42-3:44/km.
-  // Compute progression dividend (up to ~8-9s/km improvement over a 8-14 week build toward effective 3:43/km 10-mile capability)
-  const buildProgressionFactor = Math.min(0.038, Math.max(0.012, weeksToRace * 0.003));
+  // plus 4.09 W/kg FTP and CTL 91, their effective race-ready 1-hour aerobic threshold over 6-16 weeks is ~3:41-3:44/km.
+  const buildProgressionFactor = Math.min(0.045, Math.max(0.015, weeksToRace * 0.0028 + ftpDurabilityBonus + ctlDurabilityBonus));
   const projected10MileThresholdSec = rawThresholdSec * (1 - buildProgressionFactor);
 
   // Distance scaling relative to ~15-16 km (1-hour threshold duration) using Riegel exponent (1.055)
@@ -194,7 +322,6 @@ export function computePriorityAwareRacePacing(
   const distancePaceMultiplier = Math.pow(distRatio, 0.052);
 
   // Elevation & terrain cost:
-  // ~1.5 sec/km per 10m/km of climbing on road; additional 8-12% on technical winter trail
   const elevPerKm = (elevationGainM || 0) / Math.max(1, distanceKm || 16.093);
   const elevationPenaltySecPerKm =
     courseType === 'trail'
@@ -203,8 +330,8 @@ export function computePriorityAwareRacePacing(
 
   // Base optimal A-race pace (sec/km)
   const aRacePaceSec = Math.round(projected10MileThresholdSec * distancePaceMultiplier + elevationPenaltySecPerKm);
-  // B-race pace: ~1.5% to 2.2% more controlled than A-race (no full 10-day taper; run on 2-3 day mini-taper at ~95-97% LTHR)
-  const bRacePaceSec = Math.round(aRacePaceSec * 1.018);
+  // B-race pace: ~1.4% to 1.8% more controlled than A-race (no full 10-day taper; run on 2-3 day mini-taper at ~94-97% LTHR)
+  const bRacePaceSec = Math.round(aRacePaceSec * 1.015);
   // C-race pace: ~5.5% slower than A-race (controlled high-Z3 / marathon-to-tempo effort run through normal training volume)
   const cRacePaceSec = Math.round(aRacePaceSec * 1.058);
 
@@ -219,52 +346,123 @@ export function computePriorityAwareRacePacing(
   const bActualPaceSec = Math.round(bTimeSec / dist);
   const cActualPaceSec = Math.round(cTimeSec / dist);
 
-  const byPriority: Record<GoalPriority, PriorityPaceSuggestion> = {
-    A: {
-      priority: 'A',
-      label: `Priority A — Peak Tapered Effort (${formatFinishTimeHms(aTimeSec)})`,
-      shortBadge: 'A-Race Peak',
-      targetTimeSec: aTimeSec,
-      targetTimeFormatted: formatFinishTimeHms(aTimeSec),
-      targetPaceSecPerKm: aActualPaceSec,
-      targetPaceKmFormatted: formatPaceMinSecPerKm(aActualPaceSec),
-      targetPaceMileFormatted: formatPaceMinSecPerMile(aActualPaceSec),
-      targetHrRange: `${Math.round(lthr * 0.96)}–${Math.round(lthr * 0.99)} bpm`,
-      effortPctLthr: '96–99% LTHR',
-      taperAndStrategyNote: 'Full 7–10 day taper, carbon race shoes, maximal lactate threshold ceiling.',
-    },
-    B: {
-      priority: 'B',
-      label: `Priority B — Supported Tune-Up (${formatFinishTimeHms(bTimeSec)})`,
-      shortBadge: 'B-Race Recommended',
-      targetTimeSec: bTimeSec,
-      targetTimeFormatted: formatFinishTimeHms(bTimeSec),
-      targetPaceSecPerKm: bActualPaceSec,
-      targetPaceKmFormatted: formatPaceMinSecPerKm(bActualPaceSec),
-      targetPaceMileFormatted: formatPaceMinSecPerMile(bActualPaceSec),
-      targetHrRange: `${Math.round(lthr * 0.94)}–${Math.round(lthr * 0.97)} bpm`,
-      effortPctLthr: '94–97% LTHR',
-      taperAndStrategyNote: '2–3 day mini-taper; strong controlled threshold effort without disrupting A-race build volume.',
-    },
-    C: {
-      priority: 'C',
-      label: `Priority C — Controlled Tempo / Progression (${formatFinishTimeHms(cTimeSec)})`,
-      shortBadge: 'C-Race Tempo',
-      targetTimeSec: cTimeSec,
-      targetTimeFormatted: formatFinishTimeHms(cTimeSec),
-      targetPaceSecPerKm: cActualPaceSec,
-      targetPaceKmFormatted: formatPaceMinSecPerKm(cActualPaceSec),
-      targetPaceMileFormatted: formatPaceMinSecPerMile(cActualPaceSec),
-      targetHrRange: `${Math.round(lthr * 0.89)}–${Math.round(lthr * 0.93)} bpm`,
-      effortPctLthr: '89–93% LTHR',
-      taperAndStrategyNote: 'No taper; train right through as a catered high-Zone 3 / marathon-effort progression session.',
-    },
+  const buildDetailedSuggestion = (
+    priority: GoalPriority,
+    timeSec: number,
+    paceSec: number,
+    shortBadge: string,
+    hrLowPct: number,
+    hrHighPct: number,
+    taperNote: string
+  ): PriorityPaceSuggestion => {
+    const ag = computeTenMileAgeGrade(ageUsed, timeSec, dist);
+    const startPaceSec = paceSec + (priority === 'B' ? 2 : 1);
+    const cruisePaceSec = paceSec;
+    const finishPushPaceSec = Math.max(180, paceSec - (priority === 'C' ? 1 : 2));
+
+    const fiveKmSplitSec = Math.round(startPaceSec * 3.2 + cruisePaceSec * 1.8);
+    const fiveMileSplitSec = Math.round(startPaceSec * 3.2 + cruisePaceSec * 4.8467);
+    const tenKmSplitSec = Math.round(startPaceSec * 3.2 + cruisePaceSec * 6.8);
+
+    const hrLow = Math.round(lthr * hrLowPct);
+    const hrHigh = Math.round(lthr * hrHighPct);
+
+    return {
+      priority,
+      label:
+        priority === 'A'
+          ? `Priority A — Peak Tapered Effort (${formatFinishTimeHms(timeSec)})`
+          : priority === 'B'
+            ? `Priority B — Supported Tune-Up (${formatFinishTimeHms(timeSec)})`
+            : `Priority C — Controlled Tempo / Progression (${formatFinishTimeHms(timeSec)})`,
+      shortBadge,
+      targetTimeSec: timeSec,
+      targetTimeFormatted: formatFinishTimeHms(timeSec),
+      targetPaceSecPerKm: paceSec,
+      targetPaceKmFormatted: formatPaceMinSecPerKm(paceSec),
+      targetPaceMileFormatted: formatPaceMinSecPerMile(paceSec),
+      targetHrRange: `${hrLow}–${hrHigh} bpm`,
+      effortPctLthr: `${Math.round(hrLowPct * 100)}–${Math.round(hrHighPct * 100)}% LTHR`,
+      taperAndStrategyNote: `${taperNote} Age-Grade: ${ag.ageGradePct}% (${ag.ageGradeClass} M${ageUsed}), backed by CTL ${ctlUsed} & ${ftpWatts}W (${ftpWattsPerKg} W/kg) FTP.`,
+      ageGradePct: ag.ageGradePct,
+      ageGradeClass: ag.ageGradeClass,
+      ageGradedEquivalentFormatted: ag.ageGradedTimeFormatted,
+      wmaFactor: ag.wmaFactor,
+      ftpWattsPerKg,
+      ctlUsed,
+      fiveKmSplitFormatted: formatFinishTimeHms(fiveKmSplitSec),
+      fiveMileSplitFormatted: formatFinishTimeHms(fiveMileSplitSec),
+      tenKmSplitFormatted: formatFinishTimeHms(tenKmSplitSec),
+      pacingStrategy: [
+        {
+          phase: 'Miles 1–2 (0–3.2 km) · Controlled Settle-In',
+          distanceRange: '0.0 – 3.2 km',
+          targetPaceKm: formatPaceMinSecPerKm(startPaceSec),
+          targetPaceMile: formatPaceMinSecPerMile(startPaceSec),
+          targetHr: `${Math.round(lthr * (hrLowPct - 0.03))}–${hrLow} bpm`,
+          cue: 'Bank rhythm & economy on Lap 1; let HR rise smoothly over the first 8 minutes.',
+        },
+        {
+          phase: 'Miles 3–7 (3.2–11.3 km) · Locked Threshold Cruise',
+          distanceRange: '3.2 – 11.3 km',
+          targetPaceKm: formatPaceMinSecPerKm(cruisePaceSec),
+          targetPaceMile: formatPaceMinSecPerMile(cruisePaceSec),
+          targetHr: `${hrLow}–${hrHigh} bpm`,
+          cue: `Leverage your ${ftpWatts}W (${ftpWattsPerKg} W/kg) aerobic ceiling & ~178 spm cadence at steady ${Math.round(hrLowPct * 100)}–${Math.round(hrHighPct * 100)}% LTHR.`,
+        },
+        {
+          phase: 'Miles 8–10 (11.3–16.09 km) · Progressive Negative Split',
+          distanceRange: '11.3 – 16.09 km',
+          targetPaceKm: formatPaceMinSecPerKm(finishPushPaceSec),
+          targetPaceMile: formatPaceMinSecPerMile(finishPushPaceSec),
+          targetHr: `${hrHigh}–${Math.min(lthr + 2, hrHigh + 4)} bpm`,
+          cue: 'Squeeze pace down by 2–3s/km over the final 5 km to close strong without muscular blow-up.',
+        },
+      ],
+    };
   };
+
+  const byPriority: Record<GoalPriority, PriorityPaceSuggestion> = {
+    A: buildDetailedSuggestion(
+      'A',
+      aTimeSec,
+      aActualPaceSec,
+      'A-Race Peak',
+      0.96,
+      0.99,
+      'Full 7–10 day taper, carbon race shoes, maximal lactate threshold ceiling.'
+    ),
+    B: buildDetailedSuggestion(
+      'B',
+      bTimeSec,
+      bActualPaceSec,
+      'B-Race Recommended',
+      0.94,
+      0.97,
+      '2–3 day mini-taper; strong controlled threshold effort without disrupting A-race build volume.'
+    ),
+    C: buildDetailedSuggestion(
+      'C',
+      cTimeSec,
+      cActualPaceSec,
+      'C-Race Tempo',
+      0.89,
+      0.93,
+      'No taper; train right through as a catered high-Zone 3 / marathon-effort progression session.'
+    ),
+  };
+
+  const ageGradeForB = computeTenMileAgeGrade(ageUsed, bTimeSec, dist);
 
   return {
     byPriority,
     weeksToRace,
     baselineThresholdPaceSec: rawThresholdSec,
+    ftpWattsPerKg,
+    estimatedVo2MaxFromFtp,
+    ctlUsed,
+    ageUsed,
+    ageGradeForB,
   };
 }
 
@@ -460,6 +658,7 @@ export function buildEnrichedGoalFromQuery(
     location?: string;
     notes?: string;
     todayDate?: string;
+    fitnessContext?: RacePacingFitnessContext;
   }
 ): {
   goal: Partial<TrainingGoal>;
@@ -477,7 +676,8 @@ export function buildEnrichedGoalFromQuery(
     resolvedMeta.runElevationGainMeters,
     resolvedMeta.runCourseType,
     resolvedMeta.eventDate,
-    overrides?.todayDate
+    overrides?.todayDate,
+    overrides?.fitnessContext
   );
 
   const recommendedSuggestion = pacing.byPriority[effectivePriority];
@@ -523,3 +723,4 @@ export function buildEnrichedGoalFromQuery(
     prioritySuggestions,
   };
 }
+
