@@ -46,7 +46,6 @@ import {
   deriveEventCtlTargetAndFeasibility,
 } from '../utils/fitnessEngine';
 import { WeeklyMileageChart } from './WeeklyMileageChart';
-import { WeeklyTrainingVolumeChart } from './WeeklyTrainingVolumeChart';
 import { StravaActivityModal } from './StravaActivityModal';
 
 interface FitnessTabProps {
@@ -1356,18 +1355,6 @@ export const FitnessTab: React.FC<FitnessTabProps> = ({
         onSelectActivity={(actId) => {
           handleOpenActivityModal(actId);
         }}
-      />
-
-
-
-      {/* ========================================================= */}
-      {/* 5. WEEKLY TRAINING VOLUME (RECHARTS - TOTAL HOURS/KM)     */}
-      {/* ========================================================= */}
-      <WeeklyTrainingVolumeChart
-        activities={activities}
-        activityDetails={activityDetails}
-        athleteProfile={athleteProfile}
-        theme={theme}
       />
 
       {/* ========================================================= */}

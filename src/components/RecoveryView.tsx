@@ -24,6 +24,8 @@ import {
   RotateCw,
   ChevronLeft,
   ChevronRight,
+  ChevronDown,
+  ChevronUp,
   Wind,
   ExternalLink,
   Loader2,
@@ -94,6 +96,7 @@ export const RecoveryView: React.FC<RecoveryViewProps> = ({
   const [isCsvModalOpen, setIsCsvModalOpen] = useState(false);
   const [isGarminModalOpen, setIsGarminModalOpen] = useState(false);
   const [hoveredDataIndex, setHoveredDataIndex] = useState<number | null>(null);
+  const [isHealthInsightsExpanded, setIsHealthInsightsExpanded] = useState(false);
 
   const isLight = theme === 'light';
   const baselineRhr = athleteProfile.restingHeartRate || 41;
@@ -667,7 +670,7 @@ export const RecoveryView: React.FC<RecoveryViewProps> = ({
       {/* ========================================================= */}
       {/* 2. TODAY'S READINESS HERO & PILLARS */}
       {/* ========================================================= */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
+      <div className={`grid grid-cols-1 lg:grid-cols-12 gap-5 ${isHealthInsightsExpanded ? 'items-start' : ''}`}>
         {/* Main Readiness Score Card (Daily Training Readiness) */}
         <div
           className={`lg:col-span-5 rounded-2xl p-5 flex flex-col justify-between relative overflow-hidden transition-colors border ${
@@ -776,26 +779,143 @@ export const RecoveryView: React.FC<RecoveryViewProps> = ({
             </div>
           </div>
 
-          {/* Actionable Training Prescription Banner */}
-          <div
-            className={`p-3 rounded-xl border text-xs leading-relaxed flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 ${
-              isLight
-                ? 'bg-slate-50 border-slate-200 text-slate-700'
-                : 'bg-slate-950/60 border-slate-800/80 text-slate-300'
-            }`}
-          >
-            <span>{todayReadiness.trainingRecommendation}</span>
-            {!hasGarminData && (
-              <button
-                type="button"
-                onClick={() => setIsGarminModalOpen(true)}
-                className="shrink-0 px-3 py-1.5 rounded-lg text-xs font-bold bg-sky-500 hover:bg-sky-400 text-slate-950 flex items-center justify-center gap-1 cursor-pointer transition-colors shadow-xs"
-              >
-                <Zap className="w-3.5 h-3.5" />
-                <span>Connect Garmin</span>
-              </button>
-            )}
+          {/* Actionable Training Prescription Banner + Expand Garmin Health Insights Button */}
+          <div className="flex items-end gap-2">
+            <div
+              className={`flex-1 p-3 rounded-xl border text-xs leading-relaxed flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 ${
+                isLight
+                  ? 'bg-slate-50 border-slate-200 text-slate-700'
+                  : 'bg-slate-950/60 border-slate-800/80 text-slate-300'
+              }`}
+            >
+              <span>{todayReadiness.trainingRecommendation}</span>
+              {!hasGarminData && (
+                <button
+                  type="button"
+                  onClick={() => setIsGarminModalOpen(true)}
+                  className="shrink-0 px-3 py-1.5 rounded-lg text-xs font-bold bg-sky-500 hover:bg-sky-400 text-slate-950 flex items-center justify-center gap-1 cursor-pointer transition-colors shadow-xs"
+                >
+                  <Zap className="w-3.5 h-3.5" />
+                  <span>Connect Garmin</span>
+                </button>
+              )}
+            </div>
+
+            <button
+              type="button"
+              onClick={() => setIsHealthInsightsExpanded((prev) => !prev)}
+              title={isHealthInsightsExpanded ? 'Hide Garmin Health Insights' : 'Show Garmin Health Insights'}
+              aria-expanded={isHealthInsightsExpanded}
+              className={`shrink-0 w-7 h-7 rounded-lg border flex items-center justify-center transition-colors cursor-pointer ${
+                isLight
+                  ? isHealthInsightsExpanded
+                    ? 'bg-sky-50 border-sky-200 text-sky-600'
+                    : 'bg-slate-50 hover:bg-slate-100 border-slate-200 text-slate-500 hover:text-slate-700'
+                  : isHealthInsightsExpanded
+                  ? 'bg-sky-500/15 border-sky-500/30 text-sky-400'
+                  : 'bg-slate-950/60 hover:bg-slate-900 border-slate-800/80 text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              {isHealthInsightsExpanded ? (
+                <ChevronUp className="w-3.5 h-3.5" />
+              ) : (
+                <ChevronDown className="w-3.5 h-3.5" />
+              )}
+            </button>
           </div>
+
+          {/* Collapsible Garmin Health Insights */}
+          {isHealthInsightsExpanded && (
+            <div
+              className={`mt-4 pt-4 border-t space-y-3 ${
+                isLight ? 'border-slate-200' : 'border-slate-800/80'
+              }`}
+            >
+              <div className="flex items-center gap-2">
+                <div className="w-7 h-7 rounded-lg bg-sky-500/10 border border-sky-500/20 flex items-center justify-center text-sky-500 shrink-0">
+                  <Sparkles className="w-3.5 h-3.5" />
+                </div>
+                <div>
+                  <h3 className={`text-xs font-bold ${isLight ? 'text-slate-900' : 'text-white'}`}>
+                    Garmin Health Insights
+                  </h3>
+                  <p className={`text-[11px] ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>
+                    Statistical patterns linking your overnight sleep architecture to resting HR and HRV
+                  </p>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 gap-2.5">
+                <div
+                  className={`p-3 rounded-xl border space-y-1 ${
+                    isLight ? 'bg-slate-50 border-slate-200' : 'bg-slate-950/60 border-slate-800/80'
+                  }`}
+                >
+                  <div className="flex items-center justify-between">
+                    <span
+                      className={`text-xs font-semibold ${
+                        isLight ? 'text-slate-700' : 'text-slate-300'
+                      }`}
+                    >
+                      Sleep Duration vs Next-Day HRV
+                    </span>
+                    <span className="text-xs font-bold text-sky-500">
+                      r ={' '}
+                      {correlations.sleepVsHrvCorrelation > 0
+                        ? `+${correlations.sleepVsHrvCorrelation.toFixed(2)}`
+                        : correlations.sleepVsHrvCorrelation.toFixed(2)}
+                    </span>
+                  </div>
+                  <p className={`text-xs leading-relaxed ${isLight ? 'text-slate-600' : 'text-slate-400'}`}>
+                    Longer overnight sleep consistently expands your autonomic reserve and elevates HRV
+                    above baseline.
+                  </p>
+                </div>
+
+                <div
+                  className={`p-3 rounded-xl border space-y-1 ${
+                    isLight ? 'bg-slate-50 border-slate-200' : 'bg-slate-950/60 border-slate-800/80'
+                  }`}
+                >
+                  <div className="flex items-center justify-between">
+                    <span
+                      className={`text-xs font-semibold ${
+                        isLight ? 'text-slate-700' : 'text-slate-300'
+                      }`}
+                    >
+                      Deep Sleep vs Morning RHR
+                    </span>
+                    <span className="text-xs font-bold text-indigo-500">
+                      r ={' '}
+                      {correlations.deepSleepVsRhrCorrelation > 0
+                        ? `+${correlations.deepSleepVsRhrCorrelation.toFixed(2)}`
+                        : correlations.deepSleepVsRhrCorrelation.toFixed(2)}
+                    </span>
+                  </div>
+                  <p className={`text-xs leading-relaxed ${isLight ? 'text-slate-600' : 'text-slate-400'}`}>
+                    Nights with 75+ minutes of Deep Sleep show lower next-morning resting HR, stabilizing
+                    tightly at your {baselineRhr} bpm baseline.
+                  </p>
+                </div>
+              </div>
+
+              {correlations.keyTakeaways.length > 0 && (
+                <div className="space-y-1.5 pt-0.5">
+                  {correlations.keyTakeaways.map((tip, idx) => (
+                    <div
+                      key={idx}
+                      className={`flex items-start gap-2 text-xs ${
+                        isLight ? 'text-slate-700' : 'text-slate-300'
+                      }`}
+                    >
+                      <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0 mt-0.5" />
+                      <span>{tip}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
         </div>
 
         {/* 4 Diagnostic Health & Sleep Pillar Cards */}
@@ -2005,100 +2125,6 @@ export const RecoveryView: React.FC<RecoveryViewProps> = ({
             );
           })()}
         </div>
-      </div>
-
-      {/* ========================================================= */}
-      {/* 4. CROSS-CORRELATION SCIENTIFIC INSIGHTS */}
-      {/* ========================================================= */}
-      <div
-        className={`border rounded-2xl p-5 space-y-3 transition-colors ${
-          isLight ? 'bg-white border-slate-200 shadow-xs' : 'bg-slate-900/60 border-slate-800'
-        }`}
-      >
-        <div className="flex items-center gap-2">
-          <div className="w-8 h-8 rounded-lg bg-sky-500/10 border border-sky-500/20 flex items-center justify-center text-sky-500">
-            <Sparkles className="w-4 h-4" />
-          </div>
-          <div>
-            <h3 className={`text-sm font-bold ${isLight ? 'text-slate-900' : 'text-white'}`}>
-              Garmin &amp; TrainingPeaks Cross-Correlation Insights
-            </h3>
-            <p className={`text-xs ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>
-              Statistical patterns linking your overnight sleep architecture to resting HR and HRV
-            </p>
-          </div>
-        </div>
-
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pt-1">
-          <div
-            className={`p-3 rounded-xl border space-y-1 ${
-              isLight ? 'bg-slate-50 border-slate-200' : 'bg-slate-950/60 border-slate-800/80'
-            }`}
-          >
-            <div className="flex items-center justify-between">
-              <span
-                className={`text-xs font-semibold ${
-                  isLight ? 'text-slate-700' : 'text-slate-300'
-                }`}
-              >
-                Sleep Duration vs Next-Day HRV
-              </span>
-              <span className="text-xs font-bold text-sky-500">
-                r ={' '}
-                {correlations.sleepVsHrvCorrelation > 0
-                  ? `+${correlations.sleepVsHrvCorrelation.toFixed(2)}`
-                  : correlations.sleepVsHrvCorrelation.toFixed(2)}
-              </span>
-            </div>
-            <p className={`text-xs leading-relaxed ${isLight ? 'text-slate-600' : 'text-slate-400'}`}>
-              Longer overnight sleep consistently expands your autonomic reserve and elevates HRV
-              above baseline.
-            </p>
-          </div>
-
-          <div
-            className={`p-3 rounded-xl border space-y-1 ${
-              isLight ? 'bg-slate-50 border-slate-200' : 'bg-slate-950/60 border-slate-800/80'
-            }`}
-          >
-            <div className="flex items-center justify-between">
-              <span
-                className={`text-xs font-semibold ${
-                  isLight ? 'text-slate-700' : 'text-slate-300'
-                }`}
-              >
-                Deep Sleep vs Morning RHR
-              </span>
-              <span className="text-xs font-bold text-indigo-500">
-                r ={' '}
-                {correlations.deepSleepVsRhrCorrelation > 0
-                  ? `+${correlations.deepSleepVsRhrCorrelation.toFixed(2)}`
-                  : correlations.deepSleepVsRhrCorrelation.toFixed(2)}
-              </span>
-            </div>
-            <p className={`text-xs leading-relaxed ${isLight ? 'text-slate-600' : 'text-slate-400'}`}>
-              Nights with 75+ minutes of Deep Sleep show lower next-morning resting HR, stabilizing
-              tightly at your {baselineRhr} bpm baseline.
-            </p>
-          </div>
-        </div>
-
-        {/* Dynamic takeaways */}
-        {correlations.keyTakeaways.length > 0 && (
-          <div className="space-y-1.5 pt-1">
-            {correlations.keyTakeaways.map((tip, idx) => (
-              <div
-                key={idx}
-                className={`flex items-start gap-2 text-xs ${
-                  isLight ? 'text-slate-700' : 'text-slate-300'
-                }`}
-              >
-                <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0 mt-0.5" />
-                <span>{tip}</span>
-              </div>
-            ))}
-          </div>
-        )}
       </div>
 
       {/* ========================================================= */}
