@@ -93,6 +93,94 @@ export const WeeklyMileageChart: React.FC<WeeklyMileageChartProps> = ({
   const [selectedBikeWeek, setSelectedBikeWeek] = useState<WeeklyBikeBucket | null>(null);
   const scrollContainerRef = React.useRef<HTMLDivElement>(null);
 
+  const WEEK_FLAGS_STORAGE_KEY = 'fit_track_week_flags_v1';
+  const [weekFlags, setWeekFlags] = useState<Record<string, 'deload' | 'race'>>(() => {
+    if (typeof window === 'undefined') return {};
+    try {
+      const raw = localStorage.getItem(WEEK_FLAGS_STORAGE_KEY);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (parsed && typeof parsed === 'object') return parsed;
+      }
+    } catch {}
+    return {};
+  });
+
+  const handleSetWeekFlag = (weekKey: string, flag: 'normal' | 'deload' | 'race') => {
+    if (!weekKey) return;
+    setWeekFlags((prev) => {
+      const next = { ...prev };
+      if (flag === 'normal') {
+        delete next[weekKey];
+      } else {
+        next[weekKey] = flag;
+      }
+      try {
+        localStorage.setItem(WEEK_FLAGS_STORAGE_KEY, JSON.stringify(next));
+        window.dispatchEvent(
+          new CustomEvent('fittrack_local_storage_updated', { detail: { domains: ['week_flags'] } })
+        );
+      } catch {}
+      return next;
+    });
+  };
+
+  const renderWeekFlagSelector = (weekKey: string, weekShortLabel: string) => {
+    if (granularity !== 'week' || !weekKey) return null;
+    const currentFlag = weekFlags[weekKey] || 'normal';
+    return (
+      <div className="flex items-center gap-1.5 flex-wrap">
+        <span className={`text-[10px] font-bold uppercase tracking-wider ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>
+          {weekShortLabel}:
+        </span>
+        <div
+          className={`flex items-center p-0.5 rounded-lg border text-[10px] font-bold ${
+            isLight ? 'bg-slate-100 border-slate-200' : 'bg-slate-950/60 border-slate-800'
+          }`}
+        >
+          {(
+            [
+              { id: 'normal', label: 'Normal' },
+              { id: 'deload', label: 'Deload Week' },
+              { id: 'race', label: 'Race Week' },
+            ] as const
+          ).map((opt) => {
+            const isActive = currentFlag === opt.id;
+            const activeClass =
+              opt.id === 'deload'
+                ? 'bg-teal-500 text-slate-950 shadow-xs'
+                : opt.id === 'race'
+                ? 'bg-purple-500 text-white shadow-xs'
+                : isLight
+                ? 'bg-white text-slate-900 shadow-xs'
+                : 'bg-slate-800 text-white shadow-xs';
+            return (
+              <button
+                key={opt.id}
+                type="button"
+                onClick={() => handleSetWeekFlag(weekKey, opt.id)}
+                className={`px-2 py-0.5 rounded-md transition-colors cursor-pointer ${
+                  isActive
+                    ? activeClass
+                    : isLight
+                    ? 'text-slate-600 hover:text-slate-900'
+                    : 'text-slate-400 hover:text-white'
+                }`}
+                title={
+                  opt.id === 'normal'
+                    ? 'Include this week in normal baseline & ramp calculations'
+                    : `Mark ${weekShortLabel} as a ${opt.label} to ignore it from baseline & ramp calculations`
+                }
+              >
+                {opt.label}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+    );
+  };
+
   const currentPeriodCount = granularity === 'month' ? numMonths : numWeeks;
 
   // Compute TSS volume from activities
@@ -110,6 +198,12 @@ export const WeeklyMileageChart: React.FC<WeeklyMileageChartProps> = ({
   // Compute Running volume
   const { weeks, stats } = useMemo(() => {
     return computeWeeklyRunningMileage(activities, currentPeriodCount, granularity);
+  }, [activities, currentPeriodCount, granularity]);
+
+  // Extended weekly running lookback so every visible week can find up to 4 prior normal weeks
+  const extendedRunWeeks = useMemo(() => {
+    if (granularity !== 'week') return [];
+    return computeWeeklyRunningMileage(activities, Math.max(currentPeriodCount + 8, 24), 'week').weeks;
   }, [activities, currentPeriodCount, granularity]);
 
   // Compute Swim volume
@@ -1664,10 +1758,43 @@ export const WeeklyMileageChart: React.FC<WeeklyMileageChartProps> = ({
 
       {/* RUN SECTION */}
       {activeTab === 'mileage' && (() => {
-        const currentVal =
+        const getBucketVal = (b: WeeklyMileageBucket) =>
           metricType === 'distance'
-            ? (unit === 'miles' ? activeWeek?.distanceMiles : activeWeek?.distanceKm) || 0
-            : activeWeek?.movingHours || 0;
+            ? unit === 'miles'
+              ? b.distanceMiles
+              : b.distanceKm
+            : b.movingHours;
+
+        const computeMedian = (vals: number[]): number => {
+          if (vals.length === 0) return 0;
+          const sorted = [...vals].sort((a, b) => a - b);
+          const mid = Math.floor(sorted.length / 2);
+          const med =
+            sorted.length % 2 === 1 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
+          return Math.round(med * 10) / 10;
+        };
+
+        // Helper: get the last up to 4 normal weeks strictly prior to targetWeekKey
+        const getPrior4NormalWeeks = (targetWeekKey: string) => {
+          const sourceList = extendedRunWeeks.length > 0 ? extendedRunWeeks : weeks;
+          const targetIdx = sourceList.findIndex((w) => w.weekKey === targetWeekKey);
+          if (targetIdx <= 0) return { baseline: 0, normalWeeks: [] as WeeklyMileageBucket[] };
+          const collected: WeeklyMileageBucket[] = [];
+          for (let j = targetIdx - 1; j >= 0 && collected.length < 4; j--) {
+            const candidate = sourceList[j];
+            const flag = weekFlags[candidate.weekKey];
+            if (flag === 'deload' || flag === 'race') continue;
+            if (getBucketVal(candidate) <= 0) continue;
+            collected.push(candidate);
+          }
+          const vals = collected.map(getBucketVal);
+          return {
+            baseline: computeMedian(vals),
+            normalWeeks: collected,
+          };
+        };
+
+        const currentVal = activeWeek ? getBucketVal(activeWeek) : 0;
 
         const activeSameDay = activeRunIdx >= 0 ? runSameDayByBar[activeRunIdx] : null;
         const activeSameDayVal = activeSameDay
@@ -1676,12 +1803,53 @@ export const WeeklyMileageChart: React.FC<WeeklyMileageChartProps> = ({
             : activeSameDay.movingHours
           : currentVal;
 
-        const avgVal =
+        // Ignore weeks flagged as Deload or Race when computing Weekly Average
+        const normalVisibleWeeks =
+          granularity === 'week'
+            ? weeks.filter((w) => !weekFlags[w.weekKey])
+            : weeks;
+
+        const rawAvgVal =
           metricType === 'distance'
             ? unit === 'miles'
               ? stats.averageWeeklyMiles
               : stats.averageWeeklyKm
             : stats.averageWeeklyHours;
+
+        const avgVal =
+          granularity === 'week' && normalVisibleWeeks.length > 0
+            ? Math.round(
+                (normalVisibleWeeks.reduce((acc, w) => acc + getBucketVal(w), 0) /
+                  normalVisibleWeeks.length) *
+                  10
+              ) / 10
+            : rawAvgVal;
+
+        // Baseline for the active/current week = median of the last 4 normal weeks prior to activeWeek
+        const activeBaselineInfo =
+          granularity === 'week' && activeWeek
+            ? getPrior4NormalWeeks(activeWeek.weekKey)
+            : { baseline: 0, normalWeeks: [] as WeeklyMileageBucket[] };
+
+        // Fallback if the active week is at the very beginning of history: take median of last 4 normal weeks in view
+        const baselineVal =
+          granularity === 'week'
+            ? activeBaselineInfo.baseline > 0
+              ? activeBaselineInfo.baseline
+              : computeMedian(
+                  normalVisibleWeeks
+                    .filter((w) => getBucketVal(w) > 0)
+                    .slice(-4)
+                    .map(getBucketVal)
+                )
+            : avgVal;
+
+        const minBase = metricType === 'distance' ? (unit === 'miles' ? 5 : 8) : 0.75;
+        const minDelta = metricType === 'distance' ? (unit === 'miles' ? 2.5 : 4.0) : 0.35;
+        const chartSafeRampCap =
+          granularity === 'week' && baselineVal > 0
+            ? Math.round(Math.max(baselineVal * 1.15, baselineVal + minDelta) * 10) / 10
+            : 0;
 
         const peakVal =
           metricType === 'distance'
@@ -1734,9 +1902,11 @@ export const WeeklyMileageChart: React.FC<WeeklyMileageChartProps> = ({
               : stats.totalHours / stats.totalRuns)
           : 0;
 
+        const activeWeekFlag = activeWeek ? weekFlags[activeWeek.weekKey] : undefined;
+
         return (
           <>
-            {/* Subheader: Run + Badge + Controls */}
+            {/* Subheader: Run + Badge + Controls + Active Week Flag Selector */}
             <div className="flex flex-wrap items-center justify-between gap-3 pt-4 pb-2">
               <div className="flex flex-wrap items-center gap-2 sm:gap-2.5">
                 <h3
@@ -1751,6 +1921,8 @@ export const WeeklyMileageChart: React.FC<WeeklyMileageChartProps> = ({
                 </span>
                 {renderActivityControls()}
               </div>
+
+              {activeWeek && renderWeekFlagSelector(activeWeek.weekKey, activeWeek.shortLabel)}
             </div>
 
             {/* KPI Stats Cards */}
@@ -1762,13 +1934,26 @@ export const WeeklyMileageChart: React.FC<WeeklyMileageChartProps> = ({
                     : 'bg-slate-950/40 border-slate-800/80'
                 }`}
               >
-                <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 block">
-                  {activeWeek && !activeWeek.isCurrentWeek
-                    ? activeWeek.shortLabel
-                    : granularity === 'month'
-                    ? 'This Month'
-                    : 'This Week'}
-                </span>
+                <div className="flex items-center justify-between gap-1">
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 block">
+                    {activeWeek && !activeWeek.isCurrentWeek
+                      ? activeWeek.shortLabel
+                      : granularity === 'month'
+                      ? 'This Month'
+                      : 'This Week'}
+                  </span>
+                  {granularity === 'week' && activeWeekFlag && (
+                    <span
+                      className={`text-[9px] font-bold uppercase px-1.5 py-0.5 rounded ${
+                        activeWeekFlag === 'deload'
+                          ? 'bg-teal-500/15 text-teal-600 dark:text-teal-400 border border-teal-500/30'
+                          : 'bg-purple-500/15 text-purple-600 dark:text-purple-400 border border-purple-500/30'
+                      }`}
+                    >
+                      {activeWeekFlag === 'deload' ? 'Deload' : 'Race Week'}
+                    </span>
+                  )}
+                </div>
                 <div className="mt-1 flex items-baseline gap-1.5">
                   <span className="text-xl sm:text-2xl font-black font-mono text-amber-500">
                     {currentVal}
@@ -1818,18 +2003,22 @@ export const WeeklyMileageChart: React.FC<WeeklyMileageChartProps> = ({
                 }`}
               >
                 <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 block">
-                  {granularity === 'month' ? 'Monthly Average' : 'Weekly Average'}
+                  {granularity === 'month' ? 'Monthly Average' : '4W Normal Baseline (Median)'}
                 </span>
                 <div className="mt-1 flex items-baseline gap-1.5">
                   <span className="text-xl sm:text-2xl font-black font-mono text-sky-400">
-                    {avgVal}
+                    {granularity === 'week' ? baselineVal : avgVal}
                   </span>
                   <span className="text-xs text-slate-500 font-bold">{rateUnitLabel}</span>
                 </div>
                 <span className="text-[10px] text-slate-500">
-                  {avgPerRun > 0
+                  {granularity === 'week'
+                    ? `Avg: ${avgVal} ${rateUnitLabel}${
+                        avgPerRun > 0 ? ` • ${avgPerRun.toFixed(2)}${shortUnitLabel}/run` : ''
+                      }`
+                    : avgPerRun > 0
                     ? `${avgPerRun.toFixed(2)}${shortUnitLabel} average per run`
-                    : `Over ${currentPeriodCount} ${granularity === 'month' ? 'months' : 'weeks'}`}
+                    : `Over ${currentPeriodCount} months`}
                 </span>
               </div>
 
@@ -1882,10 +2071,10 @@ export const WeeklyMileageChart: React.FC<WeeklyMileageChartProps> = ({
                   Run {metricType === 'distance' ? `distance (${unit})` : 'moving time (hours)'} per {granularity}
                 </span>
                 <div className="flex items-center gap-3 flex-wrap text-[11px] font-mono">
-                  {granularity === 'week' && avgVal > 0 && (
+                  {granularity === 'week' && baselineVal > 0 && (
                     <span className="inline-flex items-center gap-1 text-emerald-500 dark:text-emerald-400 font-bold">
                       <span className="w-2.5 h-2 rounded-xs bg-emerald-500/25 border border-emerald-500/60 inline-block" />
-                      Safe Ramp Band (≤ +15% / +3.5 rCTL/wk)
+                      Safe Ramp Band (4w Normal Median +15% / +3.5 rCTL/wk)
                     </span>
                   )}
                   <span>
@@ -1895,58 +2084,91 @@ export const WeeklyMileageChart: React.FC<WeeklyMileageChartProps> = ({
               </div>
 
               {(() => {
-                // Identify weekly ramp-cap breaches (> +15% and significant volume jump over prior week)
-                const minBase = metricType === 'distance' ? (unit === 'miles' ? 5 : 8) : 0.75;
-                const minDelta = metricType === 'distance' ? (unit === 'miles' ? 2.5 : 4.0) : 0.35;
-                const rampBreaches: { weekLabel: string; prevVal: number; val: number; capVal: number; pctJump: number }[] = [];
+                // Identify weekly ramp-cap breaches against the median of the last 4 normal weeks
+                // Weeks flagged as 'deload' or 'race' are ignored from ramp calculations
+                const rampBreaches: {
+                  weekKey: string;
+                  weekLabel: string;
+                  baselineVal: number;
+                  val: number;
+                  capVal: number;
+                  pctJump: number;
+                  normalCount: number;
+                }[] = [];
                 if (granularity === 'week') {
-                  weeks.forEach((w, idx) => {
-                    if (idx === 0) return;
-                    const prevW = weeks[idx - 1];
-                    const prevV =
-                      metricType === 'distance'
-                        ? unit === 'miles'
-                          ? prevW.distanceMiles
-                          : prevW.distanceKm
-                        : prevW.movingHours;
-                    const curV =
-                      metricType === 'distance'
-                        ? unit === 'miles'
-                          ? w.distanceMiles
-                          : w.distanceKm
-                        : w.movingHours;
-                    const safeCap = Math.round(Math.max(prevV * 1.15, prevV + minDelta) * 10) / 10;
-                    if (prevV >= minBase && curV > safeCap) {
+                  weeks.forEach((w) => {
+                    const flag = weekFlags[w.weekKey];
+                    if (flag === 'deload' || flag === 'race') return;
+                    const { baseline: wBase, normalWeeks: wNormals } = getPrior4NormalWeeks(w.weekKey);
+                    const curV = getBucketVal(w);
+                    if (wNormals.length === 0 || wBase < minBase) return;
+                    const safeCap = Math.round(Math.max(wBase * 1.15, wBase + minDelta) * 10) / 10;
+                    if (curV > safeCap) {
                       rampBreaches.push({
+                        weekKey: w.weekKey,
                         weekLabel: w.shortLabel,
-                        prevVal: prevV,
+                        baselineVal: wBase,
                         val: curV,
                         capVal: safeCap,
-                        pctJump: Math.round(((curV - prevV) / prevV) * 100),
+                        pctJump: Math.round(((curV - wBase) / wBase) * 100),
+                        normalCount: wNormals.length,
                       });
                     }
                   });
                 }
-                const worstBreach = rampBreaches.sort((a, b) => b.val - b.prevVal - (a.val - a.prevVal))[0];
-                return worstBreach ? (
+                // Prioritize showing the breach for the currently selected week if it has one; otherwise the most recent breach
+                const activeBreach =
+                  (activeWeek && rampBreaches.find((b) => b.weekKey === activeWeek.weekKey)) ||
+                  rampBreaches[rampBreaches.length - 1];
+                return activeBreach ? (
                   <div
-                    className={`px-3 py-1.5 rounded-lg border text-[11px] flex items-center justify-between gap-2 ${
+                    className={`px-3 py-1.5 rounded-lg border text-[11px] flex flex-wrap items-center justify-between gap-2 ${
                       isLight
                         ? 'bg-rose-50 border-rose-200 text-rose-800'
                         : 'bg-rose-950/30 border-rose-500/30 text-rose-300'
                     }`}
                   >
                     <span>
-                      <strong>Ramp-Limit Breach ({worstBreach.weekLabel}):</strong> Run volume jumped from{' '}
+                      <strong>Ramp-Limit Breach ({activeBreach.weekLabel}):</strong> Run volume reached{' '}
                       <span className="font-mono font-bold">
-                        {worstBreach.prevVal} → {worstBreach.val} {metricUnitLabel} (+{worstBreach.pctJump}%)
+                        {activeBreach.val} {metricUnitLabel} (+{activeBreach.pctJump}%)
+                      </span>{' '}
+                      above the {activeBreach.normalCount}-week normal median baseline of{' '}
+                      <span className="font-mono font-bold">
+                        {activeBreach.baselineVal} {metricUnitLabel}
                       </span>
-                      , exceeding the safe ≤+15% / +3.5 rCTL/wk (+10–15 min) bone &amp; tendon cap (safe ceiling:{' '}
+                      , exceeding the safe ≤+15% / +3.5 rCTL/wk cap (safe ceiling:{' '}
                       <span className="font-mono font-bold">
-                        {worstBreach.capVal} {metricUnitLabel}
+                        {activeBreach.capVal} {metricUnitLabel}
                       </span>
                       ).
                     </span>
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      <button
+                        type="button"
+                        onClick={() => handleSetWeekFlag(activeBreach.weekKey, 'deload')}
+                        className={`px-2 py-0.5 rounded text-[10px] font-bold border transition-colors cursor-pointer ${
+                          isLight
+                            ? 'bg-white hover:bg-teal-50 border-rose-200 text-teal-700'
+                            : 'bg-slate-900 hover:bg-teal-950/50 border-rose-500/30 text-teal-300'
+                        }`}
+                        title={`Mark ${activeBreach.weekLabel} as a Deload Week to ignore it from calculations`}
+                      >
+                        Mark Deload
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleSetWeekFlag(activeBreach.weekKey, 'race')}
+                        className={`px-2 py-0.5 rounded text-[10px] font-bold border transition-colors cursor-pointer ${
+                          isLight
+                            ? 'bg-white hover:bg-purple-50 border-rose-200 text-purple-700'
+                            : 'bg-slate-900 hover:bg-purple-950/50 border-rose-500/30 text-purple-300'
+                        }`}
+                        title={`Mark ${activeBreach.weekLabel} as a Race Week to ignore it from calculations`}
+                      >
+                        Mark Race Week
+                      </button>
+                    </div>
                   </div>
                 ) : null;
               })()}
@@ -1955,31 +2177,40 @@ export const WeeklyMileageChart: React.FC<WeeklyMileageChartProps> = ({
                 <div className={`relative pt-6 pb-1 ${currentPeriodCount >= 36 ? 'min-w-[620px] sm:min-w-full' : currentPeriodCount === 52 ? 'min-w-[560px] sm:min-w-full' : 'w-full'}`}>
                   {/* Dedicated 0-100% Bar Plot Area */}
                   <div className="relative h-44 sm:h-52 w-full">
-                    {/* Safe Weekly Ramp-Limit Band (Avg to +15% Safe Ramp Ceiling) */}
-                    {granularity === 'week' && avgVal > 0 && (
+                    {/* Safe Weekly Ramp-Limit Band (4w Normal Median Baseline to +15% Safe Ramp Ceiling) */}
+                    {granularity === 'week' && baselineVal > 0 && (
                       <div
                         className="absolute left-0 right-0 bg-emerald-500/12 border-t border-dashed border-emerald-500/70 z-10 pointer-events-none"
                         style={{
-                          bottom: `${Math.min(88, (avgVal * 0.85 / maxWeeklyRun) * 100)}%`,
-                          height: `${Math.max(6, Math.min(95, (avgVal * 1.15 / maxWeeklyRun) * 100) - Math.min(88, (avgVal * 0.85 / maxWeeklyRun) * 100))}%`,
+                          bottom: `${Math.min(88, (baselineVal / maxWeeklyRun) * 100)}%`,
+                          height: `${Math.max(
+                            4,
+                            Math.min(95, (chartSafeRampCap / maxWeeklyRun) * 100) -
+                              Math.min(88, (baselineVal / maxWeeklyRun) * 100)
+                          )}%`,
                         }}
                       >
                         <span className="absolute left-2 -top-4 text-[9px] font-mono font-bold text-emerald-700 dark:text-emerald-300 bg-white/90 dark:bg-slate-900/90 border border-emerald-500/40 px-1.5 py-0.2 rounded">
-                          Safe Ramp Cap (~{Math.round(avgVal * 1.15 * 10) / 10} {metricUnitLabel})
+                          Safe Ramp Cap (~{chartSafeRampCap} {metricUnitLabel})
                         </span>
                       </div>
                     )}
 
-                    {/* Average Reference Line */}
-                    {avgVal > 0 && (
+                    {/* Baseline / Average Reference Line */}
+                    {(granularity === 'week' ? baselineVal : avgVal) > 0 && (
                       <div
                         className="absolute left-0 right-0 border-b-2 border-dotted border-red-500 z-20 pointer-events-none"
                         style={{
-                          bottom: `${Math.min(92, (avgVal / maxWeeklyRun) * 100)}%`,
+                          bottom: `${Math.min(
+                            92,
+                            ((granularity === 'week' ? baselineVal : avgVal) / maxWeeklyRun) * 100
+                          )}%`,
                         }}
                       >
                         <span className="absolute right-2 -top-4 text-[10px] font-mono font-bold text-black bg-white/95 border border-slate-300 px-1.5 py-0.5 rounded shadow-sm">
-                          Avg: {avgVal} {metricUnitLabel}
+                          {granularity === 'week'
+                            ? `Baseline (4w Med): ${baselineVal} ${metricUnitLabel}`
+                            : `Avg: ${avgVal} ${metricUnitLabel}`}
                         </span>
                       </div>
                     )}
@@ -1987,25 +2218,17 @@ export const WeeklyMileageChart: React.FC<WeeklyMileageChartProps> = ({
                     {/* Bar Chart Grid */}
                     <div className={`h-full w-full flex items-end ${currentPeriodCount >= 36 ? 'gap-[1px] sm:gap-[1.5px]' : currentPeriodCount === 52 ? 'gap-[1.5px]' : 'gap-[3px]'} px-0 relative z-10`}>
                       {weeks.map((w, idx) => {
-                        const val =
-                          metricType === 'distance'
-                            ? (unit === 'miles' ? w.distanceMiles : w.distanceKm)
-                            : w.movingHours;
-                        const prevVal =
-                          idx > 0
-                            ? metricType === 'distance'
-                              ? unit === 'miles'
-                                ? weeks[idx - 1].distanceMiles
-                                : weeks[idx - 1].distanceKm
-                              : weeks[idx - 1].movingHours
-                            : 0;
-                        const minBase = metricType === 'distance' ? (unit === 'miles' ? 5 : 8) : 0.75;
-                        const minDelta = metricType === 'distance' ? (unit === 'miles' ? 2.5 : 4.0) : 0.35;
+                        const val = getBucketVal(w);
+                        const wFlag = granularity === 'week' ? weekFlags[w.weekKey] : undefined;
+                        const { baseline: wBaseline } =
+                          granularity === 'week'
+                            ? getPrior4NormalWeeks(w.weekKey)
+                            : { baseline: 0 };
                         const safeRampCapVal =
-                          granularity === 'week' && prevVal >= minBase
-                            ? Math.round(Math.max(prevVal * 1.15, prevVal + minDelta) * 10) / 10
+                          granularity === 'week' && !wFlag && wBaseline >= minBase
+                            ? Math.round(Math.max(wBaseline * 1.15, wBaseline + minDelta) * 10) / 10
                             : null;
-                        const isRampBreach = safeRampCapVal !== null && val > safeRampCapVal;
+                        const isRampBreach = !wFlag && safeRampCapVal !== null && val > safeRampCapVal;
                         const safeCapHeightPct =
                           safeRampCapVal !== null
                             ? Math.min(100, Math.max(4, (safeRampCapVal / maxWeeklyRun) * 100))
@@ -2041,7 +2264,7 @@ export const WeeklyMileageChart: React.FC<WeeklyMileageChartProps> = ({
                             {val > 0 && (
                               <div
                                 style={{ bottom: `${heightPct}%` }}
-                                className={`absolute left-1/2 -translate-x-1/2 mb-1 z-20 text-[10px] font-mono font-bold transition-all whitespace-nowrap pointer-events-none ${
+                                className={`absolute left-1/2 -translate-x-1/2 mb-1 z-20 text-[10px] font-mono font-bold transition-all whitespace-nowrap pointer-events-none flex flex-col items-center ${
                                   isSelected
                                     ? 'text-amber-400 scale-110'
                                     : isLight
@@ -2049,7 +2272,18 @@ export const WeeklyMileageChart: React.FC<WeeklyMileageChartProps> = ({
                                     : 'text-slate-400 group-hover:text-amber-400'
                                 } ${currentPeriodCount >= 24 && !isSelected ? 'hidden sm:block opacity-0 group-hover:opacity-100' : ''}`}
                               >
-                                {val}
+                                {wFlag && (
+                                  <span
+                                    className={`text-[8px] px-1 rounded uppercase tracking-tighter mb-0.5 ${
+                                      wFlag === 'deload'
+                                        ? 'bg-teal-500/20 text-teal-600 dark:text-teal-300 border border-teal-500/40'
+                                        : 'bg-purple-500/20 text-purple-600 dark:text-purple-300 border border-purple-500/40'
+                                    }`}
+                                  >
+                                    {wFlag === 'deload' ? 'Deload' : 'Race'}
+                                  </span>
+                                )}
+                                <span>{val}</span>
                               </div>
                             )}
 
@@ -2058,7 +2292,7 @@ export const WeeklyMileageChart: React.FC<WeeklyMileageChartProps> = ({
                               <div
                                 className="absolute left-0 right-0 z-30 pointer-events-none"
                                 style={{ bottom: `${safeCapHeightPct}%` }}
-                                title={`Safe weekly ramp cap: ${safeRampCapVal} ${metricUnitLabel} (+15% from prior week ${prevVal} ${metricUnitLabel})`}
+                                title={`Safe weekly ramp cap: ${safeRampCapVal} ${metricUnitLabel} (+15% from 4w normal median baseline ${wBaseline} ${metricUnitLabel})`}
                               >
                                 <div className="w-full border-b-2 border-dashed border-emerald-400" />
                               </div>
@@ -2091,12 +2325,20 @@ export const WeeklyMileageChart: React.FC<WeeklyMileageChartProps> = ({
                                       : '#1e293b'
                                     : isSelected
                                     ? '#f59e0b'
+                                    : wFlag === 'deload'
+                                    ? isLight
+                                      ? '#5eead4'
+                                      : '#0d9488'
+                                    : wFlag === 'race'
+                                    ? isLight
+                                      ? '#c084fc'
+                                      : '#9333ea'
                                     : w.isCurrentWeek
                                     ? '#fbbf24'
                                     : isLight
                                     ? '#38bdf8'
                                     : '#0284c7',
-                                opacity: val === 0 ? 0.35 : isSelected ? 1 : 0.85,
+                                opacity: val === 0 ? 0.35 : isSelected ? 1 : wFlag ? 0.72 : 0.85,
                                 boxShadow: isSelected ? '0 0 12px rgba(245, 158, 11, 0.45)' : undefined,
                               }}
                             />
@@ -2110,6 +2352,7 @@ export const WeeklyMileageChart: React.FC<WeeklyMileageChartProps> = ({
                   <div className={`mt-2 w-full flex items-center ${currentPeriodCount >= 36 ? 'gap-[1px] sm:gap-[1.5px]' : currentPeriodCount === 52 ? 'gap-[1.5px]' : 'gap-[3px]'}`}>
                     {weeks.map((w) => {
                       const isSelected = activeWeek?.weekKey === w.weekKey;
+                      const wFlag = granularity === 'week' ? weekFlags[w.weekKey] : undefined;
                       return (
                         <div
                           key={`lbl-${w.weekKey}`}
@@ -2120,13 +2363,21 @@ export const WeeklyMileageChart: React.FC<WeeklyMileageChartProps> = ({
                             className={`text-[9px] ${currentPeriodCount >= 24 ? 'text-[8px] sm:text-[9px]' : ''} font-mono block truncate ${
                               isSelected
                                 ? 'text-amber-500 font-bold'
+                                : wFlag === 'deload'
+                                ? 'text-teal-500 font-semibold'
+                                : wFlag === 'race'
+                                ? 'text-purple-500 font-semibold'
                                 : w.isCurrentWeek
                                 ? 'text-amber-400 font-semibold'
                                 : isLight
                                 ? 'text-slate-500'
                                 : 'text-slate-400'
                             }`}
-                            title={w.weekLabel}
+                            title={
+                              wFlag
+                                ? `${w.weekLabel} (${wFlag === 'deload' ? 'Deload Week' : 'Race Week'} - ignored from ramp baseline)`
+                                : w.weekLabel
+                            }
                           >
                             {granularity === 'month'
                               ? currentPeriodCount > 12
@@ -2153,12 +2404,13 @@ export const WeeklyMileageChart: React.FC<WeeklyMileageChartProps> = ({
                     : 'bg-slate-950/70 border-slate-800 text-slate-200'
                 }`}
               >
-                <div className="flex items-center justify-between pb-2 border-b border-slate-200 dark:border-slate-800">
-                  <div className="flex items-center gap-2">
+                <div className="flex flex-wrap items-center justify-between gap-2 pb-2 border-b border-slate-200 dark:border-slate-800">
+                  <div className="flex items-center gap-2 flex-wrap">
                     <Calendar className="w-4 h-4 text-rose-500" />
                     <span className="text-xs font-bold">
                       {activeWeek.weekLabel} {activeWeek.isCurrentWeek ? '(Current)' : ''}
                     </span>
+                    {renderWeekFlagSelector(activeWeek.weekKey, 'Week Type')}
                   </div>
                   <div className="flex items-center gap-3 text-xs font-mono">
                     <span className="font-bold text-rose-500">

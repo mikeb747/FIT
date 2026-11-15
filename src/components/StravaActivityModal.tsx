@@ -1608,8 +1608,7 @@ export const StravaActivityModal: React.FC<StravaActivityModalProps> = ({
                       title="Display 1km splits as Pace bar chart"
                     >
                       <Gauge className="w-3 h-3 shrink-0" />
-                      <span className="sm:hidden">Pace</span>
-                      <span className="hidden sm:inline">Pace Bar Chart</span>
+                      <span>Pace</span>
                     </button>
                     {!isTreadmill && (
                       <button
@@ -1635,11 +1634,10 @@ export const StravaActivityModal: React.FC<StravaActivityModalProps> = ({
                           ? 'bg-amber-500 text-slate-950 font-black'
                           : 'text-slate-400 hover:text-white'
                       }`}
-                      title="Display 1km splits as HR bar chart"
+                      title="Display 1km splits as Heart rate bar chart"
                     >
                       <Heart className="w-3 h-3 text-rose-400 shrink-0" />
-                      <span className="sm:hidden">HR</span>
-                      <span className="hidden sm:inline">HR Bar Chart</span>
+                      <span>Heart rate</span>
                     </button>
                     <button
                       type="button"
@@ -1652,8 +1650,7 @@ export const StravaActivityModal: React.FC<StravaActivityModalProps> = ({
                       title="Display 1km splits as Cadence (spm) bar chart"
                     >
                       <Activity className="w-3 h-3 text-sky-400 shrink-0" />
-                      <span className="sm:hidden">Cadence</span>
-                      <span className="hidden sm:inline">Cadence Bar Chart</span>
+                      <span>Cadence</span>
                     </button>
                     <button
                       type="button"

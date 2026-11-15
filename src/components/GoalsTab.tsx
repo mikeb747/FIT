@@ -266,13 +266,22 @@ function getCountdownInfo(eventDateStr: string, isLight: boolean): {
 
   const today = new Date();
   today.setHours(0, 0, 0, 0);
-  const eventDate = new Date(eventDateStr);
+  const isoParts = eventDateStr.trim().match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  const eventDate = isoParts
+    ? new Date(Number(isoParts[1]), Number(isoParts[2]) - 1, Number(isoParts[3]))
+    : new Date(eventDateStr);
   eventDate.setHours(0, 0, 0, 0);
 
   const diffMs = eventDate.getTime() - today.getTime();
-  const days = Math.round(diffMs / (1000 * 60 * 60 * 24));
-  const weeks = Math.round(days / 7);
-  const isPast = days < 0;
+  const calendarDays = Math.round(diffMs / (1000 * 60 * 60 * 24));
+  const isPast = calendarDays < 0;
+  // For exact week multiples (e.g. Sunday to Sunday), preserve exact N weeks 0 days;
+  // for non-multiple days (e.g. Sunday to Saturday), count full weeks + full days in between before race day.
+  const effectiveDays =
+    calendarDays > 0 && calendarDays % 7 !== 0 ? calendarDays - 1 : calendarDays;
+  const days = effectiveDays;
+  const weeks = isPast ? 0 : Math.floor(effectiveDays / 7);
+  const remDays = isPast ? 0 : effectiveDays % 7;
 
   let phase = {
     name: 'Base Phase',
@@ -314,15 +323,15 @@ function getCountdownInfo(eventDateStr: string, isLight: boolean): {
 
   let label = '';
   if (isPast) {
-    label = `${Math.abs(days)}d ago`;
-  } else if (days === 0) {
+    label = `${Math.abs(calendarDays)}d ago`;
+  } else if (calendarDays === 0) {
     label = 'Race Day!';
-  } else if (days === 1) {
+  } else if (calendarDays === 1) {
     label = 'Tomorrow!';
-  } else if (days < 14) {
-    label = `${days} days to go`;
+  } else if (calendarDays < 14) {
+    label = `${effectiveDays} days to go`;
   } else {
-    label = `${weeks}w ${days % 7}d left`;
+    label = `${weeks}w ${remDays}d left`;
   }
 
   return { days, weeks, isPast, label, phase };
