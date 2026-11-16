@@ -9,6 +9,8 @@ import {
 } from 'lucide-react';
 import { StravaActivity, StravaActivityDetailsRecord } from '../utils/stravaActivities';
 import { AthleteProfile } from '../types/athlete';
+import { TrainingGoal } from '../types/goals';
+import { loadAthleteGoals } from '../utils/goalsStorage';
 import {
   computeWeeklyRunningMileage,
   computeWeeklySwimDistance,
@@ -65,6 +67,7 @@ interface WeeklyMileageChartProps {
   activities: StravaActivity[];
   activityDetails?: Record<string, StravaActivityDetailsRecord>;
   athleteProfile?: AthleteProfile;
+  goals?: TrainingGoal[];
   theme?: 'dark' | 'light';
   onSelectActivity?: (activityId: string | number) => void;
   initialTab?: ChartDatasetTab;
@@ -74,6 +77,7 @@ export const WeeklyMileageChart: React.FC<WeeklyMileageChartProps> = ({
   activities,
   activityDetails,
   athleteProfile,
+  goals,
   theme = 'dark',
   onSelectActivity,
   initialTab = 'tss',
@@ -94,7 +98,7 @@ export const WeeklyMileageChart: React.FC<WeeklyMileageChartProps> = ({
   const scrollContainerRef = React.useRef<HTMLDivElement>(null);
 
   const WEEK_FLAGS_STORAGE_KEY = 'fit_track_week_flags_v1';
-  const [weekFlags, setWeekFlags] = useState<Record<string, 'deload' | 'race'>>(() => {
+  const [weekFlags, setWeekFlags] = useState<Record<string, 'normal' | 'deload' | 'race'>>(() => {
     if (typeof window === 'undefined') return {};
     try {
       const raw = localStorage.getItem(WEEK_FLAGS_STORAGE_KEY);
@@ -106,12 +110,56 @@ export const WeeklyMileageChart: React.FC<WeeklyMileageChartProps> = ({
     return {};
   });
 
+  // Map Monday weekKey (YYYY-MM-DD) -> Goal Race occurring in that week
+  const goalRaceByWeekKey = useMemo(() => {
+    const map: Record<string, { name: string; priority: string; eventDate: string }> = {};
+    const effectiveGoals = goals && goals.length > 0 ? goals : loadAthleteGoals();
+    effectiveGoals.forEach((g) => {
+      if (!g.eventDate || g.status === 'abandoned') return;
+      const m = g.eventDate.trim().match(/^(\d{4})-(\d{2})-(\d{2})$/);
+      if (!m) return;
+      const d = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+      if (isNaN(d.getTime())) return;
+      const dayOfWeek = d.getDay(); // 0=Sun, 1=Mon...
+      const diffToMonday = dayOfWeek === 0 ? -6 : 1 - dayOfWeek;
+      const mon = new Date(d);
+      mon.setDate(d.getDate() + diffToMonday);
+      const yStr = mon.getFullYear();
+      const mStr = String(mon.getMonth() + 1).padStart(2, '0');
+      const dStr = String(mon.getDate()).padStart(2, '0');
+      const weekKey = `${yStr}-${mStr}-${dStr}`;
+      if (!map[weekKey] || g.priority === 'A') {
+        map[weekKey] = {
+          name: g.name,
+          priority: g.priority || 'B',
+          eventDate: g.eventDate,
+        };
+      }
+    });
+    return map;
+  }, [goals]);
+
+  // Effective week flag: explicit user choice ('normal' | 'deload' | 'race') overrides auto-detected Goal Race week
+  const getEffectiveWeekFlag = (weekKey: string): 'deload' | 'race' | undefined => {
+    if (granularity !== 'week' || !weekKey) return undefined;
+    const explicit = weekFlags[weekKey];
+    if (explicit === 'normal') return undefined;
+    if (explicit === 'deload' || explicit === 'race') return explicit;
+    if (goalRaceByWeekKey[weekKey]) return 'race';
+    return undefined;
+  };
+
   const handleSetWeekFlag = (weekKey: string, flag: 'normal' | 'deload' | 'race') => {
     if (!weekKey) return;
     setWeekFlags((prev) => {
       const next = { ...prev };
       if (flag === 'normal') {
-        delete next[weekKey];
+        if (goalRaceByWeekKey[weekKey]) {
+          // Store explicit 'normal' override when the week has a scheduled Goal Race
+          next[weekKey] = 'normal';
+        } else {
+          delete next[weekKey];
+        }
       } else {
         next[weekKey] = flag;
       }
@@ -127,7 +175,9 @@ export const WeeklyMileageChart: React.FC<WeeklyMileageChartProps> = ({
 
   const renderWeekFlagSelector = (weekKey: string, weekShortLabel: string) => {
     if (granularity !== 'week' || !weekKey) return null;
-    const currentFlag = weekFlags[weekKey] || 'normal';
+    const effective = getEffectiveWeekFlag(weekKey);
+    const currentFlag: 'normal' | 'deload' | 'race' = effective || 'normal';
+    const autoGoal = goalRaceByWeekKey[weekKey];
     return (
       <div className="flex items-center gap-1.5 flex-wrap">
         <span className={`text-[10px] font-bold uppercase tracking-wider ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>
@@ -151,9 +201,7 @@ export const WeeklyMileageChart: React.FC<WeeklyMileageChartProps> = ({
                 ? 'bg-teal-500 text-slate-950 shadow-xs'
                 : opt.id === 'race'
                 ? 'bg-purple-500 text-white shadow-xs'
-                : isLight
-                ? 'bg-white text-slate-900 shadow-xs'
-                : 'bg-slate-800 text-white shadow-xs';
+                : 'bg-[#FE9A00] text-slate-950 shadow-xs';
             return (
               <button
                 key={opt.id}
@@ -177,8 +225,46 @@ export const WeeklyMileageChart: React.FC<WeeklyMileageChartProps> = ({
             );
           })}
         </div>
+        {autoGoal && currentFlag === 'race' && !weekFlags[weekKey] && (
+          <span
+            className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-purple-500/15 text-purple-600 dark:text-purple-300 border border-purple-500/30"
+            title={`Auto-detected from Goals (${autoGoal.eventDate})`}
+          >
+            Auto: {autoGoal.name}
+          </span>
+        )}
       </div>
     );
+  };
+
+  const computeMedian = (vals: number[]): number => {
+    if (vals.length === 0) return 0;
+    const sorted = [...vals].sort((a, b) => a - b);
+    const mid = Math.floor(sorted.length / 2);
+    const med = sorted.length % 2 === 1 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
+    return Math.round(med * 10) / 10;
+  };
+
+  const getGenericPrior4NormalWeeks = <T extends { weekKey: string }>(
+    sourceList: T[],
+    targetWeekKey: string,
+    getVal: (item: T) => number
+  ) => {
+    const targetIdx = sourceList.findIndex((w) => w.weekKey === targetWeekKey);
+    if (targetIdx <= 0) return { baseline: 0, normalWeeks: [] as T[] };
+    const collected: T[] = [];
+    for (let j = targetIdx - 1; j >= 0 && collected.length < 4; j--) {
+      const candidate = sourceList[j];
+      const flag = getEffectiveWeekFlag(candidate.weekKey);
+      if (flag === 'deload' || flag === 'race') continue;
+      if (getVal(candidate) <= 0) continue;
+      collected.push(candidate);
+    }
+    const vals = collected.map(getVal);
+    return {
+      baseline: computeMedian(vals),
+      normalWeeks: collected,
+    };
   };
 
   const currentPeriodCount = granularity === 'month' ? numMonths : numWeeks;
@@ -193,6 +279,18 @@ export const WeeklyMileageChart: React.FC<WeeklyMileageChartProps> = ({
       granularity,
       tssDisciplineFilter
     );
+  }, [activities, activityDetails, athleteProfile, currentPeriodCount, granularity, tssDisciplineFilter]);
+
+  const extendedTssWeeks = useMemo(() => {
+    if (granularity !== 'week') return [];
+    return computeWeeklyTss(
+      activities,
+      activityDetails,
+      athleteProfile,
+      Math.max(currentPeriodCount + 8, 24),
+      'week',
+      tssDisciplineFilter
+    ).weeks;
   }, [activities, activityDetails, athleteProfile, currentPeriodCount, granularity, tssDisciplineFilter]);
 
   // Compute Running volume
@@ -211,9 +309,19 @@ export const WeeklyMileageChart: React.FC<WeeklyMileageChartProps> = ({
     return computeWeeklySwimDistance(activities, currentPeriodCount, granularity);
   }, [activities, currentPeriodCount, granularity]);
 
+  const extendedSwimWeeks = useMemo(() => {
+    if (granularity !== 'week') return [];
+    return computeWeeklySwimDistance(activities, Math.max(currentPeriodCount + 8, 24), 'week').weeks;
+  }, [activities, currentPeriodCount, granularity]);
+
   // Compute Bike volume
   const { weeks: bikeWeeks, stats: bikeStats } = useMemo(() => {
     return computeWeeklyBikeHours(activities, currentPeriodCount, granularity);
+  }, [activities, currentPeriodCount, granularity]);
+
+  const extendedBikeWeeks = useMemo(() => {
+    if (granularity !== 'week') return [];
+    return computeWeeklyBikeHours(activities, Math.max(currentPeriodCount + 8, 24), 'week').weeks;
   }, [activities, currentPeriodCount, granularity]);
 
   // Reset selected period bucket whenever granularity or lookback range changes
@@ -585,7 +693,41 @@ export const WeeklyMileageChart: React.FC<WeeklyMileageChartProps> = ({
         const activeSameDay = activeTssIdx >= 0 ? tssSameDayByBar[activeTssIdx] : null;
         const activeSameDayVal = activeSameDay ? activeSameDay.tss : currentVal;
 
-        const avgVal = tssStats.averageWeeklyTss;
+        const normalTssWeeks =
+          granularity === 'week'
+            ? tssWeeks.filter((w) => !getEffectiveWeekFlag(w.weekKey))
+            : tssWeeks;
+
+        const avgVal =
+          granularity === 'week' && normalTssWeeks.length > 0
+            ? Math.round(
+                normalTssWeeks.reduce((acc, w) => acc + w.totalTss, 0) / normalTssWeeks.length
+              )
+            : tssStats.averageWeeklyTss;
+
+        const activeTssBaselineInfo =
+          granularity === 'week' && activeTssWeek
+            ? getGenericPrior4NormalWeeks(
+                extendedTssWeeks.length > 0 ? extendedTssWeeks : tssWeeks,
+                activeTssWeek.weekKey,
+                (w) => w.totalTss
+              )
+            : { baseline: 0, normalWeeks: [] as WeeklyTssBucket[] };
+
+        const tssBaselineVal =
+          granularity === 'week'
+            ? activeTssBaselineInfo.baseline > 0
+              ? Math.round(activeTssBaselineInfo.baseline)
+              : Math.round(
+                  computeMedian(
+                    normalTssWeeks
+                      .filter((w) => w.totalTss > 0)
+                      .slice(-4)
+                      .map((w) => w.totalTss)
+                  )
+                )
+            : avgVal;
+
         const peakVal = tssStats.peakWeekTss;
         const totalVal = tssStats.totalTss;
 
@@ -608,6 +750,7 @@ export const WeeklyMileageChart: React.FC<WeeklyMileageChartProps> = ({
 
         const avgPerActivity =
           tssStats.totalActivities > 0 ? Math.round(tssStats.totalTss / tssStats.totalActivities) : 0;
+        const activeTssFlag = activeTssWeek ? getEffectiveWeekFlag(activeTssWeek.weekKey) : undefined;
 
         return (
           <div className="pt-2">
@@ -674,13 +817,26 @@ export const WeeklyMileageChart: React.FC<WeeklyMileageChartProps> = ({
             {/* KPI Cards */}
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 sm:gap-3 my-4">
               <div className={`p-3 rounded-xl border ${isLight ? 'bg-slate-50 border-slate-200' : 'bg-slate-950/40 border-slate-800/80'}`}>
-                <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 block">
-                  {activeTssWeek && !activeTssWeek.isCurrentWeek
-                    ? activeTssWeek.shortLabel
-                    : granularity === 'month'
-                    ? 'This Month'
-                    : 'This Week'}
-                </span>
+                <div className="flex items-center justify-between gap-1">
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 block">
+                    {activeTssWeek && !activeTssWeek.isCurrentWeek
+                      ? activeTssWeek.shortLabel
+                      : granularity === 'month'
+                      ? 'This Month'
+                      : 'This Week'}
+                  </span>
+                  {granularity === 'week' && activeTssFlag && (
+                    <span
+                      className={`text-[9px] font-bold uppercase px-1.5 py-0.5 rounded ${
+                        activeTssFlag === 'deload'
+                          ? 'bg-teal-500/15 text-teal-600 dark:text-teal-400 border border-teal-500/30'
+                          : 'bg-purple-500/15 text-purple-600 dark:text-purple-400 border border-purple-500/30'
+                      }`}
+                    >
+                      {activeTssFlag === 'deload' ? 'Deload' : 'Race Week'}
+                    </span>
+                  )}
+                </div>
                 <div className="mt-1 flex items-baseline gap-1.5">
                   <span className="text-xl sm:text-2xl font-black font-mono text-amber-500">{currentVal}</span>
                   <span className="text-xs text-slate-500 font-bold">{metricUnitLabel}</span>
@@ -722,16 +878,20 @@ export const WeeklyMileageChart: React.FC<WeeklyMileageChartProps> = ({
 
               <div className={`p-3 rounded-xl border ${isLight ? 'bg-slate-50 border-slate-200' : 'bg-slate-950/40 border-slate-800/80'}`}>
                 <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 block">
-                  {granularity === 'month' ? 'Monthly Average' : 'Weekly Average'}
+                  {granularity === 'month' ? 'Monthly Average' : '4W Normal Baseline (Median)'}
                 </span>
                 <div className="mt-1 flex items-baseline gap-1.5">
-                  <span className="text-xl sm:text-2xl font-black font-mono text-sky-400">{avgVal}</span>
+                  <span className="text-xl sm:text-2xl font-black font-mono text-sky-400">
+                    {granularity === 'week' ? tssBaselineVal : avgVal}
+                  </span>
                   <span className="text-xs text-slate-500 font-bold">{rateUnitLabel}</span>
                 </div>
                 <span className="text-[10px] text-slate-500">
-                  {avgPerActivity > 0
+                  {granularity === 'week'
+                    ? `Avg: ${avgVal} ${rateUnitLabel}${avgPerActivity > 0 ? ` • ${avgPerActivity} TSS/workout` : ''}`
+                    : avgPerActivity > 0
                     ? `${avgPerActivity} TSS average per workout`
-                    : `Over ${currentPeriodCount} ${granularity === 'month' ? 'months' : 'weeks'}`}
+                    : `Over ${currentPeriodCount} months`}
                 </span>
               </div>
 
@@ -772,13 +932,18 @@ export const WeeklyMileageChart: React.FC<WeeklyMileageChartProps> = ({
                 <div className={`relative pt-6 pb-1 ${currentPeriodCount >= 36 ? 'min-w-[620px] sm:min-w-full' : currentPeriodCount === 52 ? 'min-w-[560px] sm:min-w-full' : 'w-full'}`}>
                   {/* Dedicated 0-100% Bar Plot Area */}
                   <div className="relative h-44 sm:h-52 w-full">
-                    {avgVal > 0 && (
+                    {(granularity === 'week' ? tssBaselineVal : avgVal) > 0 && (
                       <div
                         className="absolute left-0 right-0 border-b-2 border-dotted border-red-500 z-20 pointer-events-none"
-                        style={{ bottom: `${Math.min(92, (avgVal / maxTssScale) * 100)}%` }}
+                        style={{
+                          bottom: `${Math.min(
+                            92,
+                            ((granularity === 'week' ? tssBaselineVal : avgVal) / maxTssScale) * 100
+                          )}%`,
+                        }}
                       >
                         <span className="absolute right-2 -top-4 text-[10px] font-mono font-bold text-black bg-white/95 border border-slate-300 px-1.5 py-0.5 rounded shadow-sm">
-                          Avg: {avgVal} TSS
+                          {granularity === 'week' ? `Baseline (4w Med): ${tssBaselineVal} TSS` : `Avg: ${avgVal} TSS`}
                         </span>
                       </div>
                     )}
@@ -786,6 +951,7 @@ export const WeeklyMileageChart: React.FC<WeeklyMileageChartProps> = ({
                     <div className={`h-full w-full flex items-end ${currentPeriodCount >= 36 ? 'gap-[1px] sm:gap-[1.5px]' : currentPeriodCount === 52 ? 'gap-[1.5px]' : 'gap-[3px]'} px-0 relative z-10`}>
                       {tssWeeks.map((w, idx) => {
                         const val = w.totalTss;
+                        const wFlag = getEffectiveWeekFlag(w.weekKey);
                         const heightPct = Math.min(100, Math.max(val > 0 ? 6 : 2, (val / maxTssScale) * 100));
                         const isSelected = activeTssWeek?.weekKey === w.weekKey;
 
@@ -810,7 +976,7 @@ export const WeeklyMileageChart: React.FC<WeeklyMileageChartProps> = ({
                             {val > 0 && (
                               <div
                                 style={{ bottom: `${heightPct}%` }}
-                                className={`absolute left-1/2 -translate-x-1/2 mb-1 z-20 text-[10px] font-mono font-bold transition-all whitespace-nowrap pointer-events-none ${
+                                className={`absolute left-1/2 -translate-x-1/2 mb-1 z-20 text-[10px] font-mono font-bold transition-all whitespace-nowrap pointer-events-none flex flex-col items-center ${
                                   isSelected
                                     ? 'text-amber-400 scale-110'
                                     : isLight
@@ -818,7 +984,18 @@ export const WeeklyMileageChart: React.FC<WeeklyMileageChartProps> = ({
                                     : 'text-slate-400 group-hover:text-amber-400'
                                 } ${currentPeriodCount >= 24 && !isSelected ? 'hidden sm:block opacity-0 group-hover:opacity-100' : ''}`}
                               >
-                                {val}
+                                {wFlag && (
+                                  <span
+                                    className={`text-[8px] px-1 rounded uppercase tracking-tighter mb-0.5 ${
+                                      wFlag === 'deload'
+                                        ? 'bg-teal-500/20 text-teal-600 dark:text-teal-300 border border-teal-500/40'
+                                        : 'bg-purple-500/20 text-purple-600 dark:text-purple-300 border border-purple-500/40'
+                                    }`}
+                                  >
+                                    {wFlag === 'deload' ? 'Deload' : 'Race'}
+                                  </span>
+                                )}
+                                <span>{val}</span>
                               </div>
                             )}
 
@@ -847,12 +1024,20 @@ export const WeeklyMileageChart: React.FC<WeeklyMileageChartProps> = ({
                                       : '#1e293b'
                                     : isSelected
                                     ? '#f59e0b'
+                                    : wFlag === 'deload'
+                                    ? isLight
+                                      ? '#5eead4'
+                                      : '#0d9488'
+                                    : wFlag === 'race'
+                                    ? isLight
+                                      ? '#c084fc'
+                                      : '#9333ea'
                                     : w.isCurrentWeek
                                     ? '#fbbf24'
                                     : isLight
                                     ? '#38bdf8'
                                     : '#0284c7',
-                                opacity: val === 0 ? 0.35 : isSelected ? 1 : 0.85,
+                                opacity: val === 0 ? 0.35 : isSelected ? 1 : wFlag ? 0.72 : 0.85,
                                 boxShadow: isSelected ? '0 0 12px rgba(245, 158, 11, 0.45)' : undefined,
                               }}
                             />
@@ -866,6 +1051,7 @@ export const WeeklyMileageChart: React.FC<WeeklyMileageChartProps> = ({
                   <div className={`mt-2 w-full flex items-center ${currentPeriodCount >= 36 ? 'gap-[1px] sm:gap-[1.5px]' : currentPeriodCount === 52 ? 'gap-[1.5px]' : 'gap-[3px]'}`}>
                     {tssWeeks.map((w) => {
                       const isSelected = activeTssWeek?.weekKey === w.weekKey;
+                      const wFlag = getEffectiveWeekFlag(w.weekKey);
                       return (
                         <div
                           key={`lbl-${w.weekKey}`}
@@ -876,6 +1062,10 @@ export const WeeklyMileageChart: React.FC<WeeklyMileageChartProps> = ({
                             className={`text-[9px] ${currentPeriodCount >= 24 ? 'text-[8px] sm:text-[9px]' : ''} font-mono block truncate ${
                               isSelected
                                 ? 'text-amber-500 font-bold'
+                                : wFlag === 'deload'
+                                ? 'text-teal-500 font-semibold'
+                                : wFlag === 'race'
+                                ? 'text-purple-500 font-semibold'
                                 : w.isCurrentWeek
                                 ? 'text-amber-400 font-semibold'
                                 : isLight
@@ -904,11 +1094,12 @@ export const WeeklyMileageChart: React.FC<WeeklyMileageChartProps> = ({
             {activeTssWeek && (
               <div className={`mt-4 p-3.5 rounded-xl border ${isLight ? 'bg-rose-50/40 border-rose-200 text-slate-900' : 'bg-slate-950/70 border-slate-800 text-slate-200'}`}>
                 <div className="flex flex-wrap items-center justify-between gap-2 pb-2 border-b border-slate-200 dark:border-slate-800">
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-2 flex-wrap">
                     <Calendar className="w-4 h-4 text-rose-500" />
                     <span className="text-xs font-bold">
                       {activeTssWeek.weekLabel} {activeTssWeek.isCurrentWeek ? '(Current)' : ''}
                     </span>
+                    {renderWeekFlagSelector(activeTssWeek.weekKey, 'Week Type')}
                   </div>
                   <div className="flex items-center gap-3 text-xs font-mono flex-wrap">
                     <span className="font-bold text-rose-500">
@@ -972,10 +1163,14 @@ export const WeeklyMileageChart: React.FC<WeeklyMileageChartProps> = ({
 
       {/* SWIM SECTION */}
       {activeTab === 'swim_distance' && (() => {
-        const currentVal =
+        const getSwimVal = (b: WeeklySwimBucket) =>
           metricType === 'distance'
-            ? (unit === 'miles' ? activeSwimWeek?.distanceMiles : activeSwimWeek?.distanceKm) || 0
-            : activeSwimWeek?.movingHours || 0;
+            ? unit === 'miles'
+              ? b.distanceMiles
+              : b.distanceKm
+            : b.movingHours;
+
+        const currentVal = activeSwimWeek ? getSwimVal(activeSwimWeek) : 0;
 
         const activeSameDay = activeSwimIdx >= 0 ? swimSameDayByBar[activeSwimIdx] : null;
         const activeSameDayVal = activeSameDay
@@ -984,12 +1179,47 @@ export const WeeklyMileageChart: React.FC<WeeklyMileageChartProps> = ({
             : activeSameDay.movingHours
           : currentVal;
 
-        const avgVal =
+        const normalSwimWeeks =
+          granularity === 'week'
+            ? swimWeeks.filter((w) => !getEffectiveWeekFlag(w.weekKey))
+            : swimWeeks;
+
+        const rawSwimAvg =
           metricType === 'distance'
             ? unit === 'miles'
               ? swimStats.averageWeeklyMiles
               : swimStats.averageWeeklyKm
             : swimStats.averageWeeklyHours;
+
+        const avgVal =
+          granularity === 'week' && normalSwimWeeks.length > 0
+            ? Math.round(
+                (normalSwimWeeks.reduce((acc, w) => acc + getSwimVal(w), 0) /
+                  normalSwimWeeks.length) *
+                  10
+              ) / 10
+            : rawSwimAvg;
+
+        const activeSwimBaselineInfo =
+          granularity === 'week' && activeSwimWeek
+            ? getGenericPrior4NormalWeeks(
+                extendedSwimWeeks.length > 0 ? extendedSwimWeeks : swimWeeks,
+                activeSwimWeek.weekKey,
+                getSwimVal
+              )
+            : { baseline: 0, normalWeeks: [] as WeeklySwimBucket[] };
+
+        const swimBaselineVal =
+          granularity === 'week'
+            ? activeSwimBaselineInfo.baseline > 0
+              ? activeSwimBaselineInfo.baseline
+              : computeMedian(
+                  normalSwimWeeks
+                    .filter((w) => getSwimVal(w) > 0)
+                    .slice(-4)
+                    .map(getSwimVal)
+                )
+            : avgVal;
 
         const peakVal =
           metricType === 'distance'
@@ -1042,6 +1272,8 @@ export const WeeklyMileageChart: React.FC<WeeklyMileageChartProps> = ({
               : swimStats.totalHours / swimStats.totalSwims)
           : 0;
 
+        const activeSwimFlag = activeSwimWeek ? getEffectiveWeekFlag(activeSwimWeek.weekKey) : undefined;
+
         return (
           <div className="pt-2">
             {/* Subheader: Swim + Badge + Controls */}
@@ -1060,13 +1292,26 @@ export const WeeklyMileageChart: React.FC<WeeklyMileageChartProps> = ({
             {/* KPI Cards */}
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 sm:gap-3 my-4">
               <div className={`p-3 rounded-xl border ${isLight ? 'bg-slate-50 border-slate-200' : 'bg-slate-950/40 border-slate-800/80'}`}>
-                <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 block">
-                  {activeSwimWeek && !activeSwimWeek.isCurrentWeek
-                    ? activeSwimWeek.shortLabel
-                    : granularity === 'month'
-                    ? 'This Month'
-                    : 'This Week'}
-                </span>
+                <div className="flex items-center justify-between gap-1">
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 block">
+                    {activeSwimWeek && !activeSwimWeek.isCurrentWeek
+                      ? activeSwimWeek.shortLabel
+                      : granularity === 'month'
+                      ? 'This Month'
+                      : 'This Week'}
+                  </span>
+                  {granularity === 'week' && activeSwimFlag && (
+                    <span
+                      className={`text-[9px] font-bold uppercase px-1.5 py-0.5 rounded ${
+                        activeSwimFlag === 'deload'
+                          ? 'bg-teal-500/15 text-teal-600 dark:text-teal-400 border border-teal-500/30'
+                          : 'bg-purple-500/15 text-purple-600 dark:text-purple-400 border border-purple-500/30'
+                      }`}
+                    >
+                      {activeSwimFlag === 'deload' ? 'Deload' : 'Race Week'}
+                    </span>
+                  )}
+                </div>
                 <div className="mt-1 flex items-baseline gap-1.5">
                   <span className="text-xl sm:text-2xl font-black font-mono text-amber-500">{currentVal}</span>
                   <span className="text-xs text-slate-500 font-bold">{metricUnitLabel}</span>
@@ -1108,16 +1353,20 @@ export const WeeklyMileageChart: React.FC<WeeklyMileageChartProps> = ({
 
               <div className={`p-3 rounded-xl border ${isLight ? 'bg-slate-50 border-slate-200' : 'bg-slate-950/40 border-slate-800/80'}`}>
                 <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 block">
-                  {granularity === 'month' ? 'Monthly Average' : 'Weekly Average'}
+                  {granularity === 'month' ? 'Monthly Average' : '4W Normal Baseline (Median)'}
                 </span>
                 <div className="mt-1 flex items-baseline gap-1.5">
-                  <span className="text-xl sm:text-2xl font-black font-mono text-sky-400">{avgVal}</span>
+                  <span className="text-xl sm:text-2xl font-black font-mono text-sky-400">
+                    {granularity === 'week' ? swimBaselineVal : avgVal}
+                  </span>
                   <span className="text-xs text-slate-500 font-bold">{rateUnitLabel}</span>
                 </div>
                 <span className="text-[10px] text-slate-500">
-                  {avgPerSwim > 0
+                  {granularity === 'week'
+                    ? `Avg: ${avgVal} ${rateUnitLabel}${avgPerSwim > 0 ? ` • ${avgPerSwim.toFixed(2)}${shortUnitLabel}/swim` : ''}`
+                    : avgPerSwim > 0
                     ? `${avgPerSwim.toFixed(2)}${shortUnitLabel} average per swim`
-                    : `Over ${currentPeriodCount} ${granularity === 'month' ? 'months' : 'weeks'}`}
+                    : `Over ${currentPeriodCount} months`}
                 </span>
               </div>
 
@@ -1156,23 +1405,28 @@ export const WeeklyMileageChart: React.FC<WeeklyMileageChartProps> = ({
                 <div className={`relative pt-6 pb-1 ${currentPeriodCount >= 36 ? 'min-w-[620px] sm:min-w-full' : currentPeriodCount === 52 ? 'min-w-[560px] sm:min-w-full' : 'w-full'}`}>
                   {/* Dedicated 0-100% Bar Plot Area */}
                   <div className="relative h-44 sm:h-52 w-full">
-                    {avgVal > 0 && (
+                    {(granularity === 'week' ? swimBaselineVal : avgVal) > 0 && (
                       <div
                         className="absolute left-0 right-0 border-b-2 border-dotted border-red-500 z-20 pointer-events-none"
-                        style={{ bottom: `${Math.min(92, (avgVal / maxSwimScale) * 100)}%` }}
+                        style={{
+                          bottom: `${Math.min(
+                            92,
+                            ((granularity === 'week' ? swimBaselineVal : avgVal) / maxSwimScale) * 100
+                          )}%`,
+                        }}
                       >
                         <span className="absolute right-2 -top-4 text-[10px] font-mono font-bold text-black bg-white/95 border border-slate-300 px-1.5 py-0.5 rounded shadow-sm">
-                          Avg: {avgVal} {metricUnitLabel}
+                          {granularity === 'week'
+                            ? `Baseline (4w Med): ${swimBaselineVal} ${metricUnitLabel}`
+                            : `Avg: ${avgVal} ${metricUnitLabel}`}
                         </span>
                       </div>
                     )}
 
                     <div className={`h-full w-full flex items-end ${currentPeriodCount >= 36 ? 'gap-[1px] sm:gap-[1.5px]' : currentPeriodCount === 52 ? 'gap-[1.5px]' : 'gap-[3px]'} px-0 relative z-10`}>
                       {swimWeeks.map((w, idx) => {
-                        const val =
-                          metricType === 'distance'
-                            ? (unit === 'miles' ? w.distanceMiles : w.distanceKm)
-                            : w.movingHours;
+                        const val = getSwimVal(w);
+                        const wFlag = getEffectiveWeekFlag(w.weekKey);
                         const heightPct = Math.min(100, Math.max(val > 0 ? 6 : 2, (val / maxSwimScale) * 100));
                         const isSelected = activeSwimWeek?.weekKey === w.weekKey;
 
@@ -1203,7 +1457,7 @@ export const WeeklyMileageChart: React.FC<WeeklyMileageChartProps> = ({
                             {val > 0 && (
                               <div
                                 style={{ bottom: `${heightPct}%` }}
-                                className={`absolute left-1/2 -translate-x-1/2 mb-1 z-20 text-[10px] font-mono font-bold transition-all whitespace-nowrap pointer-events-none ${
+                                className={`absolute left-1/2 -translate-x-1/2 mb-1 z-20 text-[10px] font-mono font-bold transition-all whitespace-nowrap pointer-events-none flex flex-col items-center ${
                                   isSelected
                                     ? 'text-amber-400 scale-110'
                                     : isLight
@@ -1211,7 +1465,18 @@ export const WeeklyMileageChart: React.FC<WeeklyMileageChartProps> = ({
                                     : 'text-slate-400 group-hover:text-amber-400'
                                 } ${currentPeriodCount >= 24 && !isSelected ? 'hidden sm:block opacity-0 group-hover:opacity-100' : ''}`}
                               >
-                                {val}
+                                {wFlag && (
+                                  <span
+                                    className={`text-[8px] px-1 rounded uppercase tracking-tighter mb-0.5 ${
+                                      wFlag === 'deload'
+                                        ? 'bg-teal-500/20 text-teal-600 dark:text-teal-300 border border-teal-500/40'
+                                        : 'bg-purple-500/20 text-purple-600 dark:text-purple-300 border border-purple-500/40'
+                                    }`}
+                                  >
+                                    {wFlag === 'deload' ? 'Deload' : 'Race'}
+                                  </span>
+                                )}
+                                <span>{val}</span>
                               </div>
                             )}
 
@@ -1242,12 +1507,20 @@ export const WeeklyMileageChart: React.FC<WeeklyMileageChartProps> = ({
                                       : '#1e293b'
                                     : isSelected
                                     ? '#f59e0b'
+                                    : wFlag === 'deload'
+                                    ? isLight
+                                      ? '#5eead4'
+                                      : '#0d9488'
+                                    : wFlag === 'race'
+                                    ? isLight
+                                      ? '#c084fc'
+                                      : '#9333ea'
                                     : w.isCurrentWeek
                                     ? '#fbbf24'
                                     : isLight
                                     ? '#38bdf8'
                                     : '#0284c7',
-                                opacity: val === 0 ? 0.35 : isSelected ? 1 : 0.85,
+                                opacity: val === 0 ? 0.35 : isSelected ? 1 : wFlag ? 0.72 : 0.85,
                                 boxShadow: isSelected ? '0 0 12px rgba(245, 158, 11, 0.45)' : undefined,
                               }}
                             />
@@ -1261,6 +1534,7 @@ export const WeeklyMileageChart: React.FC<WeeklyMileageChartProps> = ({
                   <div className={`mt-2 w-full flex items-center ${currentPeriodCount >= 36 ? 'gap-[1px] sm:gap-[1.5px]' : currentPeriodCount === 52 ? 'gap-[1.5px]' : 'gap-[3px]'}`}>
                     {swimWeeks.map((w) => {
                       const isSelected = activeSwimWeek?.weekKey === w.weekKey;
+                      const wFlag = getEffectiveWeekFlag(w.weekKey);
                       return (
                         <div
                           key={`lbl-${w.weekKey}`}
@@ -1271,6 +1545,10 @@ export const WeeklyMileageChart: React.FC<WeeklyMileageChartProps> = ({
                             className={`text-[9px] ${currentPeriodCount >= 24 ? 'text-[8px] sm:text-[9px]' : ''} font-mono block truncate ${
                               isSelected
                                 ? 'text-amber-500 font-bold'
+                                : wFlag === 'deload'
+                                ? 'text-teal-500 font-semibold'
+                                : wFlag === 'race'
+                                ? 'text-purple-500 font-semibold'
                                 : w.isCurrentWeek
                                 ? 'text-amber-400 font-semibold'
                                 : isLight
@@ -1298,10 +1576,11 @@ export const WeeklyMileageChart: React.FC<WeeklyMileageChartProps> = ({
             {/* Selected Period Breakdown */}
             {activeSwimWeek && (
               <div className={`mt-4 p-3.5 rounded-xl border ${isLight ? 'bg-sky-50/50 border-sky-200 text-slate-900' : 'bg-slate-950/70 border-slate-800 text-slate-200'}`}>
-                <div className="flex items-center justify-between pb-2 border-b border-slate-200 dark:border-slate-800">
-                  <div className="flex items-center gap-2">
+                <div className="flex flex-wrap items-center justify-between gap-2 pb-2 border-b border-slate-200 dark:border-slate-800">
+                  <div className="flex items-center gap-2 flex-wrap">
                     <Calendar className="w-4 h-4 text-sky-500" />
                     <span className="text-xs font-bold">{activeSwimWeek.weekLabel}</span>
+                    {renderWeekFlagSelector(activeSwimWeek.weekKey, 'Week Type')}
                   </div>
                   <div className="flex items-center gap-3 text-xs font-mono">
                     <span className="font-bold text-sky-500">
@@ -1343,10 +1622,14 @@ export const WeeklyMileageChart: React.FC<WeeklyMileageChartProps> = ({
 
       {/* BIKE SECTION */}
       {activeTab === 'bike_hours' && (() => {
-        const currentVal =
+        const getBikeVal = (b: WeeklyBikeBucket) =>
           metricType === 'distance'
-            ? (unit === 'miles' ? activeBikeWeek?.distanceMiles : activeBikeWeek?.distanceKm) || 0
-            : activeBikeWeek?.movingHours || 0;
+            ? unit === 'miles'
+              ? b.distanceMiles
+              : b.distanceKm
+            : b.movingHours;
+
+        const currentVal = activeBikeWeek ? getBikeVal(activeBikeWeek) : 0;
 
         const activeSameDay = activeBikeIdx >= 0 ? bikeSameDayByBar[activeBikeIdx] : null;
         const activeSameDayVal = activeSameDay
@@ -1355,12 +1638,47 @@ export const WeeklyMileageChart: React.FC<WeeklyMileageChartProps> = ({
             : activeSameDay.movingHours
           : currentVal;
 
-        const avgVal =
+        const normalBikeWeeks =
+          granularity === 'week'
+            ? bikeWeeks.filter((w) => !getEffectiveWeekFlag(w.weekKey))
+            : bikeWeeks;
+
+        const rawBikeAvg =
           metricType === 'distance'
             ? unit === 'miles'
               ? bikeStats.averageWeeklyMiles
               : bikeStats.averageWeeklyKm
             : bikeStats.averageWeeklyHours;
+
+        const avgVal =
+          granularity === 'week' && normalBikeWeeks.length > 0
+            ? Math.round(
+                (normalBikeWeeks.reduce((acc, w) => acc + getBikeVal(w), 0) /
+                  normalBikeWeeks.length) *
+                  10
+              ) / 10
+            : rawBikeAvg;
+
+        const activeBikeBaselineInfo =
+          granularity === 'week' && activeBikeWeek
+            ? getGenericPrior4NormalWeeks(
+                extendedBikeWeeks.length > 0 ? extendedBikeWeeks : bikeWeeks,
+                activeBikeWeek.weekKey,
+                getBikeVal
+              )
+            : { baseline: 0, normalWeeks: [] as WeeklyBikeBucket[] };
+
+        const bikeBaselineVal =
+          granularity === 'week'
+            ? activeBikeBaselineInfo.baseline > 0
+              ? activeBikeBaselineInfo.baseline
+              : computeMedian(
+                  normalBikeWeeks
+                    .filter((w) => getBikeVal(w) > 0)
+                    .slice(-4)
+                    .map(getBikeVal)
+                )
+            : avgVal;
 
         const peakVal =
           metricType === 'distance'
@@ -1413,6 +1731,8 @@ export const WeeklyMileageChart: React.FC<WeeklyMileageChartProps> = ({
               : bikeStats.totalHours / bikeStats.totalRides)
           : 0;
 
+        const activeBikeFlag = activeBikeWeek ? getEffectiveWeekFlag(activeBikeWeek.weekKey) : undefined;
+
         return (
           <div className="pt-2">
             {/* Subheader: Bike + Badge + Controls */}
@@ -1431,13 +1751,26 @@ export const WeeklyMileageChart: React.FC<WeeklyMileageChartProps> = ({
             {/* KPI Cards */}
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 sm:gap-3 my-4">
               <div className={`p-3 rounded-xl border ${isLight ? 'bg-slate-50 border-slate-200' : 'bg-slate-950/40 border-slate-800/80'}`}>
-                <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 block">
-                  {activeBikeWeek && !activeBikeWeek.isCurrentWeek
-                    ? activeBikeWeek.shortLabel
-                    : granularity === 'month'
-                    ? 'This Month'
-                    : 'This Week'}
-                </span>
+                <div className="flex items-center justify-between gap-1">
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 block">
+                    {activeBikeWeek && !activeBikeWeek.isCurrentWeek
+                      ? activeBikeWeek.shortLabel
+                      : granularity === 'month'
+                      ? 'This Month'
+                      : 'This Week'}
+                  </span>
+                  {granularity === 'week' && activeBikeFlag && (
+                    <span
+                      className={`text-[9px] font-bold uppercase px-1.5 py-0.5 rounded ${
+                        activeBikeFlag === 'deload'
+                          ? 'bg-teal-500/15 text-teal-600 dark:text-teal-400 border border-teal-500/30'
+                          : 'bg-purple-500/15 text-purple-600 dark:text-purple-400 border border-purple-500/30'
+                      }`}
+                    >
+                      {activeBikeFlag === 'deload' ? 'Deload' : 'Race Week'}
+                    </span>
+                  )}
+                </div>
                 <div className="mt-1 flex items-baseline gap-1.5">
                   <span className="text-xl sm:text-2xl font-black font-mono text-amber-500">{currentVal}</span>
                   <span className="text-xs text-slate-500 font-bold">{metricUnitLabel}</span>
@@ -1479,16 +1812,20 @@ export const WeeklyMileageChart: React.FC<WeeklyMileageChartProps> = ({
 
               <div className={`p-3 rounded-xl border ${isLight ? 'bg-slate-50 border-slate-200' : 'bg-slate-950/40 border-slate-800/80'}`}>
                 <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 block">
-                  {granularity === 'month' ? 'Monthly Average' : 'Weekly Average'}
+                  {granularity === 'month' ? 'Monthly Average' : '4W Normal Baseline (Median)'}
                 </span>
                 <div className="mt-1 flex items-baseline gap-1.5">
-                  <span className="text-xl sm:text-2xl font-black font-mono text-orange-400">{avgVal}</span>
+                  <span className="text-xl sm:text-2xl font-black font-mono text-orange-400">
+                    {granularity === 'week' ? bikeBaselineVal : avgVal}
+                  </span>
                   <span className="text-xs text-slate-500 font-bold">{rateUnitLabel}</span>
                 </div>
                 <span className="text-[10px] text-slate-500">
-                  {avgPerRide > 0
+                  {granularity === 'week'
+                    ? `Avg: ${avgVal} ${rateUnitLabel}${avgPerRide > 0 ? ` • ${avgPerRide.toFixed(2)}${shortUnitLabel}/ride` : ''}`
+                    : avgPerRide > 0
                     ? `${avgPerRide.toFixed(2)}${shortUnitLabel} average per ride`
-                    : `Over ${currentPeriodCount} ${granularity === 'month' ? 'months' : 'weeks'}`}
+                    : `Over ${currentPeriodCount} months`}
                 </span>
               </div>
 
@@ -1527,23 +1864,28 @@ export const WeeklyMileageChart: React.FC<WeeklyMileageChartProps> = ({
                 <div className={`relative pt-6 pb-1 ${currentPeriodCount >= 36 ? 'min-w-[620px] sm:min-w-full' : currentPeriodCount === 52 ? 'min-w-[560px] sm:min-w-full' : 'w-full'}`}>
                   {/* Dedicated 0-100% Bar Plot Area */}
                   <div className="relative h-44 sm:h-52 w-full">
-                    {avgVal > 0 && (
+                    {(granularity === 'week' ? bikeBaselineVal : avgVal) > 0 && (
                       <div
                         className="absolute left-0 right-0 border-b-2 border-dotted border-red-500 z-20 pointer-events-none"
-                        style={{ bottom: `${Math.min(92, (avgVal / maxBikeScale) * 100)}%` }}
+                        style={{
+                          bottom: `${Math.min(
+                            92,
+                            ((granularity === 'week' ? bikeBaselineVal : avgVal) / maxBikeScale) * 100
+                          )}%`,
+                        }}
                       >
                         <span className="absolute right-2 -top-4 text-[10px] font-mono font-bold text-black bg-white/95 border border-slate-300 px-1.5 py-0.5 rounded shadow-sm">
-                          Avg: {avgVal} {metricUnitLabel}
+                          {granularity === 'week'
+                            ? `Baseline (4w Med): ${bikeBaselineVal} ${metricUnitLabel}`
+                            : `Avg: ${avgVal} ${metricUnitLabel}`}
                         </span>
                       </div>
                     )}
 
                     <div className={`h-full w-full flex items-end ${currentPeriodCount >= 36 ? 'gap-[1px] sm:gap-[1.5px]' : currentPeriodCount === 52 ? 'gap-[1.5px]' : 'gap-[3px]'} px-0 relative z-10`}>
                       {bikeWeeks.map((w, idx) => {
-                        const val =
-                          metricType === 'distance'
-                            ? (unit === 'miles' ? w.distanceMiles : w.distanceKm)
-                            : w.movingHours;
+                        const val = getBikeVal(w);
+                        const wFlag = getEffectiveWeekFlag(w.weekKey);
                         const heightPct = Math.min(100, Math.max(val > 0 ? 6 : 2, (val / maxBikeScale) * 100));
                         const isSelected = activeBikeWeek?.weekKey === w.weekKey;
 
@@ -1574,7 +1916,7 @@ export const WeeklyMileageChart: React.FC<WeeklyMileageChartProps> = ({
                             {val > 0 && (
                               <div
                                 style={{ bottom: `${heightPct}%` }}
-                                className={`absolute left-1/2 -translate-x-1/2 mb-1 z-20 text-[10px] font-mono font-bold transition-all whitespace-nowrap pointer-events-none ${
+                                className={`absolute left-1/2 -translate-x-1/2 mb-1 z-20 text-[10px] font-mono font-bold transition-all whitespace-nowrap pointer-events-none flex flex-col items-center ${
                                   isSelected
                                     ? 'text-amber-400 scale-110'
                                     : isLight
@@ -1582,7 +1924,18 @@ export const WeeklyMileageChart: React.FC<WeeklyMileageChartProps> = ({
                                     : 'text-slate-400 group-hover:text-amber-400'
                                 } ${currentPeriodCount >= 24 && !isSelected ? 'hidden sm:block opacity-0 group-hover:opacity-100' : ''}`}
                               >
-                                {val}
+                                {wFlag && (
+                                  <span
+                                    className={`text-[8px] px-1 rounded uppercase tracking-tighter mb-0.5 ${
+                                      wFlag === 'deload'
+                                        ? 'bg-teal-500/20 text-teal-600 dark:text-teal-300 border border-teal-500/40'
+                                        : 'bg-purple-500/20 text-purple-600 dark:text-purple-300 border border-purple-500/40'
+                                    }`}
+                                  >
+                                    {wFlag === 'deload' ? 'Deload' : 'Race'}
+                                  </span>
+                                )}
+                                <span>{val}</span>
                               </div>
                             )}
 
@@ -1613,12 +1966,20 @@ export const WeeklyMileageChart: React.FC<WeeklyMileageChartProps> = ({
                                       : '#1e293b'
                                     : isSelected
                                     ? '#f59e0b'
+                                    : wFlag === 'deload'
+                                    ? isLight
+                                      ? '#5eead4'
+                                      : '#0d9488'
+                                    : wFlag === 'race'
+                                    ? isLight
+                                      ? '#c084fc'
+                                      : '#9333ea'
                                     : w.isCurrentWeek
                                     ? '#fbbf24'
                                     : isLight
                                     ? '#38bdf8'
                                     : '#0284c7',
-                                opacity: val === 0 ? 0.35 : isSelected ? 1 : 0.85,
+                                opacity: val === 0 ? 0.35 : isSelected ? 1 : wFlag ? 0.72 : 0.85,
                                 boxShadow: isSelected ? '0 0 12px rgba(245, 158, 11, 0.45)' : undefined,
                               }}
                             />
@@ -1632,6 +1993,7 @@ export const WeeklyMileageChart: React.FC<WeeklyMileageChartProps> = ({
                   <div className={`mt-2 w-full flex items-center ${currentPeriodCount >= 36 ? 'gap-[1px] sm:gap-[1.5px]' : currentPeriodCount === 52 ? 'gap-[1.5px]' : 'gap-[3px]'}`}>
                     {bikeWeeks.map((w) => {
                       const isSelected = activeBikeWeek?.weekKey === w.weekKey;
+                      const wFlag = getEffectiveWeekFlag(w.weekKey);
                       return (
                         <div
                           key={`lbl-${w.weekKey}`}
@@ -1642,6 +2004,10 @@ export const WeeklyMileageChart: React.FC<WeeklyMileageChartProps> = ({
                             className={`text-[9px] ${currentPeriodCount >= 24 ? 'text-[8px] sm:text-[9px]' : ''} font-mono block truncate ${
                               isSelected
                                 ? 'text-amber-500 font-bold'
+                                : wFlag === 'deload'
+                                ? 'text-teal-500 font-semibold'
+                                : wFlag === 'race'
+                                ? 'text-purple-500 font-semibold'
                                 : w.isCurrentWeek
                                 ? 'text-amber-400 font-semibold'
                                 : isLight
@@ -1669,10 +2035,11 @@ export const WeeklyMileageChart: React.FC<WeeklyMileageChartProps> = ({
             {/* Selected Period Breakdown */}
             {activeBikeWeek && (
               <div className={`mt-4 p-3.5 rounded-xl border ${isLight ? 'bg-orange-50/50 border-orange-200 text-slate-900' : 'bg-slate-950/70 border-slate-800 text-slate-200'}`}>
-                <div className="flex items-center justify-between pb-2 border-b border-slate-200 dark:border-slate-800">
-                  <div className="flex items-center gap-2">
+                <div className="flex flex-wrap items-center justify-between gap-2 pb-2 border-b border-slate-200 dark:border-slate-800">
+                  <div className="flex items-center gap-2 flex-wrap">
                     <Calendar className="w-4 h-4 text-orange-500" />
                     <span className="text-xs font-bold">{activeBikeWeek.weekLabel}</span>
+                    {renderWeekFlagSelector(activeBikeWeek.weekKey, 'Week Type')}
                   </div>
                   <div className="flex items-center gap-3 text-xs font-mono">
                     <span className="font-bold text-orange-500">
@@ -1765,34 +2132,13 @@ export const WeeklyMileageChart: React.FC<WeeklyMileageChartProps> = ({
               : b.distanceKm
             : b.movingHours;
 
-        const computeMedian = (vals: number[]): number => {
-          if (vals.length === 0) return 0;
-          const sorted = [...vals].sort((a, b) => a - b);
-          const mid = Math.floor(sorted.length / 2);
-          const med =
-            sorted.length % 2 === 1 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
-          return Math.round(med * 10) / 10;
-        };
-
         // Helper: get the last up to 4 normal weeks strictly prior to targetWeekKey
-        const getPrior4NormalWeeks = (targetWeekKey: string) => {
-          const sourceList = extendedRunWeeks.length > 0 ? extendedRunWeeks : weeks;
-          const targetIdx = sourceList.findIndex((w) => w.weekKey === targetWeekKey);
-          if (targetIdx <= 0) return { baseline: 0, normalWeeks: [] as WeeklyMileageBucket[] };
-          const collected: WeeklyMileageBucket[] = [];
-          for (let j = targetIdx - 1; j >= 0 && collected.length < 4; j--) {
-            const candidate = sourceList[j];
-            const flag = weekFlags[candidate.weekKey];
-            if (flag === 'deload' || flag === 'race') continue;
-            if (getBucketVal(candidate) <= 0) continue;
-            collected.push(candidate);
-          }
-          const vals = collected.map(getBucketVal);
-          return {
-            baseline: computeMedian(vals),
-            normalWeeks: collected,
-          };
-        };
+        const getPrior4NormalWeeks = (targetWeekKey: string) =>
+          getGenericPrior4NormalWeeks(
+            extendedRunWeeks.length > 0 ? extendedRunWeeks : weeks,
+            targetWeekKey,
+            getBucketVal
+          );
 
         const currentVal = activeWeek ? getBucketVal(activeWeek) : 0;
 
@@ -1806,7 +2152,7 @@ export const WeeklyMileageChart: React.FC<WeeklyMileageChartProps> = ({
         // Ignore weeks flagged as Deload or Race when computing Weekly Average
         const normalVisibleWeeks =
           granularity === 'week'
-            ? weeks.filter((w) => !weekFlags[w.weekKey])
+            ? weeks.filter((w) => !getEffectiveWeekFlag(w.weekKey))
             : weeks;
 
         const rawAvgVal =
@@ -1902,11 +2248,21 @@ export const WeeklyMileageChart: React.FC<WeeklyMileageChartProps> = ({
               : stats.totalHours / stats.totalRuns)
           : 0;
 
-        const activeWeekFlag = activeWeek ? weekFlags[activeWeek.weekKey] : undefined;
+        const activeWeekFlag = activeWeek ? getEffectiveWeekFlag(activeWeek.weekKey) : undefined;
+
+        // Longest Run & Long-Run Proportion Cap (<= 30-35% of weekly mileage)
+        const longestRunInActiveWeek =
+          activeWeek && activeWeek.runs.length > 0
+            ? activeWeek.runs.reduce((best, r) => (r.distanceKm > best.distanceKm ? r : best), activeWeek.runs[0])
+            : null;
+        const longestRunSharePct =
+          activeWeek && activeWeek.distanceKm > 0 && longestRunInActiveWeek
+            ? Math.round((longestRunInActiveWeek.distanceKm / activeWeek.distanceKm) * 100)
+            : 0;
 
         return (
           <>
-            {/* Subheader: Run + Badge + Controls + Active Week Flag Selector */}
+            {/* Subheader: Run + Badge + Controls */}
             <div className="flex flex-wrap items-center justify-between gap-3 pt-4 pb-2">
               <div className="flex flex-wrap items-center gap-2 sm:gap-2.5">
                 <h3
@@ -1921,8 +2277,6 @@ export const WeeklyMileageChart: React.FC<WeeklyMileageChartProps> = ({
                 </span>
                 {renderActivityControls()}
               </div>
-
-              {activeWeek && renderWeekFlagSelector(activeWeek.weekKey, activeWeek.shortLabel)}
             </div>
 
             {/* KPI Stats Cards */}
@@ -2097,7 +2451,7 @@ export const WeeklyMileageChart: React.FC<WeeklyMileageChartProps> = ({
                 }[] = [];
                 if (granularity === 'week') {
                   weeks.forEach((w) => {
-                    const flag = weekFlags[w.weekKey];
+                    const flag = getEffectiveWeekFlag(w.weekKey);
                     if (flag === 'deload' || flag === 'race') return;
                     const { baseline: wBase, normalWeeks: wNormals } = getPrior4NormalWeeks(w.weekKey);
                     const curV = getBucketVal(w);
@@ -2122,7 +2476,7 @@ export const WeeklyMileageChart: React.FC<WeeklyMileageChartProps> = ({
                   rampBreaches[rampBreaches.length - 1];
                 return activeBreach ? (
                   <div
-                    className={`px-3 py-1.5 rounded-lg border text-[11px] flex flex-wrap items-center justify-between gap-2 ${
+                    className={`px-3 py-1.5 rounded-lg border text-[11px] flex items-center justify-between gap-2 ${
                       isLight
                         ? 'bg-rose-50 border-rose-200 text-rose-800'
                         : 'bg-rose-950/30 border-rose-500/30 text-rose-300'
@@ -2143,32 +2497,6 @@ export const WeeklyMileageChart: React.FC<WeeklyMileageChartProps> = ({
                       </span>
                       ).
                     </span>
-                    <div className="flex items-center gap-1.5 shrink-0">
-                      <button
-                        type="button"
-                        onClick={() => handleSetWeekFlag(activeBreach.weekKey, 'deload')}
-                        className={`px-2 py-0.5 rounded text-[10px] font-bold border transition-colors cursor-pointer ${
-                          isLight
-                            ? 'bg-white hover:bg-teal-50 border-rose-200 text-teal-700'
-                            : 'bg-slate-900 hover:bg-teal-950/50 border-rose-500/30 text-teal-300'
-                        }`}
-                        title={`Mark ${activeBreach.weekLabel} as a Deload Week to ignore it from calculations`}
-                      >
-                        Mark Deload
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => handleSetWeekFlag(activeBreach.weekKey, 'race')}
-                        className={`px-2 py-0.5 rounded text-[10px] font-bold border transition-colors cursor-pointer ${
-                          isLight
-                            ? 'bg-white hover:bg-purple-50 border-rose-200 text-purple-700'
-                            : 'bg-slate-900 hover:bg-purple-950/50 border-rose-500/30 text-purple-300'
-                        }`}
-                        title={`Mark ${activeBreach.weekLabel} as a Race Week to ignore it from calculations`}
-                      >
-                        Mark Race Week
-                      </button>
-                    </div>
                   </div>
                 ) : null;
               })()}
@@ -2219,7 +2547,7 @@ export const WeeklyMileageChart: React.FC<WeeklyMileageChartProps> = ({
                     <div className={`h-full w-full flex items-end ${currentPeriodCount >= 36 ? 'gap-[1px] sm:gap-[1.5px]' : currentPeriodCount === 52 ? 'gap-[1.5px]' : 'gap-[3px]'} px-0 relative z-10`}>
                       {weeks.map((w, idx) => {
                         const val = getBucketVal(w);
-                        const wFlag = granularity === 'week' ? weekFlags[w.weekKey] : undefined;
+                        const wFlag = getEffectiveWeekFlag(w.weekKey);
                         const { baseline: wBaseline } =
                           granularity === 'week'
                             ? getPrior4NormalWeeks(w.weekKey)
@@ -2352,7 +2680,7 @@ export const WeeklyMileageChart: React.FC<WeeklyMileageChartProps> = ({
                   <div className={`mt-2 w-full flex items-center ${currentPeriodCount >= 36 ? 'gap-[1px] sm:gap-[1.5px]' : currentPeriodCount === 52 ? 'gap-[1.5px]' : 'gap-[3px]'}`}>
                     {weeks.map((w) => {
                       const isSelected = activeWeek?.weekKey === w.weekKey;
-                      const wFlag = granularity === 'week' ? weekFlags[w.weekKey] : undefined;
+                      const wFlag = getEffectiveWeekFlag(w.weekKey);
                       return (
                         <div
                           key={`lbl-${w.weekKey}`}
@@ -2412,7 +2740,7 @@ export const WeeklyMileageChart: React.FC<WeeklyMileageChartProps> = ({
                     </span>
                     {renderWeekFlagSelector(activeWeek.weekKey, 'Week Type')}
                   </div>
-                  <div className="flex items-center gap-3 text-xs font-mono">
+                  <div className="flex items-center gap-2.5 text-xs font-mono flex-wrap">
                     <span className="font-bold text-rose-500">
                       {unit === 'miles' ? `${activeWeek.distanceMiles} mi` : `${activeWeek.distanceKm} km`} ({activeWeek.movingHours} hrs)
                     </span>
@@ -2424,6 +2752,26 @@ export const WeeklyMileageChart: React.FC<WeeklyMileageChartProps> = ({
                         Avg {activeWeek.avgPaceFormatted}
                       </span>
                     )}
+                    {granularity === 'week' && longestRunInActiveWeek && activeWeek.runsCount >= 2 && (
+                      <span
+                        className={`text-[10px] font-bold px-2 py-0.5 rounded-md border ${
+                          longestRunSharePct <= 35
+                            ? isLight
+                              ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                              : 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30'
+                            : isLight
+                            ? 'bg-amber-50 text-amber-800 border-amber-200'
+                            : 'bg-amber-500/10 text-amber-400 border-amber-500/30'
+                        }`}
+                        title="Recommended single long-run cap is ≤30–35% of weekly running mileage"
+                      >
+                        Long Run:{' '}
+                        {unit === 'miles'
+                          ? `${longestRunInActiveWeek.distanceMiles} mi`
+                          : `${longestRunInActiveWeek.distanceKm} km`}{' '}
+                        ({longestRunSharePct}% of wk {longestRunSharePct <= 35 ? '≤35% Cap' : '>35% Cap'})
+                      </span>
+                    )}
                   </div>
                 </div>
 
@@ -2433,42 +2781,59 @@ export const WeeklyMileageChart: React.FC<WeeklyMileageChartProps> = ({
                   </p>
                 ) : (
                   <div className="mt-2.5 divide-y divide-slate-200/60 dark:divide-slate-800/60">
-                    {activeWeek.runs.map((run) => (
-                      <div
-                        key={run.id}
-                        onClick={() => onSelectActivity && onSelectActivity(run.id)}
-                        className={`py-2 flex items-center justify-between text-xs transition-colors rounded-lg px-2 -mx-2 ${
-                          onSelectActivity ? 'hover:bg-rose-500/10 cursor-pointer' : ''
-                        }`}
-                      >
-                        <div className="flex items-center gap-2.5 min-w-0">
-                          <span className="text-[11px] font-mono font-bold text-rose-500 shrink-0 w-8">
-                            {run.dayOfWeek}
-                          </span>
-                          <span className="font-medium truncate text-slate-800 dark:text-slate-200">
-                            {run.name}
-                          </span>
-                        </div>
-
-                        <div className="flex items-center gap-3 font-mono shrink-0 text-[11px]">
-                          <span className="font-bold text-slate-900 dark:text-white">
-                            {unit === 'miles' ? `${run.distanceMiles} mi` : `${run.distanceKm} km`}
-                          </span>
-                          <span className="text-slate-400 hidden sm:inline">
-                            {run.avgPaceFormatted}
-                          </span>
-                          {run.sufferScore ? (
-                            <span className="text-rose-400 flex items-center gap-0.5">
-                              <Flame className="w-3 h-3" />
-                              {run.sufferScore}
+                    {activeWeek.runs.map((run) => {
+                      const isLongestRun =
+                        granularity === 'week' &&
+                        activeWeek.runs.length >= 2 &&
+                        longestRunInActiveWeek?.id === run.id;
+                      return (
+                        <div
+                          key={run.id}
+                          onClick={() => onSelectActivity && onSelectActivity(run.id)}
+                          className={`py-2 flex items-center justify-between text-xs transition-colors rounded-lg px-2 -mx-2 ${
+                            onSelectActivity ? 'hover:bg-rose-500/10 cursor-pointer' : ''
+                          }`}
+                        >
+                          <div className="flex items-center gap-2.5 min-w-0">
+                            <span className="text-[11px] font-mono font-bold text-rose-500 shrink-0 w-8">
+                              {run.dayOfWeek}
                             </span>
-                          ) : null}
-                          {onSelectActivity && (
-                            <ChevronRight className="w-3.5 h-3.5 text-slate-400" />
-                          )}
+                            <span className="font-medium truncate text-slate-800 dark:text-slate-200">
+                              {run.name}
+                            </span>
+                            {isLongestRun && (
+                              <span
+                                className={`text-[9px] font-mono font-bold px-1.5 py-0.5 rounded shrink-0 ${
+                                  longestRunSharePct <= 35
+                                    ? 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30'
+                                    : 'bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30'
+                                }`}
+                              >
+                                Longest • {longestRunSharePct}%
+                              </span>
+                            )}
+                          </div>
+
+                          <div className="flex items-center gap-3 font-mono shrink-0 text-[11px]">
+                            <span className="font-bold text-slate-900 dark:text-white">
+                              {unit === 'miles' ? `${run.distanceMiles} mi` : `${run.distanceKm} km`}
+                            </span>
+                            <span className="text-slate-400 hidden sm:inline">
+                              {run.avgPaceFormatted}
+                            </span>
+                            {run.sufferScore ? (
+                              <span className="text-rose-400 flex items-center gap-0.5">
+                                <Flame className="w-3 h-3" />
+                                {run.sufferScore}
+                              </span>
+                            ) : null}
+                            {onSelectActivity && (
+                              <ChevronRight className="w-3.5 h-3.5 text-slate-400" />
+                            )}
+                          </div>
                         </div>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 )}
               </div>

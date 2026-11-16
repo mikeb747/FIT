@@ -1345,6 +1345,258 @@ export const StravaActivityModal: React.FC<StravaActivityModalProps> = ({
             </div>
           )}
 
+          {/* Aerobic Efficiency Factor (EF) & First/Second-Half Decoupling (Pa:Hr / Pw:Hr) */}
+          {(() => {
+            const actCategory =
+              classification.category === 'Run'
+                ? 'run'
+                : classification.category === 'Bike'
+                ? 'bike'
+                : 'other';
+            if (actCategory !== 'run' && actCategory !== 'bike') return null;
+
+            const hrStream = streams?.heartrate?.data as number[] | undefined;
+            const velStream = streams?.velocity_smooth?.data as number[] | undefined;
+            const wattsStream = streams?.watts?.data as number[] | undefined;
+
+            let firstHalfSpeedOrWatts = 0;
+            let secondHalfSpeedOrWatts = 0;
+            let firstHalfHr = 0;
+            let secondHalfHr = 0;
+            let hasHalfSplitComparison = false;
+            let sourceLabel = 'Splits';
+
+            if (actCategory === 'run' && Array.isArray(hrStream) && Array.isArray(velStream)) {
+              const len = Math.min(hrStream.length, velStream.length);
+              if (len >= 120) {
+                const trim = Math.floor(len * 0.05);
+                const validPairs: { v: number; hr: number }[] = [];
+                for (let i = trim; i < len - trim; i++) {
+                  const v = velStream[i];
+                  const h = hrStream[i];
+                  if (v > 1.2 && h > 85) {
+                    validPairs.push({ v: v * 60, hr: h }); // m/min
+                  }
+                }
+                if (validPairs.length >= 60) {
+                  const mid = Math.floor(validPairs.length / 2);
+                  const h1 = validPairs.slice(0, mid);
+                  const h2 = validPairs.slice(mid);
+                  firstHalfSpeedOrWatts = h1.reduce((acc, p) => acc + p.v, 0) / h1.length;
+                  firstHalfHr = h1.reduce((acc, p) => acc + p.hr, 0) / h1.length;
+                  secondHalfSpeedOrWatts = h2.reduce((acc, p) => acc + p.v, 0) / h2.length;
+                  secondHalfHr = h2.reduce((acc, p) => acc + p.hr, 0) / h2.length;
+                  hasHalfSplitComparison = firstHalfHr > 0 && secondHalfHr > 0;
+                  sourceLabel = '1-sec Streams (Middle 90%)';
+                }
+              }
+            } else if (actCategory === 'bike' && Array.isArray(hrStream) && Array.isArray(wattsStream)) {
+              const len = Math.min(hrStream.length, wattsStream.length);
+              if (len >= 120) {
+                const trim = Math.floor(len * 0.05);
+                const validPairs: { w: number; hr: number }[] = [];
+                for (let i = trim; i < len - trim; i++) {
+                  const w = wattsStream[i];
+                  const h = hrStream[i];
+                  if (w > 20 && h > 80) {
+                    validPairs.push({ w, hr: h });
+                  }
+                }
+                if (validPairs.length >= 60) {
+                  const mid = Math.floor(validPairs.length / 2);
+                  const h1 = validPairs.slice(0, mid);
+                  const h2 = validPairs.slice(mid);
+                  firstHalfSpeedOrWatts = h1.reduce((acc, p) => acc + p.w, 0) / h1.length;
+                  firstHalfHr = h1.reduce((acc, p) => acc + p.hr, 0) / h1.length;
+                  secondHalfSpeedOrWatts = h2.reduce((acc, p) => acc + p.w, 0) / h2.length;
+                  secondHalfHr = h2.reduce((acc, p) => acc + p.hr, 0) / h2.length;
+                  hasHalfSplitComparison = firstHalfHr > 0 && secondHalfHr > 0;
+                  sourceLabel = '1-sec Streams (Middle 90%)';
+                }
+              }
+            }
+
+            // Fallback to Run splits if stream arrays weren't available
+            if (!hasHalfSplitComparison && actCategory === 'run' && runDetails && runDetails.splits.length >= 2) {
+              const validSplits = runDetails.splits.filter(
+                (s) => (s.paceSecPerKm ?? 0) > 0 && s.avgHr && s.avgHr > 85 && Number(s.distanceKm || 0) >= 0.4
+              );
+              if (validSplits.length >= 2) {
+                const mid = Math.floor(validSplits.length / 2);
+                const h1 = validSplits.slice(0, mid);
+                const h2 = validSplits.slice(mid);
+                firstHalfSpeedOrWatts =
+                  h1.reduce((acc, s) => acc + 1000 / ((s.paceSecPerKm || 300) / 60), 0) / h1.length;
+                firstHalfHr = h1.reduce((acc, s) => acc + (s.avgHr || 0), 0) / h1.length;
+                secondHalfSpeedOrWatts =
+                  h2.reduce((acc, s) => acc + 1000 / ((s.paceSecPerKm || 300) / 60), 0) / h2.length;
+                secondHalfHr = h2.reduce((acc, s) => acc + (s.avgHr || 0), 0) / h2.length;
+                hasHalfSplitComparison = firstHalfHr > 0 && secondHalfHr > 0;
+                sourceLabel = `${validSplits.length} Splits`;
+              }
+            }
+
+            const avgHr = Number(activity.average_heartrate || 0);
+            const overallSpeedMetersPerMin =
+              actCategory === 'run' && durationMoving > 0 && effectiveDistanceM > 0
+                ? effectiveDistanceM / (durationMoving / 60)
+                : 0;
+            const overallWatts =
+              actCategory === 'bike'
+                ? Number(normalizedPower || effectiveAvgWatts || activity.weighted_average_watts || activity.average_watts || 0)
+                : 0;
+
+            const overallEf =
+              avgHr > 80
+                ? actCategory === 'run'
+                  ? overallSpeedMetersPerMin > 0
+                    ? overallSpeedMetersPerMin / avgHr
+                    : 0
+                  : overallWatts > 0
+                  ? overallWatts / avgHr
+                  : 0
+                : hasHalfSplitComparison
+                ? (firstHalfSpeedOrWatts / firstHalfHr + secondHalfSpeedOrWatts / secondHalfHr) / 2
+                : 0;
+
+            if (overallEf <= 0 && !hasHalfSplitComparison) return null;
+
+            const ef1 = hasHalfSplitComparison ? firstHalfSpeedOrWatts / firstHalfHr : overallEf;
+            const ef2 = hasHalfSplitComparison ? secondHalfSpeedOrWatts / secondHalfHr : overallEf;
+            // Positive decoupling % means efficiency dropped in the second half (HR rose relative to pace/power)
+            const decouplingPct =
+              hasHalfSplitComparison && ef1 > 0 ? ((ef1 - ef2) / ef1) * 100 : null;
+
+            const formatMetersPerMinToPace = (mPerMin: number) => {
+              if (!mPerMin || mPerMin <= 0) return '—';
+              const secPerKm = Math.round((1000 / mPerMin) * 60);
+              const mins = Math.floor(secPerKm / 60);
+              const secs = secPerKm % 60;
+              return `${mins}:${secs.toString().padStart(2, '0')}/km`;
+            };
+
+            const isCoupled = decouplingPct !== null && decouplingPct <= 3.5;
+            const isModerateDrift = decouplingPct !== null && decouplingPct > 3.5 && decouplingPct <= 5.0;
+
+            return (
+              <div className="p-4 rounded-2xl bg-slate-950/80 border border-slate-800 space-y-3">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div className="flex items-center gap-2">
+                    <TrendingUp className="w-4 h-4 text-emerald-400" />
+                    <div>
+                      <h4 className="text-xs font-black text-white uppercase tracking-wider">
+                        Aerobic Efficiency (EF) &amp; Decoupling ({actCategory === 'run' ? 'Pa:Hr' : 'Pw:Hr'})
+                      </h4>
+                      <span className="text-[11px] text-slate-400">
+                        {actCategory === 'run'
+                          ? 'Speed-to-Heart-Rate ratio (m/min/bpm) & 1st vs. 2nd half cardiac drift'
+                          : 'Power-to-Heart-Rate ratio (W/bpm) & 1st vs. 2nd half cardiac drift'}
+                      </span>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-[10px] font-mono text-slate-400 bg-slate-900 border border-slate-800 px-2 py-0.5 rounded-md">
+                      {sourceLabel}
+                    </span>
+                    {decouplingPct !== null && (
+                      <span
+                        className={`text-[10px] font-bold px-2 py-0.5 rounded-md border ${
+                          isCoupled
+                            ? 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30'
+                            : isModerateDrift
+                            ? 'bg-amber-500/15 text-amber-300 border-amber-500/30'
+                            : 'bg-rose-500/15 text-rose-300 border-rose-500/30'
+                        }`}
+                      >
+                        {isCoupled
+                          ? 'Strong Durability (≤3.5%)'
+                          : isModerateDrift
+                          ? 'Moderate Drift (3.5–5%)'
+                          : 'High Cardiac Drift (>5%)'}
+                      </span>
+                    )}
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+                  <div className="p-2.5 rounded-xl bg-slate-900/90 border border-slate-800/80">
+                    <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                      Efficiency Factor (EF)
+                    </div>
+                    <div className="text-base font-black font-mono text-emerald-400 mt-0.5">
+                      {overallEf.toFixed(2)}
+                    </div>
+                    <div className="text-[10px] text-slate-500">
+                      {actCategory === 'run' ? 'm/min per bpm' : 'Watts per bpm'}
+                    </div>
+                  </div>
+
+                  <div className="p-2.5 rounded-xl bg-slate-900/90 border border-slate-800/80">
+                    <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                      {actCategory === 'run' ? 'Pa:Hr Decoupling' : 'Pw:Hr Decoupling'}
+                    </div>
+                    <div
+                      className={`text-base font-black font-mono mt-0.5 ${
+                        decouplingPct === null
+                          ? 'text-slate-400'
+                          : decouplingPct <= 3.5
+                          ? 'text-emerald-400'
+                          : decouplingPct <= 5.0
+                          ? 'text-amber-400'
+                          : 'text-rose-400'
+                      }`}
+                    >
+                      {decouplingPct !== null
+                        ? `${decouplingPct > 0 ? '+' : ''}${decouplingPct.toFixed(1)}%`
+                        : '—'}
+                    </div>
+                    <div className="text-[10px] text-slate-500">
+                      {decouplingPct !== null
+                        ? decouplingPct <= 0
+                          ? 'Negative split efficiency'
+                          : '2nd-half efficiency drift'
+                        : 'Requires split HR'}
+                    </div>
+                  </div>
+
+                  <div className="p-2.5 rounded-xl bg-slate-900/90 border border-slate-800/80">
+                    <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                      1st Half Effort
+                    </div>
+                    <div className="text-xs font-bold font-mono text-white mt-1">
+                      {hasHalfSplitComparison
+                        ? actCategory === 'run'
+                          ? `${formatMetersPerMinToPace(firstHalfSpeedOrWatts)} @ ${Math.round(firstHalfHr)} bpm`
+                          : `${Math.round(firstHalfSpeedOrWatts)}W @ ${Math.round(firstHalfHr)} bpm`
+                        : avgHr > 0
+                        ? `Avg ${Math.round(avgHr)} bpm`
+                        : '—'}
+                    </div>
+                    <div className="text-[10px] text-slate-500 mt-0.5">
+                      EF₁: {ef1 > 0 ? ef1.toFixed(2) : '—'}
+                    </div>
+                  </div>
+
+                  <div className="p-2.5 rounded-xl bg-slate-900/90 border border-slate-800/80">
+                    <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                      2nd Half Effort
+                    </div>
+                    <div className="text-xs font-bold font-mono text-white mt-1">
+                      {hasHalfSplitComparison
+                        ? actCategory === 'run'
+                          ? `${formatMetersPerMinToPace(secondHalfSpeedOrWatts)} @ ${Math.round(secondHalfHr)} bpm`
+                          : `${Math.round(secondHalfSpeedOrWatts)}W @ ${Math.round(secondHalfHr)} bpm`
+                        : '—'}
+                    </div>
+                    <div className="text-[10px] text-slate-500 mt-0.5">
+                      EF₂: {ef2 > 0 ? ef2.toFixed(2) : '—'}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            );
+          })()}
+
           {/* Athlete Perceived Exertion (sRPE) & Pre-Workout Readiness */}
           <div className="p-4 rounded-2xl bg-slate-950/80 border border-slate-800 space-y-3.5">
             <div className="flex items-center justify-between">

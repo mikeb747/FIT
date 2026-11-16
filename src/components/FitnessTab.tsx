@@ -1350,12 +1350,472 @@ export const FitnessTab: React.FC<FitnessTabProps> = ({
         activities={activities}
         activityDetails={activityDetails}
         athleteProfile={athleteProfile}
+        goals={goals}
         initialTab={selectedSport === 'bike' ? 'cycling_power' : selectedSport === 'run' ? 'mileage' : selectedSport === 'swim' ? 'swim_distance' : 'tss'}
         theme={theme}
         onSelectActivity={(actId) => {
           handleOpenActivityModal(actId);
         }}
       />
+
+      {/* ========================================================= */}
+      {/* 4. GOAL RACE READINESS & AEROBIC EFFICIENCY (EF) TREND    */}
+      {/* ========================================================= */}
+      {(() => {
+        // Compute current 4-week normal run median (in miles & km) and longest run in last 28 days
+        const nowMs = Date.now();
+        const runActs = activities.filter((a) => classifyActivity(a).category === 'Run');
+
+        // Load week flags so deload/race weeks are excluded from 4W Normal Median
+        let savedFlags: Record<string, 'normal' | 'deload' | 'race'> = {};
+        try {
+          const raw = localStorage.getItem('fittrack_week_flags_v1');
+          if (raw) savedFlags = JSON.parse(raw);
+        } catch {
+          // ignore
+        }
+
+        const getMondayKey = (d: Date) => {
+          const copy = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+          const day = copy.getDay();
+          const diff = (day + 6) % 7;
+          copy.setDate(copy.getDate() - diff);
+          const yyyy = copy.getFullYear();
+          const mm = String(copy.getMonth() + 1).padStart(2, '0');
+          const dd = String(copy.getDate()).padStart(2, '0');
+          return `${yyyy}-${mm}-${dd}`;
+        };
+
+        const currentMondayKey = getMondayKey(new Date());
+        const weeklyRunKmMap: Record<string, number> = {};
+        runActs.forEach((a) => {
+          const d = new Date(a.start_date_local || a.start_date);
+          if (isNaN(d.getTime())) return;
+          const wk = getMondayKey(d);
+          weeklyRunKmMap[wk] = (weeklyRunKmMap[wk] || 0) + (a.distance || 0) / 1000;
+        });
+
+        // Build prior 8 completed weeks and take last 4 normal weeks
+        const priorNormalKm: number[] = [];
+        const baseMonday = new Date();
+        const day = baseMonday.getDay();
+        baseMonday.setDate(baseMonday.getDate() - ((day + 6) % 7));
+        for (let w = 1; w <= 8; w++) {
+          const d = new Date(baseMonday);
+          d.setDate(d.getDate() - w * 7);
+          const wkKey = getMondayKey(d);
+          const flag = savedFlags[wkKey] || 'normal';
+          const km = weeklyRunKmMap[wkKey] || 0;
+          if (flag === 'normal' && km > 0 && priorNormalKm.length < 4) {
+            priorNormalKm.push(km);
+          }
+        }
+        const sortedNormalKm = [...priorNormalKm].sort((a, b) => a - b);
+        const medianWeeklyRunKm =
+          sortedNormalKm.length === 0
+            ? (weeklyRunKmMap[currentMondayKey] || 0)
+            : sortedNormalKm.length % 2 === 1
+            ? sortedNormalKm[Math.floor(sortedNormalKm.length / 2)]
+            : (sortedNormalKm[sortedNormalKm.length / 2 - 1] + sortedNormalKm[sortedNormalKm.length / 2]) / 2;
+        const medianWeeklyRunMiles = medianWeeklyRunKm * 0.621371;
+
+        // Longest run in last 28 days
+        const recent28dRuns = runActs.filter((a) => {
+          const t = new Date(a.start_date_local || a.start_date).getTime();
+          return !isNaN(t) && nowMs - t <= 28 * 86400000;
+        });
+        const longestRecentRunKm = recent28dRuns.reduce(
+          (max, a) => Math.max(max, (a.distance || 0) / 1000),
+          0
+        );
+        const longestRecentRunMiles = longestRecentRunKm * 0.621371;
+
+        // Upcoming goals sorted chronologically
+        const normalizeGoalDate = (goal: TrainingGoal): string => {
+          const raw = (goal.eventDate || '').trim();
+          if (
+            raw === '2027-02-01' &&
+            (goal.id?.includes('seven-sins') || /seven sins/i.test(goal.name || ''))
+          ) {
+            return '2027-01-02';
+          }
+          return raw;
+        };
+
+        const todayMidnight = new Date();
+        todayMidnight.setHours(0, 0, 0, 0);
+
+        const upcomingGoals = (goals || [])
+          .filter((g) => g.status === 'upcoming' && g.eventDate)
+          .map((g) => {
+            const normDate = normalizeGoalDate(g);
+            const [y, m, d] = normDate.split('-').map(Number);
+            const eventMidnight = new Date(y, (m || 1) - 1, d || 1);
+            eventMidnight.setHours(0, 0, 0, 0);
+            const diffDays = Math.round(
+              (eventMidnight.getTime() - todayMidnight.getTime()) / 86400000
+            );
+            return { goal: g, normDate, diffDays };
+          })
+          .filter((item) => item.diffDays >= -1)
+          .sort((a, b) => a.diffDays - b.diffDays)
+          .slice(0, 4);
+
+        // Steady-Run Aerobic Efficiency Factor (EF) Trend across recent steady runs (≥ 25 min, with HR)
+        const steadyRunsWithEf = runActs
+          .filter((a) => {
+            const movingSec = a.moving_time || a.elapsed_time || 0;
+            const distMeters = a.distance || 0;
+            const avgHr = a.average_heartrate || 0;
+            return movingSec >= 1500 && distMeters >= 3000 && avgHr >= 100;
+          })
+          .sort(
+            (a, b) =>
+              new Date(a.start_date_local || a.start_date).getTime() -
+              new Date(b.start_date_local || b.start_date).getTime()
+          )
+          .slice(-8)
+          .map((a) => {
+            const movingSec = a.moving_time || a.elapsed_time || 1;
+            const distMeters = a.distance || 0;
+            const avgHr = a.average_heartrate || 140;
+            const speedMetersPerMin = distMeters / (movingSec / 60);
+            const ef = speedMetersPerMin / avgHr;
+            const paceSecPerKm = Math.round(movingSec / (distMeters / 1000));
+            const dt = new Date(a.start_date_local || a.start_date);
+            const dateLabel = dt.toLocaleDateString('en-GB', {
+              day: 'numeric',
+              month: 'short',
+            });
+            return {
+              id: String(a.id),
+              name: a.name,
+              dateLabel,
+              ef,
+              avgHr: Math.round(avgHr),
+              paceSecPerKm,
+              distanceKm: distMeters / 1000,
+            };
+          });
+
+        const latestEf =
+          steadyRunsWithEf.length > 0
+            ? steadyRunsWithEf[steadyRunsWithEf.length - 1].ef
+            : null;
+        const baselineEf =
+          steadyRunsWithEf.length >= 2
+            ? steadyRunsWithEf
+                .slice(0, Math.max(1, steadyRunsWithEf.length - 1))
+                .reduce((acc, r) => acc + r.ef, 0) /
+              Math.max(1, steadyRunsWithEf.length - 1)
+            : null;
+        const efDeltaPct =
+          latestEf !== null && baselineEf !== null && baselineEf > 0
+            ? ((latestEf - baselineEf) / baselineEf) * 100
+            : null;
+
+        return (
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
+            {/* Left 7 cols: Goal Race Countdown & Target Pace / Volume Readiness */}
+            <div
+              className={`lg:col-span-7 rounded-2xl border p-4 sm:p-5 transition-colors ${
+                isLight
+                  ? 'bg-white border-slate-200 shadow-sm'
+                  : 'bg-slate-900/60 border-slate-800'
+              }`}
+            >
+              <div className="flex flex-wrap items-center justify-between gap-2 pb-3 border-b border-slate-200/80 dark:border-slate-800/80">
+                <div>
+                  <div className="flex items-center gap-2">
+                    <Award className="w-4 h-4 text-amber-500" />
+                    <h3
+                      className={`text-sm font-bold uppercase tracking-wider ${
+                        isLight ? 'text-slate-800' : 'text-slate-200'
+                      }`}
+                    >
+                      Goal Race Countdown &amp; Volume Readiness
+                    </h3>
+                  </div>
+                  <p className="text-xs text-slate-400 mt-0.5">
+                    4W Normal Median:{' '}
+                    <span className="font-mono font-bold text-amber-500">
+                      {medianWeeklyRunMiles.toFixed(1)} mi/wk
+                    </span>{' '}
+                    ({medianWeeklyRunKm.toFixed(1)} km) • Longest (28d):{' '}
+                    <span className="font-mono font-bold text-sky-400">
+                      {longestRecentRunMiles.toFixed(1)} mi
+                    </span>{' '}
+                    ({longestRecentRunKm.toFixed(1)} km)
+                  </p>
+                </div>
+              </div>
+
+              {upcomingGoals.length === 0 ? (
+                <div className="py-6 text-center text-xs text-slate-400">
+                  No upcoming race goals configured. Add an A, B, or C goal in Settings → Goals.
+                </div>
+              ) : (
+                <div className="mt-3 space-y-2.5">
+                  {upcomingGoals.map(({ goal, normDate, diffDays }) => {
+                    const weeks = Math.floor(Math.max(0, diffDays) / 7);
+                    const days = Math.max(0, diffDays) % 7;
+                    const countdownLabel =
+                      diffDays <= 0
+                        ? 'Race Day!'
+                        : weeks > 0
+                        ? `${weeks}w ${days}d left`
+                        : `${days}d left`;
+
+                    const raceRunKm =
+                      goal.eventType === 'triathlon' && goal.triathlonSplits?.runDistanceKm
+                        ? goal.triathlonSplits.runDistanceKm
+                        : goal.totalDistanceKm || 16.093;
+                    const raceRunMiles = raceRunKm * 0.621371;
+
+                    // Recommended weekly normal run mileage (~2.2x race run distance, minimum 18 mi)
+                    const recWeeklyMiles = Math.max(18, Math.round(raceRunMiles * 2.2));
+                    const volumeReadinessPct = Math.min(
+                      100,
+                      Math.round((medianWeeklyRunMiles / recWeeklyMiles) * 100)
+                    );
+                    const longRunReadinessPct = Math.min(
+                      100,
+                      Math.round((longestRecentRunKm / Math.max(1, raceRunKm)) * 100)
+                    );
+
+                    const targetPaceSec =
+                      goal.runTargetPaceSec ||
+                      (goal.eventType === 'run' &&
+                      goal.totalTargetTimeSec > 0 &&
+                      goal.totalDistanceKm > 0
+                        ? Math.round(goal.totalTargetTimeSec / goal.totalDistanceKm)
+                        : goal.triathlonSplits?.runTargetTimeSec &&
+                          goal.triathlonSplits?.runDistanceKm
+                        ? Math.round(
+                            goal.triathlonSplits.runTargetTimeSec /
+                              goal.triathlonSplits.runDistanceKm
+                          )
+                        : 0);
+
+                    const priorityBadgeCls =
+                      goal.priority === 'A'
+                        ? 'bg-emerald-500 text-slate-950'
+                        : goal.priority === 'B'
+                        ? 'bg-sky-500 text-slate-950'
+                        : 'bg-amber-500 text-slate-950';
+
+                    return (
+                      <div
+                        key={goal.id}
+                        className={`p-3 rounded-xl border transition-all ${
+                          isLight
+                            ? 'bg-slate-50/90 border-slate-200'
+                            : 'bg-slate-950/60 border-slate-800/90'
+                        }`}
+                      >
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <div className="flex items-center gap-2 min-w-0">
+                            <span
+                              className={`w-5 h-5 rounded-full text-[10px] font-black flex items-center justify-center shrink-0 ${priorityBadgeCls}`}
+                            >
+                              {goal.priority}
+                            </span>
+                            <span
+                              className={`text-xs font-bold truncate ${
+                                isLight ? 'text-slate-900' : 'text-white'
+                              }`}
+                            >
+                              {goal.name}
+                            </span>
+                            <span className="text-[10px] font-mono text-slate-400 shrink-0">
+                              ({normDate})
+                            </span>
+                          </div>
+                          <div className="flex items-center gap-1.5">
+                            <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-md bg-amber-500/15 text-amber-400 border border-amber-500/30">
+                              {countdownLabel}
+                            </span>
+                            {targetPaceSec > 0 && (
+                              <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-md bg-sky-500/15 text-sky-400 border border-sky-500/30">
+                                Goal {formatSecondsToMinSec(targetPaceSec)}/km
+                              </span>
+                            )}
+                          </div>
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-3 mt-2.5 pt-2 border-t border-slate-200/60 dark:border-slate-800/60 text-[11px]">
+                          <div>
+                            <div className="flex items-center justify-between text-slate-400">
+                              <span>Wkly Base vs Target ({recWeeklyMiles} mi)</span>
+                              <span
+                                className={`font-mono font-bold ${
+                                  volumeReadinessPct >= 85
+                                    ? 'text-emerald-400'
+                                    : volumeReadinessPct >= 65
+                                    ? 'text-amber-400'
+                                    : 'text-rose-400'
+                                }`}
+                              >
+                                {volumeReadinessPct}%
+                              </span>
+                            </div>
+                            <div className="w-full h-1.5 rounded-full bg-slate-200 dark:bg-slate-800 mt-1 overflow-hidden">
+                              <div
+                                className={`h-full rounded-full ${
+                                  volumeReadinessPct >= 85
+                                    ? 'bg-emerald-500'
+                                    : volumeReadinessPct >= 65
+                                    ? 'bg-amber-500'
+                                    : 'bg-rose-500'
+                                }`}
+                                style={{ width: `${volumeReadinessPct}%` }}
+                              />
+                            </div>
+                          </div>
+
+                          <div>
+                            <div className="flex items-center justify-between text-slate-400">
+                              <span>
+                                Long Run vs {raceRunMiles.toFixed(1)} mi ({raceRunKm.toFixed(1)} km)
+                              </span>
+                              <span
+                                className={`font-mono font-bold ${
+                                  longRunReadinessPct >= 85
+                                    ? 'text-emerald-400'
+                                    : longRunReadinessPct >= 65
+                                    ? 'text-amber-400'
+                                    : 'text-rose-400'
+                                }`}
+                              >
+                                {longRunReadinessPct}%
+                              </span>
+                            </div>
+                            <div className="w-full h-1.5 rounded-full bg-slate-200 dark:bg-slate-800 mt-1 overflow-hidden">
+                              <div
+                                className={`h-full rounded-full ${
+                                  longRunReadinessPct >= 85
+                                    ? 'bg-emerald-500'
+                                    : longRunReadinessPct >= 65
+                                    ? 'bg-amber-500'
+                                    : 'bg-rose-500'
+                                }`}
+                                style={{ width: `${longRunReadinessPct}%` }}
+                              />
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+
+            {/* Right 5 cols: Steady-Run Aerobic Efficiency Factor (EF) & Durability Trend */}
+            <div
+              className={`lg:col-span-5 rounded-2xl border p-4 sm:p-5 transition-colors flex flex-col justify-between ${
+                isLight
+                  ? 'bg-white border-slate-200 shadow-sm'
+                  : 'bg-slate-900/60 border-slate-800'
+              }`}
+            >
+              <div>
+                <div className="flex items-center justify-between gap-2 pb-3 border-b border-slate-200/80 dark:border-slate-800/80">
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <TrendingUp className="w-4 h-4 text-emerald-400" />
+                      <h3
+                        className={`text-sm font-bold uppercase tracking-wider ${
+                          isLight ? 'text-slate-800' : 'text-slate-200'
+                        }`}
+                      >
+                        Aerobic Efficiency (EF) Trend
+                      </h3>
+                    </div>
+                    <p className="text-xs text-slate-400 mt-0.5">
+                      Steady-run speed per heartbeat (m/min ÷ Avg HR)
+                    </p>
+                  </div>
+                  {latestEf !== null && (
+                    <div className="text-right">
+                      <div className="text-base font-black font-mono text-emerald-400">
+                        {latestEf.toFixed(2)}{' '}
+                        <span className="text-[10px] font-normal text-slate-400">EF</span>
+                      </div>
+                      {efDeltaPct !== null && (
+                        <div
+                          className={`text-[10px] font-mono font-bold ${
+                            efDeltaPct >= 0 ? 'text-emerald-400' : 'text-amber-400'
+                          }`}
+                        >
+                          {efDeltaPct >= 0 ? '+' : ''}
+                          {efDeltaPct.toFixed(1)}% vs prior avg
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+
+                {steadyRunsWithEf.length === 0 ? (
+                  <div className="py-8 text-center text-xs text-slate-400">
+                    Complete steady runs (≥25 min) with Heart Rate data to track Aerobic Efficiency (EF).
+                  </div>
+                ) : (
+                  <div className="mt-3 space-y-1.5">
+                    {steadyRunsWithEf
+                      .slice()
+                      .reverse()
+                      .slice(0, 5)
+                      .map((run) => (
+                        <button
+                          key={run.id}
+                          type="button"
+                          onClick={() => handleOpenActivityModal(run.id)}
+                          className={`w-full px-3 py-2 rounded-xl border text-left transition-all flex items-center justify-between gap-2 cursor-pointer ${
+                            isLight
+                              ? 'bg-slate-50 hover:bg-slate-100 border-slate-200'
+                              : 'bg-slate-950/60 hover:bg-slate-900 border-slate-800/90'
+                          }`}
+                        >
+                          <div className="min-w-0">
+                            <div className="flex items-center gap-1.5">
+                              <span
+                                className={`text-xs font-bold truncate ${
+                                  isLight ? 'text-slate-800' : 'text-slate-200'
+                                }`}
+                              >
+                                {run.name}
+                              </span>
+                              <span className="text-[10px] font-mono text-slate-400 shrink-0">
+                                {run.dateLabel}
+                              </span>
+                            </div>
+                            <div className="text-[10px] font-mono text-slate-400 mt-0.5">
+                              {run.distanceKm.toFixed(1)} km •{' '}
+                              {formatSecondsToMinSec(run.paceSecPerKm)}/km @ {run.avgHr} bpm
+                            </div>
+                          </div>
+                          <div className="text-right shrink-0">
+                            <span className="text-xs font-black font-mono text-emerald-400 bg-emerald-500/10 border border-emerald-500/25 px-2 py-0.5 rounded-lg">
+                              EF {run.ef.toFixed(2)}
+                            </span>
+                          </div>
+                        </button>
+                      ))}
+                  </div>
+                )}
+              </div>
+
+              <div className="mt-3 pt-2.5 border-t border-slate-200/70 dark:border-slate-800/70 text-[11px] text-slate-400 flex items-center justify-between">
+                <span>Click any run to inspect 1st vs 2nd half Pa:Hr drift</span>
+                <span className="font-mono text-[10px] text-emerald-400 font-bold">
+                  Target Drift ≤ 3.5%
+                </span>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* ========================================================= */}
       {/* 6. TIMELINE CHART: FITNESS, FATIGUE & FORM               */}
