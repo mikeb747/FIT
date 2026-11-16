@@ -83,13 +83,50 @@ export const WeeklyMileageChart: React.FC<WeeklyMileageChartProps> = ({
   initialTab = 'tss',
 }) => {
   const isLight = theme === 'light';
-  const [activeTab, setActiveTab] = useState<ChartDatasetTab>(initialTab);
+
+  const mapInitialTabToDiscipline = (tab: ChartDatasetTab): 'all' | 'swim' | 'bike' | 'run' => {
+    if (tab === 'swim_distance') return 'swim';
+    if (tab === 'bike_hours' || tab === 'cycling_power') return 'bike';
+    if (tab === 'mileage' || tab === 'running_pace' || tab === 'running_hr') return 'run';
+    return 'all';
+  };
+
+  const mapInitialTabToMetric = (tab: ChartDatasetTab): 'distance' | 'time' | 'tss' | 'zones' => {
+    if (tab === 'tss') return 'tss';
+    if (tab === 'cycling_power' || tab === 'running_pace' || tab === 'running_hr') return 'zones';
+    return 'distance';
+  };
+
+  const [disciplineTab, setDisciplineTab] = useState<'all' | 'swim' | 'bike' | 'run'>(() =>
+    mapInitialTabToDiscipline(initialTab)
+  );
   const [granularity, setGranularity] = useState<TimeGranularity>('week');
   const [numWeeks, setNumWeeks] = useState<number>(12); // 8, 12, 24, 52 (4W removed)
   const [numMonths, setNumMonths] = useState<number>(12); // 12, 24, 36 (2, 3, 6 removed, 24, 36 added)
   const [unit, setUnit] = useState<'miles' | 'km'>('miles');
-  const [metricType, setMetricType] = useState<'distance' | 'time'>('distance');
-  const [tssDisciplineFilter, setTssDisciplineFilter] = useState<'all' | 'run' | 'bike' | 'swim'>('all');
+  const [metricType, setMetricType] = useState<'distance' | 'time' | 'tss' | 'zones'>(() =>
+    mapInitialTabToMetric(initialTab)
+  );
+  const [zoneSubType, setZoneSubType] = useState<'primary' | 'hr'>(() =>
+    initialTab === 'running_hr' ? 'hr' : 'primary'
+  );
+
+  // Sync when parent FitnessTab sport filter changes initialTab
+  React.useEffect(() => {
+    const nextDisc = mapInitialTabToDiscipline(initialTab);
+    setDisciplineTab(nextDisc);
+    if (nextDisc === 'all') {
+      setMetricType('tss');
+    } else if (initialTab === 'cycling_power' || initialTab === 'running_pace' || initialTab === 'running_hr') {
+      setMetricType('zones');
+      setZoneSubType(initialTab === 'running_hr' ? 'hr' : 'primary');
+    } else if (metricType === 'tss' && initialTab !== 'tss') {
+      setMetricType('distance');
+    }
+  }, [initialTab]);
+
+  // Effective TSS discipline filter follows the top-level All / Swim / Bike / Run selector
+  const tssDisciplineFilter: 'all' | 'run' | 'bike' | 'swim' = disciplineTab;
 
   const [selectedTssWeek, setSelectedTssWeek] = useState<WeeklyTssBucket | null>(null);
   const [selectedWeek, setSelectedWeek] = useState<WeeklyMileageBucket | null>(null);
@@ -337,7 +374,7 @@ export const WeeklyMileageChart: React.FC<WeeklyMileageChartProps> = ({
     if (scrollContainerRef.current) {
       scrollContainerRef.current.scrollLeft = scrollContainerRef.current.scrollWidth;
     }
-  }, [tssWeeks, weeks, swimWeeks, bikeWeeks, currentPeriodCount, granularity, activeTab]);
+  }, [tssWeeks, weeks, swimWeeks, bikeWeeks, currentPeriodCount, granularity, disciplineTab, metricType]);
 
   // Active selected period or default to the most recent period
   const activeTssIdx = useMemo(() => {
@@ -383,10 +420,11 @@ export const WeeklyMileageChart: React.FC<WeeklyMileageChartProps> = ({
 
   // Peak Scale calculations
   const maxTssScale = useMemo(() => {
-    const values = tssWeeks.map((w) => w.totalTss);
-    const highest = Math.max(...values, 100);
+    const isAllTime = disciplineTab === 'all' && metricType === 'time';
+    const values = tssWeeks.map((w) => (isAllTime ? w.movingHours : w.totalTss));
+    const highest = Math.max(...values, isAllTime ? 3 : 100);
     return Math.ceil(highest * 1.15);
-  }, [tssWeeks]);
+  }, [tssWeeks, disciplineTab, metricType]);
 
   const maxWeeklyRun = useMemo(() => {
     const values = weeks.map((w) =>
@@ -442,83 +480,159 @@ export const WeeklyMileageChart: React.FC<WeeklyMileageChartProps> = ({
   const prevBikePeriod = activeBikeIdx > 0 ? bikeWeeks[activeBikeIdx - 1] : null;
   const prevSameDayBike = activeBikeIdx > 0 ? bikeSameDayByBar[activeBikeIdx - 1] : null;
 
-  // Helper renderer for inside-activity Controls (Distance/Time FIRST, Miles/KM SECOND)
-  const renderActivityControls = () => (
-    <div className="flex items-center gap-1.5 flex-wrap">
-      {/* 1. Metric Toggle: Distance / Time */}
-      <div className="flex items-center p-0.5 rounded-lg bg-slate-950/40 border border-slate-800 text-[11px] font-bold">
-        <button
-          type="button"
-          onClick={() => setMetricType('distance')}
-          className={`px-2 py-0.5 sm:py-1 rounded-md transition-colors cursor-pointer ${
-            metricType === 'distance'
-              ? 'bg-amber-500 text-slate-950 shadow-xs'
-              : isLight
-              ? 'text-slate-600 hover:text-slate-900'
-              : 'text-slate-400 hover:text-white'
-          }`}
-        >
-          Distance
-        </button>
-        <button
-          type="button"
-          onClick={() => setMetricType('time')}
-          className={`px-2 py-0.5 sm:py-1 rounded-md transition-colors cursor-pointer ${
-            metricType === 'time'
-              ? 'bg-amber-500 text-slate-950 shadow-xs'
-              : isLight
-              ? 'text-slate-600 hover:text-slate-900'
-              : 'text-slate-400 hover:text-white'
-          }`}
-        >
-          Time
-        </button>
-      </div>
+  // Helper renderer for inside-activity Controls:
+  // 1. Metric Toggle: Distance / Time / TSS / Zones (or Time / TSS for All)
+  // 2. Second Toggle: Miles / KM (or swapped with Power(or Pace) / Heart Rate when Zones is selected)
+  const renderActivityControls = (forDiscipline: 'all' | 'swim' | 'bike' | 'run' = disciplineTab) => {
+    if (forDiscipline === 'all') {
+      const effectiveAllMetric = metricType === 'time' ? 'time' : 'tss';
+      return (
+        <div className="flex items-center gap-1.5 flex-wrap">
+          <div className="flex items-center p-0.5 rounded-lg bg-slate-950/40 border border-slate-800 text-[11px] font-bold">
+            {(
+              [
+                { id: 'time', label: 'Time' },
+                { id: 'tss', label: 'TSS' },
+              ] as const
+            ).map((opt) => {
+              const isSelected = effectiveAllMetric === opt.id;
+              return (
+                <button
+                  key={opt.id}
+                  type="button"
+                  onClick={() => setMetricType(opt.id)}
+                  className={`px-2.5 py-0.5 sm:py-1 rounded-md transition-colors cursor-pointer ${
+                    isSelected
+                      ? 'bg-amber-500 text-slate-950 shadow-xs'
+                      : isLight
+                      ? 'text-slate-600 hover:text-slate-900'
+                      : 'text-slate-400 hover:text-white'
+                  }`}
+                >
+                  {opt.label}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      );
+    }
 
-      {/* 2. Unit Toggle: Miles / KM (Greyed out when Time is selected) */}
-      <div
-        className={`flex items-center p-0.5 rounded-lg border text-[11px] font-bold transition-all ${
-          metricType === 'time'
-            ? 'opacity-35 pointer-events-none cursor-not-allowed bg-slate-950/20 border-slate-800/40 select-none'
-            : 'bg-slate-950/40 border-slate-800'
-        }`}
-        title={metricType === 'time' ? 'Distance units inactive when Time is selected' : 'Choose distance unit'}
-      >
-        <button
-          type="button"
-          disabled={metricType === 'time'}
-          onClick={() => setUnit('miles')}
-          className={`px-2 py-0.5 sm:py-1 rounded-md transition-colors ${
-            metricType === 'time'
-              ? 'text-slate-500 cursor-not-allowed'
-              : unit === 'miles'
-              ? 'bg-amber-500 text-slate-950 shadow-xs cursor-pointer'
-              : isLight
-              ? 'text-slate-600 hover:text-slate-900 cursor-pointer'
-              : 'text-slate-400 hover:text-white cursor-pointer'
-          }`}
-        >
-          Miles
-        </button>
-        <button
-          type="button"
-          disabled={metricType === 'time'}
-          onClick={() => setUnit('km')}
-          className={`px-2 py-0.5 sm:py-1 rounded-md transition-colors ${
-            metricType === 'time'
-              ? 'text-slate-500 cursor-not-allowed'
-              : unit === 'km'
-              ? 'bg-amber-500 text-slate-950 shadow-xs cursor-pointer'
-              : isLight
-              ? 'text-slate-600 hover:text-slate-900 cursor-pointer'
-              : 'text-slate-400 hover:text-white cursor-pointer'
-          }`}
-        >
-          KM
-        </button>
+    const primaryZoneLabel = forDiscipline === 'bike' ? 'Power' : 'Pace';
+    const isUnitDisabled = metricType === 'time' || metricType === 'tss';
+
+    return (
+      <div className="flex items-center gap-1.5 flex-wrap">
+        {/* 1. Metric Toggle: Distance / Time / TSS / Zones */}
+        <div className="flex items-center p-0.5 rounded-lg bg-slate-950/40 border border-slate-800 text-[11px] font-bold">
+          {(
+            [
+              { id: 'distance', label: 'Distance' },
+              { id: 'time', label: 'Time' },
+              { id: 'tss', label: 'TSS' },
+              { id: 'zones', label: 'Zones' },
+            ] as const
+          ).map((opt) => {
+            const isSelected = metricType === opt.id;
+            return (
+              <button
+                key={opt.id}
+                type="button"
+                onClick={() => setMetricType(opt.id)}
+                className={`px-2 py-0.5 sm:py-1 rounded-md transition-colors cursor-pointer ${
+                  isSelected
+                    ? 'bg-amber-500 text-slate-950 shadow-xs'
+                    : isLight
+                    ? 'text-slate-600 hover:text-slate-900'
+                    : 'text-slate-400 hover:text-white'
+                }`}
+              >
+                {opt.label}
+              </button>
+            );
+          })}
+        </div>
+
+        {/* 2. Second Toggle: Swaps Miles / KM with Power(or Pace) / Heart Rate when Zones is selected */}
+        {metricType === 'zones' ? (
+          <div className="flex items-center p-0.5 rounded-lg bg-slate-950/40 border border-slate-800 text-[11px] font-bold">
+            <button
+              type="button"
+              onClick={() => setZoneSubType('primary')}
+              className={`px-2 py-0.5 sm:py-1 rounded-md transition-colors cursor-pointer ${
+                zoneSubType === 'primary'
+                  ? 'bg-amber-500 text-slate-950 shadow-xs'
+                  : isLight
+                  ? 'text-slate-600 hover:text-slate-900'
+                  : 'text-slate-400 hover:text-white'
+              }`}
+            >
+              {primaryZoneLabel}
+            </button>
+            <button
+              type="button"
+              onClick={() => setZoneSubType('hr')}
+              className={`px-2 py-0.5 sm:py-1 rounded-md transition-colors cursor-pointer ${
+                zoneSubType === 'hr'
+                  ? 'bg-amber-500 text-slate-950 shadow-xs'
+                  : isLight
+                  ? 'text-slate-600 hover:text-slate-900'
+                  : 'text-slate-400 hover:text-white'
+              }`}
+            >
+              Heart Rate
+            </button>
+          </div>
+        ) : (
+          <div
+            className={`flex items-center p-0.5 rounded-lg border text-[11px] font-bold transition-all ${
+              isUnitDisabled
+                ? 'opacity-35 pointer-events-none cursor-not-allowed bg-slate-950/20 border-slate-800/40 select-none'
+                : 'bg-slate-950/40 border-slate-800'
+            }`}
+            title={
+              isUnitDisabled
+                ? 'Distance units inactive when Time or TSS is selected'
+                : 'Choose distance unit'
+            }
+          >
+            <button
+              type="button"
+              disabled={isUnitDisabled}
+              onClick={() => setUnit('miles')}
+              className={`px-2 py-0.5 sm:py-1 rounded-md transition-colors ${
+                isUnitDisabled
+                  ? 'text-slate-500 cursor-not-allowed'
+                  : unit === 'miles'
+                  ? 'bg-amber-500 text-slate-950 shadow-xs cursor-pointer'
+                  : isLight
+                  ? 'text-slate-600 hover:text-slate-900 cursor-pointer'
+                  : 'text-slate-400 hover:text-white cursor-pointer'
+              }`}
+            >
+              Miles
+            </button>
+            <button
+              type="button"
+              disabled={isUnitDisabled}
+              onClick={() => setUnit('km')}
+              className={`px-2 py-0.5 sm:py-1 rounded-md transition-colors ${
+                isUnitDisabled
+                  ? 'text-slate-500 cursor-not-allowed'
+                  : unit === 'km'
+                  ? 'bg-amber-500 text-slate-950 shadow-xs cursor-pointer'
+                  : isLight
+                  ? 'text-slate-600 hover:text-slate-900 cursor-pointer'
+                  : 'text-slate-400 hover:text-white cursor-pointer'
+              }`}
+            >
+              KM
+            </button>
+          </div>
+        )}
       </div>
-    </div>
-  );
+    );
+  };
 
   return (
     <div
@@ -629,22 +743,21 @@ export const WeeklyMileageChart: React.FC<WeeklyMileageChartProps> = ({
           </div>
         </div>
 
-        {/* Dataset Switch Tabs */}
+        {/* Top-Level Discipline Selector: All, Swim, Bike & Run */}
         <div className="overflow-x-auto scrollbar-none pt-1">
           <div className="inline-flex items-center p-0.5 rounded-lg bg-slate-950/40 border border-slate-800 text-[11px] font-bold">
-            {[
-              { id: 'tss', label: 'TSS' },
-              { id: 'mileage', label: 'Run' },
-              { id: 'swim_distance', label: 'Swim' },
-              { id: 'bike_hours', label: 'Bike' },
-              { id: 'cycling_power', label: 'Cycling Power Zones' },
-              { id: 'running_pace', label: 'Running Pace Zones' },
-              { id: 'running_hr', label: 'Running Heart Rate Zones' },
-            ].map((tab) => {
-              const isActive = activeTab === tab.id;
-              const isSwimTab = tab.id === 'swim_distance';
-              const isBikeTab = tab.id === 'bike_hours' || tab.id === 'cycling_power';
-              const isRunTab = tab.id === 'mileage' || tab.id === 'running_pace' || tab.id === 'running_hr';
+            {(
+              [
+                { id: 'all', label: 'All' },
+                { id: 'swim', label: 'Swim' },
+                { id: 'bike', label: 'Bike' },
+                { id: 'run', label: 'Run' },
+              ] as const
+            ).map((tab) => {
+              const isActive = disciplineTab === tab.id;
+              const isSwimTab = tab.id === 'swim';
+              const isBikeTab = tab.id === 'bike';
+              const isRunTab = tab.id === 'run';
 
               const activeClass = isSwimTab
                 ? 'bg-sky-500 text-slate-950 shadow-xs'
@@ -674,8 +787,19 @@ export const WeeklyMileageChart: React.FC<WeeklyMileageChartProps> = ({
                 <button
                   key={tab.id}
                   type="button"
-                  onClick={() => setActiveTab(tab.id as ChartDatasetTab)}
-                  className={`px-2 py-1 rounded-md whitespace-nowrap transition-colors cursor-pointer ${
+                  onClick={() => {
+                    setDisciplineTab(tab.id);
+                    if (tab.id === 'all') {
+                      if (metricType !== 'time' && metricType !== 'tss') {
+                        setMetricType('tss');
+                      }
+                    } else if (disciplineTab === 'all') {
+                      if (metricType !== 'time' && metricType !== 'tss') {
+                        setMetricType('distance');
+                      }
+                    }
+                  }}
+                  className={`px-3 py-1 rounded-md whitespace-nowrap transition-colors cursor-pointer ${
                     isActive ? activeClass : inactiveClass
                   }`}
                 >
@@ -687,11 +811,19 @@ export const WeeklyMileageChart: React.FC<WeeklyMileageChartProps> = ({
         </div>
       </div>
 
-      {/* TSS SECTION */}
-      {activeTab === 'tss' && (() => {
-        const currentVal = activeTssWeek?.totalTss || 0;
+      {/* ALL (Time / TSS) & DISCIPLINE TSS SECTION (All > Time, All > TSS, Swim > TSS, Bike > TSS, Run > TSS) */}
+      {(disciplineTab === 'all' || metricType === 'tss') && (() => {
+        const isAllTimeMode = disciplineTab === 'all' && metricType === 'time';
+        const getTssBucketVal = (w: WeeklyTssBucket) =>
+          isAllTimeMode ? w.movingHours : w.totalTss;
+
+        const currentVal = activeTssWeek ? getTssBucketVal(activeTssWeek) : 0;
         const activeSameDay = activeTssIdx >= 0 ? tssSameDayByBar[activeTssIdx] : null;
-        const activeSameDayVal = activeSameDay ? activeSameDay.tss : currentVal;
+        const activeSameDayVal = activeSameDay
+          ? isAllTimeMode
+            ? activeSameDay.movingHours
+            : activeSameDay.tss
+          : currentVal;
 
         const normalTssWeeks =
           granularity === 'week'
@@ -700,9 +832,17 @@ export const WeeklyMileageChart: React.FC<WeeklyMileageChartProps> = ({
 
         const avgVal =
           granularity === 'week' && normalTssWeeks.length > 0
-            ? Math.round(
-                normalTssWeeks.reduce((acc, w) => acc + w.totalTss, 0) / normalTssWeeks.length
-              )
+            ? isAllTimeMode
+              ? Math.round(
+                  (normalTssWeeks.reduce((acc, w) => acc + w.movingHours, 0) /
+                    normalTssWeeks.length) *
+                    10
+                ) / 10
+              : Math.round(
+                  normalTssWeeks.reduce((acc, w) => acc + w.totalTss, 0) / normalTssWeeks.length
+                )
+            : isAllTimeMode
+            ? tssStats.averageWeeklyHours
             : tssStats.averageWeeklyTss;
 
         const activeTssBaselineInfo =
@@ -710,33 +850,44 @@ export const WeeklyMileageChart: React.FC<WeeklyMileageChartProps> = ({
             ? getGenericPrior4NormalWeeks(
                 extendedTssWeeks.length > 0 ? extendedTssWeeks : tssWeeks,
                 activeTssWeek.weekKey,
-                (w) => w.totalTss
+                getTssBucketVal
               )
             : { baseline: 0, normalWeeks: [] as WeeklyTssBucket[] };
 
+        const rawBaseline =
+          activeTssBaselineInfo.baseline > 0
+            ? activeTssBaselineInfo.baseline
+            : computeMedian(
+                normalTssWeeks
+                  .filter((w) => getTssBucketVal(w) > 0)
+                  .slice(-4)
+                  .map(getTssBucketVal)
+              );
+
         const tssBaselineVal =
           granularity === 'week'
-            ? activeTssBaselineInfo.baseline > 0
-              ? Math.round(activeTssBaselineInfo.baseline)
-              : Math.round(
-                  computeMedian(
-                    normalTssWeeks
-                      .filter((w) => w.totalTss > 0)
-                      .slice(-4)
-                      .map((w) => w.totalTss)
-                  )
-                )
+            ? isAllTimeMode
+              ? Math.round(rawBaseline * 10) / 10
+              : Math.round(rawBaseline)
             : avgVal;
 
-        const peakVal = tssStats.peakWeekTss;
-        const totalVal = tssStats.totalTss;
+        const peakVal = isAllTimeMode ? tssStats.peakWeekHours : tssStats.peakWeekTss;
+        const peakWeekLabel = isAllTimeMode
+          ? tssStats.peakWeekHoursLabel
+          : tssStats.peakWeekLabel;
+        const totalVal = isAllTimeMode ? tssStats.totalHours : tssStats.totalTss;
 
-        const metricUnitLabel = 'TSS';
-        const rateUnitLabel = `TSS/${granularity === 'month' ? 'mo' : 'wk'}`;
+        const metricUnitLabel = isAllTimeMode ? 'hrs' : 'TSS';
+        const shortUnitLabel = isAllTimeMode ? 'h' : ' TSS';
+        const rateUnitLabel = `${metricUnitLabel}/${granularity === 'month' ? 'mo' : 'wk'}`;
         const periodShortLabel = granularity === 'month' ? 'mo' : 'wk';
 
-        const prevSameDayVal = prevSameDayTss ? prevSameDayTss.tss : 0;
-        const prevFullVal = prevTssPeriod ? prevTssPeriod.totalTss : 0;
+        const prevSameDayVal = prevSameDayTss
+          ? isAllTimeMode
+            ? prevSameDayTss.movingHours
+            : prevSameDayTss.tss
+          : 0;
+        const prevFullVal = prevTssPeriod ? getTssBucketVal(prevTssPeriod) : 0;
 
         const compareBaseVal = activeTssWeek?.isCurrentWeek ? currentVal : activeSameDayVal;
         let sameDayChangePct: number | null = null;
@@ -749,68 +900,43 @@ export const WeeklyMileageChart: React.FC<WeeklyMileageChartProps> = ({
         }
 
         const avgPerActivity =
-          tssStats.totalActivities > 0 ? Math.round(tssStats.totalTss / tssStats.totalActivities) : 0;
+          tssStats.totalActivities > 0
+            ? isAllTimeMode
+              ? Math.round((tssStats.totalHours / tssStats.totalActivities) * 100) / 100
+              : Math.round(tssStats.totalTss / tssStats.totalActivities)
+            : 0;
         const activeTssFlag = activeTssWeek ? getEffectiveWeekFlag(activeTssWeek.weekKey) : undefined;
+
+        const tssHeaderTitle =
+          disciplineTab === 'swim'
+            ? 'Swim'
+            : disciplineTab === 'bike'
+            ? 'Bike'
+            : disciplineTab === 'run'
+            ? 'Run'
+            : 'All';
+
+        const tssBadgeClass =
+          disciplineTab === 'swim'
+            ? 'bg-sky-500/15 text-sky-700 dark:text-sky-400 border-sky-500/20'
+            : disciplineTab === 'bike'
+            ? 'bg-orange-500/15 text-orange-700 dark:text-orange-400 border-orange-500/20'
+            : disciplineTab === 'run'
+            ? 'bg-rose-500/15 text-rose-700 dark:text-rose-400 border-rose-500/20'
+            : 'bg-amber-500/15 text-amber-700 dark:text-amber-400 border-amber-500/20';
 
         return (
           <div className="pt-2">
-            {/* Subheader: TSS + Badge + Discipline Filter */}
+            {/* Subheader: Discipline Title + Badge + Activity Controls */}
             <div className="flex flex-wrap items-center justify-between gap-3 pt-4 pb-2">
               <div className="flex flex-wrap items-center gap-2 sm:gap-2.5">
                 <h3 className={`text-sm sm:text-base font-extrabold tracking-tight ${isLight ? 'text-slate-900' : 'text-white'}`}>
-                  Training Stress Score (TSS)
+                  {tssHeaderTitle}
                 </h3>
-                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-rose-500/15 text-rose-700 dark:text-rose-400 border border-rose-500/20">
+                <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${tssBadgeClass}`}>
                   {granularity === 'month' ? 'Monthly' : 'Mon – Sun'}
                 </span>
-
-                {/* Discipline Filter for TSS */}
-                <div className="flex items-center p-0.5 rounded-lg bg-slate-950/40 border border-slate-800 text-[11px] font-bold">
-                  {[
-                    { id: 'all' as const, label: 'All' },
-                    { id: 'run' as const, label: 'Run' },
-                    { id: 'bike' as const, label: 'Bike' },
-                    { id: 'swim' as const, label: 'Swim' },
-                  ].map((opt) => {
-                    const isActive = tssDisciplineFilter === opt.id;
-                    const activeCls =
-                      opt.id === 'swim'
-                        ? 'bg-sky-500 text-slate-950 shadow-xs'
-                        : opt.id === 'bike'
-                        ? 'bg-orange-500 text-slate-950 shadow-xs'
-                        : opt.id === 'run'
-                        ? 'bg-rose-500 text-white shadow-xs'
-                        : 'bg-amber-500 text-slate-950 shadow-xs';
-                    const inactiveCls =
-                      opt.id === 'swim'
-                        ? isLight
-                          ? 'text-sky-700 hover:text-sky-900'
-                          : 'text-sky-400 hover:text-sky-300'
-                        : opt.id === 'bike'
-                        ? isLight
-                          ? 'text-orange-700 hover:text-orange-900'
-                          : 'text-orange-400 hover:text-orange-300'
-                        : opt.id === 'run'
-                        ? isLight
-                          ? 'text-rose-700 hover:text-rose-900'
-                          : 'text-rose-400 hover:text-rose-300'
-                        : isLight
-                        ? 'text-slate-600 hover:text-slate-900'
-                        : 'text-slate-400 hover:text-white';
-                    return (
-                      <button
-                        key={opt.id}
-                        type="button"
-                        onClick={() => setTssDisciplineFilter(opt.id)}
-                        className={`px-2 py-0.5 sm:py-1 rounded-md transition-colors cursor-pointer ${
-                          isActive ? activeCls : inactiveCls
-                        }`}
-                      >
-                        {opt.label}
-                      </button>
-                    );
-                  })}
-                </div>
+                {renderActivityControls(disciplineTab)}
               </div>
             </div>
 
@@ -846,12 +972,12 @@ export const WeeklyMileageChart: React.FC<WeeklyMileageChartProps> = ({
                     {sameDayChangePct !== null && sameDayChangePct >= 0 ? (
                       <span className="text-emerald-500 flex items-center gap-0.5">
                         <ArrowUpRight className="w-3 h-3 shrink-0" />
-                        {prevSameDayVal} TSS by same day last {periodShortLabel} (+{sameDayChangePct}%)
+                        {prevSameDayVal}{shortUnitLabel} by same day last {periodShortLabel} (+{sameDayChangePct}%)
                       </span>
                     ) : (
                       <span className="text-rose-400 flex items-center gap-0.5">
                         <ArrowDownRight className="w-3 h-3 shrink-0" />
-                        {prevSameDayVal} TSS by same day last {periodShortLabel} ({sameDayChangePct}%)
+                        {prevSameDayVal}{shortUnitLabel} by same day last {periodShortLabel} ({sameDayChangePct}%)
                       </span>
                     )}
                   </div>
@@ -860,18 +986,18 @@ export const WeeklyMileageChart: React.FC<WeeklyMileageChartProps> = ({
                     {sameDayChangePct !== null && sameDayChangePct >= 0 ? (
                       <span className="text-emerald-500 flex items-center gap-0.5">
                         <ArrowUpRight className="w-3 h-3 shrink-0" />
-                        0 TSS by same day ({prevFullVal} TSS last {periodShortLabel})
+                        0{shortUnitLabel} by same day ({prevFullVal}{shortUnitLabel} last {periodShortLabel})
                       </span>
                     ) : (
                       <span className="text-rose-400 flex items-center gap-0.5">
                         <ArrowDownRight className="w-3 h-3 shrink-0" />
-                        0 TSS by same day ({prevFullVal} TSS last {periodShortLabel})
+                        0{shortUnitLabel} by same day ({prevFullVal}{shortUnitLabel} last {periodShortLabel})
                       </span>
                     )}
                   </div>
                 ) : (
                   <div className="mt-1 text-[10px] text-slate-500 font-semibold">
-                    0 TSS by same day last {periodShortLabel}
+                    0{shortUnitLabel} by same day last {periodShortLabel}
                   </div>
                 )}
               </div>
@@ -888,9 +1014,9 @@ export const WeeklyMileageChart: React.FC<WeeklyMileageChartProps> = ({
                 </div>
                 <span className="text-[10px] text-slate-500">
                   {granularity === 'week'
-                    ? `Avg: ${avgVal} ${rateUnitLabel}${avgPerActivity > 0 ? ` • ${avgPerActivity} TSS/workout` : ''}`
+                    ? `Avg: ${avgVal} ${rateUnitLabel}${avgPerActivity > 0 ? ` • ${avgPerActivity}${shortUnitLabel}/workout` : ''}`
                     : avgPerActivity > 0
-                    ? `${avgPerActivity} TSS average per workout`
+                    ? `${avgPerActivity}${shortUnitLabel} average per workout`
                     : `Over ${currentPeriodCount} months`}
                 </span>
               </div>
@@ -903,17 +1029,21 @@ export const WeeklyMileageChart: React.FC<WeeklyMileageChartProps> = ({
                   <span className="text-xl sm:text-2xl font-black font-mono text-emerald-400">{peakVal}</span>
                   <span className="text-xs text-slate-500 font-bold">{metricUnitLabel}</span>
                 </div>
-                <span className="text-[10px] text-slate-500 truncate block">{tssStats.peakWeekLabel || 'None'}</span>
+                <span className="text-[10px] text-slate-500 truncate block">{peakWeekLabel || 'None'}</span>
               </div>
 
               <div className={`p-3 rounded-xl border ${isLight ? 'bg-slate-50 border-slate-200' : 'bg-slate-950/40 border-slate-800/80'}`}>
-                <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 block">Total Load</span>
+                <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 block">
+                  {isAllTimeMode ? 'Total Volume' : 'Total Load'}
+                </span>
                 <div className="mt-1 flex items-baseline gap-1.5">
                   <span className="text-xl sm:text-2xl font-black font-mono text-purple-400">{totalVal}</span>
                   <span className="text-xs text-slate-500 font-bold">{metricUnitLabel}</span>
                 </div>
                 <span className="text-[10px] text-slate-500">
-                  {tssStats.totalActivities} workouts ({tssStats.totalRunTss}R / {tssStats.totalBikeTss}B / {tssStats.totalSwimTss}S)
+                  {isAllTimeMode
+                    ? `${tssStats.totalActivities} workouts (${tssStats.totalRunHours}h R / ${tssStats.totalBikeHours}h B / ${tssStats.totalSwimHours}h S)`
+                    : `${tssStats.totalActivities} workouts (${tssStats.totalRunTss}R / ${tssStats.totalBikeTss}B / ${tssStats.totalSwimTss}S)`}
                 </span>
               </div>
             </div>
@@ -922,10 +1052,21 @@ export const WeeklyMileageChart: React.FC<WeeklyMileageChartProps> = ({
             <div className="space-y-2 mt-4">
               <div className="flex items-center justify-between text-xs text-slate-500 px-1">
                 <span className="flex items-center gap-1.5 font-medium">
-                  <Flame className="w-3.5 h-3.5 text-rose-500" />
-                  Training Stress Score (TSS) per {granularity}
+                  {isAllTimeMode ? (
+                    <>
+                      <BarChart2 className="w-3.5 h-3.5 text-amber-500" />
+                      Combined moving time (hours) per {granularity}
+                    </>
+                  ) : (
+                    <>
+                      <Flame className="w-3.5 h-3.5 text-rose-500" />
+                      Training Stress Score (TSS) per {granularity}
+                    </>
+                  )}
                 </span>
-                <span className="font-mono text-[11px]">Peak Scale: {maxTssScale} TSS</span>
+                <span className="font-mono text-[11px]">
+                  Peak Scale: {maxTssScale} {metricUnitLabel}
+                </span>
               </div>
 
               <div className="-mx-4 sm:-mx-5 overflow-x-auto scrollbar-thin pb-2" ref={scrollContainerRef}>
@@ -943,20 +1084,26 @@ export const WeeklyMileageChart: React.FC<WeeklyMileageChartProps> = ({
                         }}
                       >
                         <span className="absolute right-2 -top-4 text-[10px] font-mono font-bold text-black bg-white/95 border border-slate-300 px-1.5 py-0.5 rounded shadow-sm">
-                          {granularity === 'week' ? `Baseline (4w Med): ${tssBaselineVal} TSS` : `Avg: ${avgVal} TSS`}
+                          {granularity === 'week'
+                            ? `Baseline (4w Med): ${tssBaselineVal} ${metricUnitLabel}`
+                            : `Avg: ${avgVal} ${metricUnitLabel}`}
                         </span>
                       </div>
                     )}
 
                     <div className={`h-full w-full flex items-end ${currentPeriodCount >= 36 ? 'gap-[1px] sm:gap-[1.5px]' : currentPeriodCount === 52 ? 'gap-[1.5px]' : 'gap-[3px]'} px-0 relative z-10`}>
                       {tssWeeks.map((w, idx) => {
-                        const val = w.totalTss;
+                        const val = getTssBucketVal(w);
                         const wFlag = getEffectiveWeekFlag(w.weekKey);
                         const heightPct = Math.min(100, Math.max(val > 0 ? 6 : 2, (val / maxTssScale) * 100));
                         const isSelected = activeTssWeek?.weekKey === w.weekKey;
 
                         const barSameDay = tssSameDayByBar[idx];
-                        const barSameDayVal = barSameDay ? barSameDay.tss : 0;
+                        const barSameDayVal = barSameDay
+                          ? isAllTimeMode
+                            ? barSameDay.movingHours
+                            : barSameDay.tss
+                          : 0;
                         const lineVal = w.isCurrentWeek ? prevSameDayVal : barSameDayVal;
                         const rawLinePct = val > 0 && !w.isCurrentWeek
                           ? heightPct * Math.min(1, lineVal / val)
@@ -1005,8 +1152,8 @@ export const WeeklyMileageChart: React.FC<WeeklyMileageChartProps> = ({
                                 style={{ bottom: clampedLineStyle }}
                                 title={
                                   w.isCurrentWeek
-                                    ? `By same day last ${granularity === 'month' ? 'month' : 'week'}: ${lineVal} TSS`
-                                    : `By same day in ${w.shortLabel}: ${lineVal} TSS (Total: ${val} TSS)`
+                                    ? `By same day last ${granularity === 'month' ? 'month' : 'week'}: ${lineVal} ${metricUnitLabel}`
+                                    : `By same day in ${w.shortLabel}: ${lineVal} ${metricUnitLabel} (Total: ${val} ${metricUnitLabel})`
                                 }
                               >
                                 <div className="w-full border-b-2 border-dotted border-blue-950 dark:border-blue-300 shadow-[0_0_2px_rgba(255,255,255,0.7)]" />
@@ -1090,7 +1237,7 @@ export const WeeklyMileageChart: React.FC<WeeklyMileageChartProps> = ({
               </div>
             </div>
 
-            {/* Selected Period TSS Breakdown */}
+            {/* Selected Period Breakdown */}
             {activeTssWeek && (
               <div className={`mt-4 p-3.5 rounded-xl border ${isLight ? 'bg-rose-50/40 border-rose-200 text-slate-900' : 'bg-slate-950/70 border-slate-800 text-slate-200'}`}>
                 <div className="flex flex-wrap items-center justify-between gap-2 pb-2 border-b border-slate-200 dark:border-slate-800">
@@ -1103,18 +1250,29 @@ export const WeeklyMileageChart: React.FC<WeeklyMileageChartProps> = ({
                   </div>
                   <div className="flex items-center gap-3 text-xs font-mono flex-wrap">
                     <span className="font-bold text-rose-500">
-                      {activeTssWeek.totalTss} TSS ({activeTssWeek.movingHours} hrs)
+                      {isAllTimeMode
+                        ? `${activeTssWeek.movingHours} hrs (${activeTssWeek.totalTss} TSS)`
+                        : `${activeTssWeek.totalTss} TSS (${activeTssWeek.movingHours} hrs)`}
                     </span>
                     <span className="text-[11px] text-slate-400">
-                      Run {activeTssWeek.runTss} • Bike {activeTssWeek.bikeTss} • Swim {activeTssWeek.swimTss}
-                      {activeTssWeek.otherTss > 0 ? ` • Other ${activeTssWeek.otherTss}` : ''}
+                      {isAllTimeMode ? (
+                        <>
+                          Run {activeTssWeek.runHours}h • Bike {activeTssWeek.bikeHours}h • Swim {activeTssWeek.swimHours}h
+                          {activeTssWeek.otherHours > 0 ? ` • Other ${activeTssWeek.otherHours}h` : ''}
+                        </>
+                      ) : (
+                        <>
+                          Run {activeTssWeek.runTss} • Bike {activeTssWeek.bikeTss} • Swim {activeTssWeek.swimTss}
+                          {activeTssWeek.otherTss > 0 ? ` • Other ${activeTssWeek.otherTss}` : ''}
+                        </>
+                      )}
                     </span>
                     <span className="text-slate-400">{activeTssWeek.activitiesCount} workouts</span>
                   </div>
                 </div>
 
                 {activeTssWeek.items.length === 0 ? (
-                  <p className="text-xs text-slate-400 py-3 text-center">No workouts with TSS logged in this period.</p>
+                  <p className="text-xs text-slate-400 py-3 text-center">No workouts logged in this period.</p>
                 ) : (
                   <div className="mt-2.5 divide-y divide-slate-200/60 dark:divide-slate-800/60">
                     {activeTssWeek.items.map((item) => {
@@ -1142,12 +1300,26 @@ export const WeeklyMileageChart: React.FC<WeeklyMileageChartProps> = ({
                             <span className="font-medium truncate">{item.name}</span>
                           </div>
                           <div className="flex items-center gap-2.5 font-mono shrink-0 text-[11px]">
-                            <span className="text-slate-400 hidden sm:inline">{item.movingHours}h</span>
-                            <span className="text-[10px] text-slate-500 hidden md:inline">{item.tssType}</span>
-                            <span className="font-bold text-rose-400 flex items-center gap-0.5">
-                              <Flame className="w-3 h-3" />
-                              {item.tss} TSS
-                            </span>
+                            {isAllTimeMode ? (
+                              <>
+                                <span className="font-bold text-amber-400">{item.movingHours} hrs</span>
+                                {item.tss > 0 && (
+                                  <span className="text-rose-400 hidden sm:flex items-center gap-0.5">
+                                    <Flame className="w-3 h-3" />
+                                    {item.tss} TSS
+                                  </span>
+                                )}
+                              </>
+                            ) : (
+                              <>
+                                <span className="text-slate-400 hidden sm:inline">{item.movingHours}h</span>
+                                <span className="text-[10px] text-slate-500 hidden md:inline">{item.tssType}</span>
+                                <span className="font-bold text-rose-400 flex items-center gap-0.5">
+                                  <Flame className="w-3 h-3" />
+                                  {item.tss} TSS
+                                </span>
+                              </>
+                            )}
                             {onSelectActivity && <ChevronRight className="w-3.5 h-3.5 text-slate-400" />}
                           </div>
                         </div>
@@ -1161,8 +1333,8 @@ export const WeeklyMileageChart: React.FC<WeeklyMileageChartProps> = ({
         );
       })()}
 
-      {/* SWIM SECTION */}
-      {activeTab === 'swim_distance' && (() => {
+      {/* SWIM SECTION (Distance / Time) */}
+      {disciplineTab === 'swim' && (metricType === 'distance' || metricType === 'time') && (() => {
         const getSwimVal = (b: WeeklySwimBucket) =>
           metricType === 'distance'
             ? unit === 'miles'
@@ -1620,8 +1792,8 @@ export const WeeklyMileageChart: React.FC<WeeklyMileageChartProps> = ({
         );
       })()}
 
-      {/* BIKE SECTION */}
-      {activeTab === 'bike_hours' && (() => {
+      {/* BIKE SECTION (Distance / Time) */}
+      {disciplineTab === 'bike' && (metricType === 'distance' || metricType === 'time') && (() => {
         const getBikeVal = (b: WeeklyBikeBucket) =>
           metricType === 'distance'
             ? unit === 'miles'
@@ -2080,51 +2252,62 @@ export const WeeklyMileageChart: React.FC<WeeklyMileageChartProps> = ({
         );
       })()}
 
-      {/* ZONE CHARTS */}
-      {activeTab === 'cycling_power' && (
+      {/* ZONE CHARTS (Swim, Bike, or Run > Zones -> Power/Pace or Heart Rate) */}
+      {disciplineTab !== 'all' && metricType === 'zones' && (
         <div className="pt-2">
-          <FitnessZoneCharts
-            mode="cycling_power"
-            activities={activities}
-            activityDetails={activityDetails}
-            athleteProfile={athleteProfile}
-            numWeeks={granularity === 'month' ? Math.round(numMonths * 4.33) : numWeeks}
-            theme={theme}
-            onSelectActivity={onSelectActivity}
-          />
+          {/* Subheader: Discipline + Badge + Controls (with Power/Pace | Heart Rate swapped in for Miles/KM) */}
+          <div className="flex flex-wrap items-center justify-between gap-3 pt-4 pb-2">
+            <div className="flex flex-wrap items-center gap-2 sm:gap-2.5">
+              <h3
+                className={`text-sm sm:text-base font-extrabold tracking-tight ${
+                  isLight ? 'text-slate-900' : 'text-white'
+                }`}
+              >
+                {disciplineTab === 'swim' ? 'Swim' : disciplineTab === 'bike' ? 'Bike' : 'Run'}
+              </h3>
+              <span
+                className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${
+                  disciplineTab === 'swim'
+                    ? 'bg-sky-500/15 text-sky-700 dark:text-sky-400 border-sky-500/20'
+                    : disciplineTab === 'bike'
+                    ? 'bg-orange-500/15 text-orange-700 dark:text-orange-400 border-orange-500/20'
+                    : 'bg-rose-500/15 text-rose-700 dark:text-rose-400 border-rose-500/20'
+                }`}
+              >
+                {granularity === 'month' ? 'Monthly' : 'Mon – Sun'}
+              </span>
+              {renderActivityControls(disciplineTab)}
+            </div>
+          </div>
+
+          <div className="mt-2">
+            <FitnessZoneCharts
+              mode={
+                disciplineTab === 'bike'
+                  ? zoneSubType === 'hr'
+                    ? 'cycling_hr'
+                    : 'cycling_power'
+                  : disciplineTab === 'swim'
+                  ? zoneSubType === 'hr'
+                    ? 'swim_hr'
+                    : 'swim_pace'
+                  : zoneSubType === 'hr'
+                  ? 'running_hr'
+                  : 'running_pace'
+              }
+              activities={activities}
+              activityDetails={activityDetails}
+              athleteProfile={athleteProfile}
+              numWeeks={granularity === 'month' ? Math.round(numMonths * 4.33) : numWeeks}
+              theme={theme}
+              onSelectActivity={onSelectActivity}
+            />
+          </div>
         </div>
       )}
 
-      {activeTab === 'running_pace' && (
-        <div className="pt-2">
-          <FitnessZoneCharts
-            mode="running_pace"
-            activities={activities}
-            activityDetails={activityDetails}
-            athleteProfile={athleteProfile}
-            numWeeks={granularity === 'month' ? Math.round(numMonths * 4.33) : numWeeks}
-            theme={theme}
-            onSelectActivity={onSelectActivity}
-          />
-        </div>
-      )}
-
-      {activeTab === 'running_hr' && (
-        <div className="pt-2">
-          <FitnessZoneCharts
-            mode="running_hr"
-            activities={activities}
-            activityDetails={activityDetails}
-            athleteProfile={athleteProfile}
-            numWeeks={granularity === 'month' ? Math.round(numMonths * 4.33) : numWeeks}
-            theme={theme}
-            onSelectActivity={onSelectActivity}
-          />
-        </div>
-      )}
-
-      {/* RUN SECTION */}
-      {activeTab === 'mileage' && (() => {
+      {/* RUN SECTION (Distance / Time) */}
+      {disciplineTab === 'run' && (metricType === 'distance' || metricType === 'time') && (() => {
         const getBucketVal = (b: WeeklyMileageBucket) =>
           metricType === 'distance'
             ? unit === 'miles'

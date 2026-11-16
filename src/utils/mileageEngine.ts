@@ -988,6 +988,10 @@ export interface WeeklyTssBucket {
   swimTss: number;
   otherTss: number;
   movingHours: number;
+  runHours: number;
+  bikeHours: number;
+  swimHours: number;
+  otherHours: number;
   activitiesCount: number;
   items: WeeklyTssActivityItem[];
 }
@@ -998,10 +1002,18 @@ export interface TssSummaryStats {
   totalBikeTss: number;
   totalSwimTss: number;
   totalOtherTss: number;
+  totalHours: number;
+  totalRunHours: number;
+  totalBikeHours: number;
+  totalSwimHours: number;
+  totalOtherHours: number;
   totalActivities: number;
   averageWeeklyTss: number;
+  averageWeeklyHours: number;
   peakWeekTss: number;
   peakWeekLabel: string;
+  peakWeekHours: number;
+  peakWeekHoursLabel: string;
   currentWeekTss: number;
   previousWeekTss: number;
   weekOverWeekChangePct: number | null;
@@ -1046,6 +1058,10 @@ export function computeWeeklyTss(
         swimTss: 0,
         otherTss: 0,
         movingHours: 0,
+        runHours: 0,
+        bikeHours: 0,
+        swimHours: 0,
+        otherHours: 0,
         activitiesCount: 0,
         items: [],
       });
@@ -1079,6 +1095,10 @@ export function computeWeeklyTss(
         swimTss: 0,
         otherTss: 0,
         movingHours: 0,
+        runHours: 0,
+        bikeHours: 0,
+        swimHours: 0,
+        otherHours: 0,
         activitiesCount: 0,
         items: [],
       });
@@ -1113,19 +1133,28 @@ export function computeWeeklyTss(
     if (!bucket) return;
 
     const tssRes = calculateActivityTSS(act, details, athleteProfile);
-    const tss = Math.round(details?.calibration?.manualTss ?? tssRes?.tss ?? act.suffer_score ?? 0);
-    if (tss <= 0) return;
+    const tss = Math.max(0, Math.round(details?.calibration?.manualTss ?? tssRes?.tss ?? act.suffer_score ?? 0));
+    const movingSec = details?.calibration?.calibratedMovingTimeSec ?? act.moving_time ?? act.elapsed_time ?? 0;
+    if (tss <= 0 && movingSec <= 0) return;
 
-    const movingSec = details?.calibration?.calibratedMovingTimeSec ?? act.moving_time ?? 0;
     const movingHrs = movingSec / 3600;
     const distM = details?.calibration?.calibratedDistanceM ?? act.distance ?? 0;
     const dayName = actDate.toLocaleDateString(undefined, { weekday: 'short' });
 
     bucket.totalTss += tss;
-    if (cls.category === 'Run') bucket.runTss += tss;
-    else if (cls.category === 'Bike') bucket.bikeTss += tss;
-    else if (cls.category === 'Swim') bucket.swimTss += tss;
-    else bucket.otherTss += tss;
+    if (cls.category === 'Run') {
+      bucket.runTss += tss;
+      bucket.runHours += movingHrs;
+    } else if (cls.category === 'Bike') {
+      bucket.bikeTss += tss;
+      bucket.bikeHours += movingHrs;
+    } else if (cls.category === 'Swim') {
+      bucket.swimTss += tss;
+      bucket.swimHours += movingHrs;
+    } else {
+      bucket.otherTss += tss;
+      bucket.otherHours += movingHrs;
+    }
 
     bucket.movingHours += movingHrs;
     bucket.activitiesCount += 1;
@@ -1150,9 +1179,16 @@ export function computeWeeklyTss(
   let totalBikeTss = 0;
   let totalSwimTss = 0;
   let totalOtherTss = 0;
+  let totalHours = 0;
+  let totalRunHours = 0;
+  let totalBikeHours = 0;
+  let totalSwimHours = 0;
+  let totalOtherHours = 0;
   let totalActivities = 0;
   let peakWeekTss = 0;
   let peakWeekLabel = '';
+  let peakWeekHours = 0;
+  let peakWeekHoursLabel = '';
 
   for (const key of bucketKeys) {
     const b = weeksMap.get(key)!;
@@ -1162,6 +1198,10 @@ export function computeWeeklyTss(
     b.swimTss = Math.round(b.swimTss);
     b.otherTss = Math.round(b.otherTss);
     b.movingHours = roundMetricVal(b.movingHours);
+    b.runHours = roundMetricVal(b.runHours);
+    b.bikeHours = roundMetricVal(b.bikeHours);
+    b.swimHours = roundMetricVal(b.swimHours);
+    b.otherHours = roundMetricVal(b.otherHours);
     b.items.sort(
       (a, bItem) => parseActivityLocalDate(a.startDate).getTime() - parseActivityLocalDate(bItem.startDate).getTime()
     );
@@ -1171,11 +1211,20 @@ export function computeWeeklyTss(
     totalBikeTss += b.bikeTss;
     totalSwimTss += b.swimTss;
     totalOtherTss += b.otherTss;
+    totalHours += b.movingHours;
+    totalRunHours += b.runHours;
+    totalBikeHours += b.bikeHours;
+    totalSwimHours += b.swimHours;
+    totalOtherHours += b.otherHours;
     totalActivities += b.activitiesCount;
 
     if (b.totalTss > peakWeekTss) {
       peakWeekTss = b.totalTss;
       peakWeekLabel = b.shortLabel;
+    }
+    if (b.movingHours > peakWeekHours) {
+      peakWeekHours = b.movingHours;
+      peakWeekHoursLabel = b.shortLabel;
     }
 
     resultWeeks.push(b);
@@ -1193,6 +1242,7 @@ export function computeWeeklyTss(
 
   const count = resultWeeks.length || 1;
   const averageWeeklyTss = Math.round(totalTss / count);
+  const averageWeeklyHours = roundMetricVal(totalHours / count);
 
   return {
     weeks: resultWeeks,
@@ -1202,10 +1252,18 @@ export function computeWeeklyTss(
       totalBikeTss,
       totalSwimTss,
       totalOtherTss,
+      totalHours: roundMetricVal(totalHours),
+      totalRunHours: roundMetricVal(totalRunHours),
+      totalBikeHours: roundMetricVal(totalBikeHours),
+      totalSwimHours: roundMetricVal(totalSwimHours),
+      totalOtherHours: roundMetricVal(totalOtherHours),
       totalActivities,
       averageWeeklyTss,
+      averageWeeklyHours,
       peakWeekTss,
       peakWeekLabel,
+      peakWeekHours: roundMetricVal(peakWeekHours),
+      peakWeekHoursLabel,
       currentWeekTss,
       previousWeekTss,
       weekOverWeekChangePct,

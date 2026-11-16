@@ -1,6 +1,15 @@
 import { StravaActivity, StravaActivityDetailsRecord, calculateActivityTSS, classifyActivity } from './stravaActivities';
-import { AthleteProfile } from '../types/athlete';
+import { AthleteProfile, CurrentCyclePhase } from '../types/athlete';
 import { TrainingGoal } from '../types/goals';
+
+export function formatHoursToHrMin(hours: number): string {
+  const totalMinutes = Math.max(1, Math.round(hours * 60));
+  const hrs = Math.floor(totalMinutes / 60);
+  const mins = totalMinutes % 60;
+  if (hrs === 0) return `${mins} min`;
+  if (mins === 0) return `${hrs} hr`;
+  return `${hrs} hr ${mins} min`;
+}
 
 export interface DailyFitnessRecord {
   date: string; // YYYY-MM-DD
@@ -662,6 +671,16 @@ export interface DisciplineCtlDerivation {
   ctlGainPerExtraHour: number; // (IF_d^p_d * 100) / 7
 }
 
+export interface PeriodizationBlock {
+  type: 'deload' | 'build' | 'taper';
+  weeks: number;
+  label: string;
+  shortLabel: string;
+  startWeek: number;
+  endWeek: number;
+  isCurrent?: boolean;
+}
+
 export interface EventCtlDerivationResult {
   sport: 'triathlon' | 'run' | 'bike' | 'swim';
   eventLabel: string;
@@ -685,6 +704,10 @@ export interface EventCtlDerivationResult {
   // 3. Periodization & Block Mechanics
   periodizationModel: '0' | '3weeks' | '4weeks';
   periodizationLabel: string; // e.g. "3:1 Block (3 Build + 1 Recovery @ 65%)"
+  currentCyclePhase: CurrentCyclePhase;
+  periodizationBlocks: PeriodizationBlock[];
+  periodizationSummaryText: string;
+  periodizationAdaptiveNote?: string;
   taperWeeks: number; // 2 for 70.3/HM, 3 for Ironman/Marathon, 1 for Sprint/5K/10K
   recoveryWeekLoadRatio: number; // 0.65
   netToBuildRampRatio: number; // e.g. ~0.58 for 3:1, ~0.50 for 2:1, 0.85 for continuous
@@ -885,6 +908,162 @@ export function computeHistoricalMaxRampRate(
 }
 
 /**
+ * Builds an adaptive periodized block sequence (Build / Deload / Taper) from the athlete's
+ * current cycle phase to race day, ensuring we never place a Deload week immediately before Taper.
+ */
+export function buildPeriodizedSchedule(params: {
+  weeksToRace: number;
+  taperWeeks: number;
+  periodizationModel: '0' | '3weeks' | '4weeks';
+  currentCyclePhase: CurrentCyclePhase;
+}): {
+  blocks: PeriodizationBlock[];
+  summaryText: string;
+  adaptiveNote?: string;
+  buildWeeksAvailable: number;
+  recoveryWeeksCount: number;
+} {
+  const { weeksToRace, taperWeeks, periodizationModel, currentCyclePhase } = params;
+  const effectiveTaper = Math.min(taperWeeks, Math.max(1, weeksToRace - 1));
+  const weeksToPeak = Math.max(0, weeksToRace - effectiveTaper);
+
+  const blocks: PeriodizationBlock[] = [];
+  let cursor = 1;
+  let adaptiveNote: string | undefined;
+
+  const pushBlock = (type: 'deload' | 'build' | 'taper', weeks: number, isCurrent?: boolean, customSuffix?: string) => {
+    if (weeks <= 0) return;
+    const baseName = type === 'deload' ? 'Deload' : type === 'build' ? 'Build' : 'Taper';
+    const shortLabel = `${weeks}w ${baseName}`;
+    const label = customSuffix
+      ? `${weeks}w ${baseName} (${customSuffix})`
+      : isCurrent
+      ? `${weeks}w ${baseName} (Now)`
+      : shortLabel;
+    blocks.push({
+      type,
+      weeks,
+      label,
+      shortLabel,
+      startWeek: cursor,
+      endWeek: cursor + weeks - 1,
+      isCurrent,
+    });
+    cursor += weeks;
+  };
+
+  if (currentCyclePhase === 'taper' || weeksToPeak <= 0) {
+    pushBlock('taper', weeksToRace, true);
+  } else if (periodizationModel === '0') {
+    if (currentCyclePhase === 'deload') {
+      pushBlock('deload', 1, true);
+      if (weeksToPeak - 1 > 0) {
+        pushBlock('build', weeksToPeak - 1, false);
+      }
+    } else {
+      pushBlock('build', weeksToPeak, true);
+    }
+    pushBlock('taper', effectiveTaper, false);
+  } else {
+    const cycleLen = periodizationModel === '3weeks' ? 3 : 4;
+    const stdBuild = cycleLen - 1; // 2 for 2:1, 3 for 3:1
+
+    if (currentCyclePhase === 'deload') {
+      // Currently in a deload week (Week 1)
+      pushBlock('deload', 1, true);
+      const R = weeksToPeak - 1; // Remaining pre-taper weeks
+      if (R > 0) {
+        let k = Math.max(1, Math.round((R + 1) / cycleLen));
+        while (k > 1 && R - (k - 1) < k * 2) {
+          k--;
+        }
+        const totalBuild = R - (k - 1);
+        const base = Math.floor(totalBuild / k);
+        const rem = totalBuild % k;
+
+        const buildSizes: number[] = [];
+        for (let i = 0; i < k; i++) {
+          const bWeeks = base + (i < rem ? 1 : 0);
+          buildSizes.push(bWeeks);
+          pushBlock('build', bWeeks, false);
+          if (i < k - 1) {
+            pushBlock('deload', 1, false);
+          }
+        }
+
+        if (buildSizes.some((s) => s > stdBuild)) {
+          adaptiveNote = `Shifted to a ${buildSizes[0]}-week build after this deload week (followed by ${
+            k > 1 ? `1w deload + ${buildSizes.slice(1).map((b) => `${b}w build`).join(' + ')} + ` : ''
+          }${effectiveTaper}w taper) to avoid a deload week immediately before taper.`;
+        }
+      }
+      pushBlock('taper', effectiveTaper, false);
+    } else {
+      // Currently in Build Wk 1, 2, or 3
+      const alreadyDone = currentCyclePhase === 'build_2' ? 1 : currentCyclePhase === 'build_3' ? 2 : 0;
+      const R_virt = weeksToPeak + alreadyDone;
+      let k = Math.max(1, Math.round((R_virt + 1) / cycleLen));
+      while (
+        k > 1 &&
+        (R_virt - (k - 1) < k * 2 || Math.ceil((R_virt - (k - 1)) / k) < alreadyDone + 1)
+      ) {
+        k--;
+      }
+      const B_virt = R_virt - (k - 1);
+      const base = Math.floor(B_virt / k);
+      const rem = B_virt % k;
+
+      const virtSizes: number[] = [];
+      for (let i = 0; i < k; i++) {
+        virtSizes.push(base + (i < rem ? 1 : 0));
+      }
+
+      // Ensure first virtual block is at least alreadyDone + 1
+      if (virtSizes[0] < alreadyDone + 1 && virtSizes.length > 1) {
+        const diff = alreadyDone + 1 - virtSizes[0];
+        virtSizes[0] += diff;
+        virtSizes[virtSizes.length - 1] = Math.max(1, virtSizes[virtSizes.length - 1] - diff);
+      }
+
+      const firstRem = Math.max(1, virtSizes[0] - alreadyDone);
+      const firstSuffix =
+        alreadyDone > 0
+          ? `Now • Wk ${alreadyDone + 1}${firstRem > 1 ? `–${alreadyDone + firstRem}` : ''} of ${virtSizes[0]}`
+          : 'Now';
+      pushBlock('build', firstRem, true, firstSuffix);
+
+      for (let i = 1; i < k; i++) {
+        pushBlock('deload', 1, false);
+        pushBlock('build', virtSizes[i], false);
+      }
+
+      if (virtSizes.some((s) => s > stdBuild)) {
+        adaptiveNote = `Adapted build block length (${virtSizes.map((b) => `${b}w`).join(' / ')}) so your final build finishes right at Taper without an adjacent deload week.`;
+      }
+
+      pushBlock('taper', effectiveTaper, false);
+    }
+  }
+
+  const buildWeeksAvailable = Math.max(
+    1,
+    blocks.filter((b) => b.type === 'build').reduce((sum, b) => sum + b.weeks, 0)
+  );
+  const recoveryWeeksCount = blocks
+    .filter((b) => b.type === 'deload')
+    .reduce((sum, b) => sum + b.weeks, 0);
+  const summaryText = blocks.map((b) => b.label).join(' → ');
+
+  return {
+    blocks,
+    summaryText,
+    adaptiveNote,
+    buildWeeksAvailable,
+    recoveryWeeksCount,
+  };
+}
+
+/**
  * Derives realistic Age-Group CTL targets, weekly hours, per-discipline loads, ramp rate guardrails,
  * and periodized back-scheduling feasibility for any selected discipline & distance preset.
  */
@@ -901,6 +1080,7 @@ export function deriveEventCtlTargetAndFeasibility(params: {
   fitnessTimeline: DailyFitnessRecord[];
   customAvailableWeeklyHours?: number;
   customWeeksToRace?: number;
+  currentCyclePhase?: CurrentCyclePhase;
 }): EventCtlDerivationResult {
   const {
     sport,
@@ -915,6 +1095,7 @@ export function deriveEventCtlTargetAndFeasibility(params: {
     fitnessTimeline,
     customAvailableWeeklyHours,
     customWeeksToRace,
+    currentCyclePhase: paramCyclePhase,
   } = params;
 
   const latest = fitnessTimeline[fitnessTimeline.length - 1] || {
@@ -1297,6 +1478,8 @@ export function deriveEventCtlTargetAndFeasibility(params: {
 
   // 3. Periodization block mechanics
   const periodizationModel = athleteProfile.periodization || '4weeks';
+  const currentCyclePhase: CurrentCyclePhase =
+    paramCyclePhase || athleteProfile.currentCyclePhase || 'deload';
   let periodizationLabel = '3:1 Block (3 Build Wks + 1 Recovery Wk @ 65% load)';
   let netToBuildRampRatio = 0.60;
   if (periodizationModel === '3weeks') {
@@ -1330,9 +1513,14 @@ export function deriveEventCtlTargetAndFeasibility(params: {
   const weeksToRace = customWeeksToRace ?? defaultWeeks;
   const weeksToPeak = Math.max(1, weeksToRace - taperWeeks);
 
-  const cycleLen = periodizationModel === '4weeks' ? 4 : periodizationModel === '3weeks' ? 3 : 0;
-  const recoveryWeeksCount = cycleLen > 0 ? Math.floor(weeksToPeak / cycleLen) : 0;
-  const buildWeeksAvailable = Math.max(1, weeksToPeak - recoveryWeeksCount);
+  const scheduleResult = buildPeriodizedSchedule({
+    weeksToRace,
+    taperWeeks,
+    periodizationModel,
+    currentCyclePhase,
+  });
+  const recoveryWeeksCount = scheduleResult.recoveryWeeksCount;
+  const buildWeeksAvailable = scheduleResult.buildWeeksAvailable;
 
   const ctlGap = Math.max(0, targetPeakCtl - currentCtl);
   const requiredNetRampPerWeek = Math.round((ctlGap / weeksToPeak) * 10) / 10;
@@ -1363,7 +1551,8 @@ export function deriveEventCtlTargetAndFeasibility(params: {
     steadyStateWeeksToTarget = Math.round((rawWeeks / netToBuildRampRatio) * 10) / 10;
   }
 
-  const isHoursFeasible = totalWeeklyHours <= availableWeeklyHours + 0.3 && ctlSteadyStateAtAvailable >= targetPeakCtl - 2;
+  // Strictly require availableWeeklyHours >= totalWeeklyHours so e.g. 4.0h/wk < 4.1h/wk is marked as Exceeds hours
+  const isHoursFeasible = availableWeeklyHours >= totalWeeklyHours && ctlSteadyStateAtAvailable >= targetPeakCtl - 0.5;
   const isRampFeasible = requiredBuildRampPerWeek <= headlineMaxBuildRamp + 0.2;
   const isOverallFeasible = isHoursFeasible && isRampFeasible && !tsbWarning;
 
@@ -1380,7 +1569,7 @@ export function deriveEventCtlTargetAndFeasibility(params: {
   );
   const reachableRaceDayCtl = Math.round(reachablePeakCtlByRace * 0.875);
 
-  const isCappedByAvailableHours = ctlSteadyStateAtAvailable < targetPeakCtl - 1;
+  const isCappedByAvailableHours = availableWeeklyHours < totalWeeklyHours || ctlSteadyStateAtAvailable < targetPeakCtl - 0.5;
   const rampWeeksToPeak = ctlGap <= 0 ? 0 : Math.ceil(ctlGap / Math.max(0.5, effectiveMaxNetRamp));
   const earliestFeasibleWeeksToPeak =
     steadyStateWeeksToTarget !== null
@@ -1468,6 +1657,10 @@ export function deriveEventCtlTargetAndFeasibility(params: {
     disciplines,
     periodizationModel,
     periodizationLabel,
+    currentCyclePhase,
+    periodizationBlocks: scheduleResult.blocks,
+    periodizationSummaryText: scheduleResult.summaryText,
+    periodizationAdaptiveNote: scheduleResult.adaptiveNote,
     taperWeeks,
     recoveryWeekLoadRatio: 0.65,
     netToBuildRampRatio,

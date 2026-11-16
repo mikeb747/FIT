@@ -19,6 +19,7 @@ import {
   AthleteProfile,
   getAthletePowerZones,
   getAthletePaceZones,
+  getAthleteSwimPaceZones,
   getAthleteHeartRateZones,
 } from '../types/athlete';
 import {
@@ -26,7 +27,13 @@ import {
   CalculatedZoneBucket,
 } from '../utils/trainingZones';
 
-export type ZoneChartMode = 'cycling_power' | 'running_pace' | 'running_hr';
+export type ZoneChartMode =
+  | 'cycling_power'
+  | 'cycling_hr'
+  | 'running_pace'
+  | 'running_hr'
+  | 'swim_pace'
+  | 'swim_hr';
 
 interface FitnessZoneChartsProps {
   mode: ZoneChartMode;
@@ -96,8 +103,17 @@ export const FitnessZoneCharts: React.FC<FitnessZoneChartsProps> = ({
     if (mode === 'cycling_power') {
       return getAthletePowerZones(athleteProfile);
     }
+    if (mode === 'cycling_hr') {
+      return getAthleteHeartRateZones(athleteProfile, 'bike');
+    }
     if (mode === 'running_pace') {
       return getAthletePaceZones(athleteProfile);
+    }
+    if (mode === 'swim_pace') {
+      return getAthleteSwimPaceZones(athleteProfile);
+    }
+    if (mode === 'swim_hr') {
+      return getAthleteHeartRateZones(athleteProfile, 'swim');
     }
     return getAthleteHeartRateZones(athleteProfile, 'run');
   }, [mode, athleteProfile]);
@@ -120,14 +136,14 @@ export const FitnessZoneCharts: React.FC<FitnessZoneChartsProps> = ({
     return activities.filter((act) => {
       if (act.isDeleted) return false;
       const classification = classifyActivity(act);
-      if (mode === 'cycling_power') {
+      if (mode === 'cycling_power' || mode === 'cycling_hr') {
         return classification.category === 'Bike';
       }
-      if (mode === 'running_pace') {
+      if (mode === 'running_pace' || mode === 'running_hr') {
         return classification.category === 'Run';
       }
-      if (mode === 'running_hr') {
-        return classification.category === 'Run';
+      if (mode === 'swim_pace' || mode === 'swim_hr') {
+        return classification.category === 'Swim';
       }
       return false;
     });
@@ -212,7 +228,7 @@ export const FitnessZoneCharts: React.FC<FitnessZoneChartsProps> = ({
         const analysis = calculateActivityZonesTime(act, streams, athleteProfile);
         let buckets: CalculatedZoneBucket[] | null = null;
         if (mode === 'cycling_power') buckets = analysis.powerZones;
-        else if (mode === 'running_pace') buckets = analysis.paceZones;
+        else if (mode === 'running_pace' || mode === 'swim_pace') buckets = analysis.paceZones;
         else buckets = analysis.hrZones;
 
         const zoneDurations = new Array(numZones).fill(0);
@@ -336,8 +352,11 @@ export const FitnessZoneCharts: React.FC<FitnessZoneChartsProps> = ({
   // Mode Display Name
   const modeLabel = useMemo(() => {
     if (mode === 'cycling_power') return 'Cycling Power Zones';
+    if (mode === 'cycling_hr') return 'Cycling Heart Rate Zones';
     if (mode === 'running_pace') return 'Running Pace Zones';
-    return 'Running Heart Rate Zones';
+    if (mode === 'running_hr') return 'Running Heart Rate Zones';
+    if (mode === 'swim_pace') return 'Swimming Pace Zones';
+    return 'Swimming Heart Rate Zones';
   }, [mode]);
 
   return (
@@ -354,8 +373,10 @@ export const FitnessZoneCharts: React.FC<FitnessZoneChartsProps> = ({
           </span>
           <span
             className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${
-              mode === 'cycling_power'
+              mode.startsWith('cycling')
                 ? 'bg-orange-500/15 text-orange-700 dark:text-orange-400 border-orange-500/25'
+                : mode.startsWith('swim')
+                ? 'bg-sky-500/15 text-sky-700 dark:text-sky-400 border-sky-500/25'
                 : 'bg-rose-500/15 text-rose-700 dark:text-rose-400 border-rose-500/25'
             }`}
           >

@@ -391,9 +391,30 @@ export function markActivityAsDeleted(activityId: string | number): void {
   }
   const cached = getCachedStravaActivitiesSnapshot() || [];
   const updated = cached.map((act) =>
-    String(act.id) === idStr ? { ...act, isDeleted: true } : act
+    String(act.id) === idStr
+      ? {
+          ...act,
+          isDeleted: true,
+          distance: 0,
+          moving_time: 0,
+          elapsed_time: 0,
+          average_speed: 0,
+          max_speed: 0,
+          average_heartrate: undefined,
+          max_heartrate: undefined,
+          average_watts: undefined,
+          weighted_average_watts: undefined,
+          max_watts: undefined,
+          average_cadence: undefined,
+          calories: undefined,
+          suffer_score: undefined,
+          laps: undefined,
+          splits_metric: undefined,
+        }
+      : act
   );
   saveCachedStravaActivities(updated);
+  void deleteCachedStravaActivityRecords([idStr]);
 }
 
 export function unmarkActivityAsDeleted(activityId: string | number): void {
@@ -439,11 +460,29 @@ export function getCachedStravaActivities(): StravaActivity[] {
   const list = getCachedStravaActivitiesSnapshot() || [];
   const deletedIds = getDeletedActivityIds();
   const withRules = applyRenameRulesToActivities(list);
-  if (deletedIds.size === 0) return withRules;
-  return withRules.map((act) => ({
-    ...act,
-    isDeleted: deletedIds.has(String(act.id)) || Boolean(act.isDeleted),
-  }));
+  return withRules.map((act) => {
+    const isDel = deletedIds.has(String(act.id)) || Boolean(act.isDeleted);
+    if (!isDel) return act;
+    return {
+      ...act,
+      isDeleted: true,
+      distance: 0,
+      moving_time: 0,
+      elapsed_time: 0,
+      average_speed: 0,
+      max_speed: 0,
+      average_heartrate: undefined,
+      max_heartrate: undefined,
+      average_watts: undefined,
+      weighted_average_watts: undefined,
+      max_watts: undefined,
+      average_cadence: undefined,
+      calories: undefined,
+      suffer_score: undefined,
+      laps: undefined,
+      splits_metric: undefined,
+    };
+  });
 }
 
 export function saveCachedStravaActivities(activities: StravaActivity[]): void {

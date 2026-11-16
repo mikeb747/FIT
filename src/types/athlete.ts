@@ -4,6 +4,8 @@
  * Heart Rate / Power / Pace Zones, and Performance Analysis.
  */
 
+export type CurrentCyclePhase = 'deload' | 'build_1' | 'build_2' | 'build_3' | 'taper';
+
 export interface AthleteProfile {
   // General Physiology
   age: number; // in years (e.g. 35)
@@ -18,6 +20,7 @@ export interface AthleteProfile {
   // 3weeks: Easy week every 3 weeks (2 progressive + 1 easy)
   // 4weeks: 3 progressive weeks and 1 easier week
   periodization: '0' | '3weeks' | '4weeks';
+  currentCyclePhase?: CurrentCyclePhase;
 
   // Running Thresholds
   thresholdHeartRateRun: number; // bpm (Lactate Threshold Heart Rate, e.g. 168)

@@ -86,6 +86,47 @@ export function getPeriodizationPhaseInfo(profile: AthleteProfile): {
   isRecoveryWeek: boolean;
 } {
   const model = profile.periodization || '4weeks';
+  let explicitPhase = profile.currentCyclePhase;
+  if (!explicitPhase && typeof window !== 'undefined') {
+    try {
+      const saved = localStorage.getItem('fit_track_current_cycle_phase_v1');
+      if (saved === 'deload' || saved === 'build_1' || saved === 'build_2' || saved === 'build_3' || saved === 'taper') {
+        explicitPhase = saved;
+      }
+    } catch {}
+  }
+
+  const totalCycleWeeks = model === '3weeks' ? 3 : model === '0' ? 1 : 4;
+
+  if (explicitPhase) {
+    if (explicitPhase === 'deload') {
+      return {
+        model,
+        phaseName: 'Deload / Recovery & Adaptation Week',
+        currentWeekInCycle: totalCycleWeeks,
+        totalCycleWeeks,
+        isRecoveryWeek: true,
+      };
+    }
+    if (explicitPhase === 'taper') {
+      return {
+        model,
+        phaseName: 'Race Taper & Sharpening Phase',
+        currentWeekInCycle: totalCycleWeeks,
+        totalCycleWeeks,
+        isRecoveryWeek: true,
+      };
+    }
+    const buildNum = explicitPhase === 'build_2' ? 2 : explicitPhase === 'build_3' ? 3 : 1;
+    return {
+      model,
+      phaseName: `Build Week ${buildNum}: Progressive Overload Block`,
+      currentWeekInCycle: Math.min(buildNum, totalCycleWeeks),
+      totalCycleWeeks,
+      isRecoveryWeek: false,
+    };
+  }
+
   if (model === '0') {
     return {
       model: '0',

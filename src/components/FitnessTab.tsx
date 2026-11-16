@@ -29,8 +29,9 @@ import {
   classifyActivity,
   getCachedStravaActivityRecord,
   fetchStravaActivityDetails,
+  getDeletedActivityIds,
 } from '../utils/stravaActivities';
-import { AthleteProfile, formatSecondsToMinSec } from '../types/athlete';
+import { AthleteProfile, CurrentCyclePhase, formatSecondsToMinSec } from '../types/athlete';
 import { TrainingGoal } from '../types/goals';
 import {
   computeFitnessTimeline,
@@ -44,6 +45,7 @@ import {
   SwimmingDistanceModel,
   SWIMMING_MODEL_PROFILES,
   deriveEventCtlTargetAndFeasibility,
+  formatHoursToHrMin,
 } from '../utils/fitnessEngine';
 import { WeeklyMileageChart } from './WeeklyMileageChart';
 import { StravaActivityModal } from './StravaActivityModal';
@@ -151,6 +153,49 @@ export const FitnessTab: React.FC<FitnessTabProps> = ({
   const [showCtlDerivationPanel, setShowCtlDerivationPanel] = useState<boolean>(true);
   const [customWeeksToRace, setCustomWeeksToRace] = useState<number | undefined>(undefined);
   const [customAvailableHours, setCustomAvailableHours] = useState<number | undefined>(undefined);
+  const [currentCyclePhase, setCurrentCyclePhase] = useState<CurrentCyclePhase>(() => {
+    if (typeof window !== 'undefined') {
+      try {
+        const saved = localStorage.getItem('fit_track_current_cycle_phase_v1');
+        if (
+          saved === 'deload' ||
+          saved === 'build_1' ||
+          saved === 'build_2' ||
+          saved === 'build_3' ||
+          saved === 'taper'
+        ) {
+          return saved;
+        }
+      } catch {}
+    }
+    return athleteProfile.currentCyclePhase || 'deload';
+  });
+
+  const handleSelectCyclePhase = (phase: CurrentCyclePhase) => {
+    setCurrentCyclePhase(phase);
+    if (typeof window !== 'undefined') {
+      try {
+        localStorage.setItem('fit_track_current_cycle_phase_v1', phase);
+        // Also sync the current Monday week flag in fit_track_week_flags_v1 when toggling deload vs build
+        const now = new Date();
+        const day = now.getDay();
+        const diffToMon = day === 0 ? -6 : 1 - day;
+        const mon = new Date(now);
+        mon.setDate(now.getDate() + diffToMon);
+        const weekKey = `${mon.getFullYear()}-${String(mon.getMonth() + 1).padStart(2, '0')}-${String(
+          mon.getDate()
+        ).padStart(2, '0')}`;
+        const rawFlags = localStorage.getItem('fit_track_week_flags_v1');
+        const flags = rawFlags ? JSON.parse(rawFlags) : {};
+        if (phase === 'deload') {
+          flags[weekKey] = 'deload';
+        } else if (flags[weekKey] === 'deload') {
+          delete flags[weekKey];
+        }
+        localStorage.setItem('fit_track_week_flags_v1', JSON.stringify(flags));
+      } catch {}
+    }
+  };
 
   // Next 1–3 upcoming goal races with weeks remaining for Back-Scheduling & Periodization
   const upcomingGoalRaces = useMemo(() => {
@@ -213,6 +258,7 @@ export const FitnessTab: React.FC<FitnessTabProps> = ({
       fitnessTimeline: fullFitnessTimeline,
       customAvailableWeeklyHours: customAvailableHours,
       customWeeksToRace,
+      currentCyclePhase,
     });
   }, [
     selectedSport,
@@ -227,6 +273,7 @@ export const FitnessTab: React.FC<FitnessTabProps> = ({
     fullFitnessTimeline,
     customAvailableHours,
     customWeeksToRace,
+    currentCyclePhase,
   ]);
 
   // Dynamic Discipline-specific metrics anchored to Age-Group First-Principles Derivation
@@ -1097,11 +1144,11 @@ export const FitnessTab: React.FC<FitnessTabProps> = ({
                     return (
                       <tr key={d.discipline} className={isLight ? 'hover:bg-slate-50' : 'hover:bg-slate-800/30'}>
                         <td className={`py-2.5 px-3 font-sans font-bold ${colorClass}`}>{d.label}</td>
-                        <td className="py-2.5 px-3">{d.expectedRaceHours.toFixed(2)}h</td>
+                        <td className="py-2.5 px-3">{formatHoursToHrMin(d.expectedRaceHours)}</td>
                         <td className="py-2.5 px-3">
-                          {d.longSessionHours.toFixed(2)}h{' '}
+                          {formatHoursToHrMin(d.longSessionHours)}{' '}
                           <span className="text-[10px] text-slate-500">
-                            ({d.longSessionMultiplier}×, cap {d.longSessionCapHours}h)
+                            ({d.longSessionMultiplier}×, cap {formatHoursToHrMin(d.longSessionCapHours)})
                           </span>
                         </td>
                         <td className="py-2.5 px-3">{Math.round(d.weeklyShare * 100)}%</td>
@@ -1151,6 +1198,49 @@ export const FitnessTab: React.FC<FitnessTabProps> = ({
                   <span className="text-[10px] font-mono text-slate-400">{ctlDerivation.periodizationLabel}</span>
                 </div>
 
+                {/* Current Training Cycle Phase Selector */}
+                <div className="space-y-1.5">
+                  <div className="flex items-center justify-between text-[11px]">
+                    <span className="text-slate-400 font-semibold">Current Cycle Phase (This Week):</span>
+                    <span className="font-mono text-[10px] text-amber-400 font-bold">
+                      {currentCyclePhase === 'deload'
+                        ? 'Deload / Recovery Week'
+                        : currentCyclePhase === 'taper'
+                        ? 'Race Taper'
+                        : `Build Week ${currentCyclePhase.replace('build_', '')}`}
+                    </span>
+                  </div>
+                  <div className="grid grid-cols-5 gap-1">
+                    {(
+                      [
+                        { id: 'deload', label: 'Deload Wk' },
+                        { id: 'build_1', label: 'Build Wk 1' },
+                        { id: 'build_2', label: 'Build Wk 2' },
+                        { id: 'build_3', label: 'Build Wk 3' },
+                        { id: 'taper', label: 'Taper Wk' },
+                      ] as { id: CurrentCyclePhase; label: string }[]
+                    ).map((opt) => {
+                      const active = currentCyclePhase === opt.id;
+                      return (
+                        <button
+                          key={opt.id}
+                          type="button"
+                          onClick={() => handleSelectCyclePhase(opt.id)}
+                          className={`px-1.5 py-1 rounded-lg text-[10px] font-bold transition-all cursor-pointer text-center ${
+                            active
+                              ? 'bg-[#FE9A00] text-slate-950 shadow-xs'
+                              : isLight
+                              ? 'bg-white border border-slate-200 text-slate-600 hover:text-slate-900'
+                              : 'bg-slate-900 border border-slate-800 text-slate-400 hover:text-white'
+                          }`}
+                        >
+                          {opt.label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
                 <div className="space-y-2 text-xs">
                   <div>
                     <div className="flex justify-between mb-1">
@@ -1176,7 +1266,7 @@ export const FitnessTab: React.FC<FitnessTabProps> = ({
                     </div>
                     <input
                       type="range"
-                      min={4}
+                      min={3}
                       max={26}
                       step={0.5}
                       value={ctlDerivation.availableWeeklyHours}
@@ -1186,14 +1276,50 @@ export const FitnessTab: React.FC<FitnessTabProps> = ({
                   </div>
                 </div>
 
-                <div className="pt-2 border-t border-slate-200 dark:border-slate-800 text-[11px] space-y-1 text-slate-400">
+                <div className="pt-2 border-t border-slate-200 dark:border-slate-800 text-[11px] space-y-1.5 text-slate-400">
                   <div className="flex justify-between">
                     <span>Build vs Recovery Weeks:</span>
                     <span className="font-mono text-slate-200">
-                      {ctlDerivation.buildWeeksAvailable} build + {ctlDerivation.recoveryWeeksCount} recovery (65% load)
+                      {ctlDerivation.buildWeeksAvailable} build + {ctlDerivation.recoveryWeeksCount} deload + {ctlDerivation.taperWeeks} taper
                     </span>
                   </div>
-                  <div className="flex justify-between">
+
+                  {/* Adaptive Block Sequence Roadmap */}
+                  <div className="space-y-1 pt-0.5">
+                    <div className="text-[10px] uppercase tracking-wider font-bold text-slate-400">
+                      Proposed Block Sequence ({ctlDerivation.weeksToRace}w)
+                    </div>
+                    <div className="flex flex-wrap items-center gap-1">
+                      {ctlDerivation.periodizationBlocks.map((b, idx) => {
+                        const badgeColor =
+                          b.type === 'deload'
+                            ? 'bg-sky-500/15 text-sky-400 border-sky-500/30'
+                            : b.type === 'taper'
+                            ? 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30'
+                            : 'bg-amber-500/15 text-amber-400 border-amber-500/30';
+                        return (
+                          <React.Fragment key={`${b.startWeek}-${b.type}`}>
+                            <span
+                              className={`px-1.5 py-0.5 rounded border text-[10px] font-mono font-bold ${badgeColor}`}
+                              title={`Weeks ${b.startWeek}–${b.endWeek}`}
+                            >
+                              {b.label}
+                            </span>
+                            {idx < ctlDerivation.periodizationBlocks.length - 1 && (
+                              <span className="text-slate-500 text-[10px]">→</span>
+                            )}
+                          </React.Fragment>
+                        );
+                      })}
+                    </div>
+                    {ctlDerivation.periodizationAdaptiveNote && (
+                      <div className="text-[10px] text-amber-400/90 leading-snug pt-0.5">
+                        {ctlDerivation.periodizationAdaptiveNote}
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="flex justify-between pt-0.5">
                     <span>Steady-State Time to Target:</span>
                     <span className="font-mono text-sky-400">
                       {ctlDerivation.steadyStateWeeksToTarget !== null
@@ -1305,7 +1431,9 @@ export const FitnessTab: React.FC<FitnessTabProps> = ({
                 <p className="text-[11px] text-slate-400 leading-relaxed">
                   {ctlDerivation.isOverallFeasible
                     ? `Your required build ramp (+${ctlDerivation.requiredBuildRampPerWeek} CTL/wk) and peak volume (${ctlDerivation.totalWeeklyHours}h/wk) fit safely within your ${ctlDerivation.periodizationLabel.split(' ')[0]} periodization block.`
-                    : `Reaching ${ctlDerivation.targetPeakCtl} Peak CTL in ${ctlDerivation.weeksToPeak} build weeks requires +${ctlDerivation.requiredBuildRampPerWeek} CTL/wk (safe ceiling +${ctlDerivation.headlineMaxBuildRamp}/wk) or ${ctlDerivation.totalWeeklyHours}h/wk.`}
+                    : !ctlDerivation.isHoursFeasible && ctlDerivation.isRampFeasible
+                    ? `Peak target requires ${ctlDerivation.totalWeeklyHours}h/wk, which exceeds your ${ctlDerivation.availableWeeklyHours}h/wk available schedule (steady-state cap ~${ctlDerivation.ctlSteadyStateAtAvailable} CTL).`
+                    : `Reaching ${ctlDerivation.targetPeakCtl} Peak CTL in ${ctlDerivation.weeksToPeak} build weeks requires +${ctlDerivation.requiredBuildRampPerWeek} CTL/wk (safe ceiling +${ctlDerivation.headlineMaxBuildRamp}/wk) and ${ctlDerivation.totalWeeklyHours}h/wk.`}
                 </p>
 
                 <div className="pt-1 space-y-1.5 text-[11px]">
@@ -1351,7 +1479,7 @@ export const FitnessTab: React.FC<FitnessTabProps> = ({
         activityDetails={activityDetails}
         athleteProfile={athleteProfile}
         goals={goals}
-        initialTab={selectedSport === 'bike' ? 'cycling_power' : selectedSport === 'run' ? 'mileage' : selectedSport === 'swim' ? 'swim_distance' : 'tss'}
+        initialTab={selectedSport === 'bike' ? 'bike_hours' : selectedSport === 'run' ? 'mileage' : selectedSport === 'swim' ? 'swim_distance' : 'tss'}
         theme={theme}
         onSelectActivity={(actId) => {
           handleOpenActivityModal(actId);
@@ -1364,7 +1492,23 @@ export const FitnessTab: React.FC<FitnessTabProps> = ({
       {(() => {
         // Compute current 4-week normal run median (in miles & km) and longest run in last 28 days
         const nowMs = Date.now();
-        const runActs = activities.filter((a) => classifyActivity(a).category === 'Run');
+        const deletedIds = getDeletedActivityIds();
+        const getEffectiveRunDistanceMeters = (a: StravaActivity): number => {
+          const calDist = activityDetails[String(a.id)]?.calibration?.calibratedDistanceM;
+          return typeof calDist === 'number' && calDist > 0 ? calDist : a.distance || 0;
+        };
+        const getEffectiveRunMovingSec = (a: StravaActivity): number => {
+          const calSec = activityDetails[String(a.id)]?.calibration?.calibratedMovingTimeSec;
+          return typeof calSec === 'number' && calSec > 0
+            ? calSec
+            : a.moving_time || a.elapsed_time || 0;
+        };
+
+        const runActs = activities.filter((a) => {
+          if (!a || a.isDeleted || deletedIds.has(String(a.id))) return false;
+          if (activityDetails[String(a.id)]?.calibration?.isIgnoredFromTrainingStatus) return false;
+          return classifyActivity(a).category === 'Run';
+        });
 
         // Load week flags so deload/race weeks are excluded from 4W Normal Median
         let savedFlags: Record<string, 'normal' | 'deload' | 'race'> = {};
@@ -1392,7 +1536,7 @@ export const FitnessTab: React.FC<FitnessTabProps> = ({
           const d = new Date(a.start_date_local || a.start_date);
           if (isNaN(d.getTime())) return;
           const wk = getMondayKey(d);
-          weeklyRunKmMap[wk] = (weeklyRunKmMap[wk] || 0) + (a.distance || 0) / 1000;
+          weeklyRunKmMap[wk] = (weeklyRunKmMap[wk] || 0) + getEffectiveRunDistanceMeters(a) / 1000;
         });
 
         // Build prior 8 completed weeks and take last 4 normal weeks
@@ -1425,7 +1569,7 @@ export const FitnessTab: React.FC<FitnessTabProps> = ({
           return !isNaN(t) && nowMs - t <= 28 * 86400000;
         });
         const longestRecentRunKm = recent28dRuns.reduce(
-          (max, a) => Math.max(max, (a.distance || 0) / 1000),
+          (max, a) => Math.max(max, getEffectiveRunDistanceMeters(a) / 1000),
           0
         );
         const longestRecentRunMiles = longestRecentRunKm * 0.621371;
@@ -1464,8 +1608,8 @@ export const FitnessTab: React.FC<FitnessTabProps> = ({
         // Steady-Run Aerobic Efficiency Factor (EF) Trend across recent steady runs (≥ 25 min, with HR)
         const steadyRunsWithEf = runActs
           .filter((a) => {
-            const movingSec = a.moving_time || a.elapsed_time || 0;
-            const distMeters = a.distance || 0;
+            const movingSec = getEffectiveRunMovingSec(a);
+            const distMeters = getEffectiveRunDistanceMeters(a);
             const avgHr = a.average_heartrate || 0;
             return movingSec >= 1500 && distMeters >= 3000 && avgHr >= 100;
           })
@@ -1476,8 +1620,8 @@ export const FitnessTab: React.FC<FitnessTabProps> = ({
           )
           .slice(-8)
           .map((a) => {
-            const movingSec = a.moving_time || a.elapsed_time || 1;
-            const distMeters = a.distance || 0;
+            const movingSec = Math.max(1, getEffectiveRunMovingSec(a));
+            const distMeters = getEffectiveRunDistanceMeters(a);
             const avgHr = a.average_heartrate || 140;
             const speedMetersPerMin = distMeters / (movingSec / 60);
             const ef = speedMetersPerMin / avgHr;

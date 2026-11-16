@@ -35,6 +35,7 @@ import {
   saveStravaActivityDetails,
   deleteCachedStravaActivityRecords,
   markActivityAsDeleted,
+  getDeletedActivityIds,
   getLastAppOpenTime,
   setLastAppOpenTime,
   StravaActivity,
@@ -666,10 +667,40 @@ export default function App() {
   };
 
   const handleDeleteActivity = (activityId: string | number) => {
+    const idStr = String(activityId);
     markActivityAsDeleted(activityId);
+    void deleteCachedStravaActivityRecords([idStr]);
     setStravaActivities((prev) =>
-      prev.map((a) => (String(a.id) === String(activityId) ? { ...a, isDeleted: true } : a))
+      prev.map((a) =>
+        String(a.id) === idStr
+          ? {
+              ...a,
+              isDeleted: true,
+              distance: 0,
+              moving_time: 0,
+              elapsed_time: 0,
+              average_speed: 0,
+              max_speed: 0,
+              average_heartrate: undefined,
+              max_heartrate: undefined,
+              average_watts: undefined,
+              weighted_average_watts: undefined,
+              max_watts: undefined,
+              average_cadence: undefined,
+              calories: undefined,
+              suffer_score: undefined,
+              laps: undefined,
+              splits_metric: undefined,
+            }
+          : a
+      )
     );
+    setStravaActivityDetails((prev) => {
+      if (!prev[idStr]) return prev;
+      const next = { ...prev };
+      delete next[idStr];
+      return next;
+    });
   };
 
   const handleRenameActivity = (activityId: string | number, newName: string) => {
@@ -958,21 +989,29 @@ export default function App() {
         let allCached = await getAllCachedStravaActivityRecords();
         if (cancelled) return;
 
-        // Purge any removed legacy demo-act-* records from IndexedDB and memory
-        const hasLegacyKeys = Object.keys(allCached).some((k) => isLegacyDemoActivityId(k));
-        if (hasLegacyKeys) {
+        // Purge any removed legacy demo-act-* records and any deleted activity records from IndexedDB and memory
+        const deletedIds = getDeletedActivityIds();
+        stravaActivities.forEach((a) => {
+          if (a.isDeleted) deletedIds.add(String(a.id));
+        });
+        const keysToPurge = Object.keys(allCached).filter(
+          (k) => isLegacyDemoActivityId(k) || deletedIds.has(k)
+        );
+        if (keysToPurge.length > 0) {
           const filtered: Record<string, StravaActivityDetailsRecord> = {};
           for (const [k, v] of Object.entries(allCached)) {
-            if (!isLegacyDemoActivityId(k)) {
+            if (!isLegacyDemoActivityId(k) && !deletedIds.has(k)) {
               filtered[k] = v;
             }
           }
           allCached = filtered;
-          void deleteCachedStravaActivityRecords(LEGACY_DEMO_ACTIVITY_IDS);
+          void deleteCachedStravaActivityRecords(
+            Array.from(new Set([...LEGACY_DEMO_ACTIVITY_IDS, ...keysToPurge]))
+          );
         }
 
         // If demo mode is active or demo activities exist, ensure streams are seeded
-        const demoActivities = stravaActivities.filter((a) => isDemoActivityId(a.id));
+        const demoActivities = stravaActivities.filter((a) => isDemoActivityId(a.id) && !a.isDeleted);
         if (isAIStudioEnvironment() && (isDemoModeActive() || demoActivities.length > 0)) {
           const hasMissingDemoRecords =
             demoActivities.length === 0 ||
@@ -985,7 +1024,13 @@ export default function App() {
         }
 
         if (allCached && Object.keys(allCached).length > 0) {
-          setStravaActivityDetails((current) => ({ ...allCached, ...current }));
+          setStravaActivityDetails((current) => {
+            const merged = { ...allCached, ...current };
+            deletedIds.forEach((delId) => {
+              delete merged[delId];
+            });
+            return merged;
+          });
         }
       } catch {}
     };
