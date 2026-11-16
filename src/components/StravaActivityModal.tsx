@@ -186,6 +186,7 @@ export const StravaActivityModal: React.FC<StravaActivityModalProps> = ({
 
   // Running 1km splits display mode: pace bar chart, GAP bar chart, HR bar chart, cadence bar chart, or cards grid
   const [splitsDisplayMode, setSplitsDisplayMode] = useState<'pace' | 'gap' | 'hr' | 'cadence' | 'cards'>('pace');
+  const [efWarmupTrimMin, setEfWarmupTrimMin] = useState<0 | 10 | 15>(0);
 
   // Specific Strava Stream Re-fetch Box state
   const [isStreamFetcherOpen, setIsStreamFetcherOpen] = useState(false);
@@ -1366,12 +1367,25 @@ export const StravaActivityModal: React.FC<StravaActivityModalProps> = ({
             let hasHalfSplitComparison = false;
             let sourceLabel = 'Splits';
 
+            const timeStream = streams?.time?.data as number[] | undefined;
+
             if (actCategory === 'run' && Array.isArray(hrStream) && Array.isArray(velStream)) {
               const len = Math.min(hrStream.length, velStream.length);
               if (len >= 120) {
-                const trim = Math.floor(len * 0.05);
+                const endTrim = Math.floor(len * 0.05);
+                let startIdx = Math.floor(len * 0.05);
+                if (efWarmupTrimMin > 0) {
+                  const targetSec = efWarmupTrimMin * 60;
+                  if (Array.isArray(timeStream) && timeStream.length >= len) {
+                    const t0 = timeStream[0] || 0;
+                    const foundIdx = timeStream.findIndex((t) => t - t0 >= targetSec);
+                    startIdx = foundIdx > 0 ? foundIdx : Math.min(len - 60, targetSec);
+                  } else {
+                    startIdx = Math.min(len - 60, targetSec);
+                  }
+                }
                 const validPairs: { v: number; hr: number }[] = [];
-                for (let i = trim; i < len - trim; i++) {
+                for (let i = startIdx; i < len - endTrim; i++) {
                   const v = velStream[i];
                   const h = hrStream[i];
                   if (v > 1.2 && h > 85) {
@@ -1387,15 +1401,29 @@ export const StravaActivityModal: React.FC<StravaActivityModalProps> = ({
                   secondHalfSpeedOrWatts = h2.reduce((acc, p) => acc + p.v, 0) / h2.length;
                   secondHalfHr = h2.reduce((acc, p) => acc + p.hr, 0) / h2.length;
                   hasHalfSplitComparison = firstHalfHr > 0 && secondHalfHr > 0;
-                  sourceLabel = '1-sec Streams (Middle 90%)';
+                  sourceLabel =
+                    efWarmupTrimMin > 0
+                      ? `Streams (Excl. ${efWarmupTrimMin}m Warmup)`
+                      : '1-sec Streams (Middle 90%)';
                 }
               }
             } else if (actCategory === 'bike' && Array.isArray(hrStream) && Array.isArray(wattsStream)) {
               const len = Math.min(hrStream.length, wattsStream.length);
               if (len >= 120) {
-                const trim = Math.floor(len * 0.05);
+                const endTrim = Math.floor(len * 0.05);
+                let startIdx = Math.floor(len * 0.05);
+                if (efWarmupTrimMin > 0) {
+                  const targetSec = efWarmupTrimMin * 60;
+                  if (Array.isArray(timeStream) && timeStream.length >= len) {
+                    const t0 = timeStream[0] || 0;
+                    const foundIdx = timeStream.findIndex((t) => t - t0 >= targetSec);
+                    startIdx = foundIdx > 0 ? foundIdx : Math.min(len - 60, targetSec);
+                  } else {
+                    startIdx = Math.min(len - 60, targetSec);
+                  }
+                }
                 const validPairs: { w: number; hr: number }[] = [];
-                for (let i = trim; i < len - trim; i++) {
+                for (let i = startIdx; i < len - endTrim; i++) {
                   const w = wattsStream[i];
                   const h = hrStream[i];
                   if (w > 20 && h > 80) {
@@ -1411,16 +1439,29 @@ export const StravaActivityModal: React.FC<StravaActivityModalProps> = ({
                   secondHalfSpeedOrWatts = h2.reduce((acc, p) => acc + p.w, 0) / h2.length;
                   secondHalfHr = h2.reduce((acc, p) => acc + p.hr, 0) / h2.length;
                   hasHalfSplitComparison = firstHalfHr > 0 && secondHalfHr > 0;
-                  sourceLabel = '1-sec Streams (Middle 90%)';
+                  sourceLabel =
+                    efWarmupTrimMin > 0
+                      ? `Streams (Excl. ${efWarmupTrimMin}m Warmup)`
+                      : '1-sec Streams (Middle 90%)';
                 }
               }
             }
 
             // Fallback to Run splits if stream arrays weren't available
             if (!hasHalfSplitComparison && actCategory === 'run' && runDetails && runDetails.splits.length >= 2) {
-              const validSplits = runDetails.splits.filter(
+              const allValidSplits = runDetails.splits.filter(
                 (s) => (s.paceSecPerKm ?? 0) > 0 && s.avgHr && s.avgHr > 85 && Number(s.distanceKm || 0) >= 0.4
               );
+              let validSplits = allValidSplits;
+              if (efWarmupTrimMin > 0 && allValidSplits.length > 2) {
+                let accSec = 0;
+                const targetSec = efWarmupTrimMin * 60;
+                const trimmed = allValidSplits.filter((s) => {
+                  accSec += s.movingTimeSec || s.paceSecPerKm || 300;
+                  return accSec > targetSec;
+                });
+                if (trimmed.length >= 2) validSplits = trimmed;
+              }
               if (validSplits.length >= 2) {
                 const mid = Math.floor(validSplits.length / 2);
                 const h1 = validSplits.slice(0, mid);
@@ -1432,7 +1473,10 @@ export const StravaActivityModal: React.FC<StravaActivityModalProps> = ({
                   h2.reduce((acc, s) => acc + 1000 / ((s.paceSecPerKm || 300) / 60), 0) / h2.length;
                 secondHalfHr = h2.reduce((acc, s) => acc + (s.avgHr || 0), 0) / h2.length;
                 hasHalfSplitComparison = firstHalfHr > 0 && secondHalfHr > 0;
-                sourceLabel = `${validSplits.length} Splits`;
+                sourceLabel =
+                  efWarmupTrimMin > 0
+                    ? `${validSplits.length} Splits (Excl. ${efWarmupTrimMin}m Warmup)`
+                    : `${validSplits.length} Splits`;
               }
             }
 
@@ -1494,7 +1538,34 @@ export const StravaActivityModal: React.FC<StravaActivityModalProps> = ({
                       </span>
                     </div>
                   </div>
-                  <div className="flex items-center gap-1.5">
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <div className="inline-flex items-center rounded-lg bg-slate-900 border border-slate-800 p-0.5 text-[10px]">
+                      {(
+                        [
+                          { min: 0 as const, label: 'Mid 90%' },
+                          { min: 10 as const, label: '-10m Warmup' },
+                          { min: 15 as const, label: '-15m Warmup' },
+                        ]
+                      ).map((opt) => (
+                        <button
+                          key={opt.min}
+                          type="button"
+                          onClick={() => setEfWarmupTrimMin(opt.min)}
+                          className={`px-1.5 py-0.5 rounded-md font-bold transition-colors cursor-pointer ${
+                            efWarmupTrimMin === opt.min
+                              ? 'bg-[#FE9A00] text-slate-950'
+                              : 'text-slate-400 hover:text-white'
+                          }`}
+                          title={
+                            opt.min === 0
+                              ? 'Default: trims first 5% and last 5% of recording'
+                              : `Excludes first ${opt.min} minutes of warmup so 1st Half vs 2nd Half compares the main set`
+                          }
+                        >
+                          {opt.label}
+                        </button>
+                      ))}
+                    </div>
                     <span className="text-[10px] font-mono text-slate-400 bg-slate-900 border border-slate-800 px-2 py-0.5 rounded-md">
                       {sourceLabel}
                     </span>

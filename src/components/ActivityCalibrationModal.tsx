@@ -121,7 +121,7 @@ const MovingTimeBoxInput: React.FC<{
     'w-16 h-10 bg-slate-900 border border-slate-700 rounded-xl text-white font-mono text-base font-bold text-center focus:border-amber-400 focus:outline-none transition-colors';
 
   return (
-    <div className="flex items-center gap-2">
+    <div className="flex items-center gap-1">
       <div className="flex flex-col items-center gap-0.5">
         <input
           type="text"
@@ -268,7 +268,7 @@ const LapDurationInput: React.FC<{
 
   return (
     <div className="relative shrink-0 flex flex-col items-center">
-      <div className="inline-flex items-center gap-0.5 font-mono">
+      <div className="inline-flex items-center gap-[1px] font-mono">
         <input
           type="text"
           inputMode="numeric"
@@ -432,7 +432,7 @@ const LapPaceInput: React.FC<{
   }`;
 
   return (
-    <div className="inline-flex items-center gap-0.5 font-mono shrink-0">
+    <div className="inline-flex items-center gap-[1px] font-mono shrink-0">
       <input
         type="text"
         inputMode="numeric"
@@ -2165,8 +2165,8 @@ export const ActivityCalibrationModal: React.FC<ActivityCalibrationModalProps> =
 
           {/* Swim Lap Calibration */}
           {isSwim && (
-            <div className="p-4 rounded-2xl bg-slate-950/70 border border-sky-500/30 space-y-3.5">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 pb-2 border-b border-slate-800/80">
+            <div className="py-4 px-0 rounded-2xl bg-slate-950/70 border border-sky-500/30 space-y-3.5 overflow-hidden">
+              <div className="px-4 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 pb-2 border-b border-slate-800/80">
                 <div className="flex items-center gap-2">
                   <div className="p-1.5 rounded-lg bg-sky-500/15 border border-sky-500/30">
                     <Waves className="w-4 h-4 text-sky-400" />
@@ -2202,7 +2202,7 @@ export const ActivityCalibrationModal: React.FC<ActivityCalibrationModalProps> =
               </div>
 
               {swimLaps.length > 0 && (
-                <div className="space-y-2 max-h-[750px] overflow-y-auto pr-1">
+                <div className="w-full max-h-[750px] overflow-y-auto">
                   {swimLaps.map((lap, index) => {
                     const isRestLap = Boolean(lap.isRest || lap.distanceM <= 0);
                     const origIdx = (lap.originalLapIndex ?? index + 1) - 1;
@@ -2217,7 +2217,7 @@ export const ActivityCalibrationModal: React.FC<ActivityCalibrationModalProps> =
                     return (
                       <div
                         key={`${lap.lapIndex}-${index}`}
-                        className={`p-2.5 rounded-xl border flex flex-wrap items-center justify-between gap-2 text-xs transition-colors ${
+                        className={`w-full px-0 py-0 first:pt-2 last:pb-2 border-b last:border-b-0 first:border-t flex flex-wrap items-center justify-between gap-2 text-xs transition-colors ${
                           lap.isIgnored || isRestLap
                             ? 'bg-slate-950/40 border-slate-800/40 opacity-60'
                             : 'bg-slate-900/80 border-slate-800'
@@ -2399,7 +2399,7 @@ export const ActivityCalibrationModal: React.FC<ActivityCalibrationModalProps> =
 
               {/* Calibrated Pool Swim Result & Strava Re-Upload Card */}
               {swimLaps.length > 0 && (
-                <div className="p-3.5 rounded-2xl bg-gradient-to-br from-sky-950/40 via-slate-900 to-slate-950 border border-sky-500/30 space-y-3">
+                <div className="mx-4 p-3.5 rounded-2xl bg-gradient-to-br from-sky-950/40 via-slate-900 to-slate-950 border border-sky-500/30 space-y-3">
                   <div className="flex items-center justify-between flex-wrap gap-1">
                     <span className="text-[10px] font-black uppercase tracking-wider text-sky-400 flex items-center gap-1.5">
                       <CheckCircle2 className="w-3.5 h-3.5" />
@@ -2536,8 +2536,8 @@ export const ActivityCalibrationModal: React.FC<ActivityCalibrationModalProps> =
           {/* Placed directly above the Calibration Reason section as requested         */}
           {/* ========================================================================= */}
           {isRun && (
-            <div className="p-4 rounded-2xl bg-slate-950/70 border border-emerald-500/30 space-y-3.5">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 pb-2 border-b border-slate-800/80">
+            <div className="py-4 px-0 rounded-2xl bg-slate-950/70 border border-emerald-500/30 space-y-3.5 overflow-hidden">
+              <div className="px-4 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 pb-2 border-b border-slate-800/80">
                 <div className="flex items-center gap-2 min-w-0 flex-1">
                   <div className="p-1.5 rounded-lg bg-emerald-500/15 border border-emerald-500/30 shrink-0">
                     <Layers className="w-4 h-4 text-emerald-400" />
@@ -2582,15 +2582,15 @@ export const ActivityCalibrationModal: React.FC<ActivityCalibrationModalProps> =
 
               {/* Sections Table - Displays up to 15 laps before scrollbar appears */}
               {runSections.length === 0 ? (
-                <div className="text-center py-5 px-3 rounded-xl bg-slate-900/60 border border-dashed border-slate-800 space-y-2">
+                <div className="mx-4 text-center py-5 px-3 rounded-xl bg-slate-900/60 border border-dashed border-slate-800 space-y-2">
                   <Play className="w-6 h-6 text-slate-600 mx-auto" />
                   <p className="text-xs text-slate-400 font-medium">
                     No custom laps defined yet. Click &ldquo;+Add Lap&rdquo; to build your treadmill intervals.
                   </p>
                 </div>
               ) : (
-                <div className="space-y-1.5 min-h-[180px] max-h-[750px] overflow-y-auto pr-1">
-                  <div className="flex items-center gap-1.5 sm:gap-2 text-[10px] font-bold uppercase tracking-wider text-slate-400 px-2 pb-0.5">
+                <div className="w-full min-h-[180px] max-h-[750px] overflow-y-auto">
+                  <div className="w-full flex items-center gap-1.5 sm:gap-2 text-[10px] font-bold uppercase tracking-wider text-slate-400 px-0 pb-1">
                     <span className="w-11 sm:w-13 shrink-0">Lap</span>
                     <span className="w-[70px] sm:w-[78px] shrink-0 text-center">Duration</span>
                     <span className="w-20 sm:w-24 shrink-0 text-center">Speed</span>
@@ -2608,7 +2608,7 @@ export const ActivityCalibrationModal: React.FC<ActivityCalibrationModalProps> =
                       <div
                         key={sec.id || idx}
                         style={isAlternate ? { backgroundColor: '#d3f0ff' } : undefined}
-                        className={`px-2 py-1.5 rounded-xl border text-xs transition-colors flex items-center gap-1.5 sm:gap-2 shadow-xs ${
+                        className={`w-full px-0 py-0 first:pt-2 last:pb-2 border-b last:border-b-0 first:border-t text-xs transition-colors flex items-center gap-1.5 sm:gap-2 ${
                           isAlternate
                             ? 'border-sky-300 text-slate-900'
                             : isLast && timeDiscrepancySec > 0.05
@@ -2691,7 +2691,7 @@ export const ActivityCalibrationModal: React.FC<ActivityCalibrationModalProps> =
 
               {/* Time Discrepancy & Auto-extension Notice */}
               {runSections.length > 0 && timeDiscrepancySec > 0.05 && (
-                <div className="p-2.5 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-xs text-emerald-200 flex items-start gap-2">
+                <div className="mx-4 p-2.5 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-xs text-emerald-200 flex items-start gap-2">
                   <Clock className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
                   <div className="space-y-0.5">
                     <p className="font-bold text-white">
@@ -2706,7 +2706,7 @@ export const ActivityCalibrationModal: React.FC<ActivityCalibrationModalProps> =
 
               {/* Result Summary Card (matching the green summary card from user specification) */}
               {runSections.length > 0 && (
-                <div className="p-3.5 rounded-2xl bg-gradient-to-br from-emerald-950/40 via-slate-900 to-slate-950 border border-emerald-500/30 space-y-3">
+                <div className="mx-4 p-3.5 rounded-2xl bg-gradient-to-br from-emerald-950/40 via-slate-900 to-slate-950 border border-emerald-500/30 space-y-3">
                   <div className="flex items-center justify-between">
                     <span className="text-[10px] font-black uppercase tracking-wider text-emerald-400 flex items-center gap-1.5">
                       <CheckCircle2 className="w-3.5 h-3.5" />
