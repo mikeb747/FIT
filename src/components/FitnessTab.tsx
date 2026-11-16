@@ -189,10 +189,13 @@ export const FitnessTab: React.FC<FitnessTabProps> = ({
         const flags = rawFlags ? JSON.parse(rawFlags) : {};
         if (phase === 'deload') {
           flags[weekKey] = 'deload';
-        } else if (flags[weekKey] === 'deload') {
+        } else if (phase === 'taper') {
+          flags[weekKey] = 'taper';
+        } else if (flags[weekKey] === 'deload' || flags[weekKey] === 'taper') {
           delete flags[weekKey];
         }
         localStorage.setItem('fit_track_week_flags_v1', JSON.stringify(flags));
+        localStorage.setItem('fittrack_week_flags_v1', JSON.stringify(flags));
       } catch {}
     }
   };
@@ -1510,10 +1513,12 @@ export const FitnessTab: React.FC<FitnessTabProps> = ({
           return classifyActivity(a).category === 'Run';
         });
 
-        // Load week flags so deload/race weeks are excluded from 4W Normal Median
-        let savedFlags: Record<string, 'normal' | 'deload' | 'race'> = {};
+        // Load week flags so deload/taper/race weeks are excluded from 4W Normal Baseline
+        let savedFlags: Record<string, 'normal' | 'deload' | 'taper' | 'race'> = {};
         try {
-          const raw = localStorage.getItem('fittrack_week_flags_v1');
+          const raw =
+            localStorage.getItem('fittrack_week_flags_v1') ||
+            localStorage.getItem('fit_track_week_flags_v1');
           if (raw) savedFlags = JSON.parse(raw);
         } catch {
           // ignore
@@ -1532,36 +1537,42 @@ export const FitnessTab: React.FC<FitnessTabProps> = ({
 
         const currentMondayKey = getMondayKey(new Date());
         const weeklyRunKmMap: Record<string, number> = {};
+        const weeklyRunMilesMap: Record<string, number> = {};
         runActs.forEach((a) => {
           const d = new Date(a.start_date_local || a.start_date);
           if (isNaN(d.getTime())) return;
           const wk = getMondayKey(d);
-          weeklyRunKmMap[wk] = (weeklyRunKmMap[wk] || 0) + getEffectiveRunDistanceMeters(a) / 1000;
+          const km = getEffectiveRunDistanceMeters(a) / 1000;
+          weeklyRunKmMap[wk] = (weeklyRunKmMap[wk] || 0) + km;
+          weeklyRunMilesMap[wk] = (weeklyRunMilesMap[wk] || 0) + km * 0.621371;
         });
 
-        // Build prior 8 completed weeks and take last 4 normal weeks
+        // Build prior 12 completed weeks (excluding this week, deload, taper, and race weeks) and take the mean of the last 4 normal weeks
         const priorNormalKm: number[] = [];
+        const priorNormalMiles: number[] = [];
         const baseMonday = new Date();
         const day = baseMonday.getDay();
         baseMonday.setDate(baseMonday.getDate() - ((day + 6) % 7));
-        for (let w = 1; w <= 8; w++) {
+        for (let w = 1; w <= 12; w++) {
           const d = new Date(baseMonday);
           d.setDate(d.getDate() - w * 7);
           const wkKey = getMondayKey(d);
           const flag = savedFlags[wkKey] || 'normal';
-          const km = weeklyRunKmMap[wkKey] || 0;
+          const km = Math.round((weeklyRunKmMap[wkKey] || 0) * 10) / 10;
+          const mi = Math.round((weeklyRunMilesMap[wkKey] || 0) * 10) / 10;
           if (flag === 'normal' && km > 0 && priorNormalKm.length < 4) {
             priorNormalKm.push(km);
+            priorNormalMiles.push(mi);
           }
         }
-        const sortedNormalKm = [...priorNormalKm].sort((a, b) => a - b);
         const medianWeeklyRunKm =
-          sortedNormalKm.length === 0
-            ? (weeklyRunKmMap[currentMondayKey] || 0)
-            : sortedNormalKm.length % 2 === 1
-            ? sortedNormalKm[Math.floor(sortedNormalKm.length / 2)]
-            : (sortedNormalKm[sortedNormalKm.length / 2 - 1] + sortedNormalKm[sortedNormalKm.length / 2]) / 2;
-        const medianWeeklyRunMiles = medianWeeklyRunKm * 0.621371;
+          priorNormalKm.length === 0
+            ? Math.round((weeklyRunKmMap[currentMondayKey] || 0) * 100) / 100
+            : Math.round((priorNormalKm.reduce((s, v) => s + v, 0) / priorNormalKm.length) * 100) / 100;
+        const medianWeeklyRunMiles =
+          priorNormalMiles.length === 0
+            ? Math.round((weeklyRunMilesMap[currentMondayKey] || 0) * 100) / 100
+            : Math.round((priorNormalMiles.reduce((s, v) => s + v, 0) / priorNormalMiles.length) * 100) / 100;
 
         // Longest run in last 28 days
         const recent28dRuns = runActs.filter((a) => {
@@ -1681,11 +1692,11 @@ export const FitnessTab: React.FC<FitnessTabProps> = ({
                     </h3>
                   </div>
                   <p className="text-xs text-slate-400 mt-0.5">
-                    4W Normal Median:{' '}
+                    4W Normal Baseline:{' '}
                     <span className="font-mono font-bold text-amber-500">
-                      {medianWeeklyRunMiles.toFixed(1)} mi/wk
+                      {medianWeeklyRunMiles.toFixed(2)} mi/wk
                     </span>{' '}
-                    ({medianWeeklyRunKm.toFixed(1)} km) • Longest (28d):{' '}
+                    ({medianWeeklyRunKm.toFixed(2)} km) • Longest (28d):{' '}
                     <span className="font-mono font-bold text-sky-400">
                       {longestRecentRunMiles.toFixed(1)} mi
                     </span>{' '}
