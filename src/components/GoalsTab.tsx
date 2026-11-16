@@ -34,6 +34,9 @@ import {
   TRIATHLON_DISTANCE_PRESETS,
   BIKE_DISTANCE_PRESETS,
   SWIM_DISTANCE_PRESETS,
+  TAPER_DURATION_OPTIONS,
+  getGoalTaperDays,
+  formatTaperDuration,
 } from '../types/goals';
 import { AthleteProfile } from '../types/athlete';
 import { resetAthleteGoalsToDefaults } from '../utils/goalsStorage';
@@ -243,11 +246,16 @@ const GoalMinSecInput: React.FC<{
   );
 };
 
-function getCountdownInfo(eventDateStr: string, isLight: boolean): {
+function getCountdownInfo(
+  eventDateStr: string,
+  isLight: boolean,
+  taperDays: number = 14
+): {
   days: number;
   weeks: number;
   isPast: boolean;
   label: string;
+  taperStartLabel: string;
   phase: { name: string; color: string; desc: string };
 } {
   if (!eventDateStr) {
@@ -256,6 +264,7 @@ function getCountdownInfo(eventDateStr: string, isLight: boolean): {
       weeks: 0,
       isPast: false,
       label: 'Date TBD',
+      taperStartLabel: 'TBD',
       phase: {
         name: 'Planning',
         color: isLight ? 'text-slate-600 bg-slate-100 border-slate-300' : 'text-slate-400 bg-slate-800 border-slate-700',
@@ -271,6 +280,14 @@ function getCountdownInfo(eventDateStr: string, isLight: boolean): {
     ? new Date(Number(isoParts[1]), Number(isoParts[2]) - 1, Number(isoParts[3]))
     : new Date(eventDateStr);
   eventDate.setHours(0, 0, 0, 0);
+
+  const taperStartDate = new Date(eventDate);
+  taperStartDate.setDate(taperStartDate.getDate() - Math.max(1, taperDays));
+  const taperStartLabel = taperStartDate.toLocaleDateString('en-GB', {
+    day: 'numeric',
+    month: 'short',
+    year: 'numeric',
+  });
 
   const diffMs = eventDate.getTime() - today.getTime();
   const calendarDays = Math.round(diffMs / (1000 * 60 * 60 * 24));
@@ -295,6 +312,12 @@ function getCountdownInfo(eventDateStr: string, isLight: boolean): {
       color: isLight ? 'text-slate-600 bg-slate-100 border-slate-300' : 'text-slate-400 bg-slate-800 border-slate-700',
       desc: 'Post-event recovery & review',
     };
+  } else if (calendarDays <= taperDays) {
+    phase = {
+      name: 'Taper Phase',
+      color: isLight ? 'text-emerald-700 bg-emerald-50 border-emerald-200' : 'text-emerald-400 bg-emerald-500/10 border-emerald-500/30',
+      desc: `Freshness, glycogen storage & ${formatTaperDuration(taperDays)} race taper`,
+    };
   } else if (weeks > 16) {
     phase = {
       name: 'Base Phase',
@@ -307,17 +330,11 @@ function getCountdownInfo(eventDateStr: string, isLight: boolean): {
       color: isLight ? 'text-amber-800 bg-amber-50 border-amber-200' : 'text-amber-400 bg-amber-500/10 border-amber-500/30',
       desc: 'Threshold power & race-pace endurance',
     };
-  } else if (weeks >= 3) {
+  } else {
     phase = {
       name: 'Peak Phase',
       color: isLight ? 'text-rose-700 bg-rose-50 border-rose-200' : 'text-rose-400 bg-rose-500/10 border-rose-500/30',
       desc: 'Race simulations & high-intensity tuning',
-    };
-  } else {
-    phase = {
-      name: 'Taper Phase',
-      color: isLight ? 'text-emerald-700 bg-emerald-50 border-emerald-200' : 'text-emerald-400 bg-emerald-500/10 border-emerald-500/30',
-      desc: 'Freshness, glycogen storage & recovery',
     };
   }
 
@@ -334,7 +351,7 @@ function getCountdownInfo(eventDateStr: string, isLight: boolean): {
     label = `${weeks}w ${remDays}d left`;
   }
 
-  return { days, weeks, isPast, label, phase };
+  return { days, weeks, isPast, label, taperStartLabel, phase };
 }
 
 export const GoalsTab: React.FC<GoalsTabProps> = ({ goals, onChangeGoals, profile, theme = 'dark' }) => {
@@ -473,6 +490,11 @@ export const GoalsTab: React.FC<GoalsTabProps> = ({ goals, onChangeGoals, profil
     onChangeGoals(updated);
   };
 
+  const handleSetGoalTaperDays = (goalId: string, taperDays: number) => {
+    const updated = goals.map((g) => (g.id === goalId ? { ...g, taperDays } : g));
+    onChangeGoals(updated);
+  };
+
   const filteredGoals = useMemo(() => {
     const list = goals.filter((g) => {
       if (filterPriority === 'A' || filterPriority === 'B' || filterPriority === 'C') {
@@ -577,7 +599,8 @@ export const GoalsTab: React.FC<GoalsTabProps> = ({ goals, onChangeGoals, profil
         <div className="space-y-3">
           {filteredGoals.map((goal) => {
             const isExpanded = expandedGoalIds.includes(goal.id);
-            const countdown = getCountdownInfo(goal.eventDate, isLight);
+            const goalTaperDays = getGoalTaperDays(goal);
+            const countdown = getCountdownInfo(goal.eventDate, isLight, goalTaperDays);
             const completedCount = goal.milestones.filter((m) => m.isCompleted).length;
             const milestonePct =
               goal.milestones.length > 0
@@ -679,6 +702,16 @@ export const GoalsTab: React.FC<GoalsTabProps> = ({ goals, onChangeGoals, profil
                         >
                           {countdown.label} ({countdown.phase.name})
                         </span>
+                        <span
+                          className={`text-[10px] font-mono font-bold px-2 py-0.5 rounded-full border ${
+                            isLight
+                              ? 'bg-indigo-50 text-indigo-700 border-indigo-200'
+                              : 'bg-indigo-500/15 text-indigo-300 border-indigo-500/30'
+                          }`}
+                          title={`Taper starts ${countdown.taperStartLabel}`}
+                        >
+                          Taper: {formatTaperDuration(goalTaperDays)}
+                        </span>
                       </div>
                     </div>
                   </div>
@@ -734,6 +767,48 @@ export const GoalsTab: React.FC<GoalsTabProps> = ({ goals, onChangeGoals, profil
                         }`}>
                           {countdown.phase.desc}
                         </span>
+                      </div>
+
+                      {/* Race Taper Time Selector */}
+                      <div
+                        className={`p-2.5 rounded-xl border space-y-1.5 ${
+                          isLight ? 'bg-slate-50 border-slate-200' : 'bg-slate-950/60 border-slate-800'
+                        }`}
+                      >
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <span className={`text-[11px] font-bold flex items-center gap-1.5 ${isLight ? 'text-slate-800' : 'text-slate-200'}`}>
+                            <Clock className="w-3.5 h-3.5 text-amber-500" />
+                            Race Taper Time
+                          </span>
+                          <span className={`text-[10px] font-mono ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>
+                            Taper starts:{' '}
+                            <strong className={isLight ? 'text-slate-800' : 'text-amber-400'}>
+                              {countdown.taperStartLabel}
+                            </strong>{' '}
+                            ({formatTaperDuration(goalTaperDays)} before race)
+                          </span>
+                        </div>
+                        <div className="flex flex-wrap items-center gap-1">
+                          {TAPER_DURATION_OPTIONS.map((opt) => {
+                            const isSelected = goalTaperDays === opt.days;
+                            return (
+                              <button
+                                key={opt.days}
+                                type="button"
+                                onClick={() => handleSetGoalTaperDays(goal.id, opt.days)}
+                                className={`px-2 py-1 rounded-lg text-[10px] font-bold transition-all cursor-pointer ${
+                                  isSelected
+                                    ? 'bg-[#FE9A00] text-slate-950 shadow-xs'
+                                    : isLight
+                                    ? 'bg-white border border-slate-200 text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+                                    : 'bg-slate-900 border border-slate-800 text-slate-400 hover:text-white hover:bg-slate-800'
+                                }`}
+                              >
+                                {opt.label}
+                              </button>
+                            );
+                          })}
+                        </div>
                       </div>
 
                       {/* Triathlon Discipline Breakdown or Single Sport Target */}
@@ -1481,6 +1556,45 @@ const GoalEditorModal: React.FC<GoalEditorModalProps> = ({ goal, onClose, onSave
                 placeholder="e.g. Valencia, Spain"
                 className={inputClass}
               />
+            </div>
+          </div>
+
+          {/* Race Taper Time Selector in Modal */}
+          <div
+            className={`space-y-1.5 p-3 rounded-2xl border ${
+              isLight ? 'bg-slate-50 border-slate-200' : 'bg-slate-950/40 border-slate-800'
+            }`}
+          >
+            <div className="flex items-center justify-between">
+              <label className={`text-[11px] font-bold flex items-center gap-1.5 ${isLight ? 'text-slate-800' : 'text-slate-300'}`}>
+                <Clock className="w-3.5 h-3.5 text-amber-500" />
+                Race Taper Time
+              </label>
+              <span className={`text-[10px] font-mono ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>
+                Selected: <strong className="text-amber-500">{formatTaperDuration(getGoalTaperDays(draft))}</strong>
+              </span>
+            </div>
+            <div className="flex items-center gap-1.5 flex-wrap">
+              {TAPER_DURATION_OPTIONS.map((opt) => {
+                const activeTaper = getGoalTaperDays(draft);
+                const isSelected = activeTaper === opt.days;
+                return (
+                  <button
+                    key={opt.days}
+                    type="button"
+                    onClick={() => setDraft((prev) => ({ ...prev, taperDays: opt.days }))}
+                    className={`px-2.5 py-1.5 rounded-xl font-bold text-xs cursor-pointer transition-all ${
+                      isSelected
+                        ? 'bg-[#FE9A00] text-slate-950 shadow-sm'
+                        : isLight
+                        ? 'bg-white text-slate-700 border border-slate-300 hover:bg-slate-100'
+                        : 'bg-slate-900 text-slate-300 border border-slate-800 hover:bg-slate-800'
+                    }`}
+                  >
+                    {opt.label}
+                  </button>
+                );
+              })}
             </div>
           </div>
 

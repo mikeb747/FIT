@@ -1,6 +1,6 @@
 import { StravaActivity, StravaActivityDetailsRecord, calculateActivityTSS, classifyActivity } from './stravaActivities';
 import { AthleteProfile, CurrentCyclePhase } from '../types/athlete';
-import { TrainingGoal } from '../types/goals';
+import { TrainingGoal, formatTaperDuration } from '../types/goals';
 
 export function formatHoursToHrMin(hours: number): string {
   const totalMinutes = Math.max(1, Math.round(hours * 60));
@@ -709,6 +709,8 @@ export interface EventCtlDerivationResult {
   periodizationSummaryText: string;
   periodizationAdaptiveNote?: string;
   taperWeeks: number; // 2 for 70.3/HM, 3 for Ironman/Marathon, 1 for Sprint/5K/10K
+  taperDays: number; // e.g. 3, 4, 5, 7, 8, 9, 10, 14, 21
+  taperLabel: string; // e.g. "3d", "5d", "1w", "10d", "2w", "3w"
   recoveryWeekLoadRatio: number; // 0.65
   netToBuildRampRatio: number; // e.g. ~0.58 for 3:1, ~0.50 for 2:1, 0.85 for continuous
 
@@ -914,6 +916,7 @@ export function computeHistoricalMaxRampRate(
 export function buildPeriodizedSchedule(params: {
   weeksToRace: number;
   taperWeeks: number;
+  taperDays?: number;
   periodizationModel: '0' | '3weeks' | '4weeks';
   currentCyclePhase: CurrentCyclePhase;
 }): {
@@ -923,9 +926,10 @@ export function buildPeriodizedSchedule(params: {
   buildWeeksAvailable: number;
   recoveryWeeksCount: number;
 } {
-  const { weeksToRace, taperWeeks, periodizationModel, currentCyclePhase } = params;
+  const { weeksToRace, taperWeeks, taperDays, periodizationModel, currentCyclePhase } = params;
   const effectiveTaper = Math.min(taperWeeks, Math.max(1, weeksToRace - 1));
   const weeksToPeak = Math.max(0, weeksToRace - effectiveTaper);
+  const taperPrefix = taperDays ? formatTaperDuration(taperDays, true) : `${effectiveTaper}w`;
 
   const blocks: PeriodizationBlock[] = [];
   let cursor = 1;
@@ -934,11 +938,12 @@ export function buildPeriodizedSchedule(params: {
   const pushBlock = (type: 'deload' | 'build' | 'taper', weeks: number, isCurrent?: boolean, customSuffix?: string) => {
     if (weeks <= 0) return;
     const baseName = type === 'deload' ? 'Deload' : type === 'build' ? 'Build' : 'Taper';
-    const shortLabel = `${weeks}w ${baseName}`;
+    const durPrefix = type === 'taper' ? taperPrefix : `${weeks}w`;
+    const shortLabel = `${durPrefix} ${baseName}`;
     const label = customSuffix
-      ? `${weeks}w ${baseName} (${customSuffix})`
+      ? `${durPrefix} ${baseName} (${customSuffix})`
       : isCurrent
-      ? `${weeks}w ${baseName} (Now)`
+      ? `${durPrefix} ${baseName} (Now)`
       : shortLabel;
     blocks.push({
       type,
@@ -994,7 +999,7 @@ export function buildPeriodizedSchedule(params: {
         if (buildSizes.some((s) => s > stdBuild)) {
           adaptiveNote = `Shifted to a ${buildSizes[0]}-week build after this deload week (followed by ${
             k > 1 ? `1w deload + ${buildSizes.slice(1).map((b) => `${b}w build`).join(' + ')} + ` : ''
-          }${effectiveTaper}w taper) to avoid a deload week immediately before taper.`;
+          }${taperPrefix} taper) to avoid a deload week immediately before taper.`;
         }
       }
       pushBlock('taper', effectiveTaper, false);
@@ -1260,7 +1265,18 @@ export function deriveEventCtlTargetAndFeasibility(params: {
   } else if (sport === 'run') {
     const runProf = RUNNING_MODEL_PROFILES[runModel];
     eventLabel = runProf.label;
-    matchedGoal = goals.find((g) => g.eventType === 'run' && g.status === 'upcoming');
+    const upcomingRuns = goals
+      .filter((g) => g.eventType === 'run' && g.status === 'upcoming')
+      .sort((a, b) => (a.eventDate || '9999').localeCompare(b.eventDate || '9999'));
+    matchedGoal =
+      upcomingRuns.find((g) => {
+        const km = g.totalDistanceKm || 0;
+        if (runModel === 'marathon_26_2') return km >= 35;
+        if (runModel === 'half_13_1') return km >= 19 && km < 35;
+        if (runModel === 'ten_miler_10') return km >= 14 && km < 19;
+        if (runModel === 'ten_k_10') return km >= 8 && km < 14;
+        return km > 0 && km < 8;
+      }) || upcomingRuns[0];
     const distKmMap: Record<RunningDistanceModel, number> = {
       marathon_26_2: 42.195,
       half_13_1: 21.0975,
@@ -1503,19 +1519,39 @@ export function deriveEventCtlTargetAndFeasibility(params: {
   const effectiveMaxNetRamp = Math.round(headlineMaxBuildRamp * netToBuildRampRatio * 10) / 10;
 
   // 5. Back-scheduling from race date
+  if (customWeeksToRace !== undefined) {
+    // Check if an upcoming goal matches customWeeksToRace so its custom taperDays is respected
+    const goalAtHorizon = goals.find((g) => {
+      if (g.status !== 'upcoming' || !g.eventDate) return false;
+      const diffD = Math.max(0, Math.round((new Date(g.eventDate).getTime() - Date.now()) / (86400 * 1000)));
+      return Math.max(1, Math.round(diffD / 7)) === customWeeksToRace;
+    });
+    if (goalAtHorizon) {
+      matchedGoal = goalAtHorizon;
+    }
+  }
+
   let defaultWeeks = 16;
   if (matchedGoal?.eventDate) {
     const diffDays = (new Date(matchedGoal.eventDate).getTime() - Date.now()) / (86400 * 1000);
-    if (diffDays > 14 && diffDays < 104 * 7) {
-      defaultWeeks = Math.round(diffDays / 7);
+    if (diffDays > 7 && diffDays < 104 * 7) {
+      defaultWeeks = Math.max(2, Math.round(diffDays / 7));
     }
   }
+  const taperDays =
+    typeof matchedGoal?.taperDays === 'number' && matchedGoal.taperDays > 0
+      ? matchedGoal.taperDays
+      : taperWeeks * 7;
+  taperWeeks = Math.max(1, Math.round(taperDays / 7));
+  const taperLabel = formatTaperDuration(taperDays, true);
+
   const weeksToRace = customWeeksToRace ?? defaultWeeks;
   const weeksToPeak = Math.max(1, weeksToRace - taperWeeks);
 
   const scheduleResult = buildPeriodizedSchedule({
     weeksToRace,
     taperWeeks,
+    taperDays,
     periodizationModel,
     currentCyclePhase,
   });
@@ -1662,6 +1698,8 @@ export function deriveEventCtlTargetAndFeasibility(params: {
     periodizationSummaryText: scheduleResult.summaryText,
     periodizationAdaptiveNote: scheduleResult.adaptiveNote,
     taperWeeks,
+    taperDays,
+    taperLabel,
     recoveryWeekLoadRatio: 0.65,
     netToBuildRampRatio,
     headlineMaxBuildRamp,

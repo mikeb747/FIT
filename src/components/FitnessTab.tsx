@@ -32,7 +32,7 @@ import {
   getDeletedActivityIds,
 } from '../utils/stravaActivities';
 import { AthleteProfile, CurrentCyclePhase, formatSecondsToMinSec } from '../types/athlete';
-import { TrainingGoal } from '../types/goals';
+import { TrainingGoal, getGoalTaperDays, formatTaperDuration } from '../types/goals';
 import {
   computeFitnessTimeline,
   TriathlonDistanceModel,
@@ -240,6 +240,7 @@ export const FitnessTab: React.FC<FitnessTabProps> = ({
           diffDays,
           weeksExact,
           weeksRounded,
+          taperLabel: formatTaperDuration(getGoalTaperDays(g), true),
         };
       })
       .sort((a, b) => a.diffDays - b.diffDays)
@@ -909,7 +910,7 @@ export const FitnessTab: React.FC<FitnessTabProps> = ({
             </div>
             <div className="flex items-center justify-between text-[11px]">
               <span>
-                Race-Day Tapered Target ({ctlDerivation.taperWeeks}w taper):{' '}
+                Race-Day Tapered Target ({ctlDerivation.taperLabel} taper):{' '}
                 <strong className="text-emerald-400 font-mono">
                   {Math.round(disciplineFitness.target * 0.88)} CTL
                 </strong>
@@ -1069,7 +1070,7 @@ export const FitnessTab: React.FC<FitnessTabProps> = ({
                   {Math.round(ctlDerivation.targetPeakCtl * 0.88)} CTL
                 </div>
                 <div className="text-[11px] text-slate-400 mt-0.5">
-                  {ctlDerivation.taperWeeks}w taper (0.88 × Peak, TSB +15)
+                  {ctlDerivation.taperLabel} taper (0.88 × Peak, TSB +15)
                 </div>
               </div>
 
@@ -1249,7 +1250,7 @@ export const FitnessTab: React.FC<FitnessTabProps> = ({
                     <div className="flex justify-between mb-1">
                       <span className="text-slate-400">Weeks to Target Event:</span>
                       <span className="font-mono font-bold text-sky-400">
-                        {ctlDerivation.weeksToRace} wks ({ctlDerivation.weeksToPeak}w to peak + {ctlDerivation.taperWeeks}w taper)
+                        {ctlDerivation.weeksToRace} wks ({ctlDerivation.weeksToPeak}w to peak + {ctlDerivation.taperLabel} taper)
                       </span>
                     </div>
                     <input
@@ -1283,7 +1284,7 @@ export const FitnessTab: React.FC<FitnessTabProps> = ({
                   <div className="flex justify-between">
                     <span>Build vs Recovery Weeks:</span>
                     <span className="font-mono text-slate-200">
-                      {ctlDerivation.buildWeeksAvailable} build + {ctlDerivation.recoveryWeeksCount} deload + {ctlDerivation.taperWeeks} taper
+                      {ctlDerivation.buildWeeksAvailable} build + {ctlDerivation.recoveryWeeksCount} deload + {ctlDerivation.taperLabel} taper
                     </span>
                   </div>
 
@@ -1360,7 +1361,7 @@ export const FitnessTab: React.FC<FitnessTabProps> = ({
                             <span className="text-[10px] text-slate-500">({g.shortDate})</span>
                           </span>
                           <span className="font-mono shrink-0 text-sky-400 font-bold">
-                            {g.weeksExact} wks
+                            {g.weeksExact} wks <span className="text-[10px] text-emerald-400 font-normal">({g.taperLabel} taper)</span>
                           </span>
                         </button>
                       );

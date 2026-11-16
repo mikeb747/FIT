@@ -70,9 +70,62 @@ export interface TrainingGoal {
   // Milestones
   milestones: GoalMilestone[];
 
+  // Taper duration in days (e.g. 3, 4, 5, 7, 8, 9, 10, 14, 21)
+  taperDays?: number;
+
   // Strategic Notes
   notes?: string;
   createdAt: string;
+}
+
+export type TaperDurationDays = 3 | 4 | 5 | 7 | 8 | 9 | 10 | 14 | 21;
+
+export const TAPER_DURATION_OPTIONS: {
+  days: TaperDurationDays;
+  label: string;
+  shortLabel: string;
+}[] = [
+  { days: 3, label: '3 days', shortLabel: '3d' },
+  { days: 4, label: '4 days', shortLabel: '4d' },
+  { days: 5, label: '5 days', shortLabel: '5d' },
+  { days: 7, label: '1 week', shortLabel: '1w' },
+  { days: 8, label: '8 days', shortLabel: '8d' },
+  { days: 9, label: '9 days', shortLabel: '9d' },
+  { days: 10, label: '10 days', shortLabel: '10d' },
+  { days: 14, label: '2 weeks', shortLabel: '2w' },
+  { days: 21, label: '3 weeks', shortLabel: '3w' },
+];
+
+export function getGoalTaperDays(
+  goal: Pick<TrainingGoal, 'taperDays' | 'eventType' | 'distancePreset' | 'totalDistanceKm' | 'priority'>
+): number {
+  if (typeof goal.taperDays === 'number' && goal.taperDays > 0) {
+    return goal.taperDays;
+  }
+  const distKm = goal.totalDistanceKm || 0;
+  const preset = (goal.distancePreset || '').toLowerCase();
+  if (goal.eventType === 'triathlon') {
+    if ((preset.includes('ironman') && !preset.includes('70.3')) || distKm > 155) return 21;
+    if (preset.includes('70.3') || preset.includes('olympic') || distKm > 38) return 14;
+    return 7;
+  }
+  if (goal.eventType === 'run') {
+    if (preset.includes('marathon') && !preset.includes('half')) return 21;
+    if (distKm >= 35) return 21;
+    if (distKm >= 15) return 14;
+    return 7;
+  }
+  return distKm >= 80 ? 14 : 7;
+}
+
+export function formatTaperDuration(days: number, short: boolean = false): string {
+  const found = TAPER_DURATION_OPTIONS.find((o) => o.days === days);
+  if (found) return short ? found.shortLabel : found.label;
+  if (days % 7 === 0) {
+    const w = days / 7;
+    return short ? `${w}w` : `${w} ${w === 1 ? 'week' : 'weeks'}`;
+  }
+  return short ? `${days}d` : `${days} days`;
 }
 
 export const RUN_DISTANCE_PRESETS = [
