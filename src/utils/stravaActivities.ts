@@ -320,6 +320,8 @@ export interface ActivityCalibration {
   calibrationNotes?: string;
   manualTss?: number;
   preferredTssModel?: 'auto' | 'hrTSS' | 'rTSS' | 'sTSS' | 'powerTSS';
+  efWarmupTrimMin?: 0 | 10 | 15 | 'custom';
+  customEfLapIndices?: number[];
   replacesActivityId?: string; // Original Strava activity ID replaced when republished
   replacedByActivityId?: string; // New Strava activity ID that superseded this activity
 }
@@ -2627,6 +2629,7 @@ export function saveActivityCalibration(
   return updateStravaActivityRecord(activityId, (record) => ({
     ...record,
     calibration: {
+      ...(record.calibration || {}),
       ...calibration,
       calibratedAt: new Date().toISOString(),
     },
@@ -4167,6 +4170,7 @@ export interface StravaStreamDefinition {
 }
 
 export const STRAVA_STREAM_DEFINITIONS: StravaStreamDefinition[] = [
+  { key: 'laps', label: 'Lap Data', unit: 'laps', description: 'Recorded Strava lap splits, interval durations, and lap metrics' },
   { key: 'cadence', label: 'Cadence', unit: 'spm / rpm', description: 'Run step rate, bike pedaling cadence, or swim stroke rate' },
   { key: 'heartrate', label: 'Heart Rate', unit: 'bpm', description: 'Optical or chest-strap heart rate telemetry' },
   { key: 'velocity_smooth', label: 'Pace / Speed', unit: 'm/s', description: 'Smoothed velocity stream used for pace & speed charts' },
@@ -4350,6 +4354,9 @@ export async function fetchSpecificStravaActivityStreams(options: {
     return { record: fallbackRec, updatedKeys: [], source: 'local' };
   }
 
+  const wantsLaps = cleanKeys.includes('laps');
+  const streamOnlyKeys = cleanKeys.filter((k) => k !== 'laps');
+
   const idStr = String(activity.id);
   const isDemoOrLocal = idStr.startsWith('demo-') || idStr.startsWith('local-');
   const candidateStravaIds: string[] = [];
@@ -4362,37 +4369,87 @@ export async function fetchSpecificStravaActivityStreams(options: {
   }
 
   let fetchedFromStrava: Record<string, any> | null = null;
+  let fetchedLapsFromStrava: any[] | null = null;
+
   if (accessToken && candidateStravaIds.length > 0) {
-    const queryKeys = Array.from(new Set([...cleanKeys, 'time'])).join(',');
-    for (const candidateId of candidateStravaIds) {
-      try {
-        const encodedId = encodeURIComponent(candidateId);
-        const rawStreams = await fetchStravaApiJson(
-          accessToken,
-          `/api/strava/activities/${encodedId}/streams?keys=${encodeURIComponent(queryKeys)}`,
-          `/activities/${encodedId}/streams?keys=${encodeURIComponent(queryKeys)}&key_by_type=true`,
-          'Strava specific streams request'
-        );
-        if (rawStreams && typeof rawStreams === 'object' && !Array.isArray(rawStreams)) {
-          const obj = rawStreams as Record<string, any>;
-          const hasRequestedKey = cleanKeys.some((k) => Array.isArray(obj[k]?.data) && obj[k].data.length > 0);
-          if (hasRequestedKey) {
-            fetchedFromStrava = obj;
+    if (wantsLaps) {
+      for (const candidateId of candidateStravaIds) {
+        try {
+          const encodedId = encodeURIComponent(candidateId);
+          const rawLaps = await fetchStravaApiJson(
+            accessToken,
+            `/api/strava/activities/${encodedId}/laps`,
+            `/activities/${encodedId}/laps`,
+            'Strava specific laps request'
+          );
+          if (Array.isArray(rawLaps) && rawLaps.length > 0) {
+            fetchedLapsFromStrava = rawLaps;
             break;
           }
+          const rawAct = await fetchStravaApiJson(
+            accessToken,
+            `/api/strava/activities/${encodedId}`,
+            `/activities/${encodedId}`,
+            'Strava activity details for laps request'
+          );
+          if (rawAct && typeof rawAct === 'object' && Array.isArray((rawAct as any).laps) && (rawAct as any).laps.length > 0) {
+            fetchedLapsFromStrava = (rawAct as any).laps;
+            break;
+          }
+        } catch (err) {
+          console.warn(`[Strava Laps] Could not fetch laps from activity ${candidateId}:`, err);
         }
-      } catch (err) {
-        console.warn(`[Strava Streams] Could not fetch keys (${queryKeys}) from activity ${candidateId}:`, err);
+      }
+    }
+
+    if (streamOnlyKeys.length > 0) {
+      const queryKeys = Array.from(new Set([...streamOnlyKeys, 'time'])).join(',');
+      for (const candidateId of candidateStravaIds) {
+        try {
+          const encodedId = encodeURIComponent(candidateId);
+          const rawStreams = await fetchStravaApiJson(
+            accessToken,
+            `/api/strava/activities/${encodedId}/streams?keys=${encodeURIComponent(queryKeys)}`,
+            `/activities/${encodedId}/streams?keys=${encodeURIComponent(queryKeys)}&key_by_type=true`,
+            'Strava specific streams request'
+          );
+          if (rawStreams && typeof rawStreams === 'object' && !Array.isArray(rawStreams)) {
+            const obj = rawStreams as Record<string, any>;
+            const hasRequestedKey = streamOnlyKeys.some((k) => Array.isArray(obj[k]?.data) && obj[k].data.length > 0);
+            if (hasRequestedKey) {
+              fetchedFromStrava = obj;
+              break;
+            }
+          }
+        } catch (err) {
+          console.warn(`[Strava Streams] Could not fetch keys (${queryKeys}) from activity ${candidateId}:`, err);
+        }
       }
     }
   }
 
   const updatedKeys: string[] = [];
-  let source: 'strava' | 'local' = fetchedFromStrava ? 'strava' : 'local';
+  let source: 'strava' | 'local' = fetchedFromStrava || fetchedLapsFromStrava ? 'strava' : 'local';
 
   const updatedRecord = await updateStravaActivityRecord(activity.id, (record) => {
     const currentStreams = { ...((record.streams || {}) as Record<string, any>) };
     const currentActivity = { ...((record.activity || {}) as Record<string, any>) };
+
+    if (wantsLaps) {
+      if (fetchedLapsFromStrava && fetchedLapsFromStrava.length > 0) {
+        currentActivity.laps = fetchedLapsFromStrava;
+        record.lapsFetchedAt = new Date().toISOString();
+        delete record.lapsError;
+        updatedKeys.push('laps');
+      } else if (Array.isArray((activity as any).laps) && (activity as any).laps.length > 0) {
+        currentActivity.laps = (activity as any).laps;
+        record.lapsFetchedAt = new Date().toISOString();
+        updatedKeys.push('laps');
+      } else if (Array.isArray(currentActivity.laps) && currentActivity.laps.length > 0) {
+        updatedKeys.push('laps');
+      }
+    }
+
     const localTimeData = Array.isArray(currentStreams.time?.data)
       ? (currentStreams.time.data as number[])
       : undefined;
@@ -4426,14 +4483,14 @@ export async function fetchSpecificStravaActivityStreams(options: {
         }
       }
 
-      const replacingTime = cleanKeys.includes('time') && Array.isArray(fetchedFromStrava.time?.data);
+      const replacingTime = streamOnlyKeys.includes('time') && Array.isArray(fetchedFromStrava.time?.data);
       const effectiveTargetTime = replacingTime
         ? sourceTimeData
         : localTimeData && localTimeData.length >= 2
           ? localTimeData
           : sourceTimeData;
 
-      for (const key of cleanKeys) {
+      for (const key of streamOnlyKeys) {
         const incomingStream = fetchedFromStrava[key];
         if (incomingStream && Array.isArray(incomingStream.data) && incomingStream.data.length > 0) {
           let rawArr = cutoffCount !== null ? incomingStream.data.slice(0, cutoffCount) : [...incomingStream.data];
@@ -4474,7 +4531,7 @@ export async function fetchSpecificStravaActivityStreams(options: {
       }
     } else {
       // Demo mode or offline fallback: regenerate requested stream(s) cleanly
-      for (const key of cleanKeys) {
+      for (const key of streamOnlyKeys) {
         if (key === 'cadence') {
           const smoothCad = buildSmoothCadenceStreamForActivity(activity, localTimeData, currentStreams.cadence?.data);
           currentStreams.cadence = {

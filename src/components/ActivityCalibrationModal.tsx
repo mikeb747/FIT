@@ -383,16 +383,6 @@ const LapDurationInput: React.FC<{
           className={boxClass}
         />
       </div>
-      {isLastAutoExtended && (timeDiscrepancySec || 0) > 0.05 && (
-        <span
-          className={`text-[9px] block text-center truncate font-mono mt-0.5 ${
-            isAlternate ? 'text-sky-700 font-bold' : 'text-emerald-400'
-          }`}
-          title="Auto-extended to match exact recording duration"
-        >
-          +{(timeDiscrepancySec || 0).toFixed(0)}s
-        </span>
-      )}
     </div>
   );
 };
@@ -916,13 +906,24 @@ export const ActivityCalibrationModal: React.FC<ActivityCalibrationModalProps> =
         streamKeys: keysToFetch,
       });
       onCalibrationSaved(res.record);
+      if (keysToFetch.includes('laps')) {
+        const freshLaps = (res.record.activity as any)?.laps;
+        if (isRun && Array.isArray(freshLaps) && freshLaps.length > 0) {
+          const freshRunSections = mapStravaRunLapsToSections(freshLaps);
+          if (freshRunSections.length > 0) {
+            setRunSections(freshRunSections);
+          }
+        } else if (isSwim && Array.isArray(freshLaps) && freshLaps.length > 0) {
+          setSwimLaps(mapRawSwimLaps(freshLaps));
+        }
+      }
       if (res.updatedKeys.length > 0) {
         setStreamFetchFeedback({
           type: 'success',
           message:
             res.source === 'strava'
               ? `Re-fetched ${res.updatedKeys.join(', ')} from Strava API for Workout Analysis.`
-              : `Refreshed ${res.updatedKeys.join(', ')} stream for Workout Analysis.`,
+              : `Refreshed ${res.updatedKeys.join(', ')} for Workout Analysis.`,
         });
       } else {
         setStreamFetchFeedback({
@@ -933,7 +934,7 @@ export const ActivityCalibrationModal: React.FC<ActivityCalibrationModalProps> =
     } catch (err: any) {
       setStreamFetchFeedback({
         type: 'error',
-        message: err?.message || 'Failed to re-fetch selected streams from Strava.',
+        message: err?.message || 'Failed to re-fetch selected data from Strava.',
       });
     } finally {
       setRefetchingStreamKeys([]);
@@ -2122,8 +2123,11 @@ export const ActivityCalibrationModal: React.FC<ActivityCalibrationModalProps> =
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5 max-h-60 overflow-y-auto pr-0.5">
                 {filteredStreamDefs.map((def) => {
+                  const isLapsKey = def.key === 'laps';
+                  const cachedLapsArr = (detailsRecord?.activity as any)?.laps || activity.laps;
+                  const lapsCount = Array.isArray(cachedLapsArr) ? cachedLapsArr.length : 0;
                   const streamArr = currentStreams?.[def.key]?.data;
-                  const ptsCount = Array.isArray(streamArr) ? streamArr.length : 0;
+                  const ptsCount = isLapsKey ? lapsCount : Array.isArray(streamArr) ? streamArr.length : 0;
                   const isCached = ptsCount > 0;
                   const isChecked = selectedStreamKeys.includes(def.key);
                   const isFetchingThis = refetchingStreamKeys.includes(def.key);
@@ -2154,7 +2158,11 @@ export const ActivityCalibrationModal: React.FC<ActivityCalibrationModalProps> =
                               isCached ? 'text-emerald-400' : 'text-slate-500'
                             }`}
                           >
-                            {isCached ? `Cached • ${ptsCount.toLocaleString()} pts` : 'Not cached'}
+                            {isCached
+                              ? isLapsKey
+                                ? `Cached • ${ptsCount} lap${ptsCount === 1 ? '' : 's'}`
+                                : `Cached • ${ptsCount.toLocaleString()} pts`
+                              : 'Not cached'}
                           </span>
                         </div>
                       </label>

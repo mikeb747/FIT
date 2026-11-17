@@ -320,11 +320,37 @@ export const StravaActivityModal: React.FC<StravaActivityModalProps> = ({
         setManualTssInput('');
       }
       setSelectedTssModel(detailsRecord.calibration.preferredTssModel || 'auto');
+      setEfWarmupTrimMin(detailsRecord.calibration.efWarmupTrimMin ?? 0);
+      setCustomEfLapIndices(detailsRecord.calibration.customEfLapIndices ?? []);
     } else {
       setManualTssInput('');
       setSelectedTssModel('auto');
+      setEfWarmupTrimMin(0);
+      setCustomEfLapIndices([]);
     }
   }, [detailsRecord]);
+
+  const handleSaveEfConfig = async (
+    nextMode: 0 | 10 | 15 | 'custom',
+    nextIndices?: number[]
+  ) => {
+    setEfWarmupTrimMin(nextMode);
+    if (nextIndices !== undefined) {
+      setCustomEfLapIndices(nextIndices);
+    }
+    if (!activity) return;
+    try {
+      const existingCalib = detailsRecord?.calibration || {};
+      const updatedRecord = await saveActivityCalibration(activity.id, {
+        ...existingCalib,
+        efWarmupTrimMin: nextMode,
+        customEfLapIndices: nextIndices !== undefined ? nextIndices : customEfLapIndices,
+      });
+      setDetailsRecord(updatedRecord);
+    } catch (err) {
+      console.error('Failed to save EF lap configuration:', err);
+    }
+  };
 
   const handleSaveTssConfig = async () => {
     if (!activity) return;
@@ -465,7 +491,16 @@ export const StravaActivityModal: React.FC<StravaActivityModalProps> = ({
   if (!isOpen || !activity) return null;
 
   const classification = classifyActivity(activity);
-  const hasCalibration = Boolean(detailsRecord?.calibration);
+  const hasCalibration = Boolean(
+    detailsRecord?.calibration &&
+      Object.keys(detailsRecord.calibration).some(
+        (k) =>
+          k !== 'updatedAt' &&
+          k !== 'efWarmupTrimMin' &&
+          k !== 'customEfLapIndices' &&
+          (detailsRecord.calibration as any)[k] !== undefined
+      )
+  );
   const isIgnored = Boolean(detailsRecord?.calibration?.isIgnoredFromTrainingStatus);
 
   const durationMoving =
@@ -1812,7 +1847,7 @@ export const StravaActivityModal: React.FC<StravaActivityModalProps> = ({
                         <button
                           key={opt.min}
                           type="button"
-                          onClick={() => setEfWarmupTrimMin(opt.min)}
+                          onClick={() => handleSaveEfConfig(opt.min)}
                           className={`px-1.5 py-0.5 rounded-md font-bold transition-colors cursor-pointer ${
                             efWarmupTrimMin === opt.min
                               ? 'bg-[#FE9A00] text-slate-950'
@@ -1831,9 +1866,11 @@ export const StravaActivityModal: React.FC<StravaActivityModalProps> = ({
                         <button
                           type="button"
                           onClick={() => {
-                            if (customEfLapIndices.length === 0) {
-                              setCustomEfLapIndices(candidateLaps.map((l) => l.lapIndex));
-                            }
+                            const initialIndices =
+                              customEfLapIndices.length === 0
+                                ? candidateLaps.map((l) => l.lapIndex)
+                                : customEfLapIndices;
+                            setCustomEfLapIndices(initialIndices);
                             setEfWarmupTrimMin('custom');
                             setIsEfLapSelectorOpen(true);
                           }}
@@ -2145,7 +2182,10 @@ export const StravaActivityModal: React.FC<StravaActivityModalProps> = ({
                         </span>
                         <button
                           type="button"
-                          onClick={() => setIsEfLapSelectorOpen(false)}
+                          onClick={() => {
+                            handleSaveEfConfig('custom', activeCustomIndices);
+                            setIsEfLapSelectorOpen(false);
+                          }}
                           className="px-4 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-xs cursor-pointer transition-all shadow-md"
                         >
                           Apply Selected Laps
@@ -2991,8 +3031,16 @@ export const StravaActivityModal: React.FC<StravaActivityModalProps> = ({
                     if (classification.category === 'Swim' && d.key === 'altitude') return false;
                     return true;
                   }).map((def) => {
+                    const isLapsKey = def.key === 'laps';
+                    const lapsArr = (detailsRecord?.activity as any)?.laps || (activity as any)?.laps;
                     const streamArr = streams?.[def.key]?.data;
-                    const ptsCount = Array.isArray(streamArr) ? streamArr.length : 0;
+                    const ptsCount = isLapsKey
+                      ? Array.isArray(lapsArr)
+                        ? lapsArr.length
+                        : 0
+                      : Array.isArray(streamArr)
+                      ? streamArr.length
+                      : 0;
                     const isCached = ptsCount > 0;
                     const isChecked = selectedStreamKeys.includes(def.key);
                     const isFetchingThis = refetchingStreamKeys.includes(def.key);
@@ -3023,7 +3071,9 @@ export const StravaActivityModal: React.FC<StravaActivityModalProps> = ({
                                 isCached ? 'text-emerald-400' : 'text-slate-500'
                               }`}
                             >
-                              {isCached ? `Cached • ${ptsCount.toLocaleString()} pts` : 'Not cached'}
+                              {isCached
+                                ? `Cached • ${ptsCount.toLocaleString()} ${isLapsKey ? (ptsCount === 1 ? 'lap' : 'laps') : 'pts'}`
+                                : 'Not cached'}
                             </span>
                           </div>
                         </label>
