@@ -186,7 +186,9 @@ export const StravaActivityModal: React.FC<StravaActivityModalProps> = ({
 
   // Running 1km splits display mode: pace bar chart, GAP bar chart, HR bar chart, cadence bar chart, or cards grid
   const [splitsDisplayMode, setSplitsDisplayMode] = useState<'pace' | 'gap' | 'hr' | 'cadence' | 'cards'>('pace');
-  const [efWarmupTrimMin, setEfWarmupTrimMin] = useState<0 | 10 | 15>(0);
+  const [efWarmupTrimMin, setEfWarmupTrimMin] = useState<0 | 10 | 15 | 'custom'>(0);
+  const [isEfLapSelectorOpen, setIsEfLapSelectorOpen] = useState(false);
+  const [customEfLapIndices, setCustomEfLapIndices] = useState<number[]>([]);
 
   // Specific Strava Stream Re-fetch Box state
   const [isStreamFetcherOpen, setIsStreamFetcherOpen] = useState(false);
@@ -272,6 +274,9 @@ export const StravaActivityModal: React.FC<StravaActivityModalProps> = ({
     setIsEditingName(false);
     setStravaSyncStatus('idle');
     setNameInput(activity?.name ? applyRenameRulesToName(activity.name).newName : '');
+    setEfWarmupTrimMin(0);
+    setIsEfLapSelectorOpen(false);
+    setCustomEfLapIndices([]);
   }, [activity?.id]);
 
   const handleSaveName = async () => {
@@ -833,7 +838,7 @@ export const StravaActivityModal: React.FC<StravaActivityModalProps> = ({
               }`}
             >
               <Wrench className="w-3.5 h-3.5" />
-              <span>{hasCalibration ? 'Edit Calibration' : 'Fix Data'}</span>
+              <span>Fix Data</span>
             </button>
 
             {/* Delete button placed next to Fix Data */}
@@ -1359,6 +1364,247 @@ export const StravaActivityModal: React.FC<StravaActivityModalProps> = ({
             const hrStream = streams?.heartrate?.data as number[] | undefined;
             const velStream = streams?.velocity_smooth?.data as number[] | undefined;
             const wattsStream = streams?.watts?.data as number[] | undefined;
+            const timeStream = streams?.time?.data as number[] | undefined;
+
+            const formatMetersPerMinToPace = (mPerMin: number) => {
+              if (!mPerMin || mPerMin <= 0) return '—';
+              const secPerKm = Math.round((1000 / mPerMin) * 60);
+              const mins = Math.floor(secPerKm / 60);
+              const secs = secPerKm % 60;
+              return `${mins}:${secs.toString().padStart(2, '0')}/km`;
+            };
+
+            // Build candidate laps for Custom Lap Selection
+            interface EfCandidateLap {
+              lapIndex: number;
+              name: string;
+              movingTimeSec: number;
+              distanceM: number;
+              speedMPerMin: number;
+              paceFormatted: string;
+              avgWatts: number;
+              avgHr: number;
+              startSec: number;
+              endSec: number;
+              isWorkLap: boolean;
+            }
+
+            const candidateLaps: EfCandidateLap[] = [];
+            const rawActLaps = (detailsRecord?.activity?.laps as any[]) || (activity as any)?.laps;
+            const calibRunSecs = detailsRecord?.calibration?.calibratedRunSections;
+
+            const sliceStreamAvgHr = (startS: number, endS: number, fallbackHr?: number): number => {
+              if (Array.isArray(hrStream) && hrStream.length > 0) {
+                let sIdx = Math.max(0, Math.floor(startS));
+                let eIdx = Math.min(hrStream.length - 1, Math.ceil(endS));
+                if (Array.isArray(timeStream) && timeStream.length === hrStream.length) {
+                  const t0 = timeStream[0] || 0;
+                  const foundS = timeStream.findIndex((t) => t - t0 >= startS);
+                  const foundE = timeStream.findIndex((t) => t - t0 >= endS);
+                  if (foundS >= 0) sIdx = foundS;
+                  if (foundE >= sIdx) eIdx = foundE;
+                  else eIdx = hrStream.length - 1;
+                }
+                const slice = hrStream.slice(sIdx, eIdx + 1).filter((h) => Number.isFinite(h) && h > 60);
+                if (slice.length > 0) {
+                  return Math.round(slice.reduce((a, b) => a + b, 0) / slice.length);
+                }
+              }
+              return fallbackHr && fallbackHr > 60
+                ? Math.round(fallbackHr)
+                : Math.round(Number(activity.average_heartrate || 0));
+            };
+
+            if (actCategory === 'run' && Array.isArray(calibRunSecs) && calibRunSecs.length > 1) {
+              let cumSec = 0;
+              const speeds = calibRunSecs.map((s) => s.speedKph || 0).filter((v) => v > 0);
+              const maxSpd = speeds.length > 0 ? Math.max(...speeds) : 12;
+              calibRunSecs.forEach((sec, idx) => {
+                const durSec = Math.max(1, Math.round(sec.durationSec || 60));
+                const startS = cumSec;
+                const endS = cumSec + durSec;
+                cumSec = endS;
+                const spdKph = sec.speedKph || 0;
+                const distM = Math.round((spdKph / 3.6) * durSec);
+                const mPerMin = (spdKph * 1000) / 60;
+                const lapHr = sliceStreamAvgHr(startS, endS);
+                const isWork = spdKph >= maxSpd * 0.85 && idx > 0;
+                candidateLaps.push({
+                  lapIndex: idx + 1,
+                  name: sec.name || `Lap ${idx + 1}`,
+                  movingTimeSec: durSec,
+                  distanceM: distM,
+                  speedMPerMin: mPerMin,
+                  paceFormatted: formatMetersPerMinToPace(mPerMin),
+                  avgWatts: 0,
+                  avgHr: lapHr,
+                  startSec: startS,
+                  endSec: endS,
+                  isWorkLap: isWork,
+                });
+              });
+            } else if (Array.isArray(rawActLaps) && rawActLaps.length > 1) {
+              let cumSec = 0;
+              const vals = rawActLaps.map((l: any) =>
+                actCategory === 'run'
+                  ? Number(l.average_speed || 0) * 60
+                  : Number(l.average_watts || 0)
+              );
+              const maxVal = vals.length > 0 ? Math.max(...vals) : 0;
+              rawActLaps.forEach((lap: any, idx: number) => {
+                const durSec = Math.max(1, Math.round(lap.moving_time || lap.elapsed_time || 60));
+                const startS = cumSec;
+                const endS = cumSec + durSec;
+                cumSec = endS;
+                const distM = Math.round(lap.distance || 0);
+                const mPerMin =
+                  durSec > 0 && distM > 0
+                    ? distM / (durSec / 60)
+                    : Number(lap.average_speed || 0) * 60;
+                const w = Math.round(Number(lap.average_watts || 0));
+                const lapHr = sliceStreamAvgHr(startS, endS, Number(lap.average_heartrate || 0));
+                const metricVal = actCategory === 'run' ? mPerMin : w;
+                const isWork = maxVal > 0 ? metricVal >= maxVal * 0.82 && idx > 0 : idx > 0 && idx < rawActLaps.length - 1;
+                candidateLaps.push({
+                  lapIndex: lap.lap_index || idx + 1,
+                  name: lap.name || `Lap ${idx + 1}`,
+                  movingTimeSec: durSec,
+                  distanceM: distM,
+                  speedMPerMin: mPerMin,
+                  paceFormatted: formatMetersPerMinToPace(mPerMin),
+                  avgWatts: w,
+                  avgHr: lapHr,
+                  startSec: startS,
+                  endSec: endS,
+                  isWorkLap: isWork,
+                });
+              });
+            } else if (actCategory === 'run' && runDetails && runDetails.splits.length > 1) {
+              let cumSec = 0;
+              runDetails.splits.forEach((s, idx) => {
+                const durSec = Math.max(1, Math.round(s.movingTimeSec || 60));
+                const startS = cumSec;
+                const endS = cumSec + durSec;
+                cumSec = endS;
+                const distM = Math.round(Number(s.distanceKm || 1) * 1000);
+                const mPerMin = s.paceSecPerKm && s.paceSecPerKm > 0 ? 1000 / (s.paceSecPerKm / 60) : distM / (durSec / 60);
+                const lapHr = s.avgHr && s.avgHr > 60 ? Math.round(s.avgHr) : sliceStreamAvgHr(startS, endS);
+                candidateLaps.push({
+                  lapIndex: s.splitIndex || idx + 1,
+                  name: `Km ${s.splitIndex || idx + 1}`,
+                  movingTimeSec: durSec,
+                  distanceM: distM,
+                  speedMPerMin: mPerMin,
+                  paceFormatted: s.paceFormatted || formatMetersPerMinToPace(mPerMin),
+                  avgWatts: 0,
+                  avgHr: lapHr,
+                  startSec: startS,
+                  endSec: endS,
+                  isWorkLap: idx > 0 && idx < runDetails.splits.length - 1,
+                });
+              });
+            } else if (actCategory === 'bike' && bikeDetails && bikeDetails.laps.length > 1) {
+              let cumSec = 0;
+              bikeDetails.laps.forEach((l, idx) => {
+                const durSec = Math.max(1, Math.round(l.movingTimeSec || 60));
+                const startS = cumSec;
+                const endS = cumSec + durSec;
+                cumSec = endS;
+                const distM = Math.round(Number(l.distanceKm || 1) * 1000);
+                const w = Math.round(Number(l.avgWatts || effectiveAvgWatts || 0));
+                const lapHr = l.avgHr && l.avgHr > 60 ? Math.round(l.avgHr) : sliceStreamAvgHr(startS, endS);
+                candidateLaps.push({
+                  lapIndex: l.lapIndex || idx + 1,
+                  name: l.name || `Lap ${l.lapIndex || idx + 1}`,
+                  movingTimeSec: durSec,
+                  distanceM: distM,
+                  speedMPerMin: 0,
+                  paceFormatted: '',
+                  avgWatts: w,
+                  avgHr: lapHr,
+                  startSec: startS,
+                  endSec: endS,
+                  isWorkLap: idx > 0 && idx < bikeDetails.laps.length - 1,
+                });
+              });
+            }
+
+            const activeCustomIndices =
+              customEfLapIndices.length > 0
+                ? customEfLapIndices
+                : candidateLaps.map((l) => l.lapIndex);
+
+            const computeCustomLapsEf = (indices: number[]) => {
+              const chosen = candidateLaps.filter(
+                (l) =>
+                  indices.includes(l.lapIndex) &&
+                  l.movingTimeSec > 0 &&
+                  l.avgHr > 60 &&
+                  (actCategory === 'run' ? l.speedMPerMin > 0 : l.avgWatts > 0)
+              );
+              if (chosen.length === 0) return null;
+
+              const totalSec = chosen.reduce((acc, l) => acc + l.movingTimeSec, 0);
+              if (totalSec <= 0) return null;
+
+              const halfSec = totalSec / 2;
+              let h1WeightedVal = 0;
+              let h1WeightedHr = 0;
+              let h1Sec = 0;
+              let h2WeightedVal = 0;
+              let h2WeightedHr = 0;
+              let h2Sec = 0;
+
+              let accSec = 0;
+              for (const lap of chosen) {
+                const val = actCategory === 'run' ? lap.speedMPerMin : lap.avgWatts;
+                const start = accSec;
+                const end = accSec + lap.movingTimeSec;
+                accSec = end;
+
+                if (end <= halfSec) {
+                  h1WeightedVal += val * lap.movingTimeSec;
+                  h1WeightedHr += lap.avgHr * lap.movingTimeSec;
+                  h1Sec += lap.movingTimeSec;
+                } else if (start >= halfSec) {
+                  h2WeightedVal += val * lap.movingTimeSec;
+                  h2WeightedHr += lap.avgHr * lap.movingTimeSec;
+                  h2Sec += lap.movingTimeSec;
+                } else {
+                  const s1 = halfSec - start;
+                  const s2 = end - halfSec;
+                  h1WeightedVal += val * s1;
+                  h1WeightedHr += lap.avgHr * s1;
+                  h1Sec += s1;
+                  h2WeightedVal += val * s2;
+                  h2WeightedHr += lap.avgHr * s2;
+                  h2Sec += s2;
+                }
+              }
+
+              const fVal = h1Sec > 0 ? h1WeightedVal / h1Sec : 0;
+              const fHr = h1Sec > 0 ? h1WeightedHr / h1Sec : 0;
+              const sVal = h2Sec > 0 ? h2WeightedVal / h2Sec : 0;
+              const sHr = h2Sec > 0 ? h2WeightedHr / h2Sec : 0;
+              const totalVal = (h1WeightedVal + h2WeightedVal) / totalSec;
+              const totalHr = (h1WeightedHr + h2WeightedHr) / totalSec;
+              const cEf = totalHr > 0 ? totalVal / totalHr : 0;
+              const cEf1 = fHr > 0 ? fVal / fHr : cEf;
+              const cEf2 = sHr > 0 ? sVal / sHr : cEf;
+              const cDecoupling = cEf1 > 0 ? ((cEf1 - cEf2) / cEf1) * 100 : null;
+
+              return {
+                chosenCount: chosen.length,
+                firstHalfSpeedOrWatts: fVal,
+                firstHalfHr: fHr,
+                secondHalfSpeedOrWatts: sVal,
+                secondHalfHr: sHr,
+                overallEf: cEf,
+                ef1: cEf1,
+                ef2: cEf2,
+                decouplingPct: cDecoupling,
+              };
+            };
 
             let firstHalfSpeedOrWatts = 0;
             let secondHalfSpeedOrWatts = 0;
@@ -1366,117 +1612,129 @@ export const StravaActivityModal: React.FC<StravaActivityModalProps> = ({
             let secondHalfHr = 0;
             let hasHalfSplitComparison = false;
             let sourceLabel = 'Splits';
+            let customEfResult: ReturnType<typeof computeCustomLapsEf> = null;
 
-            const timeStream = streams?.time?.data as number[] | undefined;
-
-            if (actCategory === 'run' && Array.isArray(hrStream) && Array.isArray(velStream)) {
-              const len = Math.min(hrStream.length, velStream.length);
-              if (len >= 120) {
-                const endTrim = Math.floor(len * 0.05);
-                let startIdx = Math.floor(len * 0.05);
-                if (efWarmupTrimMin > 0) {
-                  const targetSec = efWarmupTrimMin * 60;
-                  if (Array.isArray(timeStream) && timeStream.length >= len) {
-                    const t0 = timeStream[0] || 0;
-                    const foundIdx = timeStream.findIndex((t) => t - t0 >= targetSec);
-                    startIdx = foundIdx > 0 ? foundIdx : Math.min(len - 60, targetSec);
-                  } else {
-                    startIdx = Math.min(len - 60, targetSec);
-                  }
-                }
-                const validPairs: { v: number; hr: number }[] = [];
-                for (let i = startIdx; i < len - endTrim; i++) {
-                  const v = velStream[i];
-                  const h = hrStream[i];
-                  if (v > 1.2 && h > 85) {
-                    validPairs.push({ v: v * 60, hr: h }); // m/min
-                  }
-                }
-                if (validPairs.length >= 60) {
-                  const mid = Math.floor(validPairs.length / 2);
-                  const h1 = validPairs.slice(0, mid);
-                  const h2 = validPairs.slice(mid);
-                  firstHalfSpeedOrWatts = h1.reduce((acc, p) => acc + p.v, 0) / h1.length;
-                  firstHalfHr = h1.reduce((acc, p) => acc + p.hr, 0) / h1.length;
-                  secondHalfSpeedOrWatts = h2.reduce((acc, p) => acc + p.v, 0) / h2.length;
-                  secondHalfHr = h2.reduce((acc, p) => acc + p.hr, 0) / h2.length;
-                  hasHalfSplitComparison = firstHalfHr > 0 && secondHalfHr > 0;
-                  sourceLabel =
-                    efWarmupTrimMin > 0
-                      ? `Streams (Excl. ${efWarmupTrimMin}m Warmup)`
-                      : '1-sec Streams (Middle 90%)';
-                }
-              }
-            } else if (actCategory === 'bike' && Array.isArray(hrStream) && Array.isArray(wattsStream)) {
-              const len = Math.min(hrStream.length, wattsStream.length);
-              if (len >= 120) {
-                const endTrim = Math.floor(len * 0.05);
-                let startIdx = Math.floor(len * 0.05);
-                if (efWarmupTrimMin > 0) {
-                  const targetSec = efWarmupTrimMin * 60;
-                  if (Array.isArray(timeStream) && timeStream.length >= len) {
-                    const t0 = timeStream[0] || 0;
-                    const foundIdx = timeStream.findIndex((t) => t - t0 >= targetSec);
-                    startIdx = foundIdx > 0 ? foundIdx : Math.min(len - 60, targetSec);
-                  } else {
-                    startIdx = Math.min(len - 60, targetSec);
-                  }
-                }
-                const validPairs: { w: number; hr: number }[] = [];
-                for (let i = startIdx; i < len - endTrim; i++) {
-                  const w = wattsStream[i];
-                  const h = hrStream[i];
-                  if (w > 20 && h > 80) {
-                    validPairs.push({ w, hr: h });
-                  }
-                }
-                if (validPairs.length >= 60) {
-                  const mid = Math.floor(validPairs.length / 2);
-                  const h1 = validPairs.slice(0, mid);
-                  const h2 = validPairs.slice(mid);
-                  firstHalfSpeedOrWatts = h1.reduce((acc, p) => acc + p.w, 0) / h1.length;
-                  firstHalfHr = h1.reduce((acc, p) => acc + p.hr, 0) / h1.length;
-                  secondHalfSpeedOrWatts = h2.reduce((acc, p) => acc + p.w, 0) / h2.length;
-                  secondHalfHr = h2.reduce((acc, p) => acc + p.hr, 0) / h2.length;
-                  hasHalfSplitComparison = firstHalfHr > 0 && secondHalfHr > 0;
-                  sourceLabel =
-                    efWarmupTrimMin > 0
-                      ? `Streams (Excl. ${efWarmupTrimMin}m Warmup)`
-                      : '1-sec Streams (Middle 90%)';
-                }
-              }
-            }
-
-            // Fallback to Run splits if stream arrays weren't available
-            if (!hasHalfSplitComparison && actCategory === 'run' && runDetails && runDetails.splits.length >= 2) {
-              const allValidSplits = runDetails.splits.filter(
-                (s) => (s.paceSecPerKm ?? 0) > 0 && s.avgHr && s.avgHr > 85 && Number(s.distanceKm || 0) >= 0.4
-              );
-              let validSplits = allValidSplits;
-              if (efWarmupTrimMin > 0 && allValidSplits.length > 2) {
-                let accSec = 0;
-                const targetSec = efWarmupTrimMin * 60;
-                const trimmed = allValidSplits.filter((s) => {
-                  accSec += s.movingTimeSec || s.paceSecPerKm || 300;
-                  return accSec > targetSec;
-                });
-                if (trimmed.length >= 2) validSplits = trimmed;
-              }
-              if (validSplits.length >= 2) {
-                const mid = Math.floor(validSplits.length / 2);
-                const h1 = validSplits.slice(0, mid);
-                const h2 = validSplits.slice(mid);
-                firstHalfSpeedOrWatts =
-                  h1.reduce((acc, s) => acc + 1000 / ((s.paceSecPerKm || 300) / 60), 0) / h1.length;
-                firstHalfHr = h1.reduce((acc, s) => acc + (s.avgHr || 0), 0) / h1.length;
-                secondHalfSpeedOrWatts =
-                  h2.reduce((acc, s) => acc + 1000 / ((s.paceSecPerKm || 300) / 60), 0) / h2.length;
-                secondHalfHr = h2.reduce((acc, s) => acc + (s.avgHr || 0), 0) / h2.length;
+            if (efWarmupTrimMin === 'custom' && candidateLaps.length > 0) {
+              customEfResult = computeCustomLapsEf(activeCustomIndices);
+              if (customEfResult) {
+                firstHalfSpeedOrWatts = customEfResult.firstHalfSpeedOrWatts;
+                firstHalfHr = customEfResult.firstHalfHr;
+                secondHalfSpeedOrWatts = customEfResult.secondHalfSpeedOrWatts;
+                secondHalfHr = customEfResult.secondHalfHr;
                 hasHalfSplitComparison = firstHalfHr > 0 && secondHalfHr > 0;
-                sourceLabel =
-                  efWarmupTrimMin > 0
-                    ? `${validSplits.length} Splits (Excl. ${efWarmupTrimMin}m Warmup)`
-                    : `${validSplits.length} Splits`;
+                sourceLabel = `Custom (${customEfResult.chosenCount}/${candidateLaps.length} Laps)`;
+              }
+            } else {
+              const numericTrimMin = typeof efWarmupTrimMin === 'number' ? efWarmupTrimMin : 0;
+              if (actCategory === 'run' && Array.isArray(hrStream) && Array.isArray(velStream)) {
+                const len = Math.min(hrStream.length, velStream.length);
+                if (len >= 120) {
+                  const endTrim = Math.floor(len * 0.05);
+                  let startIdx = Math.floor(len * 0.05);
+                  if (numericTrimMin > 0) {
+                    const targetSec = numericTrimMin * 60;
+                    if (Array.isArray(timeStream) && timeStream.length >= len) {
+                      const t0 = timeStream[0] || 0;
+                      const foundIdx = timeStream.findIndex((t) => t - t0 >= targetSec);
+                      startIdx = foundIdx > 0 ? foundIdx : Math.min(len - 60, targetSec);
+                    } else {
+                      startIdx = Math.min(len - 60, targetSec);
+                    }
+                  }
+                  const validPairs: { v: number; hr: number }[] = [];
+                  for (let i = startIdx; i < len - endTrim; i++) {
+                    const v = velStream[i];
+                    const h = hrStream[i];
+                    if (v > 1.2 && h > 85) {
+                      validPairs.push({ v: v * 60, hr: h }); // m/min
+                    }
+                  }
+                  if (validPairs.length >= 60) {
+                    const mid = Math.floor(validPairs.length / 2);
+                    const h1 = validPairs.slice(0, mid);
+                    const h2 = validPairs.slice(mid);
+                    firstHalfSpeedOrWatts = h1.reduce((acc, p) => acc + p.v, 0) / h1.length;
+                    firstHalfHr = h1.reduce((acc, p) => acc + p.hr, 0) / h1.length;
+                    secondHalfSpeedOrWatts = h2.reduce((acc, p) => acc + p.v, 0) / h2.length;
+                    secondHalfHr = h2.reduce((acc, p) => acc + p.hr, 0) / h2.length;
+                    hasHalfSplitComparison = firstHalfHr > 0 && secondHalfHr > 0;
+                    sourceLabel =
+                      numericTrimMin > 0
+                        ? `Streams (Excl. ${numericTrimMin}m Warmup)`
+                        : '1-sec Streams (Middle 90%)';
+                  }
+                }
+              } else if (actCategory === 'bike' && Array.isArray(hrStream) && Array.isArray(wattsStream)) {
+                const len = Math.min(hrStream.length, wattsStream.length);
+                if (len >= 120) {
+                  const endTrim = Math.floor(len * 0.05);
+                  let startIdx = Math.floor(len * 0.05);
+                  if (numericTrimMin > 0) {
+                    const targetSec = numericTrimMin * 60;
+                    if (Array.isArray(timeStream) && timeStream.length >= len) {
+                      const t0 = timeStream[0] || 0;
+                      const foundIdx = timeStream.findIndex((t) => t - t0 >= targetSec);
+                      startIdx = foundIdx > 0 ? foundIdx : Math.min(len - 60, targetSec);
+                    } else {
+                      startIdx = Math.min(len - 60, targetSec);
+                    }
+                  }
+                  const validPairs: { w: number; hr: number }[] = [];
+                  for (let i = startIdx; i < len - endTrim; i++) {
+                    const w = wattsStream[i];
+                    const h = hrStream[i];
+                    if (w > 20 && h > 80) {
+                      validPairs.push({ w, hr: h });
+                    }
+                  }
+                  if (validPairs.length >= 60) {
+                    const mid = Math.floor(validPairs.length / 2);
+                    const h1 = validPairs.slice(0, mid);
+                    const h2 = validPairs.slice(mid);
+                    firstHalfSpeedOrWatts = h1.reduce((acc, p) => acc + p.w, 0) / h1.length;
+                    firstHalfHr = h1.reduce((acc, p) => acc + p.hr, 0) / h1.length;
+                    secondHalfSpeedOrWatts = h2.reduce((acc, p) => acc + p.w, 0) / h2.length;
+                    secondHalfHr = h2.reduce((acc, p) => acc + p.hr, 0) / h2.length;
+                    hasHalfSplitComparison = firstHalfHr > 0 && secondHalfHr > 0;
+                    sourceLabel =
+                      numericTrimMin > 0
+                        ? `Streams (Excl. ${numericTrimMin}m Warmup)`
+                        : '1-sec Streams (Middle 90%)';
+                  }
+                }
+              }
+
+              // Fallback to Run splits if stream arrays weren't available
+              if (!hasHalfSplitComparison && actCategory === 'run' && runDetails && runDetails.splits.length >= 2) {
+                const allValidSplits = runDetails.splits.filter(
+                  (s) => (s.paceSecPerKm ?? 0) > 0 && s.avgHr && s.avgHr > 85 && Number(s.distanceKm || 0) >= 0.4
+                );
+                let validSplits = allValidSplits;
+                if (numericTrimMin > 0 && allValidSplits.length > 2) {
+                  let accSec = 0;
+                  const targetSec = numericTrimMin * 60;
+                  const trimmed = allValidSplits.filter((s) => {
+                    accSec += s.movingTimeSec || s.paceSecPerKm || 300;
+                    return accSec > targetSec;
+                  });
+                  if (trimmed.length >= 2) validSplits = trimmed;
+                }
+                if (validSplits.length >= 2) {
+                  const mid = Math.floor(validSplits.length / 2);
+                  const h1 = validSplits.slice(0, mid);
+                  const h2 = validSplits.slice(mid);
+                  firstHalfSpeedOrWatts =
+                    h1.reduce((acc, s) => acc + 1000 / ((s.paceSecPerKm || 300) / 60), 0) / h1.length;
+                  firstHalfHr = h1.reduce((acc, s) => acc + (s.avgHr || 0), 0) / h1.length;
+                  secondHalfSpeedOrWatts =
+                    h2.reduce((acc, s) => acc + 1000 / ((s.paceSecPerKm || 300) / 60), 0) / h2.length;
+                  secondHalfHr = h2.reduce((acc, s) => acc + (s.avgHr || 0), 0) / h2.length;
+                  hasHalfSplitComparison = firstHalfHr > 0 && secondHalfHr > 0;
+                  sourceLabel =
+                    numericTrimMin > 0
+                      ? `${validSplits.length} Splits (Excl. ${numericTrimMin}m Warmup)`
+                      : `${validSplits.length} Splits`;
+                }
               }
             }
 
@@ -1490,34 +1748,38 @@ export const StravaActivityModal: React.FC<StravaActivityModalProps> = ({
                 ? Number(normalizedPower || effectiveAvgWatts || activity.weighted_average_watts || activity.average_watts || 0)
                 : 0;
 
-            const overallEf =
-              avgHr > 80
-                ? actCategory === 'run'
-                  ? overallSpeedMetersPerMin > 0
-                    ? overallSpeedMetersPerMin / avgHr
-                    : 0
-                  : overallWatts > 0
-                  ? overallWatts / avgHr
+            const overallEf = customEfResult
+              ? customEfResult.overallEf
+              : avgHr > 80
+              ? actCategory === 'run'
+                ? overallSpeedMetersPerMin > 0
+                  ? overallSpeedMetersPerMin / avgHr
                   : 0
-                : hasHalfSplitComparison
-                ? (firstHalfSpeedOrWatts / firstHalfHr + secondHalfSpeedOrWatts / secondHalfHr) / 2
-                : 0;
+                : overallWatts > 0
+                ? overallWatts / avgHr
+                : 0
+              : hasHalfSplitComparison
+              ? (firstHalfSpeedOrWatts / firstHalfHr + secondHalfSpeedOrWatts / secondHalfHr) / 2
+              : 0;
 
-            if (overallEf <= 0 && !hasHalfSplitComparison) return null;
+            if (overallEf <= 0 && !hasHalfSplitComparison && candidateLaps.length === 0) return null;
 
-            const ef1 = hasHalfSplitComparison ? firstHalfSpeedOrWatts / firstHalfHr : overallEf;
-            const ef2 = hasHalfSplitComparison ? secondHalfSpeedOrWatts / secondHalfHr : overallEf;
+            const ef1 = customEfResult
+              ? customEfResult.ef1
+              : hasHalfSplitComparison
+              ? firstHalfSpeedOrWatts / firstHalfHr
+              : overallEf;
+            const ef2 = customEfResult
+              ? customEfResult.ef2
+              : hasHalfSplitComparison
+              ? secondHalfSpeedOrWatts / secondHalfHr
+              : overallEf;
             // Positive decoupling % means efficiency dropped in the second half (HR rose relative to pace/power)
-            const decouplingPct =
-              hasHalfSplitComparison && ef1 > 0 ? ((ef1 - ef2) / ef1) * 100 : null;
-
-            const formatMetersPerMinToPace = (mPerMin: number) => {
-              if (!mPerMin || mPerMin <= 0) return '—';
-              const secPerKm = Math.round((1000 / mPerMin) * 60);
-              const mins = Math.floor(secPerKm / 60);
-              const secs = secPerKm % 60;
-              return `${mins}:${secs.toString().padStart(2, '0')}/km`;
-            };
+            const decouplingPct = customEfResult
+              ? customEfResult.decouplingPct
+              : hasHalfSplitComparison && ef1 > 0
+              ? ((ef1 - ef2) / ef1) * 100
+              : null;
 
             const isCoupled = decouplingPct !== null && decouplingPct <= 3.5;
             const isModerateDrift = decouplingPct !== null && decouplingPct > 3.5 && decouplingPct <= 5.0;
@@ -1565,8 +1827,42 @@ export const StravaActivityModal: React.FC<StravaActivityModalProps> = ({
                           {opt.label}
                         </button>
                       ))}
+                      {candidateLaps.length > 1 && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (customEfLapIndices.length === 0) {
+                              setCustomEfLapIndices(candidateLaps.map((l) => l.lapIndex));
+                            }
+                            setEfWarmupTrimMin('custom');
+                            setIsEfLapSelectorOpen(true);
+                          }}
+                          className={`px-1.5 py-0.5 rounded-md font-bold transition-colors cursor-pointer ${
+                            efWarmupTrimMin === 'custom'
+                              ? 'bg-[#FE9A00] text-slate-950'
+                              : 'text-slate-400 hover:text-white'
+                          }`}
+                          title="Manually select which laps to include in the Aerobic Efficiency & Decoupling calculation"
+                        >
+                          Custom
+                        </button>
+                      )}
                     </div>
-                    <span className="text-[10px] font-mono text-slate-400 bg-slate-900 border border-slate-800 px-2 py-0.5 rounded-md">
+                    <span
+                      onClick={() => {
+                        if (candidateLaps.length > 1) {
+                          if (customEfLapIndices.length === 0) {
+                            setCustomEfLapIndices(candidateLaps.map((l) => l.lapIndex));
+                          }
+                          setEfWarmupTrimMin('custom');
+                          setIsEfLapSelectorOpen(true);
+                        }
+                      }}
+                      className={`text-[10px] font-mono text-slate-400 bg-slate-900 border border-slate-800 px-2 py-0.5 rounded-md ${
+                        candidateLaps.length > 1 ? 'cursor-pointer hover:border-amber-500/40 hover:text-amber-300' : ''
+                      }`}
+                      title={candidateLaps.length > 1 ? 'Click to customize included laps' : undefined}
+                    >
                       {sourceLabel}
                     </span>
                     {decouplingPct !== null && (
@@ -1664,6 +1960,200 @@ export const StravaActivityModal: React.FC<StravaActivityModalProps> = ({
                     </div>
                   </div>
                 </div>
+
+                {/* Custom Lap Selection Modal / Page */}
+                {isEfLapSelectorOpen && candidateLaps.length > 0 && (
+                  <div className="fixed inset-0 z-60 flex items-center justify-center p-3 sm:p-4 bg-black/85 backdrop-blur-md animate-fade-in">
+                    <div className="bg-slate-900 border border-slate-700/80 rounded-3xl w-full max-w-xl max-h-[88vh] flex flex-col shadow-2xl overflow-hidden">
+                      {/* Header */}
+                      <div className="p-4 sm:p-5 border-b border-slate-800 flex items-center justify-between gap-3 bg-slate-950/80 shrink-0">
+                        <div className="flex items-center gap-3 min-w-0">
+                          <div className="w-9 h-9 rounded-2xl bg-emerald-500/15 border border-emerald-500/30 flex items-center justify-center shrink-0">
+                            <TrendingUp className="w-4 h-4 text-emerald-400" />
+                          </div>
+                          <div className="min-w-0">
+                            <h3 className="text-sm sm:text-base font-black text-white leading-tight">
+                              Select Laps for Aerobic Efficiency &amp; Decoupling
+                            </h3>
+                            <p className="text-[11px] text-slate-400 truncate mt-0.5">
+                              Checked laps are split 50/50 by time into 1st Half Effort and 2nd Half Effort
+                            </p>
+                          </div>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => setIsEfLapSelectorOpen(false)}
+                          className="p-1.5 rounded-xl text-slate-400 hover:text-white hover:bg-slate-800 transition-colors cursor-pointer shrink-0"
+                        >
+                          <X className="w-5 h-5" />
+                        </button>
+                      </div>
+
+                      {/* Quick Presets & Live Calculation Preview */}
+                      <div className="p-3.5 sm:px-5 bg-slate-950/60 border-b border-slate-800 space-y-3 shrink-0">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <span className="text-[11px] font-bold text-slate-300">
+                            Quick Select ({activeCustomIndices.length} of {candidateLaps.length} laps):
+                          </span>
+                          <div className="flex flex-wrap items-center gap-1.5">
+                            <button
+                              type="button"
+                              onClick={() => setCustomEfLapIndices(candidateLaps.map((l) => l.lapIndex))}
+                              className="px-2 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 text-[10px] font-bold cursor-pointer border border-slate-700"
+                            >
+                              Select All
+                            </button>
+                            {candidateLaps.length > 2 && (
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  setCustomEfLapIndices(
+                                    candidateLaps.slice(1, candidateLaps.length - 1).map((l) => l.lapIndex)
+                                  )
+                                }
+                                className="px-2 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-amber-300 text-[10px] font-bold cursor-pointer border border-slate-700"
+                              >
+                                Excl. 1st &amp; Last
+                              </button>
+                            )}
+                            {candidateLaps.some((l) => l.isWorkLap) && (
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  setCustomEfLapIndices(
+                                    candidateLaps.filter((l) => l.isWorkLap).map((l) => l.lapIndex)
+                                  )
+                                }
+                                className="px-2 py-1 rounded-lg bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-300 text-[10px] font-bold cursor-pointer border border-emerald-500/30"
+                              >
+                                Work Laps Only
+                              </button>
+                            )}
+                            <button
+                              type="button"
+                              onClick={() => setCustomEfLapIndices([])}
+                              className="px-2 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-400 text-[10px] font-bold cursor-pointer border border-slate-700"
+                            >
+                              Clear
+                            </button>
+                          </div>
+                        </div>
+
+                        {/* Live Preview Row */}
+                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                          <div className="p-2 rounded-xl bg-slate-900 border border-slate-800">
+                            <span className="text-[9px] uppercase font-bold text-slate-400 block">Selected EF</span>
+                            <span className="text-sm font-black font-mono text-emerald-400">
+                              {customEfResult ? customEfResult.overallEf.toFixed(2) : '—'}
+                            </span>
+                          </div>
+                          <div className="p-2 rounded-xl bg-slate-900 border border-slate-800">
+                            <span className="text-[9px] uppercase font-bold text-slate-400 block">Decoupling</span>
+                            <span className="text-sm font-black font-mono text-amber-400">
+                              {customEfResult && customEfResult.decouplingPct !== null
+                                ? `${customEfResult.decouplingPct > 0 ? '+' : ''}${customEfResult.decouplingPct.toFixed(1)}%`
+                                : '—'}
+                            </span>
+                          </div>
+                          <div className="p-2 rounded-xl bg-slate-900 border border-slate-800">
+                            <span className="text-[9px] uppercase font-bold text-slate-400 block">1st Half Effort</span>
+                            <span className="text-[11px] font-bold font-mono text-white">
+                              {customEfResult
+                                ? actCategory === 'run'
+                                  ? `${formatMetersPerMinToPace(customEfResult.firstHalfSpeedOrWatts)} @ ${Math.round(customEfResult.firstHalfHr)}bpm`
+                                  : `${Math.round(customEfResult.firstHalfSpeedOrWatts)}W @ ${Math.round(customEfResult.firstHalfHr)}bpm`
+                                : '—'}
+                            </span>
+                          </div>
+                          <div className="p-2 rounded-xl bg-slate-900 border border-slate-800">
+                            <span className="text-[9px] uppercase font-bold text-slate-400 block">2nd Half Effort</span>
+                            <span className="text-[11px] font-bold font-mono text-white">
+                              {customEfResult
+                                ? actCategory === 'run'
+                                  ? `${formatMetersPerMinToPace(customEfResult.secondHalfSpeedOrWatts)} @ ${Math.round(customEfResult.secondHalfHr)}bpm`
+                                  : `${Math.round(customEfResult.secondHalfSpeedOrWatts)}W @ ${Math.round(customEfResult.secondHalfHr)}bpm`
+                                : '—'}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Scrollable Laps Table */}
+                      <div className="overflow-y-auto flex-1 divide-y divide-slate-800/70">
+                        {candidateLaps.map((lap) => {
+                          const isChecked = activeCustomIndices.includes(lap.lapIndex);
+                          const lapEf =
+                            lap.avgHr > 60
+                              ? actCategory === 'run'
+                                ? lap.speedMPerMin / lap.avgHr
+                                : lap.avgWatts / lap.avgHr
+                              : 0;
+                          return (
+                            <label
+                              key={lap.lapIndex}
+                              className={`px-4 py-2.5 flex items-center justify-between gap-3 text-xs cursor-pointer transition-colors ${
+                                isChecked
+                                  ? 'bg-emerald-950/20 hover:bg-emerald-950/30 text-white'
+                                  : 'bg-slate-900/40 hover:bg-slate-800/40 text-slate-400 opacity-65'
+                              }`}
+                            >
+                              <div className="flex items-center gap-3 min-w-0">
+                                <input
+                                  type="checkbox"
+                                  checked={isChecked}
+                                  onChange={() => {
+                                    setCustomEfLapIndices((prev) => {
+                                      const base = prev.length > 0 ? prev : candidateLaps.map((l) => l.lapIndex);
+                                      return base.includes(lap.lapIndex)
+                                        ? base.filter((i) => i !== lap.lapIndex)
+                                        : [...base, lap.lapIndex].sort((a, b) => a - b);
+                                    });
+                                  }}
+                                  className="w-4 h-4 rounded border-slate-700 text-emerald-500 focus:ring-emerald-500 bg-slate-950 cursor-pointer shrink-0"
+                                />
+                                <span className="font-mono font-bold text-white w-14 shrink-0">
+                                  {lap.name}
+                                </span>
+                                <span className="font-mono text-slate-300">
+                                  {formatDuration(lap.movingTimeSec)}
+                                </span>
+                                <span className="font-mono text-slate-400 text-[11px]">
+                                  {(lap.distanceM / 1000).toFixed(2)} km
+                                </span>
+                              </div>
+
+                              <div className="flex items-center gap-3 font-mono shrink-0">
+                                <span className="font-bold text-amber-300">
+                                  {actCategory === 'run' ? lap.paceFormatted : `${lap.avgWatts} W`}
+                                </span>
+                                <span className="text-rose-400 w-16 text-right">
+                                  {lap.avgHr > 0 ? `${lap.avgHr} bpm` : '—'}
+                                </span>
+                                <span className="text-emerald-400 font-bold w-14 text-right">
+                                  EF {lapEf > 0 ? lapEf.toFixed(2) : '—'}
+                                </span>
+                              </div>
+                            </label>
+                          );
+                        })}
+                      </div>
+
+                      {/* Footer */}
+                      <div className="p-3.5 sm:px-5 border-t border-slate-800 bg-slate-950/80 flex items-center justify-between gap-3 shrink-0">
+                        <span className="text-xs text-slate-400 font-mono">
+                          {activeCustomIndices.length} lap{activeCustomIndices.length === 1 ? '' : 's'} included
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => setIsEfLapSelectorOpen(false)}
+                          className="px-4 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-xs cursor-pointer transition-all shadow-md"
+                        >
+                          Apply Selected Laps
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                )}
               </div>
             );
           })()}
@@ -2472,7 +2962,15 @@ export const StravaActivityModal: React.FC<StravaActivityModalProps> = ({
                   <div className="flex items-center gap-1.5 shrink-0">
                     <button
                       type="button"
-                      onClick={() => setSelectedStreamKeys(STRAVA_STREAM_DEFINITIONS.map((d) => d.key))}
+                      onClick={() =>
+                        setSelectedStreamKeys(
+                          STRAVA_STREAM_DEFINITIONS.filter((d) => {
+                            if (classification.subType === 'Turbo Trainer' && (d.key === 'velocity_smooth' || d.key === 'altitude')) return false;
+                            if (classification.category === 'Swim' && d.key === 'altitude') return false;
+                            return true;
+                          }).map((d) => d.key)
+                        )
+                      }
                       className="px-2 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-[10px] font-bold cursor-pointer border border-slate-700"
                     >
                       Select All
@@ -2488,7 +2986,11 @@ export const StravaActivityModal: React.FC<StravaActivityModalProps> = ({
                 </div>
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5 max-h-60 overflow-y-auto pr-0.5">
-                  {STRAVA_STREAM_DEFINITIONS.map((def) => {
+                  {STRAVA_STREAM_DEFINITIONS.filter((d) => {
+                    if (classification.subType === 'Turbo Trainer' && (d.key === 'velocity_smooth' || d.key === 'altitude')) return false;
+                    if (classification.category === 'Swim' && d.key === 'altitude') return false;
+                    return true;
+                  }).map((def) => {
                     const streamArr = streams?.[def.key]?.data;
                     const ptsCount = Array.isArray(streamArr) ? streamArr.length : 0;
                     const isCached = ptsCount > 0;

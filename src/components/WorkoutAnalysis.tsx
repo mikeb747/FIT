@@ -127,7 +127,8 @@ export const WorkoutAnalysis: React.FC<WorkoutAnalysisProps> = ({
   theme = 'dark',
 }) => {
   const isLight = theme === 'light';
-  const { category } = classifyActivity(activity);
+  const { category, subType } = classifyActivity(activity);
+  const isTurboTrainer = subType === 'Turbo Trainer';
 
   const thresholdRunPaceSec =
     athleteProfile?.thresholdPaceRunOutdoorSec ||
@@ -422,7 +423,7 @@ export const WorkoutAnalysis: React.FC<WorkoutAnalysisProps> = ({
       if (hasWatts) list.push('power');
       if (hasHr) list.push('heartrate');
       if (hasCadence) list.push('cadence');
-      list.push('speed');
+      if (!isTurboTrainer) list.push('speed');
       if (!hasWatts) list.push('power');
     } else {
       if (hasHr) list.push('heartrate');
@@ -431,14 +432,14 @@ export const WorkoutAnalysis: React.FC<WorkoutAnalysisProps> = ({
       list.push('pace');
     }
     return list;
-  }, [category, laps, activity.average_cadence]);
+  }, [category, isTurboTrainer, laps, activity.average_cadence]);
 
   // Active selected metric
   const [activeMetric, setActiveMetric] = useState<WorkoutAnalysisMetric>(() => {
     if (category === 'Swim') return 'swim_pace';
     if (category === 'Bike') {
       const hasWatts = (activity.average_watts || 0) > 0;
-      return hasWatts ? 'power' : 'speed';
+      return hasWatts || isTurboTrainer ? 'power' : 'speed';
     }
     return 'pace';
   });
@@ -687,7 +688,9 @@ export const WorkoutAnalysis: React.FC<WorkoutAnalysisProps> = ({
         category === 'Run'
           ? `${selectedLap.paceFormatted || ''} ${selectedLap.zoneLabel ? `· ${selectedLap.zoneLabel}` : ''}`.trim()
           : category === 'Bike'
-          ? `${selectedLap.avgWatts ? `${selectedLap.avgWatts} W · ` : ''}${selectedLap.avgSpeedKph} kph`
+          ? isTurboTrainer
+            ? `${selectedLap.avgWatts ? `${selectedLap.avgWatts} W` : ''}${selectedLap.zoneLabel ? `${selectedLap.avgWatts ? ' · ' : ''}${selectedLap.zoneLabel}` : ''}`
+            : `${selectedLap.avgWatts ? `${selectedLap.avgWatts} W · ` : ''}${selectedLap.avgSpeedKph} kph`
           : selectedLap.zoneLabel || '';
     } else if (activeMetric === 'power') {
       metricValStr = selectedLap.avgWatts ? `${selectedLap.avgWatts} W` : '-- W';
@@ -716,7 +719,7 @@ export const WorkoutAnalysis: React.FC<WorkoutAnalysisProps> = ({
       metricValStr,
       zoneStr,
     };
-  }, [selectedLap, activeMetric, ftp, maxHr, cadenceUnit, category]);
+  }, [selectedLap, activeMetric, ftp, maxHr, cadenceUnit, category, isTurboTrainer]);
 
   // Dashed average line Y coordinate
   const avgLineY = useMemo(() => {
@@ -1129,7 +1132,9 @@ export const WorkoutAnalysis: React.FC<WorkoutAnalysisProps> = ({
                     ? 'Pace'
                     : activeMetric === 'stroke' || activeMetric === 'cadence'
                     ? category === 'Bike'
-                      ? 'Power / Speed'
+                      ? isTurboTrainer
+                        ? 'Power'
+                        : 'Power / Speed'
                       : 'Pace'
                     : activeMetric === 'power'
                     ? 'Power'
@@ -1150,7 +1155,11 @@ export const WorkoutAnalysis: React.FC<WorkoutAnalysisProps> = ({
                   if (category === 'Swim') {
                     metricCellText = lap.swimPaceFormatted || '--';
                   } else if (category === 'Bike') {
-                    metricCellText = lap.avgWatts ? `${lap.avgWatts} W` : `${lap.avgSpeedKph} kph`;
+                    metricCellText = lap.avgWatts
+                      ? `${lap.avgWatts} W`
+                      : isTurboTrainer
+                      ? '--'
+                      : `${lap.avgSpeedKph} kph`;
                   } else {
                     metricCellText = lap.paceFormatted || '--';
                   }

@@ -43,14 +43,16 @@ export const StravaStreamPlot: React.FC<StravaStreamPlotProps> = ({
   athleteProfile,
 }) => {
   const classification = classifyActivity(activity);
-  const isBikeOrTurbo = classification.subType === 'Turbo Trainer' || classification.subType === 'Bike';
+  const isTurboTrainer = classification.subType === 'Turbo Trainer';
+  const isBikeOrTurbo = isTurboTrainer || classification.subType === 'Bike';
   const isSwim = classification.category === 'Swim';
   const isRun = classification.category === 'Run';
 
   const [selectedMetric, setSelectedMetric] = useState<StreamMetricKey>(() => {
     if (isBikeOrTurbo && streams?.watts?.data && streams.watts.data.length > 5) return 'watts';
-    if (streams?.velocity_smooth?.data && streams.velocity_smooth.data.length > 5) return 'velocity_smooth';
+    if (!isTurboTrainer && streams?.velocity_smooth?.data && streams.velocity_smooth.data.length > 5) return 'velocity_smooth';
     if (streams?.heartrate?.data && streams.heartrate.data.length > 5) return 'heartrate';
+    if (streams?.cadence?.data && streams.cadence.data.length > 5) return 'cadence';
     return 'heartrate';
   });
   const [axisMode, setAxisMode] = useState<'distance' | 'time'>('time');
@@ -67,8 +69,8 @@ export const StravaStreamPlot: React.FC<StravaStreamPlotProps> = ({
   // Available stream types strictly in user requested order:
   // 1. Power / Pace first
   // 2. Heart Rate
-  // 3. Speed (for Bike/Turbo where Power is primary and Speed is distinct)
-  // 4. Elevation (strictly excluded for Swim activities)
+  // 3. Speed (for outdoor Bike where Power is primary and Speed is distinct; excluded for Turbo Trainer)
+  // 4. Elevation (strictly excluded for Swim and Turbo Trainer activities)
   // 5. Cadence / Stroke (labelled "Stroke" for Swim)
   const availableMetrics = useMemo<MetricConfig[]>(() => {
     const list: MetricConfig[] = [];
@@ -108,8 +110,8 @@ export const StravaStreamPlot: React.FC<StravaStreamPlotProps> = ({
           return `${kph.toFixed(1)} kph`;
         },
       });
-    } else if (isBikeOrTurbo && streams?.velocity_smooth?.data && streams.velocity_smooth.data.length > 5 && (!streams?.watts?.data || streams.watts.data.length <= 5)) {
-      // Bike with no power meter -> Speed is primary
+    } else if (!isTurboTrainer && isBikeOrTurbo && streams?.velocity_smooth?.data && streams.velocity_smooth.data.length > 5 && (!streams?.watts?.data || streams.watts.data.length <= 5)) {
+      // Outdoor Bike with no power meter -> Speed is primary
       list.push({
         key: 'velocity_smooth',
         label: 'Speed',
@@ -139,8 +141,8 @@ export const StravaStreamPlot: React.FC<StravaStreamPlotProps> = ({
       });
     }
 
-    // 3. Speed Third (for Bike when Power was already added first)
-    if (isBikeOrTurbo && streams?.watts?.data && streams.watts.data.length > 5 && streams?.velocity_smooth?.data && streams.velocity_smooth.data.length > 5) {
+    // 3. Speed Third (for outdoor Bike when Power was already added first; excluded for Turbo Trainer)
+    if (!isTurboTrainer && isBikeOrTurbo && streams?.watts?.data && streams.watts.data.length > 5 && streams?.velocity_smooth?.data && streams.velocity_smooth.data.length > 5) {
       list.push({
         key: 'velocity_smooth',
         label: 'Speed',
@@ -156,8 +158,8 @@ export const StravaStreamPlot: React.FC<StravaStreamPlotProps> = ({
       });
     }
 
-    // 4. Elevation Fourth (strictly excluded for Swim activities!)
-    if (!isSwim && streams?.altitude?.data && streams.altitude.data.length > 5) {
+    // 4. Elevation Fourth (strictly excluded for Swim and Turbo Trainer activities!)
+    if (!isSwim && !isTurboTrainer && streams?.altitude?.data && streams.altitude.data.length > 5) {
       list.push({
         key: 'altitude',
         label: 'Elevation',
@@ -187,7 +189,7 @@ export const StravaStreamPlot: React.FC<StravaStreamPlotProps> = ({
     }
 
     return list;
-  }, [streams, isBikeOrTurbo, isSwim, isRun]);
+  }, [streams, isTurboTrainer, isBikeOrTurbo, isSwim, isRun]);
 
   // Ensure current selected metric is valid and default to the first available metric
   const initialMetricSetRef = useRef(false);

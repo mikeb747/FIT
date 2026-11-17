@@ -21,6 +21,9 @@ import {
   Layers,
   Sparkles,
   Play,
+  RefreshCw,
+  ChevronDown,
+  AlertCircle,
 } from 'lucide-react';
 import type {
   StravaActivity,
@@ -41,7 +44,12 @@ import {
   generateAutoSplitsFromStreamsOrActivity,
   cropStreamsAndScaleDistance,
   applyCalibratedDistanceAndDurationToRecord,
+  STRAVA_STREAM_DEFINITIONS,
+  fetchSpecificStravaActivityStreams,
+  fetchStravaActivityDetails,
+  saveStravaActivityDetails,
 } from '../utils/stravaActivities';
+import { isDemoActivityId, generateDemoActivityDetails } from '../utils/demoData';
 import {
   formatSecondsToMinSec,
   parseMinSecToSeconds,
@@ -864,6 +872,124 @@ export const ActivityCalibrationModal: React.FC<ActivityCalibrationModalProps> =
     uploadId: number | string;
   } | null>(null);
   const [stravaUploadError, setStravaUploadError] = useState<string | null>(null);
+
+  // Workout Analysis & Data Streams Re-fetch State (matching Data Streams function)
+  const isTurboTrainer = classification.subType === 'Turbo Trainer';
+  const filteredStreamDefs = useMemo(
+    () =>
+      STRAVA_STREAM_DEFINITIONS.filter((d) => {
+        if (isTurboTrainer && (d.key === 'velocity_smooth' || d.key === 'altitude')) return false;
+        if (isSwim && d.key === 'altitude') return false;
+        return true;
+      }),
+    [isTurboTrainer, isSwim]
+  );
+  const [isStreamFetcherOpen, setIsStreamFetcherOpen] = useState(false);
+  const [selectedStreamKeys, setSelectedStreamKeys] = useState<string[]>(['cadence']);
+  const [refetchingStreamKeys, setRefetchingStreamKeys] = useState<string[]>([]);
+  const [isRefetchingWorkoutLaps, setIsRefetchingWorkoutLaps] = useState(false);
+  const [streamFetchFeedback, setStreamFetchFeedback] = useState<{
+    type: 'success' | 'error';
+    message: string;
+  } | null>(null);
+
+  const currentStreams = detailsRecord?.streams as Record<string, { data?: any[] }> | undefined;
+  const cachedStreamsCount = currentStreams
+    ? Object.keys(currentStreams).filter((k) => Array.isArray(currentStreams[k]?.data) && currentStreams[k].data!.length > 0).length
+    : 0;
+
+  const toggleStreamKeySelection = (key: string) => {
+    setSelectedStreamKeys((prev) =>
+      prev.includes(key) ? prev.filter((k) => k !== key) : [...prev, key]
+    );
+  };
+
+  const handleRefetchSpecificStreams = async (keysToFetch: string[]) => {
+    if (!activity || keysToFetch.length === 0) return;
+    setRefetchingStreamKeys(keysToFetch);
+    setStreamFetchFeedback(null);
+    try {
+      const res = await fetchSpecificStravaActivityStreams({
+        accessToken: stravaToken || null,
+        activity,
+        existingRecord: detailsRecord,
+        streamKeys: keysToFetch,
+      });
+      onCalibrationSaved(res.record);
+      if (res.updatedKeys.length > 0) {
+        setStreamFetchFeedback({
+          type: 'success',
+          message:
+            res.source === 'strava'
+              ? `Re-fetched ${res.updatedKeys.join(', ')} from Strava API for Workout Analysis.`
+              : `Refreshed ${res.updatedKeys.join(', ')} stream for Workout Analysis.`,
+        });
+      } else {
+        setStreamFetchFeedback({
+          type: 'error',
+          message: `Strava did not return data for: ${keysToFetch.join(', ')}.`,
+        });
+      }
+    } catch (err: any) {
+      setStreamFetchFeedback({
+        type: 'error',
+        message: err?.message || 'Failed to re-fetch selected streams from Strava.',
+      });
+    } finally {
+      setRefetchingStreamKeys([]);
+    }
+  };
+
+  const handleRefetchWorkoutAnalysisAndLaps = async () => {
+    if (!activity) return;
+    setIsRefetchingWorkoutLaps(true);
+    setStreamFetchFeedback(null);
+    try {
+      let savedRecord: StravaActivityDetailsRecord;
+      if (isDemoActivityId(activity.id)) {
+        const fresh = generateDemoActivityDetails(activity);
+        savedRecord = await saveStravaActivityDetails(activity.id, {
+          activity: fresh.activity || (activity as any),
+          streams: fresh.streams,
+        });
+      } else if (stravaToken) {
+        const fresh = await fetchStravaActivityDetails(stravaToken, String(activity.id));
+        savedRecord = await saveStravaActivityDetails(String(activity.id), fresh);
+      } else {
+        const allKeys = filteredStreamDefs.map((d) => d.key);
+        const res = await fetchSpecificStravaActivityStreams({
+          accessToken: null,
+          activity,
+          existingRecord: detailsRecord,
+          streamKeys: allKeys,
+        });
+        savedRecord = res.record;
+      }
+
+      onCalibrationSaved(savedRecord);
+      const freshLaps = (savedRecord.activity as any)?.laps;
+      if (isRun && Array.isArray(freshLaps) && freshLaps.length > 0) {
+        const freshRunSections = mapStravaRunLapsToSections(freshLaps);
+        if (freshRunSections.length > 0) {
+          setRunSections(freshRunSections);
+        }
+      } else if (isSwim && Array.isArray(freshLaps) && freshLaps.length > 0) {
+        setSwimLaps(mapRawSwimLaps(freshLaps));
+      }
+
+      setStreamFetchFeedback({
+        type: 'success',
+        message: `Re-fetched Workout Analysis laps & telemetry streams (${Object.keys(savedRecord.streams || {}).length} streams).`,
+      });
+    } catch (err: any) {
+      setStreamFetchFeedback({
+        type: 'error',
+        message: err?.message || 'Failed to re-fetch Workout Analysis data from Strava.',
+      });
+    } finally {
+      setIsRefetchingWorkoutLaps(false);
+    }
+  };
 
   if (!isOpen) return null;
 
@@ -1911,7 +2037,7 @@ export const ActivityCalibrationModal: React.FC<ActivityCalibrationModalProps> =
             </div>
             <div className="min-w-0">
               <h3 className="text-base sm:text-lg font-black text-white leading-tight">
-                Fix & Calibrate Activity Data
+                Fix Data
               </h3>
               <p className="text-xs text-slate-400 truncate mt-0.5">
                 {activity.name} • {classification.subType}
@@ -1919,18 +2045,186 @@ export const ActivityCalibrationModal: React.FC<ActivityCalibrationModalProps> =
             </div>
           </div>
 
-          <button
-            type="button"
-            onClick={onClose}
-            className="p-2 rounded-xl text-slate-400 hover:text-white hover:bg-slate-800 transition-colors cursor-pointer shrink-0"
-            title="Close calibration"
-          >
-            <X className="w-5 h-5" />
-          </button>
+          <div className="flex items-center gap-2 shrink-0">
+            <button
+              type="button"
+              onClick={() => {
+                setIsStreamFetcherOpen((prev) => !prev);
+                setStreamFetchFeedback(null);
+              }}
+              title="Re-fetch Workout Analysis laps and specific telemetry streams from Strava API"
+              className={`text-[11px] font-mono px-2.5 py-1.5 rounded-xl border transition-all cursor-pointer flex items-center gap-1.5 ${
+                isStreamFetcherOpen
+                  ? 'text-slate-950 bg-emerald-400 border-emerald-300 font-bold shadow-xs'
+                  : 'text-emerald-400 bg-emerald-500/10 hover:bg-emerald-500/20 border-emerald-500/30 hover:border-emerald-400/50 font-bold'
+              }`}
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${(isRefetchingWorkoutLaps || refetchingStreamKeys.length > 0) ? 'animate-spin' : ''}`} />
+              <span>Re-fetch Streams ({cachedStreamsCount})</span>
+              <ChevronDown
+                className={`w-3 h-3 transition-transform ${isStreamFetcherOpen ? 'rotate-180' : ''}`}
+              />
+            </button>
+
+            <button
+              type="button"
+              onClick={onClose}
+              className="p-2 rounded-xl text-slate-400 hover:text-white hover:bg-slate-800 transition-colors cursor-pointer shrink-0"
+              title="Close Fix Data"
+            >
+              <X className="w-5 h-5" />
+            </button>
+          </div>
         </div>
 
         {/* Body */}
         <div className="p-4 sm:p-5 overflow-y-auto space-y-4">
+          {/* Interactive Workout Analysis & Specific Stream Re-fetch Box */}
+          {isStreamFetcherOpen && (
+            <div className="p-3.5 rounded-2xl bg-slate-950/90 border border-emerald-500/40 space-y-3 animate-in fade-in duration-150">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-2.5 border-b border-slate-800">
+                <div>
+                  <h5 className="text-xs font-bold text-emerald-300 flex items-center gap-1.5">
+                    <RefreshCw className="w-3.5 h-3.5 text-emerald-400" />
+                    <span>Re-fetch Data Streams for Workout Analysis</span>
+                  </h5>
+                  <p className="text-[11px] text-slate-400 mt-0.5">
+                    Re-fetch all Workout Analysis laps &amp; streams or pick individual streams (such as Cadence or Heart Rate) without losing your calibrated distance.
+                  </p>
+                </div>
+                <div className="flex items-center gap-1.5 shrink-0 flex-wrap">
+                  <button
+                    type="button"
+                    disabled={isRefetchingWorkoutLaps || refetchingStreamKeys.length > 0}
+                    onClick={handleRefetchWorkoutAnalysisAndLaps}
+                    className="px-2.5 py-1 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-slate-950 text-[10px] font-black cursor-pointer transition-colors flex items-center gap-1 disabled:opacity-50 shadow-xs"
+                    title="Re-fetch Strava laps and all telemetry streams for Workout Analysis"
+                  >
+                    <RefreshCw className={`w-3 h-3 ${isRefetchingWorkoutLaps ? 'animate-spin' : ''}`} />
+                    <span>Re-fetch All Laps &amp; Streams</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setSelectedStreamKeys(filteredStreamDefs.map((d) => d.key))}
+                    className="px-2 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-[10px] font-bold cursor-pointer border border-slate-700"
+                  >
+                    Select All
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setSelectedStreamKeys([])}
+                    className="px-2 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-400 text-[10px] font-bold cursor-pointer border border-slate-700"
+                  >
+                    Clear
+                  </button>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5 max-h-60 overflow-y-auto pr-0.5">
+                {filteredStreamDefs.map((def) => {
+                  const streamArr = currentStreams?.[def.key]?.data;
+                  const ptsCount = Array.isArray(streamArr) ? streamArr.length : 0;
+                  const isCached = ptsCount > 0;
+                  const isChecked = selectedStreamKeys.includes(def.key);
+                  const isFetchingThis = refetchingStreamKeys.includes(def.key);
+
+                  return (
+                    <div
+                      key={def.key}
+                      className={`px-2.5 py-1.5 rounded-lg border flex items-center justify-between gap-2 text-xs transition-colors ${
+                        isChecked
+                          ? 'bg-emerald-950/30 border-emerald-500/40 text-white'
+                          : 'bg-slate-900/70 border-slate-800/80 text-slate-300'
+                      }`}
+                    >
+                      <label className="flex items-center gap-2 min-w-0 flex-1 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={isChecked}
+                          onChange={() => toggleStreamKeySelection(def.key)}
+                          className="w-3.5 h-3.5 rounded border-slate-700 text-emerald-500 focus:ring-emerald-500 bg-slate-900 cursor-pointer shrink-0"
+                        />
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center gap-1.5">
+                            <span className="font-bold truncate">{def.label}</span>
+                            <span className="text-[10px] font-mono text-slate-500">({def.unit})</span>
+                          </div>
+                          <span
+                            className={`text-[10px] font-mono block ${
+                              isCached ? 'text-emerald-400' : 'text-slate-500'
+                            }`}
+                          >
+                            {isCached ? `Cached • ${ptsCount.toLocaleString()} pts` : 'Not cached'}
+                          </span>
+                        </div>
+                      </label>
+
+                      <button
+                        type="button"
+                        disabled={refetchingStreamKeys.length > 0 || isRefetchingWorkoutLaps}
+                        onClick={() => handleRefetchSpecificStreams([def.key])}
+                        className="px-2 py-1 rounded-lg bg-slate-800 hover:bg-emerald-500 hover:text-slate-950 text-emerald-300 font-bold text-[10px] cursor-pointer transition-colors border border-slate-700 hover:border-emerald-400 flex items-center gap-1 shrink-0 disabled:opacity-50"
+                        title={`Re-fetch only ${def.label} (${def.key}) stream`}
+                      >
+                        <RefreshCw className={`w-2.5 h-2.5 ${isFetchingThis ? 'animate-spin' : ''}`} />
+                        <span>Re-fetch</span>
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+
+              {streamFetchFeedback && (
+                <div
+                  className={`px-2.5 py-1.5 rounded-lg border text-[11px] flex items-center gap-1.5 ${
+                    streamFetchFeedback.type === 'success'
+                      ? 'bg-emerald-500/15 border-emerald-500/30 text-emerald-300'
+                      : 'bg-rose-500/15 border-rose-500/30 text-rose-300'
+                  }`}
+                >
+                  {streamFetchFeedback.type === 'success' ? (
+                    <Check className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                  ) : (
+                    <AlertCircle className="w-3.5 h-3.5 text-rose-400 shrink-0" />
+                  )}
+                  <span>{streamFetchFeedback.message}</span>
+                </div>
+              )}
+
+              <div className="pt-1 flex items-center justify-between gap-2">
+                <span className="text-[10px] text-slate-400 font-mono">
+                  {selectedStreamKeys.length} stream{selectedStreamKeys.length === 1 ? '' : 's'} selected
+                </span>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setIsStreamFetcherOpen(false)}
+                    className="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold cursor-pointer"
+                  >
+                    Close
+                  </button>
+                  <button
+                    type="button"
+                    disabled={selectedStreamKeys.length === 0 || refetchingStreamKeys.length > 0 || isRefetchingWorkoutLaps}
+                    onClick={() => handleRefetchSpecificStreams(selectedStreamKeys)}
+                    className="px-3 py-1 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-slate-950 text-xs font-black cursor-pointer transition-colors flex items-center gap-1.5 disabled:opacity-50 shadow-xs"
+                  >
+                    {refetchingStreamKeys.length > 0 ? (
+                      <>
+                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                        <span>Re-fetching...</span>
+                      </>
+                    ) : (
+                      <>
+                        <RefreshCw className="w-3.5 h-3.5" />
+                        <span>Re-fetch Selected ({selectedStreamKeys.length})</span>
+                      </>
+                    )}
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
           {/* Ignore Switch Card */}
           <div className={`p-4 rounded-2xl border transition-all ${
             isIgnored
@@ -2214,13 +2508,17 @@ export const ActivityCalibrationModal: React.FC<ActivityCalibrationModalProps> =
                         : 0;
                     const displayHr = lap.avgHr ?? origSlice?.avgHr;
 
+                    const isAlternate = index % 2 === 1;
                     return (
                       <div
                         key={`${lap.lapIndex}-${index}`}
-                        className={`w-full px-0 py-0 first:pt-2 last:pb-2 border-b last:border-b-0 first:border-t flex flex-wrap items-center justify-between gap-2 text-xs transition-colors ${
+                        style={isAlternate && !lap.isIgnored && !isRestLap ? { backgroundColor: '#d3f0ff' } : undefined}
+                        className={`w-full px-0 py-[2px] border-b last:border-b-0 first:border-t flex flex-wrap items-center justify-between gap-2 text-xs transition-colors ${
                           lap.isIgnored || isRestLap
                             ? 'bg-slate-950/40 border-slate-800/40 opacity-60'
-                            : 'bg-slate-900/80 border-slate-800'
+                            : isAlternate
+                            ? 'border-sky-300 text-slate-900'
+                            : 'bg-slate-900/90 border-slate-800 text-white'
                         }`}
                       >
                         <div className="w-16 shrink-0 flex flex-col">
@@ -2556,8 +2854,21 @@ export const ActivityCalibrationModal: React.FC<ActivityCalibrationModalProps> =
                   </div>
                 </div>
 
-                {/* +Add Lap and Clear buttons aligned directly to the right of the header text */}
+                {/* +Add Lap, Re-fetch, and Clear buttons aligned directly to the right of the header text */}
                 <div className="flex items-center gap-2 shrink-0 self-end sm:self-center">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsStreamFetcherOpen((prev) => !prev);
+                      setStreamFetchFeedback(null);
+                    }}
+                    className="px-2.5 py-1.5 rounded-xl bg-slate-800 hover:bg-emerald-500/20 text-emerald-400 hover:text-emerald-300 font-bold text-[11px] cursor-pointer transition-all flex items-center gap-1 border border-emerald-500/30 shadow-sm"
+                    title="Re-fetch Workout Analysis laps and telemetry streams from Strava"
+                  >
+                    <RefreshCw className={`w-3.5 h-3.5 ${(isRefetchingWorkoutLaps || refetchingStreamKeys.length > 0) ? 'animate-spin' : ''}`} />
+                    <span>Re-fetch</span>
+                  </button>
+
                   <button
                     type="button"
                     onClick={handleAddRunSection}
@@ -2608,11 +2919,9 @@ export const ActivityCalibrationModal: React.FC<ActivityCalibrationModalProps> =
                       <div
                         key={sec.id || idx}
                         style={isAlternate ? { backgroundColor: '#d3f0ff' } : undefined}
-                        className={`w-full px-0 py-0 first:pt-2 last:pb-2 border-b last:border-b-0 first:border-t text-xs transition-colors flex items-center gap-1.5 sm:gap-2 ${
+                        className={`w-full px-0 py-[2px] border-b last:border-b-0 first:border-t text-xs transition-colors flex items-center gap-1.5 sm:gap-2 ${
                           isAlternate
                             ? 'border-sky-300 text-slate-900'
-                            : isLast && timeDiscrepancySec > 0.05
-                            ? 'bg-emerald-950/20 border-emerald-500/40 text-white'
                             : 'bg-slate-900/90 border-slate-800 text-white'
                         }`}
                       >
