@@ -875,7 +875,7 @@ export const ActivityCalibrationModal: React.FC<ActivityCalibrationModalProps> =
     [isTurboTrainer, isSwim]
   );
   const [isStreamFetcherOpen, setIsStreamFetcherOpen] = useState(false);
-  const [selectedStreamKeys, setSelectedStreamKeys] = useState<string[]>(['cadence']);
+  const [selectedStreamKeys, setSelectedStreamKeys] = useState<string[]>(['laps', 'cadence']);
   const [refetchingStreamKeys, setRefetchingStreamKeys] = useState<string[]>([]);
   const [isRefetchingWorkoutLaps, setIsRefetchingWorkoutLaps] = useState(false);
   const [streamFetchFeedback, setStreamFetchFeedback] = useState<{
@@ -911,7 +911,19 @@ export const ActivityCalibrationModal: React.FC<ActivityCalibrationModalProps> =
         if (isRun && Array.isArray(freshLaps) && freshLaps.length > 0) {
           const freshRunSections = mapStravaRunLapsToSections(freshLaps);
           if (freshRunSections.length > 0) {
-            setRunSections(freshRunSections);
+            setRunSections((prev) => {
+              const prevIsAuto = prev.every((s) => String(s.id || '').startsWith('split-1km-'));
+              if (
+                !prevIsAuto &&
+                prev.length === freshRunSections.length &&
+                existingCalib?.calibratedRunSections?.length === freshRunSections.length
+              ) {
+                return prev;
+              }
+              return freshRunSections;
+            });
+            setCustomRunLapsEdited(true);
+            setTopLevelDistOrTimeEdited(false);
           }
         } else if (isSwim && Array.isArray(freshLaps) && freshLaps.length > 0) {
           setSwimLaps(mapRawSwimLaps(freshLaps));
@@ -967,12 +979,29 @@ export const ActivityCalibrationModal: React.FC<ActivityCalibrationModalProps> =
         savedRecord = res.record;
       }
 
+      savedRecord = await updateStravaActivityRecord(activity.id, (rec) => ({
+        ...rec,
+        lapsRefetchedManually: true,
+      }));
+
       onCalibrationSaved(savedRecord);
       const freshLaps = (savedRecord.activity as any)?.laps;
       if (isRun && Array.isArray(freshLaps) && freshLaps.length > 0) {
         const freshRunSections = mapStravaRunLapsToSections(freshLaps);
         if (freshRunSections.length > 0) {
-          setRunSections(freshRunSections);
+          setRunSections((prev) => {
+            const prevIsAuto = prev.every((s) => String(s.id || '').startsWith('split-1km-'));
+            if (
+              !prevIsAuto &&
+              prev.length === freshRunSections.length &&
+              existingCalib?.calibratedRunSections?.length === freshRunSections.length
+            ) {
+              return prev;
+            }
+            return freshRunSections;
+          });
+          setCustomRunLapsEdited(true);
+          setTopLevelDistOrTimeEdited(false);
         }
       } else if (isSwim && Array.isArray(freshLaps) && freshLaps.length > 0) {
         setSwimLaps(mapRawSwimLaps(freshLaps));
@@ -1795,9 +1824,15 @@ export const ActivityCalibrationModal: React.FC<ActivityCalibrationModalProps> =
       let finalDistM = parsedDistM;
       let finalMovingSec = parsedMovingSec;
 
-      // If run sections or swim laps were manually edited without overriding top-level Distance/Time, use simulated totals
+      const hasRealRunSections =
+        isRun &&
+        runSections.length > 0 &&
+        !runSections.every((s) => String(s.id || '').startsWith('split-1km-'));
+      const preserveCustomRunLaps = Boolean(hasRealRunSections && !topLevelDistOrTimeEdited);
+
+      // If run sections or swim laps are present without overriding top-level Distance/Time, use simulated totals
       if (!topLevelDistOrTimeEdited) {
-        if (isRun && runSections.length > 0 && customRunLapsEdited) {
+        if (preserveCustomRunLaps) {
           finalDistM = totalSimulatedDistanceM;
           finalMovingSec = Math.round(totalSimulatedDurationSec);
         } else if (isSwim && swimLaps.length > 0) {
@@ -1819,8 +1854,6 @@ export const ActivityCalibrationModal: React.FC<ActivityCalibrationModalProps> =
           (rawStreamDurationSec > 0 && finalMovingSec < rawStreamDurationSec));
       const isDistanceChanged = finalDistM > 0 && Math.abs(finalDistM - origDistM) >= 1;
 
-      const preserveCustomRunLaps = Boolean(isRun && runSections.length > 0 && customRunLapsEdited && !topLevelDistOrTimeEdited);
-
       const calibrationPayload: ActivityCalibration = {
         isIgnoredFromTrainingStatus: isIgnored,
         calibratedDistanceM: finalDistM > 0 ? finalDistM : undefined,
@@ -1830,12 +1863,15 @@ export const ActivityCalibrationModal: React.FC<ActivityCalibrationModalProps> =
         calibratedAvgWatts: isBikeOrTurbo && avgWattsInput ? parseInt(avgWattsInput, 10) : undefined,
         calibratedNormalizedPower: isBikeOrTurbo && npWattsInput ? parseInt(npWattsInput, 10) : undefined,
         calibratedLaps: isSwim && swimLaps.length > 0 ? swimLaps : undefined,
-        calibratedRunSections:
-          isRun && runSections.length > 0
-            ? preserveCustomRunLaps
-              ? runSections
-              : undefined
-            : undefined,
+        calibratedRunSections: preserveCustomRunLaps
+          ? computedRunSections.map((s) => ({
+              id: s.id,
+              name: s.name,
+              originalLapIndex: s.originalLapIndex,
+              durationSec: Math.round(s.effectiveDurationSec || s.durationSec),
+              speedKph: s.speedKph,
+            }))
+          : undefined,
         calibrationNotes: notes.trim() || undefined,
         replacesActivityId:
           stravaUploadSuccess?.activityId && String(stravaUploadSuccess.activityId) !== String(activity.id)
