@@ -1,6 +1,7 @@
 import { CompletedWorkout } from '../types/workout';
 import { generateFitFile, workoutToFitBase64, getFitFileName } from './fitGenerator';
 import { getDefaultActivityName } from './activityName';
+import { parseStravaResponse64Safe } from './stravaActivities';
 
 export interface StravaUploadStatusResponse {
   id: number | string;
@@ -8,7 +9,8 @@ export interface StravaUploadStatusResponse {
   external_id: string | null;
   error: string | null;
   status: string;
-  activity_id: number | null;
+  activity_id: number | string | null;
+  activity_id_str?: string | null;
 }
 
 export interface StravaUploadResult {
@@ -68,15 +70,17 @@ export async function checkStravaUploadStatus(
 
       const contentType = res.headers.get('content-type') || '';
       if (contentType.includes('application/json')) {
-        const data = await res.json();
+        const data = await parseStravaResponse64Safe(res);
         if (res.ok) {
+          const resolvedActivityId = data.activity_id_str || (data.activity_id != null ? String(data.activity_id) : null);
           return {
-            id: data.id,
+            id: data.id_str || data.id,
             id_str: data.id_str || String(data.id),
             external_id: data.external_id ?? null,
             error: data.error ?? null,
             status: data.status || '',
-            activity_id: data.activity_id ?? null,
+            activity_id: resolvedActivityId,
+            activity_id_str: resolvedActivityId,
           };
         }
       }
@@ -93,14 +97,16 @@ export async function checkStravaUploadStatus(
     },
   });
 
-  const data = await stravaRes.json();
+  const data = await parseStravaResponse64Safe(stravaRes);
+  const resolvedActivityId = data.activity_id_str || (data.activity_id != null ? String(data.activity_id) : null);
   return {
-    id: data.id,
+    id: data.id_str || data.id,
     id_str: data.id_str || String(data.id),
     external_id: data.external_id ?? null,
     error: data.error ?? null,
     status: data.status || '',
-    activity_id: data.activity_id ?? null,
+    activity_id: resolvedActivityId,
+    activity_id_str: resolvedActivityId,
   };
 }
 
@@ -276,17 +282,17 @@ export async function uploadWorkoutToStrava(
 
       const contentType = stravaRes.headers.get('content-type') || '';
       if (contentType.includes('application/json')) {
-        const data = await stravaRes.json();
+        const data = await parseStravaResponse64Safe(stravaRes);
         if (stravaRes.ok) {
           if (data.activity_id) {
             return {
               success: true,
-              uploadId: data.id_str || data.id,
-              activityId: data.activity_id,
+              uploadId: data.id_str || String(data.id),
+              activityId: data.activity_id_str || String(data.activity_id),
               status: data.status,
             };
           }
-          initialUploadId = data.id_str || data.id;
+          initialUploadId = data.id_str || String(data.id);
         } else {
           return {
             success: false,

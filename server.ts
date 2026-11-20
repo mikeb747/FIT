@@ -158,7 +158,7 @@ const handleOAuthCallback = async (req: express.Request, res: express.Response) 
         }),
       });
 
-      tokenData = await response.json();
+      tokenData = await parseStravaResponse64Safe(response);
       if (!response.ok) {
         throw new Error(tokenData.message || 'Token exchange failed');
       }
@@ -264,6 +264,73 @@ function forwardStravaRateLimitHeaders(stravaHeaders: Headers, response: express
   );
 }
 
+/**
+ * Validates a Strava 64-bit unsigned/signed integer ID as a string without converting to a 53-bit JS Number.
+ */
+function isValidStravaIdParam(rawId: unknown): boolean {
+  const str = String(rawId ?? '').trim();
+  return /^[1-9]\d{0,19}$/.test(str);
+}
+
+/**
+ * Recursively normalizes Strava objects so `id` and `id_str` (as well as `activity_id` / `activity_id_str`
+ * and nested `athlete.id` / `athlete.id_str`) always preserve the exact 64-bit string representation (`id_str`).
+ */
+function normalizeStravaIdFields<T = any>(input: T): T {
+  if (Array.isArray(input)) {
+    return input.map((item) => normalizeStravaIdFields(item)) as unknown as T;
+  }
+  if (input && typeof input === 'object') {
+    const obj = { ...(input as Record<string, any>) };
+    if (obj.id_str !== undefined && obj.id_str !== null && String(obj.id_str).trim() !== '') {
+      obj.id_str = String(obj.id_str).trim();
+      obj.id = obj.id_str;
+    } else if (obj.id !== undefined && obj.id !== null) {
+      obj.id_str = String(obj.id);
+    }
+
+    if (
+      obj.activity_id_str !== undefined &&
+      obj.activity_id_str !== null &&
+      String(obj.activity_id_str).trim() !== ''
+    ) {
+      obj.activity_id_str = String(obj.activity_id_str).trim();
+      obj.activity_id = obj.activity_id_str;
+    } else if (obj.activity_id !== undefined && obj.activity_id !== null) {
+      obj.activity_id_str = String(obj.activity_id);
+      obj.activity_id = String(obj.activity_id);
+    }
+
+    for (const key of Object.keys(obj)) {
+      const val = obj[key];
+      if (val && typeof val === 'object') {
+        obj[key] = normalizeStravaIdFields(val);
+      }
+    }
+    return obj as T;
+  }
+  return input;
+}
+
+/**
+ * Parses a Strava HTTP Response as JSON while quoting 15+ digit 64-bit integer IDs before `JSON.parse`
+ * and normalizing `id` / `id_str` fields so 64-bit Activity & Athlete IDs never lose precision.
+ */
+async function parseStravaResponse64Safe(response: Response): Promise<any> {
+  const rawText = await response.text();
+  if (!rawText || !rawText.trim()) return {};
+  const safeText = rawText.replace(
+    /"(id|activity_id|upload_id|athlete_id)"\s*:\s*(\d{15,})\b/g,
+    '"$1":"$2"'
+  );
+  try {
+    const parsed = JSON.parse(safeText);
+    return normalizeStravaIdFields(parsed);
+  } catch {
+    return {};
+  }
+}
+
 // Direct Upload to Strava Activity Upload API
 app.post('/api/strava/upload', async (req, res) => {
   try {
@@ -297,7 +364,7 @@ app.post('/api/strava/upload', async (req, res) => {
     });
 
     forwardStravaRateLimitHeaders(stravaRes.headers, res);
-    const data = await stravaRes.json();
+    const data = await parseStravaResponse64Safe(stravaRes);
     if (!stravaRes.ok) {
       return res.status(stravaRes.status).json({
         error: data.message || 'Strava upload failed',
@@ -307,8 +374,8 @@ app.post('/api/strava/upload', async (req, res) => {
 
     res.json({
       success: true,
-      uploadId: data.id_str || data.id,
-      activityId: data.activity_id,
+      uploadId: data.id_str || (data.id != null ? String(data.id) : null),
+      activityId: data.activity_id_str || (data.activity_id != null ? String(data.activity_id) : null),
       status: data.status,
       error: data.error || null,
     });
@@ -326,7 +393,7 @@ app.get('/api/strava/uploads/:uploadId', async (req, res) => {
       return res.status(401).json({ error: 'Strava access token is required' });
     }
 
-    const stravaRes = await fetch(`https://www.strava.com/api/v3/uploads/${uploadId}`, {
+    const stravaRes = await fetch(`https://www.strava.com/api/v3/uploads/${encodeURIComponent(uploadId)}`, {
       method: 'GET',
       headers: {
         Authorization: authHeader,
@@ -334,7 +401,7 @@ app.get('/api/strava/uploads/:uploadId', async (req, res) => {
     });
 
     forwardStravaRateLimitHeaders(stravaRes.headers, res);
-    const data = await stravaRes.json();
+    const data = await parseStravaResponse64Safe(stravaRes);
     return res.status(stravaRes.status).json(data);
   } catch (err: any) {
     return res.status(500).json({ error: err.message || 'Error checking upload status' });
@@ -372,7 +439,7 @@ app.get('/api/strava/activities', async (req, res) => {
     );
 
     forwardStravaRateLimitHeaders(stravaRes.headers, res);
-    const data = await stravaRes.json();
+    const data = await parseStravaResponse64Safe(stravaRes);
     if (!stravaRes.ok) {
       return res.status(stravaRes.status).json(data);
     }
@@ -390,17 +457,17 @@ app.get('/api/strava/activities/:activityId', async (req, res) => {
       return res.status(401).json({ error: 'Strava access token is required' });
     }
 
-    const activityId = Number(req.params.activityId);
-    if (!Number.isSafeInteger(activityId) || activityId <= 0) {
+    const activityId = String(req.params.activityId || '').trim();
+    if (!isValidStravaIdParam(activityId)) {
       return res.status(400).json({ error: 'A valid Strava activity ID is required' });
     }
 
-    const stravaRes = await fetch(`https://www.strava.com/api/v3/activities/${activityId}`, {
+    const stravaRes = await fetch(`https://www.strava.com/api/v3/activities/${encodeURIComponent(activityId)}`, {
       method: 'GET',
       headers: { Authorization: authHeader, Accept: 'application/json' },
     });
     forwardStravaRateLimitHeaders(stravaRes.headers, res);
-    const data = await stravaRes.json();
+    const data = await parseStravaResponse64Safe(stravaRes);
     return res.status(stravaRes.status).json(data);
   } catch (err: any) {
     return res.status(500).json({ error: err.message || 'Error fetching Strava activity details' });
@@ -415,17 +482,17 @@ app.get('/api/strava/activities/:activityId/laps', async (req, res) => {
       return res.status(401).json({ error: 'Strava access token is required' });
     }
 
-    const activityId = Number(req.params.activityId);
-    if (!Number.isSafeInteger(activityId) || activityId <= 0) {
+    const activityId = String(req.params.activityId || '').trim();
+    if (!isValidStravaIdParam(activityId)) {
       return res.status(400).json({ error: 'A valid Strava activity ID is required' });
     }
 
-    const stravaRes = await fetch(`https://www.strava.com/api/v3/activities/${activityId}/laps`, {
+    const stravaRes = await fetch(`https://www.strava.com/api/v3/activities/${encodeURIComponent(activityId)}/laps`, {
       method: 'GET',
       headers: { Authorization: authHeader, Accept: 'application/json' },
     });
     forwardStravaRateLimitHeaders(stravaRes.headers, res);
-    const data = await stravaRes.json();
+    const data = await parseStravaResponse64Safe(stravaRes);
     return res.status(stravaRes.status).json(data);
   } catch (err: any) {
     return res.status(500).json({ error: err.message || 'Error fetching Strava activity laps' });
@@ -440,12 +507,12 @@ app.put('/api/strava/activities/:activityId', async (req, res) => {
       return res.status(401).json({ error: 'Strava access token is required' });
     }
 
-    const activityId = Number(req.params.activityId);
-    if (!Number.isSafeInteger(activityId) || activityId <= 0) {
+    const activityId = String(req.params.activityId || '').trim();
+    if (!isValidStravaIdParam(activityId)) {
       return res.status(400).json({ error: 'A valid Strava activity ID is required' });
     }
 
-    const stravaRes = await fetch(`https://www.strava.com/api/v3/activities/${activityId}`, {
+    const stravaRes = await fetch(`https://www.strava.com/api/v3/activities/${encodeURIComponent(activityId)}`, {
       method: 'PUT',
       headers: {
         Authorization: authHeader,
@@ -456,7 +523,7 @@ app.put('/api/strava/activities/:activityId', async (req, res) => {
     });
 
     forwardStravaRateLimitHeaders(stravaRes.headers, res);
-    const data = await stravaRes.json();
+    const data = await parseStravaResponse64Safe(stravaRes);
     return res.status(stravaRes.status).json(data);
   } catch (err: any) {
     return res.status(500).json({ error: err.message || 'Error updating Strava activity' });
@@ -470,8 +537,8 @@ app.get('/api/strava/activities/:activityId/streams', async (req, res) => {
       return res.status(401).json({ error: 'Strava access token is required' });
     }
 
-    const activityId = Number(req.params.activityId);
-    if (!Number.isSafeInteger(activityId) || activityId <= 0) {
+    const activityId = String(req.params.activityId || '').trim();
+    if (!isValidStravaIdParam(activityId)) {
       return res.status(400).json({ error: 'A valid Strava activity ID is required' });
     }
 
@@ -481,14 +548,14 @@ app.get('/api/strava/activities/:activityId/streams', async (req, res) => {
         ? req.query.keys.trim()
         : defaultKeys;
     const stravaRes = await fetch(
-      `https://www.strava.com/api/v3/activities/${activityId}/streams?keys=${encodeURIComponent(requestedKeys)}&key_by_type=true`,
+      `https://www.strava.com/api/v3/activities/${encodeURIComponent(activityId)}/streams?keys=${encodeURIComponent(requestedKeys)}&key_by_type=true`,
       {
         method: 'GET',
         headers: { Authorization: authHeader, Accept: 'application/json' },
       }
     );
     forwardStravaRateLimitHeaders(stravaRes.headers, res);
-    const data = await stravaRes.json();
+    const data = await parseStravaResponse64Safe(stravaRes);
     return res.status(stravaRes.status).json(data);
   } catch (err: any) {
     return res.status(500).json({ error: err.message || 'Error fetching Strava activity streams' });
@@ -508,7 +575,7 @@ app.get('/api/strava/athlete', async (req, res) => {
       headers: { Authorization: authHeader, Accept: 'application/json' },
     });
     forwardStravaRateLimitHeaders(stravaRes.headers, res);
-    const data = await stravaRes.json();
+    const data = await parseStravaResponse64Safe(stravaRes);
     return res.status(stravaRes.status).json(data);
   } catch (err: any) {
     return res.status(500).json({ error: err.message || 'Error fetching Strava athlete profile' });
@@ -533,7 +600,7 @@ app.get('/api/strava/gear/:gearId', async (req, res) => {
       headers: { Authorization: authHeader, Accept: 'application/json' },
     });
     forwardStravaRateLimitHeaders(stravaRes.headers, res);
-    const data = await stravaRes.json();
+    const data = await parseStravaResponse64Safe(stravaRes);
     return res.status(stravaRes.status).json(data);
   } catch (err: any) {
     return res.status(500).json({ error: err.message || 'Error fetching Strava gear details' });
@@ -562,7 +629,7 @@ app.post('/api/strava/refresh', async (req, res) => {
       }),
     });
 
-    const data = await response.json();
+    const data = await parseStravaResponse64Safe(response);
     if (!response.ok) {
       return res.status(response.status).json(data);
     }

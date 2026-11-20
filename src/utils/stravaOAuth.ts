@@ -71,7 +71,8 @@ export interface StravaTokenResponse {
   expires_in: number;
   refresh_token: string;
   athlete?: {
-    id: number;
+    id: number | string;
+    id_str?: string;
     username?: string;
     firstname?: string;
     lastname?: string;
@@ -172,7 +173,22 @@ export async function exchangeStravaCode(
     }),
   });
 
-  const data = await response.json().catch(() => ({}));
+  const rawText = await response.text().catch(() => '');
+  const safeJsonText = rawText.replace(
+    /"(id|activity_id|upload_id|athlete_id)"\s*:\s*(\d{15,})(?=\s*[,}\]])/g,
+    '"$1":"$2"'
+  );
+  let data: any = {};
+  try {
+    data = safeJsonText ? JSON.parse(safeJsonText) : {};
+  } catch {
+    data = {};
+  }
+  if (data?.athlete && typeof data.athlete === 'object') {
+    const canonicalAthleteId = String(data.athlete.id_str || data.athlete.id || '');
+    data.athlete.id = canonicalAthleteId;
+    data.athlete.id_str = canonicalAthleteId;
+  }
   if (!response.ok) {
     const errorDetails = data.errors ? JSON.stringify(data.errors) : '';
     throw new Error(data.message || data.error || errorDetails || `Strava authorization exchange failed (${response.status})`);

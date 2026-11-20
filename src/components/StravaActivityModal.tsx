@@ -55,6 +55,9 @@ import {
   getBikeActivityDetails,
   saveActivityEffortFeedback,
   saveActivityCalibration,
+  hasActualActivityCalibration,
+  formatEfBadgeLabel,
+  getActivityEfBadgeLabel,
   STRAVA_STREAM_DEFINITIONS,
   hasRepeatingStreamArtifact,
   fetchSpecificStravaActivityStreams,
@@ -332,7 +335,8 @@ export const StravaActivityModal: React.FC<StravaActivityModalProps> = ({
 
   const handleSaveEfConfig = async (
     nextMode: 0 | 10 | 15 | 'custom',
-    nextIndices?: number[]
+    nextIndices?: number[],
+    nextBadgeLabel?: string | null
   ) => {
     setEfWarmupTrimMin(nextMode);
     if (nextIndices !== undefined) {
@@ -341,10 +345,15 @@ export const StravaActivityModal: React.FC<StravaActivityModalProps> = ({
     if (!activity) return;
     try {
       const existingCalib = detailsRecord?.calibration || {};
+      const resolvedIndices = nextIndices !== undefined ? nextIndices : customEfLapIndices;
       const updatedRecord = await saveActivityCalibration(activity.id, {
         ...existingCalib,
         efWarmupTrimMin: nextMode,
-        customEfLapIndices: nextIndices !== undefined ? nextIndices : customEfLapIndices,
+        customEfLapIndices: resolvedIndices,
+        customEfBadgeLabel:
+          nextMode === 'custom' && resolvedIndices.length > 0 && nextBadgeLabel
+            ? nextBadgeLabel
+            : undefined,
       });
       setDetailsRecord(updatedRecord);
     } catch (err) {
@@ -491,17 +500,11 @@ export const StravaActivityModal: React.FC<StravaActivityModalProps> = ({
   if (!isOpen || !activity) return null;
 
   const classification = classifyActivity(activity);
-  const hasCalibration = Boolean(
-    detailsRecord?.calibration &&
-      Object.keys(detailsRecord.calibration).some(
-        (k) =>
-          k !== 'updatedAt' &&
-          k !== 'efWarmupTrimMin' &&
-          k !== 'customEfLapIndices' &&
-          (detailsRecord.calibration as any)[k] !== undefined
-      )
-  );
+  const hasCalibration = hasActualActivityCalibration(detailsRecord?.calibration);
   const isIgnored = Boolean(detailsRecord?.calibration?.isIgnoredFromTrainingStatus);
+  const efBadgeLabel = !isIgnored
+    ? getActivityEfBadgeLabel(activity, detailsRecord || undefined)
+    : null;
 
   const durationMoving =
     detailsRecord?.calibration?.calibratedMovingTimeSec ??
@@ -853,6 +856,13 @@ export const StravaActivityModal: React.FC<StravaActivityModalProps> = ({
                 Calibrated Data
               </span>
             ) : null}
+
+            {/* Selected EF & Decoupling Laps Green Badge */}
+            {!isIgnored && efBadgeLabel && (
+              <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-xl bg-emerald-500/15 border border-emerald-500/30 text-emerald-400 text-[11px] font-black font-mono normal-case tracking-tight">
+                <span>{efBadgeLabel}</span>
+              </span>
+            )}
 
             {/* Saved to Google Sheets badge (shown only when published, Unpublished badge removed per user request) */}
             {!isUnpublished && (
@@ -1840,7 +1850,7 @@ export const StravaActivityModal: React.FC<StravaActivityModalProps> = ({
                     <TrendingUp className="w-4 h-4 text-emerald-400" />
                     <div>
                       <h4 className="text-xs font-black text-white uppercase tracking-wider">
-                        Aerobic Efficiency (EF) &amp; Decoupling ({actCategory === 'run' ? 'Pa:Hr' : 'Pw:Hr'})
+                        Aerobic Efficiency (EF) &amp; Decoupling (<span className="normal-case">{actCategory === 'run' ? 'Pa:HR' : 'Pw:HR'}</span>)
                       </h4>
                       <span className="text-[11px] text-slate-400">
                         {actCategory === 'run'
@@ -1951,7 +1961,7 @@ export const StravaActivityModal: React.FC<StravaActivityModalProps> = ({
 
                   <div className="p-2.5 rounded-xl bg-slate-900/90 border border-slate-800/80">
                     <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
-                      {actCategory === 'run' ? 'Pa:Hr Decoupling' : 'Pw:Hr Decoupling'}
+                      <span className="normal-case">{actCategory === 'run' ? 'Pa:HR' : 'Pw:HR'}</span> Decoupling
                     </div>
                     <div
                       className={`text-base font-black font-mono mt-0.5 ${
@@ -2197,7 +2207,15 @@ export const StravaActivityModal: React.FC<StravaActivityModalProps> = ({
                         <button
                           type="button"
                           onClick={() => {
-                            handleSaveEfConfig('custom', activeCustomIndices);
+                            const selectedRes = computeCustomLapsEf(activeCustomIndices);
+                            const badgeLabel = selectedRes
+                              ? formatEfBadgeLabel(
+                                  selectedRes.overallEf,
+                                  selectedRes.decouplingPct,
+                                  actCategory === 'bike'
+                                )
+                              : null;
+                            handleSaveEfConfig('custom', activeCustomIndices, badgeLabel);
                             setIsEfLapSelectorOpen(false);
                           }}
                           className="px-4 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-xs cursor-pointer transition-all shadow-md"

@@ -1963,7 +1963,7 @@ export const FitnessTab: React.FC<FitnessTabProps> = ({
               </div>
 
               <div className="mt-3 pt-2.5 border-t border-slate-200/70 dark:border-slate-800/70 text-[11px] text-slate-400 flex items-center justify-between">
-                <span>Click any run to inspect 1st vs 2nd half Pa:Hr drift</span>
+                <span>Click any run to inspect 1st vs 2nd half Pa:HR drift</span>
                 <span className="font-mono text-[10px] text-emerald-400 font-bold">
                   Target Drift ≤ 3.5%
                 </span>

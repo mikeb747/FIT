@@ -45,6 +45,8 @@ import {
   calculateActivityTSS,
   calculateNormalizedPower,
   getLongestLapDistanceM,
+  hasActualActivityCalibration,
+  getActivityEfBadgeLabel,
 } from '../utils/stravaActivities';
 import { applyRenameRulesToName } from '../utils/activityRenameRules';
 import type { AthleteProfile } from '../types/athlete';
@@ -1103,8 +1105,10 @@ export const StravaActivitiesTab: React.FC<StravaActivitiesTabProps> = ({
             const isIgnored = Boolean(details?.calibration?.isIgnoredFromTrainingStatus);
             const isNew = isActivityNew(act);
             const showNew = isNew && !isIgnored;
-            const hasCalibration = Boolean(details?.calibration);
+            const hasCalibration = hasActualActivityCalibration(details?.calibration);
             const showCalibrated = hasCalibration && !isIgnored;
+            const efBadgeLabel = !isIgnored ? getActivityEfBadgeLabel(act, details) : null;
+            const showEfBadge = Boolean(efBadgeLabel);
             const duration = details?.calibration?.calibratedMovingTimeSec ?? act.moving_time ?? act.elapsed_time ?? 0;
             const tssResult = calculateActivityTSS(act, details, athleteProfile);
             const tssValue = tssResult ? tssResult.tss : null;
@@ -1139,13 +1143,32 @@ export const StravaActivitiesTab: React.FC<StravaActivitiesTabProps> = ({
                   {getCategoryIcon(classification.category, 'w-5 h-5', isLight)}
                 </div>
 
-                {/* 4.b: Top-right badges: Calibrated & New flush in top-right corner */}
-                {(showCalibrated || showNew) && (
+                {/* 4.b: Top-right badges: Selected EF/PaHR, Calibrated & New flush in top-right corner */}
+                {(showEfBadge || showCalibrated || showNew) && (
                   <div className="absolute top-0 right-0 flex items-center z-10 pointer-events-none">
+                    {showEfBadge && (
+                      <div
+                        className={`px-2.5 py-1 flex items-center gap-1 border-l border-b text-[10px] font-black font-mono normal-case tracking-tight shadow-xs ${
+                          showCalibrated || showNew ? 'rounded-bl-xl' : 'rounded-tr-2xl rounded-bl-xl'
+                        } ${
+                          isLight
+                            ? 'bg-emerald-100/95 border-emerald-300 text-emerald-800'
+                            : 'bg-emerald-500/15 border-emerald-500/30 text-emerald-400'
+                        }`}
+                      >
+                        <span>{efBadgeLabel}</span>
+                      </div>
+                    )}
                     {showCalibrated && (
                       <div
                         className={`px-2.5 py-1 flex items-center gap-1 border-l border-b text-[10px] font-black uppercase tracking-wider shadow-xs ${
-                          showNew ? 'rounded-bl-xl' : 'rounded-tr-2xl rounded-bl-xl'
+                          showNew
+                            ? showEfBadge
+                              ? ''
+                              : 'rounded-bl-xl'
+                            : showEfBadge
+                            ? 'rounded-tr-2xl'
+                            : 'rounded-tr-2xl rounded-bl-xl'
                         } ${
                           isLight
                             ? 'bg-amber-100/90 border-amber-300 text-amber-800'
@@ -1158,7 +1181,7 @@ export const StravaActivitiesTab: React.FC<StravaActivitiesTabProps> = ({
                     {showNew && (
                       <div
                         className={`px-2.5 py-1 rounded-tr-2xl ${
-                          showCalibrated
+                          showCalibrated || showEfBadge
                             ? 'border-l border-b'
                             : 'rounded-bl-xl border-l border-b'
                         } text-[10px] font-black uppercase tracking-wider flex items-center gap-1 shadow-xs ${
@@ -1241,7 +1264,9 @@ export const StravaActivitiesTab: React.FC<StravaActivitiesTabProps> = ({
                   <div className="flex items-start justify-between gap-2">
                     <div
                       className={`min-w-0 ${
-                        showCalibrated && showNew
+                        (showCalibrated || showEfBadge) && showNew
+                          ? 'pr-36'
+                          : showEfBadge
                           ? 'pr-28'
                           : showCalibrated || showNew
                           ? 'pr-16'

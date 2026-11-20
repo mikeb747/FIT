@@ -1019,17 +1019,22 @@ export async function uploadRunFitToStrava(
 
       const contentType = stravaRes.headers.get('content-type') || '';
       if (contentType.includes('application/json')) {
-        const data = await stravaRes.json();
+        const rawText = await stravaRes.text();
+        const safeJsonText = rawText.replace(
+          /"(id|activity_id|upload_id|athlete_id)"\s*:\s*(\d{15,})(?=\s*[,}\]])/g,
+          '"$1":"$2"'
+        );
+        const data = JSON.parse(safeJsonText || '{}');
         if (stravaRes.ok) {
           if (data.activity_id) {
             return {
               success: true,
-              uploadId: data.id_str || data.id,
-              activityId: data.activity_id,
+              uploadId: data.id_str || String(data.id),
+              activityId: data.activity_id_str || String(data.activity_id),
               status: data.status,
             };
           }
-          initialUploadId = data.id_str || data.id;
+          initialUploadId = data.id_str || String(data.id);
         } else {
           return {
             success: false,

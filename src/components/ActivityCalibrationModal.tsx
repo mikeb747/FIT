@@ -1402,11 +1402,11 @@ export const ActivityCalibrationModal: React.FC<ActivityCalibrationModalProps> =
           : origSlice?.avgCadence ?? (activity.average_cadence ? Math.round(activity.average_cadence) : undefined);
 
       return {
-        id: Number(activity.id) * 100 + (idx + 1),
+        id: `${String((activity as any).id_str || activity.id)}_${idx + 1}`,
         resource_state: 2,
         name: s.name || `Lap ${idx + 1}`,
-        activity: { id: activity.id },
-        athlete: (activity as any).athlete || { id: 0 },
+        activity: { id: String((activity as any).id_str || activity.id), id_str: String((activity as any).id_str || activity.id) },
+        athlete: (activity as any).athlete || { id: '0', id_str: '0' },
         elapsed_time: durSec,
         moving_time: durSec,
         start_date: activity.start_date,
@@ -1534,11 +1534,11 @@ export const ActivityCalibrationModal: React.FC<ActivityCalibrationModalProps> =
       const totalStrokes = isRest ? 0 : Math.round(((targetSpm || 0) * durSec) / 60);
 
       return {
-        id: Number(activity.id) * 100 + (idx + 1),
+        id: `${String((activity as any).id_str || activity.id)}_${idx + 1}`,
         resource_state: 2,
         name: isRest ? `Rest ${idx + 1}` : `Lap ${idx + 1}`,
-        activity: { id: activity.id },
-        athlete: (activity as any).athlete || { id: 0 },
+        activity: { id: String((activity as any).id_str || activity.id), id_str: String((activity as any).id_str || activity.id) },
+        athlete: (activity as any).athlete || { id: '0', id_str: '0' },
         elapsed_time: durSec,
         moving_time: durSec,
         start_date: activity.start_date,
