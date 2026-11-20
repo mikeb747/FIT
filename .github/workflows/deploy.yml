@@ -17,7 +17,7 @@ permissions:
 
 concurrency:
   group: 'pages'
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   build-and-deploy:
@@ -38,14 +38,18 @@ jobs:
         run: npm install --legacy-peer-deps
 
       - name: Build Production SPA
-        run: npm run build
+        run: |
+          npm run build
+          touch dist/.nojekyll
+          test -f dist/index.html
 
       - name: Setup Pages
-        uses: actions/configure-pages@v4
+        uses: actions/configure-pages@v5
 
       - name: Upload Pages Artifact
         uses: actions/upload-pages-artifact@v3
         with:
+          name: github-pages
           path: './dist'
 
       - name: Deploy to GitHub Pages
