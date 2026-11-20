@@ -1102,14 +1102,23 @@ export const StravaActivitiesTab: React.FC<StravaActivitiesTabProps> = ({
             const classification = classifyActivity(act);
             const details = activityDetails[activityId];
             const metrics = formatSportMetrics(act, details);
-            const isIgnored = Boolean(details?.calibration?.isIgnoredFromTrainingStatus);
+            const isIgnored = Boolean(
+              details?.calibration?.isIgnoredFromTrainingStatus ?? act.isIgnoredFromTrainingStatus
+            );
             const isNew = isActivityNew(act);
             const showNew = isNew && !isIgnored;
-            const hasCalibration = hasActualActivityCalibration(details?.calibration);
+            const hasCalibration = details?.calibration
+              ? hasActualActivityCalibration(details.calibration)
+              : Boolean(act.hasActualCalibration);
             const showCalibrated = hasCalibration && !isIgnored;
             const efBadgeLabel = !isIgnored ? getActivityEfBadgeLabel(act, details) : null;
             const showEfBadge = Boolean(efBadgeLabel);
-            const duration = details?.calibration?.calibratedMovingTimeSec ?? act.moving_time ?? act.elapsed_time ?? 0;
+            const duration =
+              details?.calibration?.calibratedMovingTimeSec ??
+              act.calibratedMovingTimeSec ??
+              act.moving_time ??
+              act.elapsed_time ??
+              0;
             const tssResult = calculateActivityTSS(act, details, athleteProfile);
             const tssValue = tssResult ? tssResult.tss : null;
             const longestLapM = getLongestLapDistanceM(act, details);

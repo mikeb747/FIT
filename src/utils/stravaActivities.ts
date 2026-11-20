@@ -1,4 +1,19 @@
 import { processActivitiesWithRenameRules, applyRenameRulesToActivities } from './activityRenameRules.ts';
+import { loadAthleteProfile } from './athleteStorage.ts';
+
+export interface ActivityThresholdSnapshot {
+  bikeFtp: number;
+  thresholdHeartRateRun: number;
+  thresholdHeartRateBike: number;
+  thresholdPaceRunOutdoorSec: number;
+  thresholdPaceRunTreadmillSec: number;
+  swimPoolPace100mSec: number;
+  swimOpenWaterPace100mSec: number;
+  swimTssMode?: 'auto' | 'sTSS' | 'hrTSS';
+  maxHeartRate?: number;
+  restingHeartRate?: number;
+  capturedAt: string;
+}
 
 export interface StravaActivity {
   id: number | string;
@@ -39,6 +54,20 @@ export interface StravaActivity {
   muted?: boolean;
   laps?: any[];
   splits_metric?: any[];
+  // Lightweight synchronous cache fields for 0ms startup rendering & locked historical metrics:
+  hasActualCalibration?: boolean;
+  isIgnoredFromTrainingStatus?: boolean;
+  calibratedDistanceM?: number;
+  calibratedMovingTimeSec?: number;
+  lockedTss?: number;
+  lockedTssType?: string;
+  lockedTssDescription?: string;
+  thresholdSnapshot?: ActivityThresholdSnapshot;
+  efValue?: number;
+  decouplingPct?: number | null;
+  efBadgeLabel?: string;
+  efWarmupTrimMin?: 0 | 10 | 15 | 'custom';
+  customEfLapIndices?: number[];
 }
 
 export interface CalibratedSwimLap {
@@ -327,6 +356,12 @@ export interface ActivityCalibration {
   calibrationNotes?: string;
   manualTss?: number;
   preferredTssModel?: 'auto' | 'hrTSS' | 'rTSS' | 'sTSS' | 'powerTSS';
+  lockedTss?: number;
+  lockedTssType?: string;
+  lockedTssDescription?: string;
+  thresholdSnapshot?: ActivityThresholdSnapshot;
+  efValue?: number;
+  decouplingPct?: number | null;
   efWarmupTrimMin?: 0 | 10 | 15 | 'custom';
   customEfLapIndices?: number[];
   customEfBadgeLabel?: string;
@@ -2299,14 +2334,55 @@ export interface TSSCalculationResult {
  * - Heart rate fallback: hrTSS based on LTHR / Heart Rate Reserve
  * - Suffer score fallback
  */
+export function createActivityThresholdSnapshot(
+  profile?: AthleteProfile,
+  existingSnapshot?: ActivityThresholdSnapshot
+): ActivityThresholdSnapshot {
+  if (
+    existingSnapshot &&
+    typeof existingSnapshot === 'object' &&
+    typeof existingSnapshot.bikeFtp === 'number' &&
+    existingSnapshot.bikeFtp > 0
+  ) {
+    return existingSnapshot;
+  }
+  const p = profile || loadAthleteProfile() || DEFAULT_ATHLETE_PROFILE;
+  return {
+    bikeFtp: p.bikeFtp || DEFAULT_ATHLETE_PROFILE.bikeFtp,
+    thresholdHeartRateRun: p.thresholdHeartRateRun || DEFAULT_ATHLETE_PROFILE.thresholdHeartRateRun,
+    thresholdHeartRateBike: p.thresholdHeartRateBike || DEFAULT_ATHLETE_PROFILE.thresholdHeartRateBike,
+    thresholdPaceRunOutdoorSec: p.thresholdPaceRunOutdoorSec || DEFAULT_ATHLETE_PROFILE.thresholdPaceRunOutdoorSec,
+    thresholdPaceRunTreadmillSec: p.thresholdPaceRunTreadmillSec || DEFAULT_ATHLETE_PROFILE.thresholdPaceRunTreadmillSec,
+    swimPoolPace100mSec: p.swimPoolPace100mSec || DEFAULT_ATHLETE_PROFILE.swimPoolPace100mSec,
+    swimOpenWaterPace100mSec: p.swimOpenWaterPace100mSec || DEFAULT_ATHLETE_PROFILE.swimOpenWaterPace100mSec,
+    swimTssMode: p.swimTssMode || DEFAULT_ATHLETE_PROFILE.swimTssMode,
+    maxHeartRate: p.maxHeartRate || DEFAULT_ATHLETE_PROFILE.maxHeartRate,
+    restingHeartRate: p.restingHeartRate || DEFAULT_ATHLETE_PROFILE.restingHeartRate,
+    capturedAt: new Date().toISOString(),
+  };
+}
+
+/**
+ * Calculate Training Stress Score (TSS) customized with the athlete's profile and user calibration:
+ * - Respects calibration `isIgnoredFromTrainingStatus` (returns TSS 0)
+ * - Uses locked historical TSS (`lockedTss`) unless `options.forceRecalculate` is true ("Fix Data" or explicit TSS edit)
+ * - When calculating or recalculating during "Fix Data", uses the activity's stored `thresholdSnapshot`
+ *   (FTP, LTHR, LT Pace, Swim CSS) captured when the activity was added so future zone edits never alter past TSS.
+ */
 export function calculateActivityTSS(
   activity: StravaActivity,
   details?: StravaActivityDetailsRecord,
   athleteProfile?: AthleteProfile,
-  fallbackUserFtp = 310,
+  fallbackUserFtpOrOptions: number | { forceRecalculate?: boolean } = 310,
   fallbackUserLthrRun = 168,
-  fallbackUserLthrBike = 162
+  fallbackUserLthrBike = 162,
+  options?: { forceRecalculate?: boolean }
 ): TSSCalculationResult | null {
+  const fallbackUserFtp =
+    typeof fallbackUserFtpOrOptions === 'number' ? fallbackUserFtpOrOptions : 310;
+  const resolvedOptions =
+    typeof fallbackUserFtpOrOptions === 'object' ? fallbackUserFtpOrOptions : options;
+
   // If activity is marked as deleted, completely exclude from TSS calculations:
   if (activity?.isDeleted) {
     return {
@@ -2317,7 +2393,7 @@ export function calculateActivityTSS(
   }
 
   // If user flagged this activity as ignored from training status/TSS:
-  if (details?.calibration?.isIgnoredFromTrainingStatus) {
+  if (details?.calibration?.isIgnoredFromTrainingStatus ?? activity?.isIgnoredFromTrainingStatus) {
     return {
       tss: 0,
       type: 'Ignored',
@@ -2334,23 +2410,52 @@ export function calculateActivityTSS(
     };
   }
 
+  // Return locked TSS unless explicitly recalculating (e.g. during "Fix Data" or explicit TSS model edit)
+  if (!resolvedOptions?.forceRecalculate) {
+    const lockedTss = details?.calibration?.lockedTss ?? activity?.lockedTss;
+    if (typeof lockedTss === 'number' && Number.isFinite(lockedTss) && lockedTss >= 0) {
+      const lockedType = (details?.calibration?.lockedTssType ??
+        activity?.lockedTssType ??
+        'hrTSS') as TSSCalculationResult['type'];
+      const lockedDesc =
+        details?.calibration?.lockedTssDescription ??
+        activity?.lockedTssDescription ??
+        `Locked ${lockedType} (${Math.round(lockedTss)} TSS)`;
+      return {
+        tss: Math.round(lockedTss),
+        type: lockedType,
+        description: lockedDesc,
+      };
+    }
+  }
+
   const preferredModel = details?.calibration?.preferredTssModel || 'auto';
+  const snap = details?.calibration?.thresholdSnapshot ?? activity?.thresholdSnapshot;
 
   const { category, subType } = classifyActivity(activity);
-  const effectiveMovingTimeSec = details?.calibration?.calibratedMovingTimeSec ?? activity.moving_time ?? activity.elapsed_time ?? 0;
+  const effectiveMovingTimeSec =
+    details?.calibration?.calibratedMovingTimeSec ??
+    activity.calibratedMovingTimeSec ??
+    activity.moving_time ??
+    activity.elapsed_time ??
+    0;
   if (effectiveMovingTimeSec <= 60) return null;
 
-  const effectiveDistanceM = details?.calibration?.calibratedDistanceM ?? activity.distance ?? 0;
+  const effectiveDistanceM =
+    details?.calibration?.calibratedDistanceM ??
+    activity.calibratedDistanceM ??
+    activity.distance ??
+    0;
   const effectiveAvgHr = details?.calibration?.calibratedAvgHeartRate ?? activity.average_heartrate;
 
-  const userFtp = athleteProfile?.bikeFtp || fallbackUserFtp;
-  const userLthrRun = athleteProfile?.thresholdHeartRateRun || fallbackUserLthrRun;
-  const userLthrBike = athleteProfile?.thresholdHeartRateBike || fallbackUserLthrBike;
+  const userFtp = snap?.bikeFtp || athleteProfile?.bikeFtp || fallbackUserFtp;
+  const userLthrRun = snap?.thresholdHeartRateRun || athleteProfile?.thresholdHeartRateRun || fallbackUserLthrRun;
+  const userLthrBike = snap?.thresholdHeartRateBike || athleteProfile?.thresholdHeartRateBike || fallbackUserLthrBike;
 
   // 1. Explicit hrTSS override if selected
   if (preferredModel === 'hrTSS' && effectiveAvgHr && effectiveAvgHr > 40) {
     const lthr = category === 'Swim' 
-      ? (athleteProfile?.thresholdHeartRateRun ? Math.round(athleteProfile.thresholdHeartRateRun * 0.95) : 160)
+      ? (userLthrRun ? Math.round(userLthrRun * 0.95) : 160)
       : category === 'Run' ? userLthrRun : userLthrBike;
     const ifHr = effectiveAvgHr / lthr;
     const hrTss = ((effectiveMovingTimeSec * effectiveAvgHr * ifHr) / (lthr * 3600)) * 100;
@@ -2380,8 +2485,8 @@ export function calculateActivityTSS(
   if (category === 'Run' && effectiveDistanceM > 200 && effectiveMovingTimeSec > 60) {
     const isTreadmill = subType === 'Treadmill Run';
     const thresholdPaceSec = isTreadmill
-      ? (athleteProfile?.thresholdPaceRunTreadmillSec || 228)
-      : (athleteProfile?.thresholdPaceRunOutdoorSec || 228);
+      ? (snap?.thresholdPaceRunTreadmillSec || athleteProfile?.thresholdPaceRunTreadmillSec || 228)
+      : (snap?.thresholdPaceRunOutdoorSec || athleteProfile?.thresholdPaceRunOutdoorSec || 228);
 
     const avgPaceSec = effectiveMovingTimeSec / (effectiveDistanceM / 1000);
     if (avgPaceSec > 120 && avgPaceSec < 1200) {
@@ -2399,10 +2504,10 @@ export function calculateActivityTSS(
 
   // 3. Swimming TSS: sTSS (CSS/Pace based) or hrTSS (Heart Rate based)
   if (category === 'Swim') {
-    const prefersHr = athleteProfile?.swimTssMode === 'hrTSS';
+    const prefersHr = (snap?.swimTssMode || athleteProfile?.swimTssMode) === 'hrTSS';
     if (prefersHr && effectiveAvgHr && effectiveAvgHr > 40) {
       // hrTSS based on swim lactate threshold HR (typically 5-10 bpm lower than run LTHR)
-      const swimLthr = athleteProfile?.thresholdHeartRateRun ? Math.round(athleteProfile.thresholdHeartRateRun * 0.95) : 160;
+      const swimLthr = userLthrRun ? Math.round(userLthrRun * 0.95) : 160;
       const ifHr = effectiveAvgHr / swimLthr;
       const hrTss = ((effectiveMovingTimeSec * effectiveAvgHr * ifHr) / (swimLthr * 3600)) * 100;
       return {
@@ -2415,8 +2520,8 @@ export function calculateActivityTSS(
     if (effectiveDistanceM > 50 && effectiveMovingTimeSec > 30) {
       const isOpenWater = subType === 'Open Water Swim';
       const thresholdSwimPaceSec = isOpenWater
-        ? (athleteProfile?.swimOpenWaterPace100mSec || 105) // 1:45/100m OW CSS default
-        : (athleteProfile?.swimPoolPace100mSec || 96); // 1:36/100m Regular Pool CSS default
+        ? (snap?.swimOpenWaterPace100mSec || athleteProfile?.swimOpenWaterPace100mSec || 105) // 1:45/100m OW CSS default
+        : (snap?.swimPoolPace100mSec || athleteProfile?.swimPoolPace100mSec || 96); // 1:36/100m Regular Pool CSS default
 
       const avgPace100m = effectiveMovingTimeSec / (effectiveDistanceM / 100);
       if (avgPace100m > 30 && avgPace100m < 600) {
@@ -2601,7 +2706,7 @@ export function ensureStravaActivityRecord(activityId: number | string): Promise
   return updateStravaActivityRecord(activityId, (record) => record);
 }
 
-export function saveStravaActivityDetails(
+export async function saveStravaActivityDetails(
   activityId: number | string,
   details: StravaActivityDetailsResponse
 ): Promise<StravaActivityDetailsRecord> {
@@ -2611,43 +2716,88 @@ export function saveStravaActivityDetails(
     Object.keys(details.streams).length > 0
   );
 
-  // Sync mute status (hide_from_home / muted) from DetailedActivity back to the summary cache
+  const idStr = String(activityId);
+  const snap = getCachedStravaActivitiesSnapshot();
+  const summaryAct = snap?.find((a) => String(a.id) === idStr);
   const detAct = details.activity as Record<string, any> | undefined;
-  if (detAct && (typeof detAct.hide_from_home === 'boolean' || typeof detAct.muted === 'boolean')) {
-    const isMuted = Boolean(detAct.hide_from_home || detAct.muted);
-    const idStr = String(activityId);
-    const snap = getCachedStravaActivitiesSnapshot();
-    if (snap && snap.some((a) => String(a.id) === idStr && (Boolean(a.hide_from_home) !== isMuted || Boolean(a.muted) !== isMuted))) {
-      const updatedList = snap.map((a) =>
-        String(a.id) === idStr
-          ? { ...a, hide_from_home: isMuted, muted: isMuted }
-          : a
-      );
-      saveCachedStravaActivities(updatedList);
-      if (typeof window !== 'undefined') {
-        window.dispatchEvent(
-          new CustomEvent('fit_track_activities_updated', {
-            detail: { activities: getCachedStravaActivities() },
-          })
-        );
-      }
-    }
-  }
 
-  return updateStravaActivityRecord(activityId, (record) => ({
-    ...record,
-    activity: details.activity,
-    lapsError: details.lapsError,
-    lapsFetchedAt: new Date().toISOString(),
-    ...(hasValidStreams
-      ? { streams: details.streams, streamsError: undefined, noStreamsAvailable: false }
-      : {
-          streams: undefined,
-          streamsError: details.streamsError || 'No streams available for this activity',
-          noStreamsAvailable: true,
-        }),
-    fetchedAt: new Date().toISOString(),
-  }));
+  const updatedRecord = await updateStravaActivityRecord(activityId, (record) => {
+    const nextRecord: StravaActivityDetailsRecord = {
+      ...record,
+      activity: details.activity,
+      lapsError: details.lapsError,
+      lapsFetchedAt: new Date().toISOString(),
+      ...(hasValidStreams
+        ? { streams: details.streams, streamsError: undefined, noStreamsAvailable: false }
+        : {
+            streams: undefined,
+            streamsError: details.streamsError || 'No streams available for this activity',
+            noStreamsAvailable: true,
+          }),
+      fetchedAt: new Date().toISOString(),
+    };
+
+    const baseAct: StravaActivity = summaryAct || (detAct as unknown as StravaActivity);
+    if (baseAct && typeof baseAct === 'object') {
+      const existingCalib = nextRecord.calibration || {};
+      const thresholdSnapshot = createActivityThresholdSnapshot(
+        undefined,
+        existingCalib.thresholdSnapshot ?? summaryAct?.thresholdSnapshot
+      );
+      let lockedTss = existingCalib.lockedTss ?? summaryAct?.lockedTss;
+      let lockedTssType = existingCalib.lockedTssType ?? summaryAct?.lockedTssType;
+      let lockedTssDescription = existingCalib.lockedTssDescription ?? summaryAct?.lockedTssDescription;
+
+      if (lockedTss === undefined) {
+        const tssRes = calculateActivityTSS(
+          { ...baseAct, thresholdSnapshot },
+          nextRecord,
+          undefined,
+          310,
+          168,
+          162,
+          { forceRecalculate: true }
+        );
+        if (tssRes) {
+          lockedTss = tssRes.tss;
+          lockedTssType = tssRes.type;
+          lockedTssDescription = tssRes.description;
+        }
+      }
+
+      const efComputed = computeActivityEfAndDecoupling(baseAct, nextRecord);
+      nextRecord.calibration = {
+        ...existingCalib,
+        thresholdSnapshot,
+        ...(lockedTss !== undefined
+          ? {
+              lockedTss,
+              lockedTssType,
+              lockedTssDescription,
+            }
+          : {}),
+        ...(efComputed
+          ? {
+              efValue: Number(efComputed.overallEf.toFixed(2)),
+              decouplingPct:
+                efComputed.decouplingPct !== null
+                  ? Number(efComputed.decouplingPct.toFixed(1))
+                  : null,
+              customEfBadgeLabel: efComputed.badgeLabel || undefined,
+              efWarmupTrimMin: efComputed.mode,
+              ...(efComputed.customLapIndices ? { customEfLapIndices: efComputed.customLapIndices } : {}),
+            }
+          : {}),
+      };
+    }
+
+    return nextRecord;
+  });
+
+  // Sync mute status and lightweight badge/TSS summary fields back to the synchronous localStorage cache
+  syncActivitySummaryWithRecord(idStr, updatedRecord, detAct);
+
+  return updatedRecord;
 }
 
 export function markStravaActivityPublishedToGoogleSheets(
@@ -2660,10 +2810,60 @@ export function markStravaActivityPublishedToGoogleSheets(
   }));
 }
 
+function syncActivitySummaryWithRecord(
+  idStr: string,
+  record: StravaActivityDetailsRecord,
+  detAct?: Record<string, any>
+): void {
+  const snap = getCachedStravaActivitiesSnapshot();
+  if (!snap || !snap.some((a) => String(a.id) === idStr)) return;
+
+  const calib = record.calibration;
+  const hasActualCalib = hasActualActivityCalibration(calib);
+  const hasExplicitMute =
+    detAct && (typeof detAct.hide_from_home === 'boolean' || typeof detAct.muted === 'boolean');
+  const isMuted = hasExplicitMute ? Boolean(detAct.hide_from_home || detAct.muted) : undefined;
+
+  const updatedList = snap.map((a) => {
+    if (String(a.id) !== idStr) return a;
+    return {
+      ...a,
+      ...(isMuted !== undefined ? { hide_from_home: isMuted, muted: isMuted } : {}),
+      hasActualCalibration: hasActualCalib,
+      isIgnoredFromTrainingStatus: Boolean(calib?.isIgnoredFromTrainingStatus),
+      calibratedDistanceM: calib?.calibratedDistanceM,
+      calibratedMovingTimeSec: calib?.calibratedMovingTimeSec,
+      lockedTss: calib?.lockedTss ?? a.lockedTss,
+      lockedTssType: calib?.lockedTssType ?? a.lockedTssType,
+      lockedTssDescription: calib?.lockedTssDescription ?? a.lockedTssDescription,
+      thresholdSnapshot: calib?.thresholdSnapshot ?? a.thresholdSnapshot,
+      efValue: calib?.efValue ?? a.efValue,
+      decouplingPct: calib?.decouplingPct !== undefined ? calib.decouplingPct : a.decouplingPct,
+      efBadgeLabel: calib?.customEfBadgeLabel ?? a.efBadgeLabel,
+      efWarmupTrimMin: calib?.efWarmupTrimMin ?? a.efWarmupTrimMin,
+      customEfLapIndices: calib?.customEfLapIndices ?? a.customEfLapIndices,
+    };
+  });
+
+  saveCachedStravaActivities(updatedList);
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(
+      new CustomEvent('fit_track_activities_updated', {
+        detail: {
+          activities: updatedList,
+          newDetailsRecord: record,
+          newActivityId: idStr,
+        },
+      })
+    );
+  }
+}
+
 export async function saveActivityCalibration(
   activityId: number | string,
   calibration: ActivityCalibration
 ): Promise<StravaActivityDetailsRecord> {
+  const idStr = String(activityId);
   const updatedRecord = await updateStravaActivityRecord(activityId, (record) => {
     const mergedCalib: ActivityCalibration = {
       ...(record.calibration || {}),
@@ -2678,12 +2878,13 @@ export async function saveActivityCalibration(
     };
   });
 
+  syncActivitySummaryWithRecord(idStr, updatedRecord);
   if (typeof window !== 'undefined') {
     window.dispatchEvent(
       new CustomEvent('fit_track_activities_updated', {
         detail: {
           newDetailsRecord: updatedRecord,
-          newActivityId: String(activityId),
+          newActivityId: idStr,
         },
       })
     );
@@ -2694,7 +2895,7 @@ export async function saveActivityCalibration(
 
 /**
  * Formats a compact green badge label (e.g. "2.1EF +0.8PaHR" or "2.1EF +0.8PwHR")
- * when custom laps have been selected for Aerobic Efficiency (EF) & Decoupling.
+ * after Aerobic Efficiency (EF) & Decoupling is calculated.
  */
 export function formatEfBadgeLabel(
   overallEf: number,
@@ -2712,30 +2913,50 @@ export function formatEfBadgeLabel(
   return efStr;
 }
 
-export function getActivityEfBadgeLabel(
+export interface ComputedEfAndDecouplingResult {
+  overallEf: number;
+  ef1: number;
+  ef2: number;
+  decouplingPct: number | null;
+  badgeLabel: string | null;
+  mode: 0 | 10 | 15 | 'custom';
+  customLapIndices?: number[];
+  firstHalfSpeedOrWatts: number;
+  secondHalfSpeedOrWatts: number;
+  firstHalfHr: number;
+  secondHalfHr: number;
+  hasHalfSplitComparison: boolean;
+}
+
+/**
+ * Computes Aerobic Efficiency (EF) and 1st vs 2nd Half Decoupling (Pa:HR / Pw:HR)
+ * across all supported modes:
+ * - `0` ("Mid 90%")
+ * - `10` ("-10m Warmup")
+ * - `15` ("-15m Warmup")
+ * - `'custom'` ("Custom" selected laps)
+ */
+export function computeActivityEfAndDecoupling(
   activity: StravaActivity,
-  details?: StravaActivityDetailsRecord
-): string | null {
-  const calib = details?.calibration;
-  if (
-    !calib ||
-    calib.efWarmupTrimMin !== 'custom' ||
-    !Array.isArray(calib.customEfLapIndices) ||
-    calib.customEfLapIndices.length === 0
-  ) {
-    return null;
-  }
-
-  if (typeof calib.customEfBadgeLabel === 'string' && calib.customEfBadgeLabel.trim().length > 0) {
-    return calib.customEfBadgeLabel.trim();
-  }
-
+  details?: StravaActivityDetailsRecord,
+  modeOverride?: 0 | 10 | 15 | 'custom',
+  customIndicesOverride?: number[]
+): ComputedEfAndDecouplingResult | null {
+  if (!activity) return null;
   const category = classifyActivity(activity).category;
   if (category !== 'Run' && category !== 'Bike') return null;
   const isBike = category === 'Bike';
 
+  const calib = details?.calibration;
+  const mode: 0 | 10 | 15 | 'custom' =
+    modeOverride ?? calib?.efWarmupTrimMin ?? activity.efWarmupTrimMin ?? 0;
+  const customIndices =
+    customIndicesOverride ?? calib?.customEfLapIndices ?? activity.customEfLapIndices ?? [];
+
   const streamsObj = details?.streams as Record<string, { data?: number[] }> | undefined;
   const hrStream = streamsObj?.heartrate?.data;
+  const velStream = streamsObj?.velocity_smooth?.data;
+  const wattsStream = streamsObj?.watts?.data;
   const timeStream = streamsObj?.time?.data;
 
   const sliceStreamAvgHr = (startS: number, endS: number, fallbackHr?: number): number => {
@@ -2770,7 +2991,7 @@ export function getActivityEfBadgeLabel(
 
   const candidateLaps: SimpleCandidateLap[] = [];
   const rawActLaps = (details?.activity?.laps as any[]) || (activity as any)?.laps;
-  const calibRunSecs = calib.calibratedRunSections;
+  const calibRunSecs = calib?.calibratedRunSections;
 
   const hasRealCalibRunSecs =
     !isBike &&
@@ -2785,6 +3006,9 @@ export function getActivityEfBadgeLabel(
     Array.isArray(rawActLaps) &&
     !areRawActLapsAutoSplits &&
     (rawActLaps.length > 1 || (rawActLaps.length >= 1 && Boolean(details?.lapsRefetchedManually)));
+
+  const runDetails = !isBike ? getRunActivityDetails(activity, details) : null;
+  const bikeDetails = isBike ? getBikeActivityDetails(activity, details) : null;
 
   if (hasRealCalibRunSecs && calibRunSecs) {
     let cumSec = 0;
@@ -2822,107 +3046,298 @@ export function getActivityEfBadgeLabel(
         avgHr: sliceStreamAvgHr(startS, endS, Number(lap.average_heartrate || 0)),
       });
     });
-  } else if (!details?.lapsRefetchedManually && !isBike) {
-    const runDetails = getRunActivityDetails(activity, details);
-    if (runDetails && runDetails.splits.length > 1) {
-      let cumSec = 0;
-      runDetails.splits.forEach((s, idx) => {
-        const durSec = Math.max(1, Math.round(s.movingTimeSec || 60));
-        const startS = cumSec;
-        const endS = cumSec + durSec;
-        cumSec = endS;
-        const distM = Math.round(Number(s.distanceKm || 1) * 1000);
-        const mPerMin =
-          s.paceSecPerKm && s.paceSecPerKm > 0 ? 1000 / (s.paceSecPerKm / 60) : distM / (durSec / 60);
-        candidateLaps.push({
-          lapIndex: s.splitIndex || idx + 1,
-          movingTimeSec: durSec,
-          speedMPerMin: mPerMin,
-          avgWatts: 0,
-          avgHr: s.avgHr && s.avgHr > 60 ? Math.round(s.avgHr) : sliceStreamAvgHr(startS, endS),
-        });
+  } else if (!details?.lapsRefetchedManually && !isBike && runDetails && runDetails.splits.length > 1) {
+    let cumSec = 0;
+    runDetails.splits.forEach((s, idx) => {
+      const durSec = Math.max(1, Math.round(s.movingTimeSec || 60));
+      const startS = cumSec;
+      const endS = cumSec + durSec;
+      cumSec = endS;
+      const distM = Math.round(Number(s.distanceKm || 1) * 1000);
+      const mPerMin =
+        s.paceSecPerKm && s.paceSecPerKm > 0 ? 1000 / (s.paceSecPerKm / 60) : distM / (durSec / 60);
+      candidateLaps.push({
+        lapIndex: s.splitIndex || idx + 1,
+        movingTimeSec: durSec,
+        speedMPerMin: mPerMin,
+        avgWatts: 0,
+        avgHr: s.avgHr && s.avgHr > 60 ? Math.round(s.avgHr) : sliceStreamAvgHr(startS, endS),
       });
+    });
+  } else if (isBike && bikeDetails && bikeDetails.laps.length > 1) {
+    let cumSec = 0;
+    bikeDetails.laps.forEach((l, idx) => {
+      const durSec = Math.max(1, Math.round(l.movingTimeSec || 60));
+      const startS = cumSec;
+      const endS = cumSec + durSec;
+      cumSec = endS;
+      const w = Math.round(Number(l.avgWatts || calib?.calibratedAvgWatts || activity.average_watts || 0));
+      candidateLaps.push({
+        lapIndex: l.lapIndex || idx + 1,
+        movingTimeSec: durSec,
+        speedMPerMin: 0,
+        avgWatts: w,
+        avgHr: l.avgHr && l.avgHr > 60 ? Math.round(l.avgHr) : sliceStreamAvgHr(startS, endS),
+      });
+    });
+  }
+
+  let firstHalfSpeedOrWatts = 0;
+  let secondHalfSpeedOrWatts = 0;
+  let firstHalfHr = 0;
+  let secondHalfHr = 0;
+  let hasHalfSplitComparison = false;
+  let customOverallEf: number | null = null;
+  let resolvedCustomIndices: number[] | undefined;
+
+  if (mode === 'custom' && candidateLaps.length > 0) {
+    const activeIndices =
+      customIndices.length > 0 ? customIndices : candidateLaps.map((l) => l.lapIndex);
+    resolvedCustomIndices = activeIndices;
+    const chosen = candidateLaps.filter(
+      (l) =>
+        activeIndices.includes(l.lapIndex) &&
+        l.movingTimeSec > 0 &&
+        l.avgHr > 60 &&
+        (!isBike ? l.speedMPerMin > 0 : l.avgWatts > 0)
+    );
+    if (chosen.length > 0) {
+      const totalSec = chosen.reduce((acc, l) => acc + l.movingTimeSec, 0);
+      if (totalSec > 0) {
+        const halfSec = totalSec / 2;
+        let h1WeightedVal = 0;
+        let h1WeightedHr = 0;
+        let h1Sec = 0;
+        let h2WeightedVal = 0;
+        let h2WeightedHr = 0;
+        let h2Sec = 0;
+
+        let accSec = 0;
+        for (const lap of chosen) {
+          const val = !isBike ? lap.speedMPerMin : lap.avgWatts;
+          const start = accSec;
+          const end = accSec + lap.movingTimeSec;
+          accSec = end;
+
+          if (end <= halfSec) {
+            h1WeightedVal += val * lap.movingTimeSec;
+            h1WeightedHr += lap.avgHr * lap.movingTimeSec;
+            h1Sec += lap.movingTimeSec;
+          } else if (start >= halfSec) {
+            h2WeightedVal += val * lap.movingTimeSec;
+            h2WeightedHr += lap.avgHr * lap.movingTimeSec;
+            h2Sec += lap.movingTimeSec;
+          } else {
+            const s1 = halfSec - start;
+            const s2 = end - halfSec;
+            h1WeightedVal += val * s1;
+            h1WeightedHr += lap.avgHr * s1;
+            h1Sec += s1;
+            h2WeightedVal += val * s2;
+            h2WeightedHr += lap.avgHr * s2;
+            h2Sec += s2;
+          }
+        }
+
+        firstHalfSpeedOrWatts = h1Sec > 0 ? h1WeightedVal / h1Sec : 0;
+        firstHalfHr = h1Sec > 0 ? h1WeightedHr / h1Sec : 0;
+        secondHalfSpeedOrWatts = h2Sec > 0 ? h2WeightedVal / h2Sec : 0;
+        secondHalfHr = h2Sec > 0 ? h2WeightedHr / h2Sec : 0;
+        hasHalfSplitComparison = firstHalfHr > 0 && secondHalfHr > 0;
+        const totalVal = (h1WeightedVal + h2WeightedVal) / totalSec;
+        const totalHr = (h1WeightedHr + h2WeightedHr) / totalSec;
+        customOverallEf = totalHr > 0 ? totalVal / totalHr : 0;
+      }
     }
-  } else if (isBike) {
-    const bikeDetails = getBikeActivityDetails(activity, details);
-    if (bikeDetails && bikeDetails.laps.length > 1) {
-      let cumSec = 0;
-      bikeDetails.laps.forEach((l, idx) => {
-        const durSec = Math.max(1, Math.round(l.movingTimeSec || 60));
-        const startS = cumSec;
-        const endS = cumSec + durSec;
-        cumSec = endS;
-        const w = Math.round(Number(l.avgWatts || calib.calibratedAvgWatts || activity.average_watts || 0));
-        candidateLaps.push({
-          lapIndex: l.lapIndex || idx + 1,
-          movingTimeSec: durSec,
-          speedMPerMin: 0,
-          avgWatts: w,
-          avgHr: l.avgHr && l.avgHr > 60 ? Math.round(l.avgHr) : sliceStreamAvgHr(startS, endS),
+  } else {
+    const numericTrimMin = typeof mode === 'number' ? mode : 0;
+    if (!isBike && Array.isArray(hrStream) && Array.isArray(velStream)) {
+      const len = Math.min(hrStream.length, velStream.length);
+      if (len >= 120) {
+        const endTrim = Math.floor(len * 0.05);
+        let startIdx = Math.floor(len * 0.05);
+        if (numericTrimMin > 0) {
+          const targetSec = numericTrimMin * 60;
+          if (Array.isArray(timeStream) && timeStream.length >= len) {
+            const t0 = timeStream[0] || 0;
+            const foundIdx = timeStream.findIndex((t) => t - t0 >= targetSec);
+            startIdx = foundIdx > 0 ? foundIdx : Math.min(len - 60, targetSec);
+          } else {
+            startIdx = Math.min(len - 60, targetSec);
+          }
+        }
+        const validPairs: { v: number; hr: number }[] = [];
+        for (let i = startIdx; i < len - endTrim; i++) {
+          const v = velStream[i];
+          const h = hrStream[i];
+          if (v > 1.2 && h > 85) {
+            validPairs.push({ v: v * 60, hr: h });
+          }
+        }
+        if (validPairs.length >= 60) {
+          const mid = Math.floor(validPairs.length / 2);
+          const h1 = validPairs.slice(0, mid);
+          const h2 = validPairs.slice(mid);
+          firstHalfSpeedOrWatts = h1.reduce((acc, p) => acc + p.v, 0) / h1.length;
+          firstHalfHr = h1.reduce((acc, p) => acc + p.hr, 0) / h1.length;
+          secondHalfSpeedOrWatts = h2.reduce((acc, p) => acc + p.v, 0) / h2.length;
+          secondHalfHr = h2.reduce((acc, p) => acc + p.hr, 0) / h2.length;
+          hasHalfSplitComparison = firstHalfHr > 0 && secondHalfHr > 0;
+        }
+      }
+    } else if (isBike && Array.isArray(hrStream) && Array.isArray(wattsStream)) {
+      const len = Math.min(hrStream.length, wattsStream.length);
+      if (len >= 120) {
+        const endTrim = Math.floor(len * 0.05);
+        let startIdx = Math.floor(len * 0.05);
+        if (numericTrimMin > 0) {
+          const targetSec = numericTrimMin * 60;
+          if (Array.isArray(timeStream) && timeStream.length >= len) {
+            const t0 = timeStream[0] || 0;
+            const foundIdx = timeStream.findIndex((t) => t - t0 >= targetSec);
+            startIdx = foundIdx > 0 ? foundIdx : Math.min(len - 60, targetSec);
+          } else {
+            startIdx = Math.min(len - 60, targetSec);
+          }
+        }
+        const validPairs: { w: number; hr: number }[] = [];
+        for (let i = startIdx; i < len - endTrim; i++) {
+          const w = wattsStream[i];
+          const h = hrStream[i];
+          if (w > 20 && h > 80) {
+            validPairs.push({ w, hr: h });
+          }
+        }
+        if (validPairs.length >= 60) {
+          const mid = Math.floor(validPairs.length / 2);
+          const h1 = validPairs.slice(0, mid);
+          const h2 = validPairs.slice(mid);
+          firstHalfSpeedOrWatts = h1.reduce((acc, p) => acc + p.w, 0) / h1.length;
+          firstHalfHr = h1.reduce((acc, p) => acc + p.hr, 0) / h1.length;
+          secondHalfSpeedOrWatts = h2.reduce((acc, p) => acc + p.w, 0) / h2.length;
+          secondHalfHr = h2.reduce((acc, p) => acc + p.hr, 0) / h2.length;
+          hasHalfSplitComparison = firstHalfHr > 0 && secondHalfHr > 0;
+        }
+      }
+    }
+
+    if (!hasHalfSplitComparison && !isBike && runDetails && runDetails.splits.length >= 2) {
+      const allValidSplits = runDetails.splits.filter(
+        (s) => (s.paceSecPerKm ?? 0) > 0 && s.avgHr && s.avgHr > 85 && Number(s.distanceKm || 0) >= 0.4
+      );
+      let validSplits = allValidSplits;
+      if (numericTrimMin > 0 && allValidSplits.length > 2) {
+        let accSec = 0;
+        const targetSec = numericTrimMin * 60;
+        const trimmed = allValidSplits.filter((s) => {
+          accSec += s.movingTimeSec || s.paceSecPerKm || 300;
+          return accSec > targetSec;
         });
-      });
+        if (trimmed.length >= 2) validSplits = trimmed;
+      }
+      if (validSplits.length >= 2) {
+        const mid = Math.floor(validSplits.length / 2);
+        const h1 = validSplits.slice(0, mid);
+        const h2 = validSplits.slice(mid);
+        firstHalfSpeedOrWatts =
+          h1.reduce((acc, s) => acc + 1000 / ((s.paceSecPerKm || 300) / 60), 0) / h1.length;
+        firstHalfHr = h1.reduce((acc, s) => acc + (s.avgHr || 0), 0) / h1.length;
+        secondHalfSpeedOrWatts =
+          h2.reduce((acc, s) => acc + 1000 / ((s.paceSecPerKm || 300) / 60), 0) / h2.length;
+        secondHalfHr = h2.reduce((acc, s) => acc + (s.avgHr || 0), 0) / h2.length;
+        hasHalfSplitComparison = firstHalfHr > 0 && secondHalfHr > 0;
+      }
     }
   }
 
-  const chosen = candidateLaps.filter(
-    (l) =>
-      calib.customEfLapIndices!.includes(l.lapIndex) &&
-      l.movingTimeSec > 0 &&
-      l.avgHr > 60 &&
-      (!isBike ? l.speedMPerMin > 0 : l.avgWatts > 0)
-  );
-  if (chosen.length === 0) return null;
+  const durationMoving =
+    calib?.calibratedMovingTimeSec ??
+    activity.calibratedMovingTimeSec ??
+    (details?.activity?.moving_time as number) ??
+    activity.moving_time ??
+    0;
+  const effectiveDistanceM =
+    calib?.calibratedDistanceM ??
+    activity.calibratedDistanceM ??
+    (details?.activity?.distance as number) ??
+    activity.distance ??
+    0;
+  const avgHr = Number(calib?.calibratedAvgHeartRate ?? activity.average_heartrate ?? 0);
+  const overallSpeedMetersPerMin =
+    !isBike && durationMoving > 0 && effectiveDistanceM > 0
+      ? effectiveDistanceM / (durationMoving / 60)
+      : 0;
+  const np = isBike ? calculateNormalizedPower(activity, details) : null;
+  const overallWatts = isBike
+    ? Number(np || calib?.calibratedAvgWatts || activity.weighted_average_watts || activity.average_watts || 0)
+    : 0;
 
-  const totalSec = chosen.reduce((acc, l) => acc + l.movingTimeSec, 0);
-  if (totalSec <= 0) return null;
+  const overallEf =
+    customOverallEf !== null
+      ? customOverallEf
+      : hasHalfSplitComparison && (firstHalfHr + secondHalfHr) > 0
+      ? (firstHalfSpeedOrWatts + secondHalfSpeedOrWatts) / (firstHalfHr + secondHalfHr)
+      : avgHr > 80
+      ? !isBike
+        ? overallSpeedMetersPerMin > 0
+          ? overallSpeedMetersPerMin / avgHr
+          : 0
+        : overallWatts > 0
+        ? overallWatts / avgHr
+        : 0
+      : 0;
 
-  const halfSec = totalSec / 2;
-  let h1WeightedVal = 0;
-  let h1WeightedHr = 0;
-  let h1Sec = 0;
-  let h2WeightedVal = 0;
-  let h2WeightedHr = 0;
-  let h2Sec = 0;
+  if (overallEf <= 0 && !hasHalfSplitComparison) return null;
 
-  let accSec = 0;
-  for (const lap of chosen) {
-    const val = !isBike ? lap.speedMPerMin : lap.avgWatts;
-    const start = accSec;
-    const end = accSec + lap.movingTimeSec;
-    accSec = end;
+  const ef1 = hasHalfSplitComparison && firstHalfHr > 0 ? firstHalfSpeedOrWatts / firstHalfHr : overallEf;
+  const ef2 = hasHalfSplitComparison && secondHalfHr > 0 ? secondHalfSpeedOrWatts / secondHalfHr : overallEf;
+  const decouplingPct = hasHalfSplitComparison && ef1 > 0 ? ((ef1 - ef2) / ef1) * 100 : null;
 
-    if (end <= halfSec) {
-      h1WeightedVal += val * lap.movingTimeSec;
-      h1WeightedHr += lap.avgHr * lap.movingTimeSec;
-      h1Sec += lap.movingTimeSec;
-    } else if (start >= halfSec) {
-      h2WeightedVal += val * lap.movingTimeSec;
-      h2WeightedHr += lap.avgHr * lap.movingTimeSec;
-      h2Sec += lap.movingTimeSec;
-    } else {
-      const s1 = halfSec - start;
-      const s2 = end - halfSec;
-      h1WeightedVal += val * s1;
-      h1WeightedHr += lap.avgHr * s1;
-      h1Sec += s1;
-      h2WeightedVal += val * s2;
-      h2WeightedHr += lap.avgHr * s2;
-      h2Sec += s2;
-    }
+  return {
+    overallEf,
+    ef1,
+    ef2,
+    decouplingPct,
+    badgeLabel: formatEfBadgeLabel(overallEf, decouplingPct, isBike),
+    mode,
+    customLapIndices: resolvedCustomIndices,
+    firstHalfSpeedOrWatts,
+    secondHalfSpeedOrWatts,
+    firstHalfHr,
+    secondHalfHr,
+    hasHalfSplitComparison,
+  };
+}
+
+export function getActivityEfBadgeLabel(
+  activity: StravaActivity,
+  details?: StravaActivityDetailsRecord
+): string | null {
+  if (!activity) return null;
+  const calib = details?.calibration;
+
+  // 1. Instant O(1) lookup from pre-computed badge string (either IndexedDB record or localStorage activity summary)
+  const storedBadge = calib?.customEfBadgeLabel || activity.efBadgeLabel;
+  if (typeof storedBadge === 'string' && storedBadge.trim().length > 0) {
+    return storedBadge.trim();
   }
 
-  const fVal = h1Sec > 0 ? h1WeightedVal / h1Sec : 0;
-  const fHr = h1Sec > 0 ? h1WeightedHr / h1Sec : 0;
-  const sVal = h2Sec > 0 ? h2WeightedVal / h2Sec : 0;
-  const sHr = h2Sec > 0 ? h2WeightedHr / h2Sec : 0;
-  const totalVal = (h1WeightedVal + h2WeightedVal) / totalSec;
-  const totalHr = (h1WeightedHr + h2WeightedHr) / totalSec;
-  const cEf = totalHr > 0 ? totalVal / totalHr : 0;
-  const cEf1 = fHr > 0 ? fVal / fHr : cEf;
-  const cEf2 = sHr > 0 ? sVal / sHr : cEf;
-  const cDecoupling = cEf1 > 0 ? ((cEf1 - cEf2) / cEf1) * 100 : null;
+  // 2. Instant O(1) format from stored numeric efValue & decouplingPct
+  const storedEf = calib?.efValue ?? activity.efValue;
+  if (typeof storedEf === 'number' && Number.isFinite(storedEf) && storedEf > 0) {
+    const storedDec =
+      calib?.decouplingPct !== undefined ? calib.decouplingPct : (activity.decouplingPct ?? null);
+    const isBike = classifyActivity(activity).category === 'Bike';
+    return formatEfBadgeLabel(storedEf, storedDec, isBike);
+  }
 
-  return formatEfBadgeLabel(cEf, cDecoupling, isBike);
+  // 3. Fallback: if details record has streams/laps loaded, compute on the fly
+  if (details && (details.streams || (details.activity as any)?.laps || calib?.calibratedRunSections)) {
+    const computed = computeActivityEfAndDecoupling(activity, details);
+    return computed?.badgeLabel || null;
+  }
+
+  return null;
 }
 
 /**
@@ -3311,14 +3726,60 @@ export async function applyCalibratedDistanceAndDurationToRecord(params: {
   return updatedRecord;
 }
 
-export function clearActivityCalibration(
+export async function clearActivityCalibration(
   activityId: number | string
 ): Promise<StravaActivityDetailsRecord> {
-  return updateStravaActivityRecord(activityId, (record) => {
-    const next = { ...record };
-    delete next.calibration;
+  const idStr = String(activityId);
+  const snap = getCachedStravaActivitiesSnapshot();
+  const summaryAct = snap?.find((a) => String(a.id) === idStr);
+
+  const updatedRecord = await updateStravaActivityRecord(activityId, (record) => {
+    const preservedThresholdSnap = createActivityThresholdSnapshot(
+      undefined,
+      record.calibration?.thresholdSnapshot ?? summaryAct?.thresholdSnapshot
+    );
+    const next: StravaActivityDetailsRecord = { ...record };
+    const baseAct: StravaActivity | undefined =
+      summaryAct || (record.activity as unknown as StravaActivity | undefined);
+    const recalcTss = baseAct
+      ? calculateActivityTSS(
+          { ...baseAct, thresholdSnapshot: preservedThresholdSnap },
+          { ...next, calibration: undefined },
+          undefined,
+          310,
+          168,
+          162,
+          { forceRecalculate: true }
+        )
+      : null;
+    const recalcEf = baseAct
+      ? computeActivityEfAndDecoupling(baseAct, { ...next, calibration: undefined }, 0, [])
+      : null;
+
+    next.calibration = {
+      thresholdSnapshot: preservedThresholdSnap,
+      ...(recalcTss
+        ? {
+            lockedTss: recalcTss.tss,
+            lockedTssType: recalcTss.type,
+            lockedTssDescription: recalcTss.description,
+          }
+        : {}),
+      ...(recalcEf
+        ? {
+            efValue: Number(recalcEf.overallEf.toFixed(2)),
+            decouplingPct:
+              recalcEf.decouplingPct !== null ? Number(recalcEf.decouplingPct.toFixed(1)) : null,
+            customEfBadgeLabel: recalcEf.badgeLabel || undefined,
+            efWarmupTrimMin: 0,
+          }
+        : {}),
+    };
     return next;
   });
+
+  syncActivitySummaryWithRecord(idStr, updatedRecord);
+  return updatedRecord;
 }
 
 export interface ReplaceRepublishedActivityParams {
@@ -4082,20 +4543,70 @@ export async function fetchStravaActivityDetails(
 export function mergeStravaActivities(existing: StravaActivity[], incoming: StravaActivity[]): StravaActivity[] {
   const deletedIds = getDeletedActivityIds();
   const map = new Map<string, StravaActivity>();
+  const currentProfile = loadAthleteProfile();
+
+  const ensureLockedOnSummary = (act: StravaActivity, prev?: StravaActivity): StravaActivity => {
+    const thresholdSnapshot = createActivityThresholdSnapshot(
+      currentProfile,
+      act.thresholdSnapshot ?? prev?.thresholdSnapshot
+    );
+    let lockedTss = act.lockedTss ?? prev?.lockedTss;
+    let lockedTssType = act.lockedTssType ?? prev?.lockedTssType;
+    let lockedTssDescription = act.lockedTssDescription ?? prev?.lockedTssDescription;
+
+    if (lockedTss === undefined && !act.isDeleted) {
+      const tssRes = calculateActivityTSS(
+        { ...act, thresholdSnapshot },
+        undefined,
+        currentProfile,
+        310,
+        168,
+        162,
+        { forceRecalculate: true }
+      );
+      if (tssRes) {
+        lockedTss = tssRes.tss;
+        lockedTssType = tssRes.type;
+        lockedTssDescription = tssRes.description;
+      }
+    }
+
+    return {
+      ...act,
+      hasActualCalibration: act.hasActualCalibration ?? prev?.hasActualCalibration,
+      isIgnoredFromTrainingStatus:
+        act.isIgnoredFromTrainingStatus ?? prev?.isIgnoredFromTrainingStatus,
+      calibratedDistanceM: act.calibratedDistanceM ?? prev?.calibratedDistanceM,
+      calibratedMovingTimeSec: act.calibratedMovingTimeSec ?? prev?.calibratedMovingTimeSec,
+      thresholdSnapshot,
+      lockedTss,
+      lockedTssType,
+      lockedTssDescription,
+      efValue: act.efValue ?? prev?.efValue,
+      decouplingPct:
+        act.decouplingPct !== undefined ? act.decouplingPct : prev?.decouplingPct,
+      efBadgeLabel: act.efBadgeLabel ?? prev?.efBadgeLabel,
+      efWarmupTrimMin: act.efWarmupTrimMin ?? prev?.efWarmupTrimMin,
+      customEfLapIndices: act.customEfLapIndices ?? prev?.customEfLapIndices,
+    };
+  };
 
   // Existing loaded first
   for (const act of existing) {
     const canonicalId = String(act.id_str || act.id);
     const isDel = deletedIds.has(canonicalId) || Boolean(act.isDeleted);
-    map.set(canonicalId, {
-      ...act,
-      id: canonicalId,
-      id_str: canonicalId,
-      isDeleted: isDel,
-      gear_id: act.gear_id ?? (act as any).gear?.id ?? null,
-      hide_from_home: act.hide_from_home ?? (act as any).muted ?? false,
-      muted: act.muted ?? act.hide_from_home ?? false,
-    });
+    map.set(
+      canonicalId,
+      ensureLockedOnSummary({
+        ...act,
+        id: canonicalId,
+        id_str: canonicalId,
+        isDeleted: isDel,
+        gear_id: act.gear_id ?? (act as any).gear?.id ?? null,
+        hide_from_home: act.hide_from_home ?? (act as any).muted ?? false,
+        muted: act.muted ?? act.hide_from_home ?? false,
+      })
+    );
   }
 
   // Incoming merged (updates existing or adds new)
@@ -4109,16 +4620,22 @@ export function mergeStravaActivities(existing: StravaActivity[], incoming: Stra
       ? Boolean(act.hide_from_home || act.muted)
       : Boolean(prev?.hide_from_home || prev?.muted);
 
-    map.set(canonicalId, {
-      ...prev,
-      ...act,
-      id: canonicalId,
-      id_str: canonicalId,
-      isDeleted: isDel,
-      gear_id: act.gear_id ?? (act as any).gear?.id ?? prev?.gear_id ?? null,
-      hide_from_home: resolvedMuted,
-      muted: resolvedMuted,
-    });
+    map.set(
+      canonicalId,
+      ensureLockedOnSummary(
+        {
+          ...prev,
+          ...act,
+          id: canonicalId,
+          id_str: canonicalId,
+          isDeleted: isDel,
+          gear_id: act.gear_id ?? (act as any).gear?.id ?? prev?.gear_id ?? null,
+          hide_from_home: resolvedMuted,
+          muted: resolvedMuted,
+        },
+        prev
+      )
+    );
   }
   // Sort descending by date
   return Array.from(map.values()).sort((a, b) => {

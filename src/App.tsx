@@ -38,6 +38,11 @@ import {
   getDeletedActivityIds,
   getLastAppOpenTime,
   setLastAppOpenTime,
+  hasActualActivityCalibration,
+  calculateActivityTSS,
+  createActivityThresholdSnapshot,
+  computeActivityEfAndDecoupling,
+  batchSaveStravaActivityRecords,
   StravaActivity,
   StravaActivityDetailsRecord,
 } from './utils/stravaActivities';
@@ -1031,6 +1036,127 @@ export default function App() {
             });
             return merged;
           });
+
+          // Backfill synchronous localStorage summary fields (hasActualCalibration, efBadgeLabel, lockedTss, thresholdSnapshot)
+          // so that all subsequent page loads display badges and locked TSS in 0ms without waiting for IndexedDB
+          const currentProfile = loadAthleteProfile();
+          let activitiesChanged = false;
+          const recordsToPersist: StravaActivityDetailsRecord[] = [];
+
+          const hydratedActivities = stravaActivities.map((act) => {
+            const idStr = String(act.id);
+            const rec = allCached[idStr];
+            const calib = rec?.calibration;
+            const hasActualCalib = calib
+              ? hasActualActivityCalibration(calib)
+              : Boolean(act.hasActualCalibration);
+            const isIgnored = Boolean(
+              calib?.isIgnoredFromTrainingStatus ?? act.isIgnoredFromTrainingStatus
+            );
+            const snapshot = createActivityThresholdSnapshot(
+              currentProfile,
+              calib?.thresholdSnapshot ?? act.thresholdSnapshot
+            );
+
+            let lockedTss =
+              typeof calib?.lockedTss === 'number'
+                ? calib.lockedTss
+                : typeof act.lockedTss === 'number'
+                ? act.lockedTss
+                : undefined;
+            let lockedTssType = calib?.lockedTssType || act.lockedTssType;
+            let lockedTssDescription = calib?.lockedTssDescription || act.lockedTssDescription;
+
+            if (lockedTss === undefined) {
+              const computedTss = calculateActivityTSS(
+                { ...act, thresholdSnapshot: snapshot },
+                rec,
+                currentProfile,
+                { forceRecalculate: true }
+              );
+              if (computedTss) {
+                lockedTss = computedTss.tss;
+                lockedTssType = computedTss.type;
+                lockedTssDescription = computedTss.description;
+              }
+            }
+
+            let efBadgeLabel = calib?.customEfBadgeLabel || act.efBadgeLabel;
+            let efValue = calib?.efValue ?? act.efValue;
+            let decouplingPct =
+              calib?.decouplingPct !== undefined ? calib.decouplingPct : act.decouplingPct;
+
+            if (!efBadgeLabel && rec) {
+              const computedEf = computeActivityEfAndDecoupling(act, rec);
+              if (computedEf && computedEf.badgeLabel) {
+                efBadgeLabel = computedEf.badgeLabel;
+                efValue = Number(computedEf.overallEf.toFixed(2));
+                decouplingPct =
+                  computedEf.decouplingPct !== null
+                    ? Number(computedEf.decouplingPct.toFixed(1))
+                    : null;
+              }
+            }
+
+            const needsActivityUpdate =
+              Boolean(act.hasActualCalibration) !== hasActualCalib ||
+              Boolean(act.isIgnoredFromTrainingStatus) !== isIgnored ||
+              act.lockedTss !== lockedTss ||
+              act.efBadgeLabel !== efBadgeLabel ||
+              !act.thresholdSnapshot;
+
+            if (rec) {
+              const recCalib = rec.calibration || {};
+              const needsRecordUpdate =
+                recCalib.lockedTss !== lockedTss ||
+                recCalib.customEfBadgeLabel !== efBadgeLabel ||
+                !recCalib.thresholdSnapshot;
+              if (needsRecordUpdate) {
+                const updatedRec: StravaActivityDetailsRecord = {
+                  ...rec,
+                  calibration: {
+                    ...recCalib,
+                    thresholdSnapshot: snapshot,
+                    lockedTss,
+                    lockedTssType,
+                    lockedTssDescription,
+                    efValue,
+                    decouplingPct,
+                    customEfBadgeLabel: efBadgeLabel,
+                  },
+                };
+                allCached[idStr] = updatedRec;
+                recordsToPersist.push(updatedRec);
+              }
+            }
+
+            if (!needsActivityUpdate) return act;
+            activitiesChanged = true;
+            return {
+              ...act,
+              hasActualCalibration: hasActualCalib || undefined,
+              isIgnoredFromTrainingStatus: isIgnored || undefined,
+              calibratedDistanceM: calib?.calibratedDistanceM ?? act.calibratedDistanceM,
+              calibratedMovingTimeSec: calib?.calibratedMovingTimeSec ?? act.calibratedMovingTimeSec,
+              thresholdSnapshot: snapshot,
+              lockedTss,
+              lockedTssType,
+              lockedTssDescription,
+              efValue,
+              decouplingPct,
+              efBadgeLabel,
+              efWarmupTrimMin: calib?.efWarmupTrimMin ?? act.efWarmupTrimMin,
+              customEfLapIndices: calib?.customEfLapIndices ?? act.customEfLapIndices,
+            };
+          });
+
+          if (recordsToPersist.length > 0) {
+            void batchSaveStravaActivityRecords(recordsToPersist);
+          }
+          if (activitiesChanged) {
+            saveCachedStravaActivities(hydratedActivities);
+            setStravaActivities(hydratedActivities);
+          }
         }
       } catch {}
     };

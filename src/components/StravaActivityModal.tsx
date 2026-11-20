@@ -58,6 +58,8 @@ import {
   hasActualActivityCalibration,
   formatEfBadgeLabel,
   getActivityEfBadgeLabel,
+  computeActivityEfAndDecoupling,
+  createActivityThresholdSnapshot,
   STRAVA_STREAM_DEFINITIONS,
   hasRepeatingStreamArtifact,
   fetchSpecificStravaActivityStreams,
@@ -323,20 +325,78 @@ export const StravaActivityModal: React.FC<StravaActivityModalProps> = ({
         setManualTssInput('');
       }
       setSelectedTssModel(detailsRecord.calibration.preferredTssModel || 'auto');
-      setEfWarmupTrimMin(detailsRecord.calibration.efWarmupTrimMin ?? 0);
-      setCustomEfLapIndices(detailsRecord.calibration.customEfLapIndices ?? []);
+      setEfWarmupTrimMin(detailsRecord.calibration.efWarmupTrimMin ?? activity?.efWarmupTrimMin ?? 0);
+      setCustomEfLapIndices(detailsRecord.calibration.customEfLapIndices ?? activity?.customEfLapIndices ?? []);
     } else {
       setManualTssInput('');
       setSelectedTssModel('auto');
-      setEfWarmupTrimMin(0);
-      setCustomEfLapIndices([]);
+      setEfWarmupTrimMin(activity?.efWarmupTrimMin ?? 0);
+      setCustomEfLapIndices(activity?.customEfLapIndices ?? []);
     }
-  }, [detailsRecord]);
+  }, [detailsRecord, activity?.id]);
+
+  // Automatically persist calculated EF & Decoupling + badge and locked TSS snapshot if not yet stored on the record
+  useEffect(() => {
+    if (!activity || !detailsRecord) return;
+    const existingCalib = detailsRecord.calibration || {};
+    const hasSavedEf = Boolean(existingCalib.customEfBadgeLabel || activity.efBadgeLabel);
+    const hasLockedTss =
+      (typeof existingCalib.lockedTss === 'number' && existingCalib.lockedTss >= 0) ||
+      (typeof activity.lockedTss === 'number' && activity.lockedTss >= 0);
+
+    if (hasSavedEf && hasLockedTss) return;
+
+    const efComputed = !hasSavedEf
+      ? computeActivityEfAndDecoupling(activity, detailsRecord)
+      : null;
+    const snapshot = createActivityThresholdSnapshot(
+      athleteProfile,
+      existingCalib.thresholdSnapshot ?? activity.thresholdSnapshot
+    );
+    const tssComputed = !hasLockedTss
+      ? calculateActivityTSS(activity, detailsRecord, athleteProfile, { forceRecalculate: true })
+      : null;
+
+    if (!efComputed && !tssComputed) return;
+
+    let cancelled = false;
+    void saveActivityCalibration(activity.id, {
+      ...existingCalib,
+      thresholdSnapshot: snapshot,
+      ...(tssComputed
+        ? {
+            lockedTss: tssComputed.tss,
+            lockedTssType: tssComputed.type,
+            lockedTssDescription: tssComputed.description,
+          }
+        : {}),
+      ...(efComputed
+        ? {
+            efValue: Number(efComputed.overallEf.toFixed(2)),
+            decouplingPct:
+              efComputed.decouplingPct !== null ? Number(efComputed.decouplingPct.toFixed(1)) : null,
+            customEfBadgeLabel: efComputed.badgeLabel || undefined,
+          }
+        : {}),
+    }).then((updated) => {
+      if (!cancelled) {
+        setDetailsRecord(updated);
+      }
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [activity?.id, Boolean(detailsRecord?.streams), Boolean(detailsRecord?.activity?.laps)]);
 
   const handleSaveEfConfig = async (
     nextMode: 0 | 10 | 15 | 'custom',
     nextIndices?: number[],
-    nextBadgeLabel?: string | null
+    nextEfOverride?: {
+      overallEf: number;
+      decouplingPct: number | null;
+      badgeLabel: string | null;
+    } | null
   ) => {
     setEfWarmupTrimMin(nextMode);
     if (nextIndices !== undefined) {
@@ -346,14 +406,25 @@ export const StravaActivityModal: React.FC<StravaActivityModalProps> = ({
     try {
       const existingCalib = detailsRecord?.calibration || {};
       const resolvedIndices = nextIndices !== undefined ? nextIndices : customEfLapIndices;
+      const computedEf =
+        nextEfOverride !== undefined
+          ? nextEfOverride
+          : computeActivityEfAndDecoupling(
+              activity,
+              detailsRecord || undefined,
+              nextMode,
+              resolvedIndices
+            );
       const updatedRecord = await saveActivityCalibration(activity.id, {
         ...existingCalib,
         efWarmupTrimMin: nextMode,
         customEfLapIndices: resolvedIndices,
-        customEfBadgeLabel:
-          nextMode === 'custom' && resolvedIndices.length > 0 && nextBadgeLabel
-            ? nextBadgeLabel
-            : undefined,
+        efValue: computedEf ? Number(computedEf.overallEf.toFixed(2)) : undefined,
+        decouplingPct:
+          computedEf && computedEf.decouplingPct !== null
+            ? Number(computedEf.decouplingPct.toFixed(1))
+            : null,
+        customEfBadgeLabel: computedEf?.badgeLabel || undefined,
       });
       setDetailsRecord(updatedRecord);
     } catch (err) {
@@ -369,10 +440,32 @@ export const StravaActivityModal: React.FC<StravaActivityModalProps> = ({
     try {
       const existingCalib = detailsRecord?.calibration || {};
       const numTss = manualTssInput.trim() !== '' ? Number(manualTssInput) : undefined;
-      const updatedCalib = {
+      const thresholdSnapshot = createActivityThresholdSnapshot(
+        athleteProfile,
+        existingCalib.thresholdSnapshot ?? activity.thresholdSnapshot
+      );
+      const draftCalib = {
         ...existingCalib,
+        thresholdSnapshot,
         manualTss: numTss !== undefined && !isNaN(numTss) ? Math.max(0, Math.round(numTss)) : undefined,
         preferredTssModel: selectedTssModel,
+      };
+      const recalcTss = calculateActivityTSS(
+        activity,
+        {
+          id: detailsRecord?.id || String(activity.id),
+          activity: detailsRecord?.activity || (activity as unknown as Record<string, unknown>),
+          streams: detailsRecord?.streams,
+          calibration: draftCalib,
+        },
+        athleteProfile,
+        { forceRecalculate: true }
+      );
+      const updatedCalib = {
+        ...draftCalib,
+        lockedTss: recalcTss?.tss,
+        lockedTssType: recalcTss?.type,
+        lockedTssDescription: recalcTss?.description,
       };
 
       const updatedRecord = await saveActivityCalibration(activity.id, updatedCalib);
@@ -396,6 +489,25 @@ export const StravaActivityModal: React.FC<StravaActivityModalProps> = ({
       const existingCalib = { ...(detailsRecord?.calibration || {}) };
       delete existingCalib.manualTss;
       existingCalib.preferredTssModel = 'auto';
+      const thresholdSnapshot = createActivityThresholdSnapshot(
+        athleteProfile,
+        existingCalib.thresholdSnapshot ?? activity.thresholdSnapshot
+      );
+      existingCalib.thresholdSnapshot = thresholdSnapshot;
+      const recalcTss = calculateActivityTSS(
+        activity,
+        {
+          id: detailsRecord?.id || String(activity.id),
+          activity: detailsRecord?.activity || (activity as unknown as Record<string, unknown>),
+          streams: detailsRecord?.streams,
+          calibration: existingCalib,
+        },
+        athleteProfile,
+        { forceRecalculate: true }
+      );
+      existingCalib.lockedTss = recalcTss?.tss;
+      existingCalib.lockedTssType = recalcTss?.type;
+      existingCalib.lockedTssDescription = recalcTss?.description;
 
       const updatedRecord = await saveActivityCalibration(activity.id, existingCalib);
       setDetailsRecord(updatedRecord);
@@ -579,7 +691,12 @@ export const StravaActivityModal: React.FC<StravaActivityModalProps> = ({
     : detailsRecord || undefined;
 
   // Calculate TSS customized with athlete physiological profile & calibration
-  const tssResult = calculateActivityTSS(activity, effectiveDetailsRecordForTss, athleteProfile);
+  const tssResult = calculateActivityTSS(
+    activity,
+    effectiveDetailsRecordForTss,
+    athleteProfile,
+    isEditingTss ? { forceRecalculate: true } : undefined
+  );
   const recoveryEstimate = tssResult && tssResult.type !== 'Ignored'
     ? calculateRecoveryEstimate(tssResult.tss, athleteProfile)
     : null;
@@ -1809,6 +1926,8 @@ export const StravaActivityModal: React.FC<StravaActivityModalProps> = ({
 
             const overallEf = customEfResult
               ? customEfResult.overallEf
+              : hasHalfSplitComparison && firstHalfHr + secondHalfHr > 0
+              ? (firstHalfSpeedOrWatts + secondHalfSpeedOrWatts) / (firstHalfHr + secondHalfHr)
               : avgHr > 80
               ? actCategory === 'run'
                 ? overallSpeedMetersPerMin > 0
@@ -1817,8 +1936,6 @@ export const StravaActivityModal: React.FC<StravaActivityModalProps> = ({
                 : overallWatts > 0
                 ? overallWatts / avgHr
                 : 0
-              : hasHalfSplitComparison
-              ? (firstHalfSpeedOrWatts / firstHalfHr + secondHalfSpeedOrWatts / secondHalfHr) / 2
               : 0;
 
             if (overallEf <= 0 && !hasHalfSplitComparison && candidateLaps.length === 0) return null;
@@ -2215,7 +2332,17 @@ export const StravaActivityModal: React.FC<StravaActivityModalProps> = ({
                                   actCategory === 'bike'
                                 )
                               : null;
-                            handleSaveEfConfig('custom', activeCustomIndices, badgeLabel);
+                            handleSaveEfConfig(
+                              'custom',
+                              activeCustomIndices,
+                              selectedRes
+                                ? {
+                                    overallEf: selectedRes.overallEf,
+                                    decouplingPct: selectedRes.decouplingPct,
+                                    badgeLabel,
+                                  }
+                                : null
+                            );
                             setIsEfLapSelectorOpen(false);
                           }}
                           className="px-4 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-xs cursor-pointer transition-all shadow-md"

@@ -3,9 +3,12 @@ import type {
   StravaActivityDetailsRecord,
   ActivityCalibration,
   ActivityEffortFeedback,
+  ActivityThresholdSnapshot,
 } from './stravaActivities';
 import {
   calculateActivityTSS,
+  hasActualActivityCalibration,
+  createActivityThresholdSnapshot,
   getCachedStravaActivities,
   saveCachedStravaActivities,
   getAllCachedStravaActivityRecords,
@@ -88,6 +91,16 @@ export interface ActivityBackupMetadataV1 {
   muted?: boolean;
   description?: string;
   noStreamsAvailable?: boolean;
+  hasActualCalibration?: boolean;
+  lockedTss?: number;
+  lockedTssType?: ActivityCalibration['lockedTssType'];
+  lockedTssDescription?: string;
+  thresholdSnapshot?: ActivityThresholdSnapshot;
+  efValue?: number;
+  decouplingPct?: number | null;
+  efBadgeLabel?: string;
+  efWarmupTrimMin?: 0 | 10 | 15 | 'custom';
+  customEfLapIndices?: number[];
   calibration?: ActivityCalibration;
   effortFeedback?: ActivityEffortFeedback;
   laps?: unknown[];
@@ -206,6 +219,28 @@ export function serializeActivityBackupMetadata(
       ? (detailAct.commute as boolean)
       : undefined;
 
+  const calib = details?.calibration;
+  const mergedCalibration: ActivityCalibration | undefined =
+    calib ||
+    activity.lockedTss !== undefined ||
+    activity.thresholdSnapshot ||
+    activity.efBadgeLabel ||
+    activity.efValue !== undefined
+      ? stripUndefined({
+          ...(calib || {}),
+          lockedTss: calib?.lockedTss ?? activity.lockedTss,
+          lockedTssType: calib?.lockedTssType ?? activity.lockedTssType,
+          lockedTssDescription: calib?.lockedTssDescription ?? activity.lockedTssDescription,
+          thresholdSnapshot: calib?.thresholdSnapshot ?? activity.thresholdSnapshot,
+          efValue: calib?.efValue ?? activity.efValue,
+          decouplingPct:
+            calib?.decouplingPct !== undefined ? calib.decouplingPct : activity.decouplingPct,
+          customEfBadgeLabel: calib?.customEfBadgeLabel ?? activity.efBadgeLabel,
+          efWarmupTrimMin: calib?.efWarmupTrimMin ?? activity.efWarmupTrimMin,
+          customEfLapIndices: calib?.customEfLapIndices ?? activity.customEfLapIndices,
+        })
+      : undefined;
+
   const payload: ActivityBackupMetadataV1 = stripUndefined({
     v: 1 as const,
     start_date: activity.start_date,
@@ -239,7 +274,18 @@ export function serializeActivityBackupMetadata(
     muted: activity.muted || undefined,
     description: rawDesc ? rawDesc.slice(0, 4000) : undefined,
     noStreamsAvailable: details?.noStreamsAvailable || undefined,
-    calibration: details?.calibration,
+    hasActualCalibration:
+      hasActualActivityCalibration(mergedCalibration) || activity.hasActualCalibration || undefined,
+    lockedTss: mergedCalibration?.lockedTss,
+    lockedTssType: mergedCalibration?.lockedTssType,
+    lockedTssDescription: mergedCalibration?.lockedTssDescription,
+    thresholdSnapshot: mergedCalibration?.thresholdSnapshot,
+    efValue: mergedCalibration?.efValue,
+    decouplingPct: mergedCalibration?.decouplingPct,
+    efBadgeLabel: mergedCalibration?.customEfBadgeLabel,
+    efWarmupTrimMin: mergedCalibration?.efWarmupTrimMin,
+    customEfLapIndices: mergedCalibration?.customEfLapIndices,
+    calibration: mergedCalibration,
     effortFeedback: details?.effortFeedback,
     laps: compactLaps && compactLaps.length > 0 ? compactLaps : undefined,
     splits_metric: compactSplits && compactSplits.length > 0 ? compactSplits : undefined,
@@ -986,7 +1032,9 @@ export function reconstructWorkoutsFromSheetRows(
     const sheetTssLabel = tssMatch?.[2] || '';
 
     if (!calibration) {
-      const computedTss = calculateActivityTSS(activity, undefined, athleteProfile);
+      const computedTss = calculateActivityTSS(activity, undefined, athleteProfile, {
+        forceRecalculate: true,
+      });
       const isExplicitManualTss = /manual/i.test(sheetTssLabel);
       const needsFallbackTss =
         sheetTssVal !== undefined &&
@@ -1004,6 +1052,57 @@ export function reconstructWorkoutsFromSheetRows(
         };
       }
     }
+
+    const restoredThresholdSnapshot = createActivityThresholdSnapshot(
+      athleteProfile,
+      calibration?.thresholdSnapshot ?? meta?.thresholdSnapshot
+    );
+    const restoredLockedTss =
+      calibration?.lockedTss ??
+      meta?.lockedTss ??
+      (sheetTssVal !== undefined ? Math.round(sheetTssVal) : undefined);
+    const restoredLockedTssType =
+      calibration?.lockedTssType ??
+      meta?.lockedTssType ??
+      (sheetTssLabel ? (sheetTssLabel as ActivityCalibration['lockedTssType']) : undefined);
+    const restoredLockedTssDescription =
+      calibration?.lockedTssDescription ?? meta?.lockedTssDescription;
+    const restoredEfValue = calibration?.efValue ?? meta?.efValue;
+    const restoredDecouplingPct =
+      calibration?.decouplingPct !== undefined ? calibration.decouplingPct : meta?.decouplingPct;
+    const restoredEfBadgeLabel = calibration?.customEfBadgeLabel ?? meta?.efBadgeLabel;
+    const restoredEfWarmupTrimMin = calibration?.efWarmupTrimMin ?? meta?.efWarmupTrimMin;
+    const restoredCustomEfLapIndices = calibration?.customEfLapIndices ?? meta?.customEfLapIndices;
+
+    calibration = stripUndefined({
+      ...(calibration || {}),
+      thresholdSnapshot: restoredThresholdSnapshot,
+      lockedTss: restoredLockedTss,
+      lockedTssType: restoredLockedTssType,
+      lockedTssDescription: restoredLockedTssDescription,
+      efValue: restoredEfValue,
+      decouplingPct: restoredDecouplingPct,
+      customEfBadgeLabel: restoredEfBadgeLabel,
+      efWarmupTrimMin: restoredEfWarmupTrimMin,
+      customEfLapIndices: restoredCustomEfLapIndices,
+    });
+
+    const hasActualCalib =
+      hasActualActivityCalibration(calibration) || Boolean(meta?.hasActualCalibration);
+
+    activity.hasActualCalibration = hasActualCalib || undefined;
+    activity.isIgnoredFromTrainingStatus = calibration?.isIgnoredFromTrainingStatus || undefined;
+    activity.calibratedDistanceM = calibration?.calibratedDistanceM;
+    activity.calibratedMovingTimeSec = calibration?.calibratedMovingTimeSec;
+    activity.thresholdSnapshot = restoredThresholdSnapshot;
+    activity.lockedTss = restoredLockedTss;
+    activity.lockedTssType = restoredLockedTssType;
+    activity.lockedTssDescription = restoredLockedTssDescription;
+    activity.efValue = restoredEfValue;
+    activity.decouplingPct = restoredDecouplingPct;
+    activity.efBadgeLabel = restoredEfBadgeLabel;
+    activity.efWarmupTrimMin = restoredEfWarmupTrimMin;
+    activity.customEfLapIndices = restoredCustomEfLapIndices;
 
     const parsedSyncedAt = parseSheetDateTimeToStravaIso(row[colIdx.syncedAt]);
     const publishedIso = parsedSyncedAt?.start_date || new Date().toISOString();

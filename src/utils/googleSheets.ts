@@ -10,6 +10,8 @@ import {
   getAllCachedStravaActivityRecords,
   batchSaveStravaActivityRecords,
   updateStravaActivityRecord,
+  hasActualActivityCalibration,
+  getActivityEfBadgeLabel,
 } from './stravaActivities';
 import type { AthleteProfile } from '../types/athlete';
 import { calculateWorkKj } from '../types/athlete';
@@ -543,13 +545,17 @@ export function buildActivitySheetRow(
   const stravaUrl = `https://www.strava.com/activities/${activity.id}`;
   const syncedAtFormatted = formatSheetDateTime(new Date());
 
-  // Combine power notes if present
+  // Combine power and EF & Decoupling notes if present
   let breakdownNotes = rawDescription;
   if (normalizedPowerStr || workKjStr) {
     const powerNote = [normalizedPowerStr, workKjStr].filter(Boolean).join(' · ');
     breakdownNotes = breakdownNotes ? `${powerNote} | ${breakdownNotes}` : powerNote;
   }
-  if (details?.calibration) {
+  const efBadgeLabel = getActivityEfBadgeLabel(activity, details);
+  if (efBadgeLabel) {
+    breakdownNotes = breakdownNotes ? `[${efBadgeLabel}] ${breakdownNotes}` : `[${efBadgeLabel}]`;
+  }
+  if (hasActualActivityCalibration(details?.calibration) || activity.hasActualCalibration) {
     breakdownNotes = `[Calibrated] ${breakdownNotes}`;
   }
 

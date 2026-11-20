@@ -48,6 +48,9 @@ import {
   fetchSpecificStravaActivityStreams,
   fetchStravaActivityDetails,
   saveStravaActivityDetails,
+  calculateActivityTSS,
+  createActivityThresholdSnapshot,
+  computeActivityEfAndDecoupling,
 } from '../utils/stravaActivities';
 import { isDemoActivityId, generateDemoActivityDetails } from '../utils/demoData';
 import {
@@ -55,6 +58,7 @@ import {
   parseMinSecToSeconds,
   calculateWorkKj,
 } from '../types/athlete';
+import { loadAthleteProfile } from '../utils/athleteStorage';
 import {
   generateRunFitFile,
   generateSwimFitFile,
@@ -2030,6 +2034,53 @@ export const ActivityCalibrationModal: React.FC<ActivityCalibrationModalProps> =
           preserveCustomRunLaps,
         });
       }
+
+      // 4. Recalculate locked TSS (using stored thresholdSnapshot) and EF & Decoupling on "Fix Data" save
+      const currentProfile = loadAthleteProfile();
+      const existingCalibAfterRebuild = updatedRecord.calibration || calibrationPayload;
+      const thresholdSnapshot = createActivityThresholdSnapshot(
+        currentProfile,
+        existingCalibAfterRebuild.thresholdSnapshot ??
+          detailsRecord?.calibration?.thresholdSnapshot ??
+          activity.thresholdSnapshot
+      );
+      const calibratedActivityForMetrics: StravaActivity = {
+        ...activity,
+        distance: existingCalibAfterRebuild.calibratedDistanceM ?? activity.distance,
+        moving_time: existingCalibAfterRebuild.calibratedMovingTimeSec ?? activity.moving_time,
+        average_heartrate: existingCalibAfterRebuild.calibratedAvgHeartRate ?? activity.average_heartrate,
+        max_heartrate: existingCalibAfterRebuild.calibratedMaxHeartRate ?? activity.max_heartrate,
+        average_watts: existingCalibAfterRebuild.calibratedAvgWatts ?? activity.average_watts,
+        thresholdSnapshot,
+      };
+      const recalcTss = calculateActivityTSS(
+        calibratedActivityForMetrics,
+        {
+          ...updatedRecord,
+          calibration: {
+            ...existingCalibAfterRebuild,
+            thresholdSnapshot,
+          },
+        },
+        currentProfile,
+        { forceRecalculate: true }
+      );
+      const recalcEf = computeActivityEfAndDecoupling(calibratedActivityForMetrics, updatedRecord);
+      updatedRecord = await saveActivityCalibration(targetActivityId, {
+        ...existingCalibAfterRebuild,
+        thresholdSnapshot,
+        lockedTss: recalcTss?.tss,
+        lockedTssType: recalcTss?.type,
+        lockedTssDescription: recalcTss?.description,
+        ...(recalcEf
+          ? {
+              efValue: Number(recalcEf.overallEf.toFixed(2)),
+              decouplingPct:
+                recalcEf.decouplingPct !== null ? Number(recalcEf.decouplingPct.toFixed(1)) : null,
+              customEfBadgeLabel: recalcEf.badgeLabel || undefined,
+            }
+          : {}),
+      });
 
       onCalibrationSaved(updatedRecord);
       setSaveSuccessMsg(true);
