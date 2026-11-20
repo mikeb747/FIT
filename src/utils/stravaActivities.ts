@@ -2584,38 +2584,54 @@ function openStravaActivityDatabase(): Promise<IDBDatabase> {
   });
 }
 
+const recordUpdateQueues = new Map<string, Promise<any>>();
+
 export async function updateStravaActivityRecord(
   activityId: number | string,
   update: (record: StravaActivityDetailsRecord) => StravaActivityDetailsRecord
 ): Promise<StravaActivityDetailsRecord> {
   const id = String(activityId);
-  const database = await openStravaActivityDatabase();
 
-  return new Promise((resolve, reject) => {
-    const transaction = database.transaction(STRAVA_ACTIVITY_STORE_NAME, 'readwrite');
-    const store = transaction.objectStore(STRAVA_ACTIVITY_STORE_NAME);
-    let updatedRecord: StravaActivityDetailsRecord | undefined;
-    const getRequest = store.get(id);
-    getRequest.onsuccess = () => {
-      const existing = getRequest.result as StravaActivityDetailsRecord | undefined;
-      updatedRecord = update(existing || { id });
-      store.put(updatedRecord);
-    };
-    getRequest.onerror = () => transaction.abort();
-    transaction.oncomplete = () => {
-      database.close();
-      if (updatedRecord) resolve(updatedRecord);
-      else reject(new Error('Could not update activity details'));
-    };
-    transaction.onerror = () => {
-      database.close();
-      reject(transaction.error || new Error('Could not update activity details'));
-    };
-    transaction.onabort = () => {
-      database.close();
-      reject(transaction.error || getRequest.error || new Error('Could not update activity details'));
-    };
-  });
+  const runTransaction = async (): Promise<StravaActivityDetailsRecord> => {
+    const database = await openStravaActivityDatabase();
+
+    return new Promise((resolve, reject) => {
+      const transaction = database.transaction(STRAVA_ACTIVITY_STORE_NAME, 'readwrite');
+      const store = transaction.objectStore(STRAVA_ACTIVITY_STORE_NAME);
+      let updatedRecord: StravaActivityDetailsRecord | undefined;
+      const getRequest = store.get(id);
+      getRequest.onsuccess = () => {
+        const existing = getRequest.result as StravaActivityDetailsRecord | undefined;
+        updatedRecord = update(existing || { id });
+        store.put(updatedRecord);
+      };
+      getRequest.onerror = () => transaction.abort();
+      transaction.oncomplete = () => {
+        database.close();
+        if (updatedRecord) resolve(updatedRecord);
+        else reject(new Error('Could not update activity details'));
+      };
+      transaction.onerror = () => {
+        database.close();
+        reject(transaction.error || new Error('Could not update activity details'));
+      };
+      transaction.onabort = () => {
+        database.close();
+        reject(transaction.error || getRequest.error || new Error('Could not update activity details'));
+      };
+    });
+  };
+
+  const prevPromise = recordUpdateQueues.get(id) || Promise.resolve();
+  const nextPromise = prevPromise.catch(() => {}).then(runTransaction);
+  recordUpdateQueues.set(id, nextPromise);
+  try {
+    return await nextPromise;
+  } finally {
+    if (recordUpdateQueues.get(id) === nextPromise) {
+      recordUpdateQueues.delete(id);
+    }
+  }
 }
 
 export async function getCachedStravaActivityRecord(
@@ -4106,17 +4122,30 @@ export async function applyRunSectionsCalibration(
   });
 }
 
-export function saveActivityEffortFeedback(
+export async function saveActivityEffortFeedback(
   activityId: number | string,
   feedback: ActivityEffortFeedback
 ): Promise<StravaActivityDetailsRecord> {
-  return updateStravaActivityRecord(activityId, (record) => ({
+  const idStr = String(activityId);
+  const updatedRecord = await updateStravaActivityRecord(activityId, (record) => ({
     ...record,
     effortFeedback: {
+      ...(record.effortFeedback || {}),
       ...feedback,
       recordedAt: new Date().toISOString(),
     },
   }));
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(
+      new CustomEvent('fit_track_activities_updated', {
+        detail: {
+          newDetailsRecord: updatedRecord,
+          newActivityId: idStr,
+        },
+      })
+    );
+  }
+  return updatedRecord;
 }
 
 export function clearActivityEffortFeedback(

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import {
   X,
   ExternalLink,
@@ -195,6 +195,11 @@ export const StravaActivityModal: React.FC<StravaActivityModalProps> = ({
   const [isEfLapSelectorOpen, setIsEfLapSelectorOpen] = useState(false);
   const [customEfLapIndices, setCustomEfLapIndices] = useState<number[]>([]);
 
+  // Optimistic Pre-Workout Feeling & Post-Workout RPE state + synchronous ref for rapid back-to-back clicks
+  const [localEffortFeedback, setLocalEffortFeedback] = useState<ActivityEffortFeedback | undefined>(undefined);
+  const effortFeedbackRef = useRef<ActivityEffortFeedback | undefined>(undefined);
+  const hasUserEditedEffortRef = useRef<boolean>(false);
+
   // Specific Strava Stream Re-fetch Box state
   const [isStreamFetcherOpen, setIsStreamFetcherOpen] = useState(false);
   const [selectedStreamKeys, setSelectedStreamKeys] = useState<string[]>(['laps', 'cadence']);
@@ -282,6 +287,9 @@ export const StravaActivityModal: React.FC<StravaActivityModalProps> = ({
     setEfWarmupTrimMin(0);
     setIsEfLapSelectorOpen(false);
     setCustomEfLapIndices([]);
+    setLocalEffortFeedback(undefined);
+    effortFeedbackRef.current = undefined;
+    hasUserEditedEffortRef.current = false;
   }, [activity?.id]);
 
   const handleSaveName = async () => {
@@ -332,6 +340,17 @@ export const StravaActivityModal: React.FC<StravaActivityModalProps> = ({
       setSelectedTssModel('auto');
       setEfWarmupTrimMin(activity?.efWarmupTrimMin ?? 0);
       setCustomEfLapIndices(activity?.customEfLapIndices ?? []);
+    }
+    if (!hasUserEditedEffortRef.current) {
+      setLocalEffortFeedback(detailsRecord?.effortFeedback);
+      effortFeedbackRef.current = detailsRecord?.effortFeedback;
+    } else if (detailsRecord?.effortFeedback && effortFeedbackRef.current) {
+      const merged: ActivityEffortFeedback = {
+        ...detailsRecord.effortFeedback,
+        ...effortFeedbackRef.current,
+      };
+      effortFeedbackRef.current = merged;
+      setLocalEffortFeedback(merged);
     }
   }, [detailsRecord, activity?.id]);
 
@@ -609,6 +628,46 @@ export const StravaActivityModal: React.FC<StravaActivityModalProps> = ({
     };
   }, [isOpen, activity, stravaToken]);
 
+  // Memoize heavy stream/lap analytics so clicking Feeling or RPE buttons never re-slices 1-second streams
+  const memoizedStreamAnalytics = useMemo(() => {
+    if (!isOpen || !activity) {
+      return {
+        normalizedPower: null,
+        swimPace: null,
+        runDetails: null,
+        bikeDetails: null,
+      };
+    }
+    const cls = classifyActivity(activity);
+    const bikeOrTurbo = cls.subType === 'Turbo Trainer' || cls.subType === 'Bike';
+    const recordWithoutEffort = detailsRecord
+      ? {
+          id: detailsRecord.id,
+          activity: detailsRecord.activity,
+          streams: detailsRecord.streams,
+          calibration: detailsRecord.calibration,
+          lapsFetchedAt: detailsRecord.lapsFetchedAt,
+          lapsRefetchedManually: detailsRecord.lapsRefetchedManually,
+        }
+      : undefined;
+    return {
+      normalizedPower: bikeOrTurbo ? calculateNormalizedPower(activity, recordWithoutEffort) : null,
+      swimPace: getSwimPaceDetails(activity, recordWithoutEffort),
+      runDetails: getRunActivityDetails(activity, recordWithoutEffort, athleteProfile),
+      bikeDetails: getBikeActivityDetails(activity, recordWithoutEffort, athleteProfile),
+    };
+  }, [
+    isOpen,
+    activity,
+    detailsRecord?.id,
+    detailsRecord?.activity,
+    detailsRecord?.streams,
+    detailsRecord?.calibration,
+    detailsRecord?.lapsFetchedAt,
+    detailsRecord?.lapsRefetchedManually,
+    athleteProfile,
+  ]);
+
   if (!isOpen || !activity) return null;
 
   const classification = classifyActivity(activity);
@@ -656,9 +715,7 @@ export const StravaActivityModal: React.FC<StravaActivityModalProps> = ({
   const effectiveAvgWatts = isBikeOrTurbo
     ? (detailsRecord?.calibration?.calibratedAvgWatts ?? activity.average_watts ?? null)
     : null;
-  const normalizedPower = isBikeOrTurbo
-    ? calculateNormalizedPower(activity, detailsRecord || undefined)
-    : null;
+  const normalizedPower = memoizedStreamAnalytics.normalizedPower;
 
   // Mechanical work in kJ: kJ = Watts * Hours * 3.6
   const workResult = (isBikeOrTurbo && effectiveAvgWatts && effectiveAvgWatts > 0 && durationMoving > 0)
@@ -685,7 +742,7 @@ export const StravaActivityModal: React.FC<StravaActivityModalProps> = ({
               : undefined,
           preferredTssModel: selectedTssModel,
         },
-        effortFeedback: detailsRecord?.effortFeedback,
+        effortFeedback: localEffortFeedback ?? detailsRecord?.effortFeedback,
         googleDrivePublishedAt: detailsRecord?.googleDrivePublishedAt,
       }
     : detailsRecord || undefined;
@@ -702,46 +759,52 @@ export const StravaActivityModal: React.FC<StravaActivityModalProps> = ({
     : null;
 
   // Swim Pace Details & Laps (calibrated)
-  const swimPace = getSwimPaceDetails(activity, detailsRecord || undefined);
+  const swimPace = memoizedStreamAnalytics.swimPace;
 
   // Run Activity Details & Splits
-  const runDetails = getRunActivityDetails(activity, detailsRecord || undefined, athleteProfile);
+  const runDetails = memoizedStreamAnalytics.runDetails;
 
   // Bike Activity Details & Laps
-  const bikeDetails = getBikeActivityDetails(activity, detailsRecord || undefined, athleteProfile);
+  const bikeDetails = memoizedStreamAnalytics.bikeDetails;
 
-  // Perceived Exertion (RPE) & Pre-Workout Feeling
-  const effortFeedback = detailsRecord?.effortFeedback;
+  // Perceived Exertion (RPE) & Pre-Workout Feeling (optimistic 0ms state)
+  const effortFeedback = localEffortFeedback ?? detailsRecord?.effortFeedback;
 
-  const handleSaveFeeling = async (score: 1 | 2 | 3 | 4 | 5) => {
+  const handleSaveFeeling = (score: 1 | 2 | 3 | 4 | 5) => {
+    const currentFeedback = effortFeedbackRef.current ?? detailsRecord?.effortFeedback ?? {};
     const nextFeedback: ActivityEffortFeedback = {
-      ...effortFeedback,
-      preWorkoutFeeling: effortFeedback?.preWorkoutFeeling === score ? undefined : score,
+      ...currentFeedback,
+      preWorkoutFeeling: currentFeedback.preWorkoutFeeling === score ? undefined : score,
     };
-    try {
-      const updated = await saveActivityEffortFeedback(activity.id, nextFeedback);
-      setDetailsRecord(updated);
-    } catch (err) {
+    hasUserEditedEffortRef.current = true;
+    effortFeedbackRef.current = nextFeedback;
+    setLocalEffortFeedback(nextFeedback);
+    setDetailsRecord((prev) => (prev ? { ...prev, effortFeedback: nextFeedback } : prev));
+
+    void saveActivityEffortFeedback(activity.id, nextFeedback).catch((err) => {
       console.error('[Save Feeling Error]', err);
-    }
+    });
   };
 
-  const handleSaveRpe = async (rpeVal: number) => {
-    const isDeselect = effortFeedback?.rpe === rpeVal;
+  const handleSaveRpe = (rpeVal: number) => {
+    const currentFeedback = effortFeedbackRef.current ?? detailsRecord?.effortFeedback ?? {};
+    const isDeselect = currentFeedback.rpe === rpeVal;
     const finalRpe = isDeselect ? undefined : rpeVal;
     const sRpeLoad = finalRpe ? Math.round(finalRpe * (durationMoving / 60)) : undefined;
 
     const nextFeedback: ActivityEffortFeedback = {
-      ...effortFeedback,
+      ...currentFeedback,
       rpe: finalRpe,
       sRpeLoad,
     };
-    try {
-      const updated = await saveActivityEffortFeedback(activity.id, nextFeedback);
-      setDetailsRecord(updated);
-    } catch (err) {
+    hasUserEditedEffortRef.current = true;
+    effortFeedbackRef.current = nextFeedback;
+    setLocalEffortFeedback(nextFeedback);
+    setDetailsRecord((prev) => (prev ? { ...prev, effortFeedback: nextFeedback } : prev));
+
+    void saveActivityEffortFeedback(activity.id, nextFeedback).catch((err) => {
       console.error('[Save RPE Error]', err);
-    }
+    });
   };
 
   const handleExportToSheets = async () => {
